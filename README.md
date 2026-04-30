@@ -7,7 +7,7 @@ This project requires CMake and the Vulkan SDK to be installed.
 `CMakePresets.json` contains presets for building on Windows and Linux. These presets set the `CMAKE_TOOLCHAIN_FILE` variable using a `VCPKG_ROOT` environment variable. If you're using these presets, please make sure that the `VCPKG_ROOT` environment variable is set correctly. Otherwise you can manually set the `CMAKE_TOOLCHAIN_FILE` variable yourself like this:
 
 ```Terminal
-cmake --workflow --preset msvc -DCMAKE_TOOLCHAIN_FILE=your/path/here/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --preset msvc -DCMAKE_TOOLCHAIN_FILE=your/path/here/vcpkg/scripts/buildsystems/vcpkg.cmake
 ```
 
 ### Windows
