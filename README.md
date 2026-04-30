@@ -12,7 +12,7 @@ cmake --preset msvc -DCMAKE_TOOLCHAIN_FILE=your/path/here/vcpkg/scripts/buildsys
 
 ### Windows
 
-You can generate a Visual Studio solution into the `build` folder using the following preset:
+You can generate a Visual Studio solution into the `build` folder by running the `GENERATE_SLN.bat` script or using the following preset:
 ```Terminal
 cmake --preset msvc
 ```
