@@ -307,6 +307,8 @@ private:
         CreateGraphicsPipeline();
         CreateCommandPool();
         CreateTextureImage();
+        CreateTextureImageView();
+        CreateTextureSampler();
         CreateCommandBuffers();
         CreateVertexBuffer();
         CreateIndexBuffer();
@@ -519,6 +521,8 @@ private:
             vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features,
             vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
         bool bSupportsAllFeatures =
+            features.get<vk::PhysicalDeviceFeatures2>()
+                .features.samplerAnisotropy &&
             features.get<vk::PhysicalDeviceVulkan13Features>()
                 .dynamicRendering &&
             features.get<vk::PhysicalDeviceVulkan13Features>()
@@ -589,7 +593,7 @@ private:
                            vk::PhysicalDeviceVulkan13Features,
                            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
             featureChain = {
-                {},
+                {.features = {.samplerAnisotropy = true}},
                 {.shaderDrawParameters = true},
                 {.synchronization2 = true, .dynamicRendering = true},
                 {.extendedDynamicState = true}};
@@ -643,19 +647,24 @@ private:
         std::cout << "Swapchain image count: " << m_SwapImages.size() << "\n";
     }
 
+    [[nodiscard]] vk::raii::ImageView CreateImageView(const vk::Image& image,
+                                                      vk::Format format)
+    {
+        vk::ImageViewCreateInfo createInfo{
+            .image = image,
+            .viewType = vk::ImageViewType::e2D,
+            .format = format,
+            .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
+        return vk::raii::ImageView(m_Device, createInfo);
+    }
+
     void CreateSwapchainImageViews()
     {
         assert(m_SwapImageViews.empty());
-
-        vk::ImageViewCreateInfo createInfo{
-            .viewType = vk::ImageViewType::e2D,
-            .format = m_SwapchainSurfaceFormat.format,
-            .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
-
         for (const vk::Image& image : m_SwapImages)
         {
-            createInfo.image = image;
-            m_SwapImageViews.emplace_back(m_Device, createInfo);
+            m_SwapImageViews.push_back(
+                CreateImageView(image, m_SwapchainSurfaceFormat.format));
         }
     }
 
@@ -1272,6 +1281,35 @@ private:
         EndSingleTimeCommand(commandBuffer);
     }
 
+    void CreateTextureImageView()
+    {
+        m_TextureImageView =
+            CreateImageView(m_TextureImage, vk::Format::eR8G8B8A8Srgb);
+    }
+
+    void CreateTextureSampler()
+    {
+        float maxAnisotropy =
+            m_PhysicalDevice.getProperties().limits.maxSamplerAnisotropy;
+        vk::SamplerCreateInfo createInfo{
+            .magFilter = vk::Filter::eLinear,
+            .minFilter = vk::Filter::eLinear,
+            .mipmapMode = vk::SamplerMipmapMode::eLinear,
+            .addressModeU = vk::SamplerAddressMode::eRepeat,
+            .addressModeV = vk::SamplerAddressMode::eRepeat,
+            .addressModeW = vk::SamplerAddressMode::eRepeat,
+            .mipLodBias = 0.f,
+            .anisotropyEnable = vk::True,
+            .maxAnisotropy = maxAnisotropy,
+            .compareEnable = vk::False,
+            .compareOp = vk::CompareOp::eAlways,
+            .minLod = 0.f,
+            .maxLod = 0.f,
+            .borderColor = vk::BorderColor::eIntOpaqueBlack,
+            .unnormalizedCoordinates = vk::False};
+        m_TextureSampler = vk::raii::Sampler(m_Device, createInfo);
+    }
+
 private:
     vk::raii::Context m_Context;
     vk::raii::Instance m_Instance = nullptr;
@@ -1295,6 +1333,8 @@ private:
     std::vector<void*> m_UniformBuffersMapping;
     vk::raii::Image m_TextureImage = nullptr;
     vk::raii::DeviceMemory m_TextureImageMemory = nullptr;
+    vk::raii::ImageView m_TextureImageView = nullptr;
+    vk::raii::Sampler m_TextureSampler = nullptr;
     vk::raii::DescriptorPool m_DescriptorPool = nullptr;
     std::vector<vk::raii::DescriptorSet> m_DescriptorSets;
 
