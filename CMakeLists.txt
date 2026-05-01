@@ -17,6 +17,7 @@ set(SOURCES
 find_package(SDL3 CONFIG REQUIRED)
 find_package(Vulkan REQUIRED)
 find_package(glm CONFIG REQUIRED)
+find_package(Stb REQUIRED)
 
 find_program(SLANGC_EXECUTABLE slangc)
 if(NOT SLANGC_EXECUTABLE)
@@ -36,7 +37,8 @@ target_link_libraries(VulkanApp PRIVATE
 )
 
 target_include_directories(VulkanApp PRIVATE
-	src/
+	src
+	${Stb_INCLUDE_DIR}
 )
 
 target_compile_definitions(VulkanApp PRIVATE

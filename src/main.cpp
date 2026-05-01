@@ -24,6 +24,9 @@
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
@@ -302,7 +305,8 @@ private:
         CreateDescriptorSetLayout();
         CreateGraphicsPipeline();
         CreateCommandPool();
-        CreateCommandBuffers();
+        CreateTextureImage();
+		CreateCommandBuffers();
         CreateVertexBuffer();
         CreateIndexBuffer();
         CreateUniformBuffers();
@@ -1130,6 +1134,16 @@ private:
             m_Device.updateDescriptorSets(descriptorWrite, {});
         }
     }
+
+	void CreateTextureImage()
+	{
+		int width, height, channels;
+		stbi_uc* pixels = stbi_load("textures/texture.jpg", &width, &height, &channels, STBI_rgb_alpha);
+		// vk::DeviceSize imageSize = width * height * 4;
+
+		if (!pixels)
+			std::runtime_error("Failed to load texture!");
+	}
 
 private:
     vk::raii::Context m_Context;
