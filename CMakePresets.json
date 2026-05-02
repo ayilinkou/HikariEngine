@@ -28,6 +28,7 @@
 		{
 			"name": "ninja-asan-linux",
 			"inherits": "ninja-debug-linux",
+			"description": "Debug config for Ninja on Linux using Address Sanitizer and Undefined Behaviour Sanitizer",
 			"cacheVariables": {
 				"ENABLE_SANITIZERS": "ON",
 				"VCPKG_TARGET_TRIPLET": "x64-linux-asan",
@@ -63,6 +64,7 @@
 		},
 		{
 			"name": "ninja-asan-linux",
+			"description": "Debug config for Ninja on Linux using Address Sanitizer and Undefined Behaviour Sanitizer",
 			"configurePreset": "ninja-asan-linux"
 		},
 		{
@@ -86,6 +88,7 @@
 		},
 		{
 			"name": "ninja-asan-linux",
+			"description": "Debug config for Ninja on Linux using Address Sanitizer and Undefined Behaviour Sanitizer",
 			"steps": [
 				{
 					"type": "configure",
