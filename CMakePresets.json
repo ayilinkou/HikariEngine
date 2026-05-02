@@ -26,6 +26,15 @@
 			}
 		},
 		{
+			"name": "ninja-asan-linux",
+			"inherits": "ninja-debug-linux",
+			"cacheVariables": {
+				"ENABLE_SANITIZERS": "ON",
+				"VCPKG_TARGET_TRIPLET": "x64-linux-asan",
+				"VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/vcpkg-triplets"
+			}
+		},
+		{
 			"name": "ninja-release-linux",
 			"inherits": "linux-base",
 			"generator": "Ninja",
@@ -53,6 +62,10 @@
 			"configurePreset": "ninja-debug-linux"
 		},
 		{
+			"name": "ninja-asan-linux",
+			"configurePreset": "ninja-asan-linux"
+		},
+		{
 			"name": "ninja-release-linux",
 			"configurePreset": "ninja-release-linux"
 		}
@@ -68,6 +81,19 @@
 				{
 					"type": "build",
 					"name": "ninja-debug-linux"
+				}
+			]
+		},
+		{
+			"name": "ninja-asan-linux",
+			"steps": [
+				{
+					"type": "configure",
+					"name": "ninja-asan-linux"
+				},
+				{
+					"type": "build",
+					"name": "ninja-asan-linux"
 				}
 			]
 		},

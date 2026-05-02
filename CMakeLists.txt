@@ -8,6 +8,20 @@ set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
 # Only generate Debug and Release configurations
 set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "" FORCE)
 
+option(ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
+
+if(ENABLE_SANITIZERS)
+    add_compile_options(
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+        -fno-sanitize-recover=undefined
+        -g
+    )
+    add_link_options(
+        -fsanitize=address,undefined
+    )
+endif()
+
 project(VulkanApp VERSION 1.0)
 
 set(SOURCES
