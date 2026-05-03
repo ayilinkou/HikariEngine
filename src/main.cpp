@@ -12,7 +12,6 @@
 #include <limits>
 #include <stdexcept>
 #include <thread>
-#include <vulkan/vulkan_core.h>
 
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_events.h"
@@ -21,6 +20,7 @@
 
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_raii.hpp"
+#include <vulkan/vulkan_core.h>
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "glm/glm.hpp"
@@ -29,9 +29,14 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
+
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+const std::string MODEL_PATH = "models/viking_room/viking_room.obj";
+const std::string TEXTURE_PATH = "models/viking_room/textures/viking_room.png";
 
 std::atomic<bool> gbShouldClose = false;
 
@@ -79,20 +84,8 @@ struct Vertex
     }
 };
 
-const std::vector<Vertex> vertices = {
-    {{-0.5f, -0.5f, 0.f}, {1.f, 0.f, 0.f}, {1.f, 0.f}},
-    {{0.5f, -0.5f, 0.f}, {0.f, 1.f, 0.f}, {0.f, 0.f}},
-    {{0.5f, 0.5f, 0.f}, {0.f, 0.f, 1.f}, {0.f, 1.f}},
-    {{-0.5f, 0.5f, 0.f}, {1.f, 1.f, 1.f}, {1.f, 1.f}},
-
-    {{-0.5f, -0.5f, -0.5f}, {1.f, 0.f, 0.f}, {1.f, 0.f}},
-    {{0.5f, -0.5f, -0.5f}, {0.f, 1.f, 0.f}, {0.f, 0.f}},
-    {{0.5f, 0.5f, -0.5f}, {0.f, 0.f, 1.f}, {0.f, 1.f}},
-    {{-0.5f, 0.5f, -0.5f}, {1.f, 1.f, 1.f}, {1.f, 1.f}}};
-
-// TODO: doesn't need to be 32 bits. When loading models, can experiment with
-// lower bit count and assert that model will fit.
-const std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4};
+std::vector<Vertex> vertices;
+std::vector<uint32_t> indices;
 
 std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 
@@ -322,6 +315,7 @@ private:
         CreateTextureImageView();
         CreateTextureSampler();
         CreateCommandBuffers();
+        LoadModel();
         CreateVertexBuffer();
         CreateIndexBuffer();
         CreateUniformBuffers();
@@ -963,18 +957,18 @@ private:
 
         m_SwapImageViews.clear();
         m_Swapchain = nullptr;
-		
-		m_DepthImageView = nullptr;
-		m_DepthImage = nullptr;
-		m_DepthImageMemory = nullptr;
-		m_DepthFormat = vk::Format::eUndefined;
+
+        m_DepthImageView = nullptr;
+        m_DepthImage = nullptr;
+        m_DepthImageMemory = nullptr;
+        m_DepthFormat = vk::Format::eUndefined;
 
         m_Device.waitIdle();
 
         CreateSwapchain();
         CreateSwapchainImageViews();
-		
-		CreateDepthResources();
+
+        CreateDepthResources();
     }
 
     void CreateVertexBuffer()
@@ -1196,12 +1190,12 @@ private:
     void CreateTextureImage()
     {
         int width, height, channels;
-        stbi_uc* pixels = stbi_load("textures/texture.jpg", &width, &height,
+        stbi_uc* pixels = stbi_load(TEXTURE_PATH.c_str(), &width, &height,
                                     &channels, STBI_rgb_alpha);
         vk::DeviceSize imageSize = width * height * 4;
 
         if (!pixels)
-            throw std::runtime_error("Failed to load texture!");
+            throw std::runtime_error(std::format("Failed to load texture: {}", TEXTURE_PATH.c_str()));
 
         vk::raii::Buffer stagingBuffer({});
         vk::raii::DeviceMemory stagingMemory({});
@@ -1438,6 +1432,18 @@ private:
                format == vk::Format::eD16UnormS8Uint;
     }
 
+    void LoadModel()
+    {
+        tinyobj::attrib_t attrib;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+        std::string warn, err;
+
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
+                              MODEL_PATH.c_str()))
+            throw std::runtime_error("Failed to load model!");
+    }
+
 private:
     vk::raii::Context m_Context;
     vk::raii::Instance m_Instance = nullptr;
@@ -1452,6 +1458,8 @@ private:
     vk::raii::Pipeline m_GraphicsPipeline = nullptr;
     vk::raii::CommandPool m_CommandPool = nullptr;
     std::vector<vk::raii::CommandBuffer> m_CommandBuffers;
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
     vk::raii::Buffer m_VertexBuffer = nullptr;
     vk::raii::DeviceMemory m_VertexBufferMemory = nullptr;
     vk::raii::Buffer m_IndexBuffer = nullptr;
@@ -1479,8 +1487,8 @@ private:
     std::vector<vk::raii::Semaphore> m_PresentCompleteSemaphores;
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
     std::vector<vk::raii::Fence> m_DrawFences;
-    uint32_t m_FrameIndex = 0;
 
+    uint32_t m_FrameIndex = 0;
     SDL_Window* m_pWindow = nullptr;
     bool m_bIsFocused = true;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;

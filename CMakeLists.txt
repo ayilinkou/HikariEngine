@@ -32,6 +32,7 @@ find_package(SDL3 CONFIG REQUIRED)
 find_package(Vulkan REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(Stb REQUIRED)
+find_package(tinyobjloader CONFIG REQUIRED)
 
 find_program(SLANGC_EXECUTABLE slangc)
 if(NOT SLANGC_EXECUTABLE)
@@ -48,6 +49,7 @@ target_link_libraries(VulkanApp PRIVATE
 	SDL3::SDL3
 	Vulkan::Vulkan
 	glm::glm
+	tinyobjloader::tinyobjloader
 )
 
 target_include_directories(VulkanApp PRIVATE
