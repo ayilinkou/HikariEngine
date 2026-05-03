@@ -11,6 +11,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <strings.h>
 #include <thread>
 
 #include "SDL3/SDL.h"
@@ -83,9 +84,6 @@ struct Vertex
                   .offset = offsetof(Vertex, TexCoord)}}};
     }
 };
-
-std::vector<Vertex> vertices;
-std::vector<uint32_t> indices;
 
 std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 
@@ -877,7 +875,7 @@ private:
             *m_DescriptorSets[m_FrameIndex], nullptr);
 
         m_CommandBuffers[m_FrameIndex].drawIndexed(
-            static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+            static_cast<uint32_t>(m_Indices.size()), 1, 0, 0, 0);
 
         m_CommandBuffers[m_FrameIndex].endRendering();
 
@@ -973,7 +971,7 @@ private:
 
     void CreateVertexBuffer()
     {
-        vk::DeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+        vk::DeviceSize bufferSize = sizeof(m_Vertices[0]) * m_Vertices.size();
 
         vk::raii::Buffer stagingBuffer({});
         vk::raii::DeviceMemory stagingBufferMemory({});
@@ -983,7 +981,7 @@ private:
                      stagingBuffer, stagingBufferMemory);
 
         void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-        memcpy(dataStaging, vertices.data(), static_cast<size_t>(bufferSize));
+        memcpy(dataStaging, m_Vertices.data(), static_cast<size_t>(bufferSize));
         stagingBufferMemory.unmapMemory();
 
         CreateBuffer(bufferSize,
@@ -1042,7 +1040,7 @@ private:
 
     void CreateIndexBuffer()
     {
-        vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+        vk::DeviceSize bufferSize = sizeof(m_Indices[0]) * m_Indices.size();
 
         vk::raii::Buffer stagingBuffer({});
         vk::raii::DeviceMemory stagingBufferMemory({});
@@ -1052,7 +1050,7 @@ private:
                      stagingBuffer, stagingBufferMemory);
 
         void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-        memcpy(dataStaging, indices.data(), static_cast<size_t>(bufferSize));
+        memcpy(dataStaging, m_Indices.data(), static_cast<size_t>(bufferSize));
         stagingBufferMemory.unmapMemory();
 
         CreateBuffer(bufferSize,
@@ -1195,7 +1193,8 @@ private:
         vk::DeviceSize imageSize = width * height * 4;
 
         if (!pixels)
-            throw std::runtime_error(std::format("Failed to load texture: {}", TEXTURE_PATH.c_str()));
+            throw std::runtime_error(std::format("Failed to load texture: {}",
+                                                 TEXTURE_PATH.c_str()));
 
         vk::raii::Buffer stagingBuffer({});
         vk::raii::DeviceMemory stagingMemory({});
@@ -1441,7 +1440,28 @@ private:
 
         if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
                               MODEL_PATH.c_str()))
-            throw std::runtime_error("Failed to load model!");
+            throw std::runtime_error("Failed to load model! " + warn + err);
+
+        for (const auto& shape : shapes)
+        {
+            for (const auto& index : shape.mesh.indices)
+            {
+                // TODO: this is duplicating vertices
+                Vertex v;
+                v.Color = {1.f, 1.f, 1.f};
+                v.Pos = {attrib.vertices[3 * index.vertex_index + 0],
+                         attrib.vertices[3 * index.vertex_index + 1],
+                         attrib.vertices[3 * index.vertex_index + 2]};
+                // OBJ format assumes UV 0,0 maps to bottom left, have to flip
+                // vertically
+                v.TexCoord = {
+                    attrib.texcoords[2 * index.texcoord_index + 0],
+                    1.f - attrib.texcoords[2 * index.texcoord_index + 1]};
+
+                m_Vertices.push_back(v);
+                m_Indices.push_back(m_Indices.size());
+            }
+        }
     }
 
 private:
@@ -1458,8 +1478,8 @@ private:
     vk::raii::Pipeline m_GraphicsPipeline = nullptr;
     vk::raii::CommandPool m_CommandPool = nullptr;
     std::vector<vk::raii::CommandBuffer> m_CommandBuffers;
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
+    std::vector<Vertex> m_Vertices;
+    std::vector<uint32_t> m_Indices;
     vk::raii::Buffer m_VertexBuffer = nullptr;
     vk::raii::DeviceMemory m_VertexBufferMemory = nullptr;
     vk::raii::Buffer m_IndexBuffer = nullptr;

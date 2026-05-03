@@ -36,5 +36,5 @@ Sampler2D texture;
 [shader("fragment")]
 float4 fragMain(VS_Out f) : SV_Target
 {
-	return float4(texture.Sample(f.TexCoord * 2.f).rgb * f.Color, 1.f);
+	return float4(texture.Sample(f.TexCoord).rgb * f.Color, 1.f);
 }
