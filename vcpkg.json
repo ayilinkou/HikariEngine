@@ -8,6 +8,6 @@
 		},
 		"glm",
 		"stb",
-		"tinyobjloader"
+		"assimp"
 	]
 }

@@ -13,7 +13,6 @@
 #include <stdexcept>
 #include <strings.h>
 #include <thread>
-#include <unordered_map>
 
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_events.h"
@@ -33,8 +32,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-#define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h"
+#include "assimp/Importer.hpp"
+#include "assimp/postprocess.h"
+#include "assimp/scene.h"
 
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
@@ -1456,40 +1456,38 @@ private:
 
     void LoadModel()
     {
-        tinyobj::attrib_t attrib;
-        std::vector<tinyobj::shape_t> shapes;
-        std::vector<tinyobj::material_t> materials;
-        std::string warn, err;
+        Assimp::Importer importer;
+        const aiScene* scene = importer.ReadFile(
+            MODEL_PATH.c_str(), aiProcess_Triangulate |
+                                    aiProcess_JoinIdenticalVertices |
+                                    aiProcess_CalcTangentSpace);
 
-        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
-                              MODEL_PATH.c_str()))
-            throw std::runtime_error("Failed to load model! " + warn + err);
+        if (!scene)
+            std::runtime_error(
+                std::format("Failed to load model: {}", MODEL_PATH.c_str()));
 
-        std::unordered_map<Vertex, uint32_t> uniqueVertices;
-        for (const auto& shape : shapes)
+        aiMesh* mesh = scene->mMeshes[0];
+        for (size_t i = 0; i < mesh->mNumVertices; i++)
         {
-            for (const auto& index : shape.mesh.indices)
+            Vertex v;
+            v.Pos = {mesh->mVertices[i].x, mesh->mVertices[i].y,
+                     mesh->mVertices[i].z};
+            if (mesh->mTextureCoords[0])
             {
-                // TODO: this is duplicating vertices
-                Vertex v;
-                v.Color = {1.f, 1.f, 1.f};
-                v.Pos = {attrib.vertices[3 * index.vertex_index + 0],
-                         attrib.vertices[3 * index.vertex_index + 1],
-                         attrib.vertices[3 * index.vertex_index + 2]};
-                // OBJ format assumes UV 0,0 maps to bottom left, have to flip
-                // vertically
-                v.TexCoord = {
-                    attrib.texcoords[2 * index.texcoord_index + 0],
-                    1.f - attrib.texcoords[2 * index.texcoord_index + 1]};
+                v.TexCoord = {mesh->mTextureCoords[0][i].x,
+                              1.f - mesh->mTextureCoords[0][i].y};
+            }
+            v.Color = {1.f, 1.f, 1.f};
 
-                if (uniqueVertices.count(v) == 0)
-                {
-                    uniqueVertices[v] =
-                        static_cast<uint32_t>(m_Vertices.size());
-                    m_Vertices.push_back(v);
-                }
+            m_Vertices.push_back(v);
+        }
 
-                m_Indices.push_back(uniqueVertices[v]);
+        for (size_t i = 0; i < mesh->mNumFaces; i++)
+        {
+            const aiFace& face = mesh->mFaces[i];
+            for (size_t j = 0; j < face.mNumIndices; j++)
+            {
+                m_Indices.push_back(static_cast<uint32_t>(face.mIndices[j]));
             }
         }
     }
