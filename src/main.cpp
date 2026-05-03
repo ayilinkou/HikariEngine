@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <strings.h>
 #include <thread>
+#include <unordered_map>
 
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_events.h"
@@ -24,8 +25,10 @@
 #include <vulkan/vulkan_core.h>
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
+#include "glm/gtx/hash.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -83,7 +86,27 @@ struct Vertex
                   .format = vk::Format::eR32G32Sfloat,
                   .offset = offsetof(Vertex, TexCoord)}}};
     }
+
+    bool operator==(const Vertex& other) const
+    {
+        return Pos == other.Pos && TexCoord == other.TexCoord &&
+               Color == other.Color;
+    }
 };
+
+namespace std
+{
+template <> struct hash<Vertex>
+{
+    size_t operator()(const Vertex& vertex) const
+    {
+        return ((hash<glm::vec3>()(vertex.Pos) ^
+                 (hash<glm::vec3>()(vertex.Color) << 1)) >>
+                1) ^
+               (hash<glm::vec2>()(vertex.TexCoord) << 1);
+    }
+};
+} // namespace std
 
 std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 
@@ -1442,6 +1465,7 @@ private:
                               MODEL_PATH.c_str()))
             throw std::runtime_error("Failed to load model! " + warn + err);
 
+        std::unordered_map<Vertex, uint32_t> uniqueVertices;
         for (const auto& shape : shapes)
         {
             for (const auto& index : shape.mesh.indices)
@@ -1458,8 +1482,14 @@ private:
                     attrib.texcoords[2 * index.texcoord_index + 0],
                     1.f - attrib.texcoords[2 * index.texcoord_index + 1]};
 
-                m_Vertices.push_back(v);
-                m_Indices.push_back(m_Indices.size());
+                if (uniqueVertices.count(v) == 0)
+                {
+                    uniqueVertices[v] =
+                        static_cast<uint32_t>(m_Vertices.size());
+                    m_Vertices.push_back(v);
+                }
+
+                m_Indices.push_back(uniqueVertices[v]);
             }
         }
     }
