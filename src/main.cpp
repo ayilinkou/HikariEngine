@@ -711,7 +711,7 @@ private:
     void CreateGraphicsPipeline()
     {
         vk::raii::ShaderModule shaderModule =
-            CreateShaderModule(ReadFile("shaders/slang.spv"));
+            CreateShaderModule(ReadFile("shaders/shader.spv"));
 
         vk::PipelineShaderStageCreateInfo vertCreateInfo{
             .stage = vk::ShaderStageFlagBits::eVertex,
