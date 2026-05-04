@@ -84,46 +84,46 @@ else()
             >)
 endif()
 
-file(GLOB_RECURSE SHADER_SLANG_SOURCES CONFIGURE_DEPENDS
+file(GLOB_RECURSE shader_slang_sources CONFIGURE_DEPENDS
      ${CMAKE_CURRENT_LIST_DIR}/src/shaders/*.slang)
 
-function(add_slang_shader_target TARGET)
-  cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
+function(add_slang_shader_target target)
+	cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
 
-  set(SHADERS_DIR ${CMAKE_CURRENT_LIST_DIR}/shaders)
-  set(SHADERS_SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/src/shaders)
-  set(ENTRY_POINTS -entry vertMain -entry fragMain)
+  set(shaders_dir ${CMAKE_CURRENT_LIST_DIR}/shaders)
+  set(shaders_source_dir ${CMAKE_CURRENT_LIST_DIR}/src/shaders)
+  set(entry_points -entry vertMain -entry fragMain)
 
-  set(OUTPUTS)
+  set(outputs)
 
-  foreach(SHADER ${SHADER_SLANG_SOURCES})
-    message(STATUS "Found shader: ${SHADER}")
+  foreach(shader ${SHADER_SOURCES})
+    message(STATUS "Found shader: ${shader}")
 
-    file(RELATIVE_PATH REL_PATH ${SHADERS_SOURCE_DIR} ${SHADER})
+    file(RELATIVE_PATH rel_path ${shaders_source_dir} ${shader})
 
-    set(OUTPUT_FILE ${SHADERS_DIR}/${REL_PATH})
-    string(REPLACE ".slang" ".spv" OUTPUT_FILE ${OUTPUT_FILE})
+    set(output_file ${shaders_dir}/${rel_path})
+    string(REPLACE ".slang" ".spv" output_file ${output_file})
 
-    get_filename_component(OUTPUT_DIR ${OUTPUT_FILE} DIRECTORY)
+    get_filename_component(output_dir ${output_file} DIRECTORY)
 
-    list(APPEND OUTPUTS ${OUTPUT_FILE})
+    list(APPEND outputs ${output_file})
 
     add_custom_command(
-      OUTPUT ${OUTPUT_FILE}
-      COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${REL_PATH}"
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${OUTPUT_DIR}
+      OUTPUT ${output_file}
+      COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${rel_path}"
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${output_dir}
       COMMAND
-        ${SLANGC_EXECUTABLE} ${SHADER} -target spirv -profile spirv_1_4
-        -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o
-        ${OUTPUT_FILE}
-      DEPENDS ${SHADER}
+        ${SLANGC_EXECUTABLE} ${shader} -target spirv -profile spirv_1_4
+        -emit-spirv-directly -fvk-use-entrypoint-name ${entry_points} -o
+        ${output_file}
+      DEPENDS ${shader}
       VERBATIM)
   endforeach()
 
-  add_custom_target(${TARGET} DEPENDS ${OUTPUTS})
+  add_custom_target(${target} DEPENDS ${outputs})
 endfunction()
 
-add_slang_shader_target(CompileShadersTarget SOURCES ${SHADER_SLANG_SOURCES})
+add_slang_shader_target(CompileShadersTarget SOURCES ${shader_slang_sources})
 add_dependencies(VulkanApp CompileShadersTarget)
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT
