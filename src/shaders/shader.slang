@@ -12,6 +12,7 @@ struct VS_In
 	float3 Pos;
 	float3 Color;
 	float2 TexCoord;
+	float3 Normal;
 };
 
 struct VS_Out
@@ -19,6 +20,7 @@ struct VS_Out
 	float4 Pos : SV_Position;
 	float3 Color;
 	float2 TexCoord;
+	float3 Normal;
 };
 
 [shader("vertex")]
@@ -28,6 +30,7 @@ VS_Out vertMain(VS_In v)
 	o.Pos = mul(ubo.Proj, mul(ubo.View, mul(ubo.Model, float4(v.Pos, 1.f))));
 	o.Color = v.Color;
 	o.TexCoord = v.TexCoord;
+	o.Normal = mul(ubo.Model, float4(v.Normal, 0.f)).xyz;
 	return o;
 }
 

@@ -39,8 +39,10 @@
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-const std::string MODEL_PATH = "models/viking_room/viking_room.obj";
+const std::string MODEL_PATH = "models/sphere/scene.gltf";
 const std::string TEXTURE_PATH = "models/viking_room/textures/viking_room.png";
+constexpr uint32_t INSTANCES_PER_SIDE = 4;
+constexpr uint32_t INSTANCE_COUNT = INSTANCES_PER_SIDE * INSTANCES_PER_SIDE;
 
 std::atomic<bool> gbShouldClose = false;
 
@@ -62,15 +64,19 @@ struct Vertex
     glm::vec3 Pos;
     glm::vec3 Color;
     glm::vec2 TexCoord;
+    glm::vec3 Normal;
 
-    static vk::VertexInputBindingDescription GetBindingDescription()
+    static constexpr uint32_t AttributeCount = 4;
+    static constexpr uint32_t GetAttributeCount() { return AttributeCount; }
+
+    static constexpr vk::VertexInputBindingDescription GetBindingDescription()
     {
         return {.binding = 0,
                 .stride = sizeof(Vertex),
                 .inputRate = vk::VertexInputRate::eVertex};
     }
 
-    static std::array<vk::VertexInputAttributeDescription, 3>
+    static constexpr std::array<vk::VertexInputAttributeDescription, AttributeCount>
     GetAttributeDescription()
     {
         return {{{.location = 0,
@@ -84,13 +90,16 @@ struct Vertex
                  {.location = 2,
                   .binding = 0,
                   .format = vk::Format::eR32G32Sfloat,
-                  .offset = offsetof(Vertex, TexCoord)}}};
+                  .offset = offsetof(Vertex, TexCoord)},
+                 {.location = 3,
+                  .binding = 0,
+                  .format = vk::Format::eR32G32B32Sfloat}}};
     }
 
-    bool operator==(const Vertex& other) const
+    constexpr bool operator==(const Vertex& other) const
     {
-        return Pos == other.Pos && TexCoord == other.TexCoord &&
-               Color == other.Color;
+        return Pos == other.Pos && Color == other.Color &&
+               TexCoord == other.TexCoord && Normal == other.Normal;
     }
 };
 
@@ -187,7 +196,7 @@ static std::vector<char> ReadFile(const std::string filename)
     // of the buffer
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
     if (!file.is_open())
-        std::runtime_error("Failed to open file!");
+        throw std::runtime_error("Failed to open file!");
 
     std::vector<char> buffer(file.tellg());
     file.seekg(0, std::ios::beg);
@@ -581,7 +590,7 @@ private:
                                  { return IsPhysicalDeviceSuitable(device); });
 
         if (deviceIt == devices.end())
-            std::runtime_error("Failed to find a suitable GPU!");
+            throw std::runtime_error("Failed to find a suitable GPU!");
 
         m_PhysicalDevice = *deviceIt;
     }
@@ -606,7 +615,7 @@ private:
         }
 
         if (m_QueueIndex == std::numeric_limits<uint32_t>::max())
-            std::runtime_error(
+            throw std::runtime_error(
                 "Could not find a queue for graphics and presenting!");
 
         float queuePriority = 0.5f;
@@ -711,7 +720,7 @@ private:
     void CreateGraphicsPipeline()
     {
         vk::raii::ShaderModule shaderModule =
-            CreateShaderModule(ReadFile("shaders/shader.spv"));
+            CreateShaderModule(ReadFile("shaders/pbr.spv"));
 
         vk::PipelineShaderStageCreateInfo vertCreateInfo{
             .stage = vk::ShaderStageFlagBits::eVertex,
@@ -728,10 +737,12 @@ private:
 
         auto bindingDesc = Vertex::GetBindingDescription();
         auto attributeDesc = Vertex::GetAttributeDescription();
+        auto attributeCount = Vertex::GetAttributeCount();
+
         vk::PipelineVertexInputStateCreateInfo vertexInput{
             .vertexBindingDescriptionCount = 1,
             .pVertexBindingDescriptions = &bindingDesc,
-            .vertexAttributeDescriptionCount = 3,
+            .vertexAttributeDescriptionCount = attributeCount,
             .pVertexAttributeDescriptions = attributeDesc.data()};
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
             .topology = vk::PrimitiveTopology::eTriangleList};
@@ -898,7 +909,7 @@ private:
             *m_DescriptorSets[m_FrameIndex], nullptr);
 
         m_CommandBuffers[m_FrameIndex].drawIndexed(
-            static_cast<uint32_t>(m_Indices.size()), 1, 0, 0, 0);
+            static_cast<uint32_t>(m_Indices.size()), INSTANCE_COUNT, 0, 0, 0);
 
         m_CommandBuffers[m_FrameIndex].endRendering();
 
@@ -1124,22 +1135,26 @@ private:
 
     void UpdateUniformBuffer(uint32_t frameIndex)
     {
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        float time = std::chrono::duration<float, std::chrono::seconds::period>(
-                         currentTime - m_StartTime)
-                         .count();
-
+        /*  auto currentTime = std::chrono::high_resolution_clock::now();
+         float time = std::chrono::duration<float,
+             std::chrono::seconds::period>( currentTime - m_StartTime) .count();
+  */
+        // In GLM, matrices are COLUMN MAJOR, and so must apply transformations
+        // in reverse order.
         UniformBufferObject ubo;
-        ubo.Model = glm::rotate(glm::mat4(1.f), time * glm::radians(90.f),
-                                glm::vec3(0.f, 0.f, 1.f));
+        ubo.Model = glm::mat4(1.f);
+        ubo.Model = glm::translate(ubo.Model, {0.f, 0.f, 0.f});
+        // ubo.Model = glm::rotate(ubo.Model, glm::radians(90.f) * time,
+        // {0.f, 1.f, 0.f});
+        ubo.Model = glm::scale(ubo.Model, {1.f, 1.f, 1.f});
         ubo.View =
-            glm::lookAt(glm::vec3(2.f, 2.f, 2.f), glm::vec3(0.f, 0.f, 0.f),
-                        glm::vec3(0.f, 0.f, 1.f));
+            glm::lookAt(glm::vec3(0.f, 0.f, 0.f), glm::vec3(0.f, 0.f, -1.f),
+                        glm::vec3(0.f, 1.f, 0.f));
         ubo.Proj =
-            glm::perspective(glm::radians(45.f),
+            glm::perspective(glm::radians(90.f),
                              static_cast<float>(m_SwapchainExtent.width) /
                                  static_cast<float>(m_SwapchainExtent.height),
-                             0.1f, 10.f);
+                             0.1f, 100.f);
         // GLM was designed for OpenGL, which has its Y coordinate in clip space
         // inverted. Compensate for this by scaling here.
         ubo.Proj[1][1] *= -1.f;
@@ -1463,7 +1478,7 @@ private:
                                     aiProcess_CalcTangentSpace);
 
         if (!scene)
-            std::runtime_error(
+            throw std::runtime_error(
                 std::format("Failed to load model: {}", MODEL_PATH.c_str()));
 
         aiMesh* mesh = scene->mMeshes[0];
@@ -1478,6 +1493,8 @@ private:
                               1.f - mesh->mTextureCoords[0][i].y};
             }
             v.Color = {1.f, 1.f, 1.f};
+            v.Normal = {mesh->mNormals[i].x, mesh->mNormals[i].y,
+                        mesh->mNormals[i].z};
 
             m_Vertices.push_back(v);
         }
