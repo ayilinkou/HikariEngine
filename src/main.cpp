@@ -54,7 +54,7 @@ void HandleSIGINT(int)
 
 struct UniformBufferObject
 {
-    glm::mat4 Model;
+    glm::mat4 Models[INSTANCE_COUNT];
     glm::mat4 View;
     glm::mat4 Proj;
 };
@@ -76,7 +76,8 @@ struct Vertex
                 .inputRate = vk::VertexInputRate::eVertex};
     }
 
-    static constexpr std::array<vk::VertexInputAttributeDescription, AttributeCount>
+    static constexpr std::array<vk::VertexInputAttributeDescription,
+                                AttributeCount>
     GetAttributeDescription()
     {
         return {{{.location = 0,
@@ -1142,11 +1143,28 @@ private:
         // In GLM, matrices are COLUMN MAJOR, and so must apply transformations
         // in reverse order.
         UniformBufferObject ubo;
-        ubo.Model = glm::mat4(1.f);
-        ubo.Model = glm::translate(ubo.Model, {0.f, 0.f, 0.f});
-        // ubo.Model = glm::rotate(ubo.Model, glm::radians(90.f) * time,
-        // {0.f, 1.f, 0.f});
-        ubo.Model = glm::scale(ubo.Model, {1.f, 1.f, 1.f});
+        for (size_t i = 0; i < INSTANCE_COUNT; i++)
+        {
+            const float GRID_SIZE = 10.f;
+            const float START = -GRID_SIZE / 2.f;
+            const float INTERVAL = GRID_SIZE / (INSTANCES_PER_SIDE - 1);
+            const float Z = -8.f;
+
+            int x = i % INSTANCES_PER_SIDE;
+            int y = i / INSTANCES_PER_SIDE;
+
+            glm::vec3 pos;
+            pos.x = START + x * INTERVAL;
+            pos.y = START + y * INTERVAL;
+            pos.z = Z;
+
+            ubo.Models[i] = glm::mat4(1.f);
+            ubo.Models[i] = glm::translate(ubo.Models[i], pos);
+            // ubo.Models[i] = glm::rotate(ubo.Models[i], glm::radians(90.f) *
+            // time, {0.f, 1.f, 0.f});
+            ubo.Models[i] = glm::scale(ubo.Models[i], {1.f, 1.f, 1.f});
+        }
+
         ubo.View =
             glm::lookAt(glm::vec3(0.f, 0.f, 0.f), glm::vec3(0.f, 0.f, -1.f),
                         glm::vec3(0.f, 1.f, 0.f));

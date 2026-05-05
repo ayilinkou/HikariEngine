@@ -1,6 +1,6 @@
 struct UniformBuffer
 {
-	float4x4 Model;
+	float4x4 Models[16];
 	float4x4 View;
 	float4x4 Proj;
 };
@@ -28,24 +28,10 @@ struct VS_Out
 VS_Out vertMain(VS_In v)
 {
 	VS_Out o;
-	float3 pos;
-
-	const uint INSTANCE_PER_SIDE = 4;
-	const float GRID_SIZE = 10.f;
-	const float START = -GRID_SIZE / 2.f;
-	const float INTERVAL = GRID_SIZE / (INSTANCE_PER_SIDE - 1);
-	const float Z = -8.f;
-
-	pos = v.Pos;
-
-	pos.x += START + (v.InstanceID % INSTANCE_PER_SIDE) * INTERVAL;
-	pos.y += START + (v.InstanceID / INSTANCE_PER_SIDE) * INTERVAL;
-	pos.z += Z;
-
-	o.Pos = mul(ubo.Proj, mul(ubo.View, mul(ubo.Model, float4(pos, 1.f))));
+	o.Pos = mul(ubo.Proj, mul(ubo.View, mul(ubo.Models[v.InstanceID], float4(v.Pos, 1.f))));
 	o.Color = v.Color;
 	o.TexCoord = v.TexCoord;
-	o.Normal = mul(ubo.Model, float4(v.Normal, 0.f)).xyz;
+	o.Normal = mul(ubo.Models[v.InstanceID], float4(v.Normal, 0.f)).xyz;
 	return o;
 }
 
