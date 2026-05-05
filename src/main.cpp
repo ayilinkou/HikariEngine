@@ -1510,7 +1510,7 @@ private:
                 v.TexCoord = {mesh->mTextureCoords[0][i].x,
                               1.f - mesh->mTextureCoords[0][i].y};
             }
-            v.Color = {1.f, 1.f, 1.f};
+            v.Color = {1.f, 0.f, 0.f};
             v.Normal = {mesh->mNormals[i].x, mesh->mNormals[i].y,
                         mesh->mNormals[i].z};
 
