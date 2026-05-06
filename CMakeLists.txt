@@ -22,11 +22,12 @@ project(VulkanApp VERSION 1.0)
 
 set(SOURCES src/main.cpp)
 
-find_package(SDL3 CONFIG REQUIRED)
 find_package(Vulkan REQUIRED)
+find_package(SDL3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(Stb REQUIRED)
 find_package(assimp CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
 
 find_program(SLANGC_EXECUTABLE slangc)
 if(NOT SLANGC_EXECUTABLE)
@@ -37,8 +38,9 @@ add_executable(VulkanApp)
 
 target_sources(VulkanApp PRIVATE ${SOURCES})
 
-target_link_libraries(VulkanApp PRIVATE SDL3::SDL3 Vulkan::Vulkan glm::glm
-                                        assimp::assimp)
+target_link_libraries(
+  VulkanApp PRIVATE SDL3::SDL3 Vulkan::Vulkan glm::glm-header-only
+                    assimp::assimp imgui::imgui)
 
 target_include_directories(VulkanApp PRIVATE src ${Stb_INCLUDE_DIR})
 
@@ -88,7 +90,7 @@ file(GLOB_RECURSE shader_slang_sources CONFIGURE_DEPENDS
      ${CMAKE_CURRENT_LIST_DIR}/src/shaders/*.slang)
 
 function(add_slang_shader_target target)
-	cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
+  cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
 
   set(shaders_dir ${CMAKE_CURRENT_LIST_DIR}/shaders)
   set(shaders_source_dir ${CMAKE_CURRENT_LIST_DIR}/src/shaders)

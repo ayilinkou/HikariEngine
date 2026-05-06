@@ -36,9 +36,14 @@
 #include "assimp/postprocess.h"
 #include "assimp/scene.h"
 
+#include "imgui.h"
+#include "imgui_impl_sdl3.h"
+#include "imgui_impl_vulkan.h"
+
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
-constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+constexpr int MAX_FRAMES_IN_FLIGHT =
+    1; // TODO: temporarily setting to 1 whilst implementing ImGui
 const std::string MODEL_PATH = "models/sphere/scene.gltf";
 const std::string TEXTURE_PATH = "models/viking_room/textures/viking_room.png";
 constexpr uint32_t INSTANCES_PER_SIDE = 4;
@@ -293,6 +298,8 @@ public:
             SDL_Event event;
             while (SDL_PollEvent(&event))
             {
+                ImGui_ImplSDL3_ProcessEvent(&event);
+
                 switch (event.type)
                 {
                 case SDL_EVENT_QUIT:
@@ -313,6 +320,7 @@ public:
                 }
             }
 
+            DrawImGuiFrame();
             DrawFrame();
         }
 
@@ -326,7 +334,44 @@ private:
         m_StartTime = std::chrono::high_resolution_clock::now();
 
         InitVulkan();
+        InitImGui();
         std::cout << "Init() succeeded.\n";
+    }
+
+    void InitImGui()
+    {
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+        ImGui::StyleColorsDark();
+
+        ImGui_ImplSDL3_InitForVulkan(m_pWindow);
+
+        ImGui_ImplVulkan_InitInfo initInfo = {};
+        initInfo.ApiVersion = m_APIVersion;
+        initInfo.Instance = *m_Instance;
+        initInfo.PhysicalDevice = *m_PhysicalDevice;
+        initInfo.Device = *m_Device;
+        initInfo.QueueFamily = m_QueueIndex;
+        initInfo.Queue = *m_GraphicsQueue;
+        initInfo.DescriptorPool = VK_NULL_HANDLE;
+        initInfo.DescriptorPoolSize = 1000;
+        initInfo.MinImageCount = m_MinImageCount;
+        initInfo.ImageCount = static_cast<uint32_t>(m_SwapImages.size());
+        initInfo.UseDynamicRendering = true;
+        initInfo.PipelineCache = VK_NULL_HANDLE;
+        initInfo.PipelineInfoMain = {.RenderPass = VK_NULL_HANDLE,
+                                     .Subpass = 0,
+                                     .MSAASamples = VK_SAMPLE_COUNT_1_BIT,
+                                     .ExtraDynamicStates = {},
+                                     .PipelineRenderingCreateInfo =
+                                         m_PipelineRenderingCreateInfo};
+        initInfo.Allocator = nullptr;
+        initInfo.CheckVkResultFn = nullptr;
+        ImGui_ImplVulkan_Init(&initInfo);
     }
 
     void InitVulkan()
@@ -355,7 +400,14 @@ private:
         CreateSyncObjects();
     }
 
-    void Shutdown() {}
+    void Shutdown() { ShutdownImGui(); }
+
+    void ShutdownImGui()
+    {
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplSDL3_Shutdown();
+        ImGui::DestroyContext();
+    }
 
     void DrawFrame()
     {
@@ -427,6 +479,17 @@ private:
         m_FrameIndex = (m_FrameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
+    void DrawImGuiFrame()
+    {
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::ShowDemoWindow();
+
+        ImGui::Render();
+    }
+
     void CreateInstance()
     {
         constexpr vk::ApplicationInfo appInfo{
@@ -434,7 +497,7 @@ private:
             .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
             .pEngineName = "No Engine",
             .engineVersion = VK_MAKE_VERSION(1, 0, 0),
-            .apiVersion = vk::ApiVersion14};
+            .apiVersion = m_APIVersion};
 
         // extensions
         Uint32 countInstanceExtensions;
@@ -663,9 +726,10 @@ private:
         std::cout << "Swapchain Extent: " << m_SwapchainExtent.width << "x"
                   << m_SwapchainExtent.height << "\n";
 
+        m_MinImageCount = ChooseSwapMinImageCount(capabilities);
         vk::SwapchainCreateInfoKHR createInfo{
             .surface = *m_Surface,
-            .minImageCount = ChooseSwapMinImageCount(capabilities),
+            .minImageCount = m_MinImageCount,
             .imageFormat = m_SwapchainSurfaceFormat.format,
             .imageColorSpace = m_SwapchainSurfaceFormat.colorSpace,
             .imageExtent = m_SwapchainExtent,
@@ -809,6 +873,10 @@ private:
         m_PipelineLayout =
             vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
 
+        m_PipelineRenderingCreateInfo = {
+            .colorAttachmentCount = 1,
+            .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format,
+            .depthAttachmentFormat = m_DepthFormat};
         vk::StructureChain<vk::GraphicsPipelineCreateInfo,
                            vk::PipelineRenderingCreateInfo>
             pipelineCreateInfoChain = {
@@ -824,9 +892,7 @@ private:
                  .pDynamicState = &dynamicState,
                  .layout = m_PipelineLayout,
                  .renderPass = nullptr},
-                {.colorAttachmentCount = 1,
-                 .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format,
-                 .depthAttachmentFormat = m_DepthFormat}};
+                m_PipelineRenderingCreateInfo};
 
         m_GraphicsPipeline = vk::raii::Pipeline(
             m_Device, nullptr,
@@ -911,6 +977,9 @@ private:
 
         m_CommandBuffers[m_FrameIndex].drawIndexed(
             static_cast<uint32_t>(m_Indices.size()), INSTANCE_COUNT, 0, 0, 0);
+
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
+                                        *m_CommandBuffers[m_FrameIndex]);
 
         m_CommandBuffers[m_FrameIndex].endRendering();
 
@@ -1002,6 +1071,8 @@ private:
         CreateSwapchainImageViews();
 
         CreateDepthResources();
+
+        // TODO: ImGui might need to be updated to match new swapchain
     }
 
     void CreateVertexBuffer()
@@ -1560,17 +1631,20 @@ private:
     vk::raii::DeviceMemory m_DepthImageMemory = nullptr;
     vk::raii::ImageView m_DepthImageView = nullptr;
     vk::Format m_DepthFormat = vk::Format::eUndefined;
+    vk::PipelineRenderingCreateInfo m_PipelineRenderingCreateInfo = {};
 
     vk::SurfaceFormatKHR m_SwapchainSurfaceFormat;
     vk::Extent2D m_SwapchainExtent;
     std::vector<vk::Image> m_SwapImages;
     std::vector<vk::raii::ImageView> m_SwapImageViews;
     uint32_t m_QueueIndex = ~0;
+    uint32_t m_MinImageCount = 0;
 
     std::vector<vk::raii::Semaphore> m_PresentCompleteSemaphores;
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
     std::vector<vk::raii::Fence> m_DrawFences;
 
+    static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
     SDL_Window* m_pWindow = nullptr;
     bool m_bIsFocused = true;

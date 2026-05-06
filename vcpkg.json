@@ -4,10 +4,19 @@
 	"dependencies": [
 		{
 			"name": "sdl3",
-			"features": ["vulkan"]
+			"features": [
+				"vulkan"
+			]
 		},
 		"glm",
 		"stb",
-		"assimp"
+		"assimp",
+		{
+			"name": "imgui",
+			"features": [
+				"vulkan-binding",
+				"sdl3-binding"
+			]
+		}
 	]
 }

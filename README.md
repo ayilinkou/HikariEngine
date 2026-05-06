@@ -1,7 +1,7 @@
 # VulkanApp
 
 ## Requirements
-This project requires CMake, vcpkg and the Vulkan SDK to be installed.
+This project requires CMake, vcpkg and the Vulkan SDK to be installed. Please make sure the `VULKAN_SDK` environment variable is set to the correct path.
 
 ## Build
 `CMakePresets.json` contains presets for building on Windows and Linux. These presets set the `CMAKE_TOOLCHAIN_FILE` variable using a `VCPKG_ROOT` environment variable. If you're using these presets, please make sure that the `VCPKG_ROOT` environment variable is set correctly. Otherwise you can manually set the `CMAKE_TOOLCHAIN_FILE` variable yourself like this:
