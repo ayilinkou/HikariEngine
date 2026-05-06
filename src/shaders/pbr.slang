@@ -1,18 +1,22 @@
+struct PointLight
+{
+	float3 Pos;
+	float Intensity;
+	float3 Color;
+	float Padding;
+};
+
 struct UniformBuffer
 {
 	float4x4 Models[16];
 	float4x4 View;
 	float4x4 Proj;
+	PointLight Light;
+	float3 SphereColor;
+	float Time;
 };
 
 ConstantBuffer<UniformBuffer> ubo;
-
-struct PointLight
-{
-	float3 Pos;
-	float3 Color;
-	float Intensity;
-};
 
 struct VS_In
 {
@@ -50,19 +54,14 @@ Sampler2D texture;
 [shader("fragment")]
 float4 fragMain(VS_Out f) : SV_Target
 {
-	float3 fragColor = f.Color; // can replace with texture later
-
-	PointLight pointLight;
-	pointLight.Pos = float3(30.f, 0.f, -8.f);
-	pointLight.Color = float3(1.f, 1.f, 1.f);
-	pointLight.Intensity = 1.f;
+	float3 fragColor = ubo.SphereColor;
 
 	float3 ambient = 0.02f * fragColor;
 	float3 diffuse = float3(0.f, 0.f, 0.f);
 
-	float3 fragToLight = normalize(pointLight.Pos - f.WorldPos);
+	float3 fragToLight = normalize(ubo.Light.Pos - f.WorldPos);
 	float NdotL = saturate(dot(f.Normal, fragToLight));
-	diffuse = pointLight.Color * pointLight.Intensity * fragColor * NdotL;
+	diffuse = ubo.Light.Color * ubo.Light.Intensity * fragColor * NdotL;
 
 	float3 finalColor = ambient + diffuse;
 

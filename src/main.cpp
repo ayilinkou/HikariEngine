@@ -57,11 +57,25 @@ void HandleSIGINT(int)
     std::cout << "\n";
 }
 
+struct PointLight
+{
+    glm::vec3 Pos;
+    float Intensity;
+    glm::vec3 Color;
+	float Padding;
+};
+
+// Each member must start at an offset that is a multiple of its base alignment.
+// Eg. a float can start on offset 0, 4, 8 or 12.
+// glm::vec3 is 12 bytes wide by default but is 16 byte aligned.
 struct UniformBufferObject
 {
     glm::mat4 Models[INSTANCE_COUNT];
     glm::mat4 View;
     glm::mat4 Proj;
+    PointLight Light;
+    glm::vec3 SphereColor;
+    float Time;
 };
 
 struct Vertex
@@ -485,7 +499,19 @@ private:
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::ShowDemoWindow();
+        if (ImGui::Begin("Menu"))
+        {
+            ImGui::Text("Light");
+            ImGui::DragFloat3("Position", &m_UBO.Light.Pos.x, 0.5f);
+            ImGui::ColorEdit3("Color##Light", &m_UBO.Light.Color.r);
+            ImGui::SliderFloat("Intensity", &m_UBO.Light.Intensity, 0.f, 10.f);
+
+            ImGui::Dummy(ImVec2(2.f, 0.f));
+            ImGui::Text("Spheres");
+            ImGui::ColorEdit3("Color##Spheres", &m_UBO.SphereColor.r);
+
+            ImGui::End();
+        }
 
         ImGui::Render();
     }
@@ -1172,7 +1198,9 @@ private:
     {
         std::array bindings = {vk::DescriptorSetLayoutBinding(
                                    0, vk::DescriptorType::eUniformBuffer, 1,
-                                   vk::ShaderStageFlagBits::eVertex, nullptr),
+                                   vk::ShaderStageFlagBits::eVertex |
+                                       vk::ShaderStageFlagBits::eFragment,
+                                   nullptr),
                                vk::DescriptorSetLayoutBinding(
                                    1, vk::DescriptorType::eCombinedImageSampler,
                                    1, vk::ShaderStageFlagBits::eFragment)};
@@ -1185,6 +1213,8 @@ private:
     void CreateUniformBuffers()
     {
         vk::DeviceSize size = sizeof(UniformBufferObject);
+        if (size % 16 != 0)
+            throw std::runtime_error(std::format("Buffer must be 16 byte aligned! Size is {}", size));
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
@@ -1203,17 +1233,9 @@ private:
             m_UniformBuffersMapping.emplace_back(
                 m_UniformBuffersMemory[i].mapMemory(0, size));
         }
-    }
 
-    void UpdateUniformBuffer(uint32_t frameIndex)
-    {
-        /*  auto currentTime = std::chrono::high_resolution_clock::now();
-         float time = std::chrono::duration<float,
-             std::chrono::seconds::period>( currentTime - m_StartTime) .count();
-  */
         // In GLM, matrices are COLUMN MAJOR, and so must apply transformations
         // in reverse order.
-        UniformBufferObject ubo;
         for (size_t i = 0; i < INSTANCE_COUNT; i++)
         {
             const float GRID_SIZE = 10.f;
@@ -1229,26 +1251,40 @@ private:
             pos.y = START + y * INTERVAL;
             pos.z = Z;
 
-            ubo.Models[i] = glm::mat4(1.f);
-            ubo.Models[i] = glm::translate(ubo.Models[i], pos);
-            // ubo.Models[i] = glm::rotate(ubo.Models[i], glm::radians(90.f) *
-            // time, {0.f, 1.f, 0.f});
-            ubo.Models[i] = glm::scale(ubo.Models[i], {1.f, 1.f, 1.f});
+            m_UBO.Models[i] = glm::mat4(1.f);
+            m_UBO.Models[i] = glm::translate(m_UBO.Models[i], pos);
+            m_UBO.Models[i] = glm::scale(m_UBO.Models[i], {1.f, 1.f, 1.f});
         }
 
-        ubo.View =
+        m_UBO.View =
             glm::lookAt(glm::vec3(0.f, 0.f, 0.f), glm::vec3(0.f, 0.f, -1.f),
                         glm::vec3(0.f, 1.f, 0.f));
-        ubo.Proj =
+        m_UBO.Proj =
             glm::perspective(glm::radians(90.f),
                              static_cast<float>(m_SwapchainExtent.width) /
                                  static_cast<float>(m_SwapchainExtent.height),
                              0.1f, 100.f);
         // GLM was designed for OpenGL, which has its Y coordinate in clip space
         // inverted. Compensate for this by scaling here.
-        ubo.Proj[1][1] *= -1.f;
+        m_UBO.Proj[1][1] *= -1.f;
 
-        memcpy(m_UniformBuffersMapping[frameIndex], &ubo, sizeof(ubo));
+        m_UBO.Light.Pos = {10.f, 0.f, 0.f};
+        m_UBO.Light.Intensity = 1.f;
+        m_UBO.Light.Color = {1.f, 1.f, 1.f};
+
+        m_UBO.Time = 0.f;
+
+        m_UBO.SphereColor = {1.f, 0.f, 0.f};
+    }
+
+    void UpdateUniformBuffer(uint32_t frameIndex)
+    {
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        float time = std::chrono::duration<float, std::chrono::seconds::period>(
+                         currentTime - m_StartTime)
+                         .count();
+        m_UBO.Time = time;
+        memcpy(m_UniformBuffersMapping[frameIndex], &m_UBO, sizeof(m_UBO));
     }
 
     void CreateDescriptorPool()
@@ -1621,6 +1657,7 @@ private:
     std::vector<vk::raii::Buffer> m_UniformBuffers;
     std::vector<vk::raii::DeviceMemory> m_UniformBuffersMemory;
     std::vector<void*> m_UniformBuffersMapping;
+    UniformBufferObject m_UBO = {};
     vk::raii::Image m_TextureImage = nullptr;
     vk::raii::DeviceMemory m_TextureImageMemory = nullptr;
     vk::raii::ImageView m_TextureImageView = nullptr;
