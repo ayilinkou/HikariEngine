@@ -42,8 +42,7 @@
 
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
-constexpr int MAX_FRAMES_IN_FLIGHT =
-    1; // TODO: temporarily setting to 1 whilst implementing ImGui
+constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 const std::string MODEL_PATH = "models/sphere/scene.gltf";
 const std::string TEXTURE_PATH = "models/viking_room/textures/viking_room.png";
 constexpr uint32_t INSTANCES_PER_SIDE = 4;
@@ -62,7 +61,7 @@ struct PointLight
     glm::vec3 Pos;
     float Intensity;
     glm::vec3 Color;
-	float Padding;
+    float Padding;
 };
 
 // Each member must start at an offset that is a multiple of its base alignment.
@@ -196,7 +195,7 @@ SDL_Window* CreateSDLWindow()
     if (window == nullptr)
         throw SDLException("Failed to create window!");
 
-    SDL_SetWindowFullscreen(window, true);
+    SDL_SetWindowFullscreen(window, false);
 
     return window;
 }
@@ -319,6 +318,9 @@ public:
                 case SDL_EVENT_QUIT:
                     gbShouldClose = true;
                     break;
+				case SDL_EVENT_WINDOW_RESIZED:
+					RecreateSwapchainAndDepthStencil();
+					break;
                 case SDL_EVENT_WINDOW_FOCUS_GAINED:
                     m_bIsFocused = true;
                     std::cout << "Focus gained.\n";
@@ -1098,7 +1100,9 @@ private:
 
         CreateDepthResources();
 
-        // TODO: ImGui might need to be updated to match new swapchain
+        // With dynamic rendering, this it the only change on the ImGui side
+        // that has to be made.
+        ImGui_ImplVulkan_SetMinImageCount(m_MinImageCount);
     }
 
     void CreateVertexBuffer()
@@ -1214,7 +1218,8 @@ private:
     {
         vk::DeviceSize size = sizeof(UniformBufferObject);
         if (size % 16 != 0)
-            throw std::runtime_error(std::format("Buffer must be 16 byte aligned! Size is {}", size));
+            throw std::runtime_error(std::format(
+                "Buffer must be 16 byte aligned! Size is {}", size));
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
