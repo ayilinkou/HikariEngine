@@ -512,8 +512,8 @@ private:
             ImGui::Text("Spheres");
             ImGui::ColorEdit3("Color##Spheres", &m_UBO.SphereColor.r);
 
-            ImGui::End();
         }
+		ImGui::End();
 
         ImGui::Render();
     }
