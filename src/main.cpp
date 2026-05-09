@@ -45,7 +45,7 @@ constexpr uint32_t HEIGHT = 1080;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 const std::string MODEL_PATH = "models/sphere/scene.gltf";
 const std::string TEXTURE_PATH = "models/viking_room/textures/viking_room.png";
-constexpr uint32_t INSTANCES_PER_SIDE = 4;
+constexpr uint32_t INSTANCES_PER_SIDE = 5;
 constexpr uint32_t INSTANCE_COUNT = INSTANCES_PER_SIDE * INSTANCES_PER_SIDE;
 
 std::atomic<bool> gbShouldClose = false;
@@ -1274,7 +1274,7 @@ private:
         m_UBO.Proj[1][1] *= -1.f;
 
         m_UBO.Light.Pos = {10.f, 0.f, 0.f};
-        m_UBO.Light.Intensity = 1.f;
+        m_UBO.Light.Intensity = 1000.f;
         m_UBO.Light.Color = {1.f, 1.f, 1.f};
 
         m_UBO.Time = 0.f;
