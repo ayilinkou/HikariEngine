@@ -76,6 +76,7 @@ float3 SchlickFresnel(float3 F0, float cosTheta)
 	return F0 + (float3(1.f) - F0) * pow(1.f - cosTheta , 5.f);
 }
 
+// Smith Geometry function, using Schlick-GGX
 float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
 {
 	float NdotV = saturate(dot(N, V));
@@ -152,6 +153,7 @@ float3 HillACES(float3 color)
 	return saturate(result);
 }
 
+// Inverse-square law
 float CalcAttenuation(float3 FragPos, float3 LightPos)
 {
 	float Distance = distance(FragPos, LightPos);
@@ -163,18 +165,17 @@ Sampler2D texture;
 [shader("fragment")]
 float4 fragMain(VS_Out f) : SV_Target
 {
-	float3 CamPos = float3(0.f); // TODO: move to UBO
-	float3 albedo = float3(1.f, 0.f, 0.f);
+	// TODO: move all these to UBO
+	float3 CamPos = float3(0.f);
+	float3 albedo = f.Color;
 	float ao = 1.f;
-
 	float interval = 1.f / (INSTANCES_PER_SIDE - 1.f);
 	float roughness = max((f.InstanceID % INSTANCES_PER_SIDE) * interval, 0.1f);
 	float metallic = max((f.InstanceID / INSTANCES_PER_SIDE) * interval, 0.1f);
 
-	float attenuation = CalcAttenuation(f.WorldPos, ubo.Light.Pos);
-
 	float3 Lo = float3(0.f, 0.f, 0.f);
 
+	float attenuation = CalcAttenuation(f.WorldPos, ubo.Light.Pos);
 	float3 Li = ubo.Light.Color * ubo.Light.Intensity * attenuation; // light radiance
 	float3 N = normalize(f.Normal); // normal
 	float3 V = normalize(CamPos - f.WorldPos); // view vector
