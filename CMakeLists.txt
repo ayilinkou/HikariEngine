@@ -20,7 +20,7 @@ endif()
 
 project(VulkanApp VERSION 1.0)
 
-set(SOURCES src/main.cpp)
+set(SOURCES src/main.cpp src/Model.cpp)
 
 find_package(Vulkan REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
@@ -44,8 +44,9 @@ target_link_libraries(
 
 target_include_directories(VulkanApp PRIVATE src ${Stb_INCLUDE_DIR})
 
-target_compile_definitions(VulkanApp
-                           PRIVATE VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1)
+target_compile_definitions(
+  VulkanApp PRIVATE VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1
+                    GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_ENABLE_EXPERIMENTAL)
 
 if(MSVC)
   target_compile_options(

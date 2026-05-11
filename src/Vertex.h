@@ -1,0 +1,67 @@
+#pragma once
+
+#include "vulkan/vulkan.hpp"
+
+#include "glm/glm.hpp"
+#include "glm/gtx/hash.hpp"
+
+struct Vertex
+{
+	glm::vec3 Pos;
+	glm::vec3 Color;
+	glm::vec2 TexCoord;
+	glm::vec3 Normal;
+
+	static constexpr uint32_t AttributeCount = 4;
+	static constexpr uint32_t GetAttributeCount() { return AttributeCount; }
+
+	static constexpr vk::VertexInputBindingDescription GetBindingDescription()
+	{
+		return {.binding = 0,
+				.stride = sizeof(Vertex),
+				.inputRate = vk::VertexInputRate::eVertex};
+	}
+
+	static constexpr std::array<vk::VertexInputAttributeDescription,
+								AttributeCount>
+	GetAttributeDescription()
+	{
+		return {{{.location = 0,
+				  .binding = 0,
+				  .format = vk::Format::eR32G32B32Sfloat,
+				  .offset = offsetof(Vertex, Pos)},
+				 {.location = 1,
+				  .binding = 0,
+				  .format = vk::Format::eR32G32B32Sfloat,
+				  .offset = offsetof(Vertex, Color)},
+				 {.location = 2,
+				  .binding = 0,
+				  .format = vk::Format::eR32G32Sfloat,
+				  .offset = offsetof(Vertex, TexCoord)},
+				 {.location = 3,
+				  .binding = 0,
+				  .format = vk::Format::eR32G32B32Sfloat}}};
+	}
+
+	constexpr bool operator==(const Vertex& other) const
+	{
+		return Pos == other.Pos && Color == other.Color &&
+			   TexCoord == other.TexCoord && Normal == other.Normal;
+	}
+};
+
+namespace std
+{
+template <> struct hash<Vertex>
+{
+	size_t operator()(const Vertex& vertex) const
+	{
+		return ((hash<glm::vec3>()(vertex.Pos) ^
+				 (hash<glm::vec3>()(vertex.Color) << 1)) >>
+				1) ^
+			   (hash<glm::vec2>()(vertex.TexCoord) << 1);
+	}
+};
+} // namespace std
+
+
