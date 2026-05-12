@@ -27,6 +27,7 @@
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
 
+#include "FrameData.h"
 #include "Lights.h"
 #include "Model.h"
 #include "Utility.h"
@@ -277,13 +278,14 @@ private:
         // the CPU needs to know that the GPU has finished a task. Must be
         // explicitely reset by the host.
 
-        auto fenceResult = m_Device.waitForFences(*m_DrawFences[m_FrameIndex],
+        FrameData& frameData = m_Frames[m_FrameIndex];
+        auto fenceResult = m_Device.waitForFences(*frameData.m_DrawFence,
                                                   vk::True, UINT64_MAX);
         if (fenceResult != vk::Result::eSuccess)
             throw std::runtime_error("Failed to wait for fence!");
 
         auto [result, imageIndex] = m_Swapchain.acquireNextImage(
-            UINT64_MAX, *m_PresentCompleteSemaphores[m_FrameIndex], nullptr);
+            UINT64_MAX, *frameData.m_PresentCompleteSemaphore, nullptr);
 
         if (result == vk::Result::eErrorOutOfDateKHR)
         {
@@ -298,7 +300,7 @@ private:
             throw std::runtime_error("Failed to acquire next swapchain image!");
         }
 
-        m_Device.resetFences(*m_DrawFences[m_FrameIndex]);
+        m_Device.resetFences(*frameData.m_DrawFence);
 
         UpdateUniformBuffer(m_FrameIndex);
         RecordCommandBuffer(imageIndex);
@@ -307,14 +309,14 @@ private:
             vk::PipelineStageFlagBits::eColorAttachmentOutput);
         const vk::SubmitInfo submitInfo{
             .waitSemaphoreCount = 1,
-            .pWaitSemaphores = &*m_PresentCompleteSemaphores[m_FrameIndex],
+            .pWaitSemaphores = &*frameData.m_PresentCompleteSemaphore,
             .pWaitDstStageMask = &waitDestinationStageFlags,
             .commandBufferCount = 1,
-            .pCommandBuffers = &*m_CommandBuffers[m_FrameIndex],
+            .pCommandBuffers = &*frameData.m_CommandBuffer,
             .signalSemaphoreCount = 1,
             .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
 
-        m_GraphicsQueue.submit(submitInfo, *m_DrawFences[m_FrameIndex]);
+        m_GraphicsQueue.submit(submitInfo, *frameData.m_DrawFence);
 
         const vk::PresentInfoKHR presentInfo{
             .waitSemaphoreCount = 1,
@@ -782,15 +784,22 @@ private:
             .commandPool = m_CommandPool,
             .level = vk::CommandBufferLevel::ePrimary,
             .commandBufferCount = MAX_FRAMES_IN_FLIGHT};
-        m_CommandBuffers = vk::raii::CommandBuffers(m_Device, allocInfo);
+        auto m_CommandBuffers = vk::raii::CommandBuffers(m_Device, allocInfo);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        {
+            m_Frames[i].m_CommandBuffer = std::move(m_CommandBuffers[i]);
+        }
     }
 
     void RecordCommandBuffer(uint32_t imageIndex)
     {
-        m_CommandBuffers[m_FrameIndex].reset();
+        vk::raii::CommandBuffer& commandBuffer =
+            m_Frames[m_FrameIndex].m_CommandBuffer;
+        commandBuffer.reset();
 
         vk::CommandBufferBeginInfo beginInfo{};
-        m_CommandBuffers[m_FrameIndex].begin(beginInfo);
+        commandBuffer.begin(beginInfo);
 
         TransitionImageLayout(
             imageIndex, vk::ImageLayout::eUndefined,
@@ -826,32 +835,30 @@ private:
             .pColorAttachments = &colorAttachmentInfo,
             .pDepthAttachment = &depthAttachmentInfo};
 
-        m_CommandBuffers[m_FrameIndex].beginRendering(renderingInfo);
+        commandBuffer.beginRendering(renderingInfo);
 
-        m_CommandBuffers[m_FrameIndex].bindPipeline(
-            vk::PipelineBindPoint::eGraphics, *m_GraphicsPipeline);
-        m_CommandBuffers[m_FrameIndex].bindVertexBuffers(0, m_Model->GetVertexBuffer(),
-                                                         {0});
-        m_CommandBuffers[m_FrameIndex].bindIndexBuffer(m_Model->GetIndexBuffer(), 0,
-                                                       vk::IndexType::eUint32);
-        m_CommandBuffers[m_FrameIndex].setViewport(
+        commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                                   *m_GraphicsPipeline);
+        commandBuffer.bindVertexBuffers(0, m_Model->GetVertexBuffer(), {0});
+        commandBuffer.bindIndexBuffer(m_Model->GetIndexBuffer(), 0,
+                                      vk::IndexType::eUint32);
+        commandBuffer.setViewport(
             0, vk::Viewport(
                    0.f, 0.f, static_cast<float>(m_SwapchainExtent.width),
                    static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
-        m_CommandBuffers[m_FrameIndex].setScissor(
+        commandBuffer.setScissor(
             0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
-        m_CommandBuffers[m_FrameIndex].bindDescriptorSets(
+        commandBuffer.bindDescriptorSets(
             vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 0,
             *m_DescriptorSets[m_FrameIndex], nullptr);
 
-        m_CommandBuffers[m_FrameIndex].drawIndexed(
+        commandBuffer.drawIndexed(
             static_cast<uint32_t>(m_Model->GetIndices().size()), INSTANCE_COUNT,
             0, 0, 0);
 
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
-                                        *m_CommandBuffers[m_FrameIndex]);
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *commandBuffer);
 
-        m_CommandBuffers[m_FrameIndex].endRendering();
+        commandBuffer.endRendering();
 
         TransitionImageLayout(
             imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
@@ -860,7 +867,7 @@ private:
             vk::PipelineStageFlagBits2::eColorAttachmentOutput,
             vk::PipelineStageFlagBits2::eBottomOfPipe);
 
-        m_CommandBuffers[m_FrameIndex].end();
+        commandBuffer.end();
     }
 
     void TransitionImageLayout(uint32_t imageIndex, vk::ImageLayout oldLayout,
@@ -889,14 +896,11 @@ private:
         vk::DependencyInfo info = {.dependencyFlags = {},
                                    .imageMemoryBarrierCount = 1,
                                    .pImageMemoryBarriers = &barrier};
-        m_CommandBuffers[m_FrameIndex].pipelineBarrier2(info);
+        m_Frames[m_FrameIndex].m_CommandBuffer.pipelineBarrier2(info);
     }
 
     void CreateSyncObjects()
     {
-        assert(m_RenderCompleteSemaphores.empty() &&
-               m_PresentCompleteSemaphores.empty() && m_DrawFences.empty());
-
         for (size_t i = 0; i < m_SwapImages.size(); i++)
         {
             m_RenderCompleteSemaphores.emplace_back(
@@ -905,10 +909,10 @@ private:
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            m_PresentCompleteSemaphores.emplace_back(
-                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo()));
-            m_DrawFences.emplace_back(vk::raii::Fence(
-                m_Device, {.flags = vk::FenceCreateFlagBits::eSignaled}));
+            m_Frames[i].m_PresentCompleteSemaphore =
+                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
+            m_Frames[i].m_DrawFence = vk::raii::Fence(
+                m_Device, {.flags = vk::FenceCreateFlagBits::eSignaled});
         }
     }
 
@@ -980,13 +984,13 @@ private:
                              vk::MemoryPropertyFlagBits::eHostCoherent,
                          buffer, bufferMemory);
 
-            m_UniformBuffers.emplace_back(std::move(buffer));
-            m_UniformBuffersMemory.emplace_back(std::move(bufferMemory));
+            m_Frames[i].m_UniformBuffer = std::move(buffer);
+            m_Frames[i].m_UniformBufferMemory = std::move(bufferMemory);
             // Mapping once like this for the application's whole lifetime is
             // called Persistent Mapping. Increases performance since mapping is
             // not free.
-            m_UniformBuffersMapping.emplace_back(
-                m_UniformBuffersMemory[i].mapMemory(0, size));
+            m_Frames[i].m_UniformBufferMapping =
+                m_Frames[i].m_UniformBufferMemory.mapMemory(0, size);
         }
 
         // In GLM, matrices are COLUMN MAJOR, and so must apply transformations
@@ -1039,7 +1043,7 @@ private:
                          currentTime - m_StartTime)
                          .count();
         m_UBO.Time = time;
-        memcpy(m_UniformBuffersMapping[frameIndex], &m_UBO, sizeof(m_UBO));
+        memcpy(m_Frames[frameIndex].m_UniformBufferMapping, &m_UBO, sizeof(m_UBO));
     }
 
     void CreateDescriptorPool()
@@ -1075,7 +1079,7 @@ private:
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
             vk::DescriptorBufferInfo bufferInfo{
-                .buffer = m_UniformBuffers[i],
+                .buffer = m_Frames[i].m_UniformBuffer,
                 .offset = 0,
                 .range = sizeof(UniformBufferObject)};
             vk::DescriptorImageInfo imageInfo{
@@ -1332,43 +1336,6 @@ private:
         m_Model = std::make_unique<Model>();
         m_Model->LoadModel(m_Device, m_PhysicalDevice, m_CommandPool,
                            m_GraphicsQueue, MODEL_PATH);
-
-        /*Assimp::Importer importer;
-        const aiScene* scene = importer.ReadFile(
-            MODEL_PATH.c_str(), aiProcess_Triangulate |
-                                    aiProcess_JoinIdenticalVertices |
-                                    aiProcess_CalcTangentSpace);
-
-        if (!scene)
-            throw std::runtime_error(
-                std::format("Failed to load model: {}", MODEL_PATH.c_str()));
-
-        aiMesh* mesh = scene->mMeshes[0];
-        for (size_t i = 0; i < mesh->mNumVertices; i++)
-        {
-            Vertex v;
-            v.Pos = {mesh->mVertices[i].x, mesh->mVertices[i].y,
-                     mesh->mVertices[i].z};
-            if (mesh->mTextureCoords[0])
-            {
-                v.TexCoord = {mesh->mTextureCoords[0][i].x,
-                              1.f - mesh->mTextureCoords[0][i].y};
-            }
-            v.Color = {1.f, 0.f, 0.f};
-            v.Normal = {mesh->mNormals[i].x, mesh->mNormals[i].y,
-                        mesh->mNormals[i].z};
-
-            m_Vertices.push_back(v);
-        }
-
-        for (size_t i = 0; i < mesh->mNumFaces; i++)
-        {
-            const aiFace& face = mesh->mFaces[i];
-            for (size_t j = 0; j < face.mNumIndices; j++)
-            {
-                m_Indices.push_back(static_cast<uint32_t>(face.mIndices[j]));
-            }
-        }*/
     }
 
 private:
@@ -1384,10 +1351,6 @@ private:
     vk::raii::DescriptorSetLayout m_DescriptorSetLayout = nullptr;
     vk::raii::Pipeline m_GraphicsPipeline = nullptr;
     vk::raii::CommandPool m_CommandPool = nullptr;
-    std::vector<vk::raii::CommandBuffer> m_CommandBuffers;
-    std::vector<vk::raii::Buffer> m_UniformBuffers;
-    std::vector<vk::raii::DeviceMemory> m_UniformBuffersMemory;
-    std::vector<void*> m_UniformBuffersMapping;
     UniformBufferObject m_UBO = {};
     vk::raii::Image m_TextureImage = nullptr;
     vk::raii::DeviceMemory m_TextureImageMemory = nullptr;
@@ -1408,9 +1371,8 @@ private:
     uint32_t m_QueueIndex = ~0;
     uint32_t m_MinImageCount = 0;
 
-    std::vector<vk::raii::Semaphore> m_PresentCompleteSemaphores;
+    std::array<FrameData, MAX_FRAMES_IN_FLIGHT> m_Frames;
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
-    std::vector<vk::raii::Fence> m_DrawFences;
 
     std::unique_ptr<Model> m_Model = nullptr;
 
