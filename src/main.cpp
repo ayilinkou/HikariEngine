@@ -32,6 +32,7 @@
 #include "Model.h"
 #include "Utility.h"
 #include "Vertex.h"
+#include "Texture.h"
 
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
@@ -1084,7 +1085,7 @@ private:
                 .range = sizeof(UniformBufferObject)};
             vk::DescriptorImageInfo imageInfo{
                 .sampler = m_TextureSampler,
-                .imageView = m_TextureImageView,
+                .imageView = m_Texture.GetImageView(),
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
             std::array descriptorWrites = {
@@ -1138,16 +1139,16 @@ private:
                     vk::ImageTiling::eOptimal,
                     vk::ImageUsageFlagBits::eTransferDst |
                         vk::ImageUsageFlagBits::eSampled,
-                    vk::MemoryPropertyFlagBits::eDeviceLocal, m_TextureImage,
-                    m_TextureImageMemory);
+                    vk::MemoryPropertyFlagBits::eDeviceLocal, m_Texture.GetImage(),
+                    m_Texture.GetImageMemory());
 
-        TransitionImageLayout(m_TextureImage, vk::ImageLayout::eUndefined,
+        TransitionImageLayout(m_Texture.GetImage(), vk::ImageLayout::eUndefined,
                               vk::ImageLayout::eTransferDstOptimal,
                               vk::ImageAspectFlagBits::eColor);
-        CopyBufferToImage(stagingBuffer, m_TextureImage,
+        CopyBufferToImage(stagingBuffer, m_Texture.GetImage(),
                           static_cast<uint32_t>(width),
                           static_cast<uint32_t>(height));
-        TransitionImageLayout(m_TextureImage,
+        TransitionImageLayout(m_Texture.GetImage(),
                               vk::ImageLayout::eTransferDstOptimal,
                               vk::ImageLayout::eShaderReadOnlyOptimal,
                               vk::ImageAspectFlagBits::eColor);
@@ -1256,8 +1257,8 @@ private:
 
     void CreateTextureImageView()
     {
-        m_TextureImageView =
-            CreateImageView(m_TextureImage, vk::Format::eR8G8B8A8Srgb,
+		vk::raii::ImageView& imageView = m_Texture.GetImageView();
+		imageView = CreateImageView(m_Texture.GetImage(), vk::Format::eR8G8B8A8Srgb,
                             vk::ImageAspectFlagBits::eColor);
     }
 
@@ -1352,10 +1353,8 @@ private:
     vk::raii::Pipeline m_GraphicsPipeline = nullptr;
     vk::raii::CommandPool m_CommandPool = nullptr;
     UniformBufferObject m_UBO = {};
-    vk::raii::Image m_TextureImage = nullptr;
-    vk::raii::DeviceMemory m_TextureImageMemory = nullptr;
-    vk::raii::ImageView m_TextureImageView = nullptr;
-    vk::raii::Sampler m_TextureSampler = nullptr;
+	Texture m_Texture = {};
+	vk::raii::Sampler m_TextureSampler = nullptr;
     vk::raii::DescriptorPool m_DescriptorPool = nullptr;
     std::vector<vk::raii::DescriptorSet> m_DescriptorSets;
     vk::raii::Image m_DepthImage = nullptr;
