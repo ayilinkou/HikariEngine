@@ -78,7 +78,8 @@ ChooseSwapchainExtent(const vk::SurfaceCapabilitiesKHR& capabilities,
 }
 
 // Tries to get at least 3 images.
-inline uint32_t ChooseSwapMinImageCount(const vk::SurfaceCapabilitiesKHR& capabilities)
+inline uint32_t
+ChooseSwapMinImageCount(const vk::SurfaceCapabilitiesKHR& capabilities)
 {
     uint32_t minCount = std::max(3u, capabilities.minImageCount);
 
@@ -90,7 +91,8 @@ inline uint32_t ChooseSwapMinImageCount(const vk::SurfaceCapabilitiesKHR& capabi
 }
 
 inline uint32_t FindMemoryType(vk::raii::PhysicalDevice physicalDevice,
-                        uint32_t typeFilter, vk::MemoryPropertyFlags properties)
+                               uint32_t typeFilter,
+                               vk::MemoryPropertyFlags properties)
 {
     vk::PhysicalDeviceMemoryProperties memProperties =
         physicalDevice.getMemoryProperties();
@@ -105,10 +107,11 @@ inline uint32_t FindMemoryType(vk::raii::PhysicalDevice physicalDevice,
 }
 
 inline void CreateBuffer(vk::raii::Device& device,
-                  vk::raii::PhysicalDevice& physicalDevice, vk::DeviceSize size,
-                  vk::BufferUsageFlags usage,
-                  vk::MemoryPropertyFlags properties, vk::raii::Buffer& buffer,
-                  vk::raii::DeviceMemory& bufferMemory)
+                         vk::raii::PhysicalDevice& physicalDevice,
+                         vk::DeviceSize size, vk::BufferUsageFlags usage,
+                         vk::MemoryPropertyFlags properties,
+                         vk::raii::Buffer& buffer,
+                         vk::raii::DeviceMemory& bufferMemory)
 {
     vk::BufferCreateInfo bufferInfo{.size = size,
                                     .usage = usage,
@@ -142,7 +145,7 @@ BeginSingleTimeCommand(vk::raii::Device& device,
 }
 
 inline void EndSingleTimeCommand(vk::raii::CommandBuffer& commandBuffer,
-                          vk::raii::Queue queue)
+                                 vk::raii::Queue queue)
 {
     commandBuffer.end();
     vk::SubmitInfo submitInfo{.commandBufferCount = 1,
@@ -150,13 +153,131 @@ inline void EndSingleTimeCommand(vk::raii::CommandBuffer& commandBuffer,
     queue.submit(submitInfo, nullptr);
     queue.waitIdle();
 }
-inline void CopyBuffer(vk::raii::Device& device, vk::raii::CommandPool& commandPool,
-                vk::raii::Queue& transferQueue, vk::raii::Buffer& srcBuffer,
-                vk::raii::Buffer& dstBuffer, vk::DeviceSize size)
+
+inline void CopyBuffer(vk::raii::Device& device,
+                       vk::raii::CommandPool& commandPool,
+                       vk::raii::Queue& transferQueue,
+                       vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer,
+                       vk::DeviceSize size)
 {
     vk::raii::CommandBuffer commandCopyBuffer =
         BeginSingleTimeCommand(device, commandPool);
     commandCopyBuffer.copyBuffer(srcBuffer, dstBuffer,
                                  vk::BufferCopy{0, 0, size});
     EndSingleTimeCommand(commandCopyBuffer, transferQueue);
+}
+
+[[nodiscard]] inline vk::raii::ImageView
+CreateImageView(vk::raii::Device& device, const vk::Image& image,
+                vk::Format format, vk::ImageAspectFlags aspectFlags)
+{
+    vk::ImageViewCreateInfo createInfo{
+        .image = image,
+        .viewType = vk::ImageViewType::e2D,
+        .format = format,
+        .subresourceRange = {aspectFlags, 0, 1, 0, 1}};
+    return vk::raii::ImageView(device, createInfo);
+}
+
+inline void CreateImage(vk::raii::Device& device,
+                 vk::raii::PhysicalDevice& physicalDevice, uint32_t width,
+                 uint32_t height, vk::Format format, vk::ImageTiling tiling,
+                 vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties,
+                 vk::raii::Image& image, vk::raii::DeviceMemory& imageMemory)
+{
+    vk::ImageCreateInfo createInfo{.imageType = vk::ImageType::e2D,
+                                   .format = format,
+                                   .extent = {width, height, 1},
+                                   .mipLevels = 1,
+                                   .arrayLayers = 1,
+                                   .samples = vk::SampleCountFlagBits::e1,
+                                   .tiling = tiling,
+                                   .usage = usage,
+                                   .sharingMode = vk::SharingMode::eExclusive};
+    image = vk::raii::Image(device, createInfo);
+
+    vk::MemoryRequirements memRequirements = image.getMemoryRequirements();
+    vk::MemoryAllocateInfo allocInfo{
+        .allocationSize = memRequirements.size,
+        .memoryTypeIndex = FindMemoryType(
+            physicalDevice, memRequirements.memoryTypeBits, properties)};
+    imageMemory = vk::raii::DeviceMemory(device, allocInfo);
+    image.bindMemory(imageMemory, 0);
+}
+
+inline void TransitionImageLayout(vk::raii::Device& device,
+                           vk::raii::CommandPool& commandPool,
+                           vk::raii::Queue& transferQueue,
+                           const vk::raii::Image& image,
+                           vk::ImageLayout oldLayout, vk::ImageLayout newLayout,
+                           vk::ImageAspectFlags aspectFlags)
+{
+    auto commandBuffer = BeginSingleTimeCommand(device, commandPool);
+    vk::ImageMemoryBarrier2 barrier{
+        .oldLayout = oldLayout,
+        .newLayout = newLayout,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange = {aspectFlags, 0, 1, 0, 1}};
+
+    if (oldLayout == vk::ImageLayout::eUndefined &&
+        newLayout == vk::ImageLayout::eTransferDstOptimal)
+    {
+        barrier.srcAccessMask = vk::AccessFlagBits2::eHostWrite;
+        barrier.dstAccessMask = vk::AccessFlagBits2::eTransferWrite;
+
+        barrier.srcStageMask = vk::PipelineStageFlagBits2::eHost;
+        barrier.dstStageMask = vk::PipelineStageFlagBits2::eTransfer;
+    }
+    else if (oldLayout == vk::ImageLayout::eTransferDstOptimal &&
+             newLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
+    {
+        barrier.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
+        barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
+
+        barrier.srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
+        barrier.dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
+    }
+    else if (newLayout == vk::ImageLayout::eDepthAttachmentOptimal &&
+             aspectFlags == vk::ImageAspectFlagBits::eDepth)
+    {
+        barrier.srcAccessMask =
+            vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+        barrier.dstAccessMask =
+            vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+
+        barrier.srcStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                               vk::PipelineStageFlagBits2::eLateFragmentTests;
+        barrier.dstStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                               vk::PipelineStageFlagBits2::eLateFragmentTests;
+    }
+    else
+    {
+        throw std::runtime_error("Unsupported layout transition!");
+    }
+
+    vk::DependencyInfo dependencyInfo{.imageMemoryBarrierCount = 1,
+                                      .pImageMemoryBarriers = &barrier};
+    commandBuffer.pipelineBarrier2(dependencyInfo);
+    EndSingleTimeCommand(commandBuffer, transferQueue);
+}
+
+inline void CopyBufferToImage(vk::raii::Device& device,
+                       vk::raii::CommandPool& commandPool,
+                       vk::raii::Queue& transferQueue,
+                       const vk::raii::Buffer& buffer, vk::raii::Image& image,
+                       uint32_t width, uint32_t height)
+{
+    auto commandBuffer = BeginSingleTimeCommand(device, commandPool);
+    vk::BufferImageCopy region{
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {width, height, 1}};
+    commandBuffer.copyBufferToImage(
+        buffer, image, vk::ImageLayout::eTransferDstOptimal, {region});
+    EndSingleTimeCommand(commandBuffer, transferQueue);
 }

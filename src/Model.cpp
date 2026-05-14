@@ -51,8 +51,6 @@ void Model::LoadModel(vk::raii::Device& device,
     CreateIndexBuffer(device, physicalDevice, commandPool, transferQueue);
 }
 
-void Model::Shutdown() {}
-
 void Model::CreateVertexBuffer(vk::raii::Device& device,
                                vk::raii::PhysicalDevice& physicalDevice,
                                vk::raii::CommandPool& commandPool,
