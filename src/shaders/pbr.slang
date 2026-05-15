@@ -45,13 +45,17 @@ static const float PI = 3.14159265359f;
 [shader("vertex")]
 VS_Out vertMain(VS_In v)
 {
+	bool bTwoSided = false; // TODO: add as material property
+
 	VS_Out o;
 	float4 worldPos = mul(ubo.Models[v.InstanceID], float4(v.Pos, 1.f));
 	o.Pos = mul(ubo.Proj, mul(ubo.View, worldPos));
 	o.WorldPos = worldPos.xyz;
 	o.Color = v.Color;
 	o.TexCoord = v.TexCoord;
-	o.Normal = mul(ubo.Models[v.InstanceID], float4(v.Normal, 0.f)).xyz; // TODO: fix for non-uniform scaling
+
+	float3 normal = bTwoSided ? v.Normal * (-1.f) : v.Normal;
+	o.Normal = mul(ubo.Models[v.InstanceID], float4(normal, 0.f)).xyz; // TODO: fix for non-uniform scaling
 	o.InstanceID = v.InstanceID;
 	return o;
 }
