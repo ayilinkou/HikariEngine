@@ -1,6 +1,3 @@
-#define INSTANCES_PER_SIDE 5
-#define INSTANCE_COUNT (INSTANCES_PER_SIDE * INSTANCES_PER_SIDE)
-
 struct PointLight
 {
 	float3 Pos;
@@ -11,7 +8,7 @@ struct PointLight
 
 struct UniformBuffer
 {
-	float4x4 Models[INSTANCE_COUNT];
+	float4x4 Model;
 	float4x4 View;
 	float4x4 Proj;
 	PointLight Light;
@@ -19,15 +16,16 @@ struct UniformBuffer
 	float Time;
 };
 
+[[vk::binding(0, 0)]]
 ConstantBuffer<UniformBuffer> ubo;
 
 struct VS_In
 {
-	uint InstanceID : SV_InstanceID;
 	float3 Pos;
 	float3 Color;
 	float2 TexCoord;
 	float3 Normal;
+	float3 Tangent;
 };
 
 struct VS_Out
@@ -37,26 +35,64 @@ struct VS_Out
 	float3 Color;
 	float2 TexCoord;
 	float3 Normal;
-	uint InstanceID;
+	float3 Tangent;
 };
 
 static const float PI = 3.14159265359f;
 
+// from https://gist.github.com/mattatz/86fff4b32d198d0928d0fa4ff32cf6fa
+float4x4 inverse(float4x4 m)
+{
+	float n11 = m[0][0], n12 = m[1][0], n13 = m[2][0], n14 = m[3][0];
+	float n21 = m[0][1], n22 = m[1][1], n23 = m[2][1], n24 = m[3][1];
+	float n31 = m[0][2], n32 = m[1][2], n33 = m[2][2], n34 = m[3][2];
+	float n41 = m[0][3], n42 = m[1][3], n43 = m[2][3], n44 = m[3][3];
+
+	float t11 = n23 * n34 * n42 - n24 * n33 * n42 + n24 * n32 * n43 - n22 * n34 * n43 - n23 * n32 * n44 + n22 * n33 * n44;
+	float t12 = n14 * n33 * n42 - n13 * n34 * n42 - n14 * n32 * n43 + n12 * n34 * n43 + n13 * n32 * n44 - n12 * n33 * n44;
+	float t13 = n13 * n24 * n42 - n14 * n23 * n42 + n14 * n22 * n43 - n12 * n24 * n43 - n13 * n22 * n44 + n12 * n23 * n44;
+	float t14 = n14 * n23 * n32 - n13 * n24 * n32 - n14 * n22 * n33 + n12 * n24 * n33 + n13 * n22 * n34 - n12 * n23 * n34;
+
+	float det = n11 * t11 + n21 * t12 + n31 * t13 + n41 * t14;
+	float idet = 1.0f / det;
+
+	float4x4 ret;
+
+	ret[0][0] = t11 * idet;
+	ret[0][1] = (n24 * n33 * n41 - n23 * n34 * n41 - n24 * n31 * n43 + n21 * n34 * n43 + n23 * n31 * n44 - n21 * n33 * n44) * idet;
+	ret[0][2] = (n22 * n34 * n41 - n24 * n32 * n41 + n24 * n31 * n42 - n21 * n34 * n42 - n22 * n31 * n44 + n21 * n32 * n44) * idet;
+	ret[0][3] = (n23 * n32 * n41 - n22 * n33 * n41 - n23 * n31 * n42 + n21 * n33 * n42 + n22 * n31 * n43 - n21 * n32 * n43) * idet;
+
+	ret[1][0] = t12 * idet;
+	ret[1][1] = (n13 * n34 * n41 - n14 * n33 * n41 + n14 * n31 * n43 - n11 * n34 * n43 - n13 * n31 * n44 + n11 * n33 * n44) * idet;
+	ret[1][2] = (n14 * n32 * n41 - n12 * n34 * n41 - n14 * n31 * n42 + n11 * n34 * n42 + n12 * n31 * n44 - n11 * n32 * n44) * idet;
+	ret[1][3] = (n12 * n33 * n41 - n13 * n32 * n41 + n13 * n31 * n42 - n11 * n33 * n42 - n12 * n31 * n43 + n11 * n32 * n43) * idet;
+
+	ret[2][0] = t13 * idet;
+	ret[2][1] = (n14 * n23 * n41 - n13 * n24 * n41 - n14 * n21 * n43 + n11 * n24 * n43 + n13 * n21 * n44 - n11 * n23 * n44) * idet;
+	ret[2][2] = (n12 * n24 * n41 - n14 * n22 * n41 + n14 * n21 * n42 - n11 * n24 * n42 - n12 * n21 * n44 + n11 * n22 * n44) * idet;
+	ret[2][3] = (n13 * n22 * n41 - n12 * n23 * n41 - n13 * n21 * n42 + n11 * n23 * n42 + n12 * n21 * n43 - n11 * n22 * n43) * idet;
+
+	ret[3][0] = t14 * idet;
+	ret[3][1] = (n13 * n24 * n31 - n14 * n23 * n31 + n14 * n21 * n33 - n11 * n24 * n33 - n13 * n21 * n34 + n11 * n23 * n34) * idet;
+	ret[3][2] = (n14 * n22 * n31 - n12 * n24 * n31 - n14 * n21 * n32 + n11 * n24 * n32 + n12 * n21 * n34 - n11 * n22 * n34) * idet;
+	ret[3][3] = (n12 * n23 * n31 - n13 * n22 * n31 + n13 * n21 * n32 - n11 * n23 * n32 - n12 * n21 * n33 + n11 * n22 * n33) * idet;
+
+	return ret;
+}
+
 [shader("vertex")]
 VS_Out vertMain(VS_In v)
 {
-	bool bTwoSided = false; // TODO: add as material property
-
 	VS_Out o;
-	float4 worldPos = mul(ubo.Models[v.InstanceID], float4(v.Pos, 1.f));
+	float4 worldPos = mul(ubo.Model, float4(v.Pos, 1.f));
 	o.Pos = mul(ubo.Proj, mul(ubo.View, worldPos));
 	o.WorldPos = worldPos.xyz;
 	o.Color = v.Color;
 	o.TexCoord = v.TexCoord;
-
-	float3 normal = bTwoSided ? v.Normal * (-1.f) : v.Normal;
-	o.Normal = mul(ubo.Models[v.InstanceID], float4(normal, 0.f)).xyz; // TODO: fix for non-uniform scaling
-	o.InstanceID = v.InstanceID;
+	float3x3 inverseTransposeMatrix = transpose((float3x3)inverse(ubo.Model));
+	o.Normal = mul(inverseTransposeMatrix, v.Normal);
+	o.Tangent = mul(inverseTransposeMatrix, v.Tangent);
 	return o;
 }
 
@@ -164,37 +200,63 @@ float CalcAttenuation(float3 FragPos, float3 LightPos)
 	return 1.f / (Distance * Distance);
 }
 
-Sampler2D texture;
+// [[vk::binding(binding, set)]]
+[[vk::binding(1, 0)]]
+Sampler2D albedoTex;
+[[vk::binding(2, 0)]]
+Sampler2D normalTex;
+[[vk::binding(3, 0)]]
+Sampler2D roughnessTex;
+[[vk::binding(4, 0)]]
+Sampler2D metallicTex;
+[[vk::binding(5, 0)]]
+Sampler2D aoTex;
 
 [shader("fragment")]
 float4 fragMain(VS_Out f) : SV_Target
 {
 	// TODO: move all these to UBO
 	float3 CamPos = float3(0.f);
-	float3 albedo = f.Color;
-	float ao = 1.f;
-	float interval = 1.f / (INSTANCES_PER_SIDE - 1.f);
-	float roughness = max((f.InstanceID % INSTANCES_PER_SIDE) * interval, 0.1f);
-	float metallic = max((f.InstanceID / INSTANCES_PER_SIDE) * interval, 0.1f);
+	bool bTwoSided = false;
+	float3 albedo = albedoTex.Sample(f.TexCoord).rgb;
+	float ao = aoTex.Sample(f.TexCoord).r;
+	float roughness = roughnessTex.Sample(f.TexCoord).r;
+	float metallic = metallicTex.Sample(f.TexCoord).r;
 
-	float3 Lo = float3(0.f, 0.f, 0.f);
+	float3 vertexNormal = normalize(f.Normal);
+	float3 camToFrag = normalize(f.WorldPos - CamPos);
+	float viewNormalAlignment = dot(camToFrag, vertexNormal); 
+	bool bNormalNeedsFlip = bTwoSided && (viewNormalAlignment > 0.f);
+
+	float3 tangentNormal = normalTex.Sample(f.TexCoord).xyz; // packed tangent space normal
+	//tangentNormal = tangentNormal * 2.f - 1.f; // unpacked tangent space
+	float3 T = normalize(f.Tangent);
+	T = normalize(T - vertexNormal * dot(T, vertexNormal)); // re-orthogonalise tangent
+	float3 B = cross(vertexNormal, T); // might need to flip
+
+	float3x3 TBN = float3x3(T, B, vertexNormal);
+	float3 N = normalize(mul(TBN, tangentNormal)); // world space normal
+	
+	N = bNormalNeedsFlip ? -1.f * N : N;
+
+	return float4(N, 1.f); // TODO: fix incorrect world space normal
 
 	float attenuation = CalcAttenuation(f.WorldPos, ubo.Light.Pos);
 	float3 Li = ubo.Light.Color * ubo.Light.Intensity * attenuation; // light radiance
-	float3 N = normalize(f.Normal); // normal
-	float3 V = normalize(CamPos - f.WorldPos); // view vector
+	float3 V = -1.f * camToFrag; // view vector
 	float3 L = normalize(ubo.Light.Pos - f.WorldPos); // light vector
 	float3 H = normalize(L + V); // halfway vector
 	float NdotL = saturate(dot(N, L));
 	float NdotH = saturate(dot(N, H));
 	float3 BRDF = CookTorrenceBRDF(N, V, L, H, albedo, roughness, metallic);
 
+	float3 Lo = float3(0.f, 0.f, 0.f);
 	Lo += BRDF * Li * NdotL;
 	
 	float3 ambient = 0.01f * albedo * ao;
 	float3 color = ambient + Lo;
-	color = HillACES(color);
-	color = pow(color, float3(1.f / 2.2f));
+	color = HillACES(color); // tone mapping
+	color = pow(color, float3(1.f / 2.2f)); // gamma correction
 
 	return float4(ambient + Lo, 1.f);
 }

@@ -1,3 +1,6 @@
+#include <iostream>
+#include <format>
+
 #include "Texture.h"
 #include "Utility.h"
 
@@ -10,8 +13,9 @@ void Texture::LoadTexture(vk::raii::Device& device,
                           vk::raii::Queue& transferQueue,
                           const std::string& path)
 {
+	std::cout << std::format("Loading texture: {}", path.c_str()) << "\n";
+	
     m_Name = path;
-
     CreateTextureImage(device, physicalDevice, commandPool, transferQueue,
                        path);
 }

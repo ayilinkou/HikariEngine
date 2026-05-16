@@ -35,6 +35,11 @@ void Model::LoadModel(vk::raii::Device& device,
         v.Normal = {mesh->mNormals[i].x, mesh->mNormals[i].y,
                     mesh->mNormals[i].z};
 
+        assert(mesh->HasTangentsAndBitangents() &&
+               "Mesh does not have tangents and bitangents!");
+        v.Tangent = {mesh->mTangents[i].x, mesh->mTangents[i].y,
+                     mesh->mTangents[i].z};
+
         m_Vertices.push_back(v);
     }
 
@@ -105,5 +110,6 @@ void Model::CreateIndexBuffer(vk::raii::Device& device,
                  vk::MemoryPropertyFlagBits::eDeviceLocal, m_IndexBuffer,
                  m_IndexMemory);
 
-    CopyBuffer(device, commandPool, transferQueue, stagingBuffer, m_IndexBuffer, bufferSize);
+    CopyBuffer(device, commandPool, transferQueue, stagingBuffer, m_IndexBuffer,
+               bufferSize);
 }

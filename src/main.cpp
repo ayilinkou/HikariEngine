@@ -3,6 +3,7 @@
 #include <csignal>
 #include <cstdint>
 #include <format>
+#include <glm/trigonometric.hpp>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -34,10 +35,13 @@
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-const std::string MODEL_PATH = "models/sphere/scene.gltf";
-const std::string TEXTURE_PATH = "models/viking_room/textures/viking_room.png";
-constexpr uint32_t INSTANCES_PER_SIDE = 5;
-constexpr uint32_t INSTANCE_COUNT = INSTANCES_PER_SIDE * INSTANCES_PER_SIDE;
+const std::string MODEL_PATH = "models/pbr-case/case.fbx";
+const std::string ALBEDO_PATH = "models/pbr-case/textures/albedo.png";
+const std::string NORMAL_PATH = "models/pbr-case/textures/normal.png";
+const std::string ROUGHNESS_PATH = "models/pbr-case/textures/roughness.png";
+const std::string METALLIC_PATH = "models/pbr-case/textures/metallic.png";
+const std::string AO_PATH = "models/pbr-case/textures/ao.png";
+constexpr uint32_t PBR_TEXTURE_COUNT = 5;
 
 std::atomic<bool> gbShouldClose = false;
 
@@ -52,7 +56,7 @@ void HandleSIGINT(int)
 // glm::vec3 is 12 bytes wide by default but is 16 byte aligned.
 struct UniformBufferObject
 {
-    glm::mat4 Models[INSTANCE_COUNT];
+    glm::mat4 Model;
     glm::mat4 View;
     glm::mat4 Proj;
     PointLight Light;
@@ -252,9 +256,24 @@ private:
         CreateGraphicsPipeline();
         CreateCommandPool();
 
-		m_Texture = std::make_unique<Texture>();
-        m_Texture->LoadTexture(m_Device, m_PhysicalDevice, m_CommandPool,
-                               m_GraphicsQueue, TEXTURE_PATH);
+        m_TextureAlbedo = std::make_unique<Texture>();
+        m_TextureAlbedo->LoadTexture(m_Device, m_PhysicalDevice, m_CommandPool,
+                                     m_GraphicsQueue, ALBEDO_PATH);
+        m_TextureNormal = std::make_unique<Texture>();
+        m_TextureNormal->LoadTexture(m_Device, m_PhysicalDevice, m_CommandPool,
+                                     m_GraphicsQueue, NORMAL_PATH);
+        m_TextureRoughness = std::make_unique<Texture>();
+        m_TextureRoughness->LoadTexture(m_Device, m_PhysicalDevice,
+                                        m_CommandPool, m_GraphicsQueue,
+                                        ROUGHNESS_PATH);
+        m_TextureMetallic = std::make_unique<Texture>();
+        m_TextureMetallic->LoadTexture(m_Device, m_PhysicalDevice,
+                                       m_CommandPool, m_GraphicsQueue,
+                                       METALLIC_PATH);
+        m_TextureAO = std::make_unique<Texture>();
+        m_TextureAO->LoadTexture(m_Device, m_PhysicalDevice,
+                                       m_CommandPool, m_GraphicsQueue,
+                                       AO_PATH);
 
         CreateTextureSampler();
         CreateCommandBuffers();
@@ -847,8 +866,7 @@ private:
             *m_DescriptorSets[m_FrameIndex], nullptr);
 
         commandBuffer.drawIndexed(
-            static_cast<uint32_t>(m_Model->GetIndices().size()), INSTANCE_COUNT,
-            0, 0, 0);
+            static_cast<uint32_t>(m_Model->GetIndices().size()), 1, 0, 0, 0);
 
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *commandBuffer);
 
@@ -955,6 +973,18 @@ private:
                                    nullptr),
                                vk::DescriptorSetLayoutBinding(
                                    1, vk::DescriptorType::eCombinedImageSampler,
+                                   1, vk::ShaderStageFlagBits::eFragment),
+                               vk::DescriptorSetLayoutBinding(
+                                   2, vk::DescriptorType::eCombinedImageSampler,
+                                   1, vk::ShaderStageFlagBits::eFragment),
+                               vk::DescriptorSetLayoutBinding(
+                                   3, vk::DescriptorType::eCombinedImageSampler,
+                                   1, vk::ShaderStageFlagBits::eFragment),
+                               vk::DescriptorSetLayoutBinding(
+                                   4, vk::DescriptorType::eCombinedImageSampler,
+                                   1, vk::ShaderStageFlagBits::eFragment),
+                               vk::DescriptorSetLayoutBinding(
+                                   5, vk::DescriptorType::eCombinedImageSampler,
                                    1, vk::ShaderStageFlagBits::eFragment)};
         vk::DescriptorSetLayoutCreateInfo createInfo{
             .bindingCount = bindings.size(), .pBindings = bindings.data()};
@@ -990,25 +1020,9 @@ private:
 
         // In GLM, matrices are COLUMN MAJOR, and so must apply transformations
         // in reverse order.
-        for (size_t i = 0; i < INSTANCE_COUNT; i++)
-        {
-            const float GRID_SIZE = 10.f;
-            const float START = -GRID_SIZE / 2.f;
-            const float INTERVAL = GRID_SIZE / (INSTANCES_PER_SIDE - 1);
-            const float Z = -8.f;
-
-            int x = i % INSTANCES_PER_SIDE;
-            int y = i / INSTANCES_PER_SIDE;
-
-            glm::vec3 pos;
-            pos.x = START + x * INTERVAL;
-            pos.y = START + y * INTERVAL;
-            pos.z = Z;
-
-            m_UBO.Models[i] = glm::mat4(1.f);
-            m_UBO.Models[i] = glm::translate(m_UBO.Models[i], pos);
-            m_UBO.Models[i] = glm::scale(m_UBO.Models[i], {1.f, 1.f, 1.f});
-        }
+        m_UBO.Model = glm::mat4(1.f);
+        m_UBO.Model = glm::translate(m_UBO.Model, {0.f, 0.f, -10.f});
+        m_UBO.Model = glm::scale(m_UBO.Model, {7.f, 7.f, 7.f});
 
         m_UBO.View =
             glm::lookAt(glm::vec3(0.f, 0.f, 0.f), glm::vec3(0.f, 0.f, -1.f),
@@ -1038,6 +1052,15 @@ private:
                          currentTime - m_StartTime)
                          .count();
         m_UBO.Time = time;
+        m_UBO.Model = glm::mat4(1.f);
+        m_UBO.Model = glm::translate(m_UBO.Model, {0.f, 0.f, -2.f});
+        const float rotateSpeed = 30.f;
+        const float angle = std::fmod(time * rotateSpeed, 360.f);
+        m_UBO.Model =
+            glm::rotate(m_UBO.Model, glm::radians(angle), {0.f, 1.f, 0.f});
+        float scale = 0.01f;
+        m_UBO.Model = glm::scale(m_UBO.Model, {scale, scale, scale});
+
         memcpy(m_Frames[frameIndex].m_UniformBufferMapping, &m_UBO,
                sizeof(m_UBO));
     }
@@ -1049,7 +1072,7 @@ private:
                                    .descriptorCount = MAX_FRAMES_IN_FLIGHT},
             vk::DescriptorPoolSize{
                 .type = vk::DescriptorType::eCombinedImageSampler,
-                .descriptorCount = MAX_FRAMES_IN_FLIGHT}};
+                .descriptorCount = MAX_FRAMES_IN_FLIGHT * PBR_TEXTURE_COUNT}};
         vk::DescriptorPoolCreateInfo createInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
             .maxSets = MAX_FRAMES_IN_FLIGHT,
@@ -1078,9 +1101,25 @@ private:
                 .buffer = m_Frames[i].m_UniformBuffer,
                 .offset = 0,
                 .range = sizeof(UniformBufferObject)};
-            vk::DescriptorImageInfo imageInfo{
+            vk::DescriptorImageInfo albedoInfo{
                 .sampler = m_TextureSampler,
-                .imageView = m_Texture->GetImageView(),
+                .imageView = m_TextureAlbedo->GetImageView(),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+            vk::DescriptorImageInfo normalInfo{
+                .sampler = m_TextureSampler,
+                .imageView = m_TextureNormal->GetImageView(),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+            vk::DescriptorImageInfo roughnessInfo{
+                .sampler = m_TextureSampler,
+                .imageView = m_TextureRoughness->GetImageView(),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+            vk::DescriptorImageInfo metallicInfo{
+                .sampler = m_TextureSampler,
+                .imageView = m_TextureMetallic->GetImageView(),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+            vk::DescriptorImageInfo aoInfo{
+                .sampler = m_TextureSampler,
+                .imageView = m_TextureAO->GetImageView(),
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
             std::array descriptorWrites = {
@@ -1097,7 +1136,35 @@ private:
                     .dstArrayElement = 0,
                     .descriptorCount = 1,
                     .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo = &imageInfo}};
+                    .pImageInfo = &albedoInfo},
+                vk::WriteDescriptorSet{
+                    .dstSet = m_DescriptorSets[i],
+                    .dstBinding = 2,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                    .pImageInfo = &normalInfo},
+                vk::WriteDescriptorSet{
+                    .dstSet = m_DescriptorSets[i],
+                    .dstBinding = 3,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                    .pImageInfo = &roughnessInfo},
+                vk::WriteDescriptorSet{
+                    .dstSet = m_DescriptorSets[i],
+                    .dstBinding = 4,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                    .pImageInfo = &metallicInfo},
+                vk::WriteDescriptorSet{
+                    .dstSet = m_DescriptorSets[i],
+                    .dstBinding = 5,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                    .pImageInfo = &aoInfo}};
 
             m_Device.updateDescriptorSets(descriptorWrites, {});
         }
@@ -1209,7 +1276,11 @@ private:
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
 
     std::unique_ptr<Model> m_Model = nullptr;
-    std::unique_ptr<Texture> m_Texture = nullptr;
+    std::unique_ptr<Texture> m_TextureAlbedo = nullptr;
+    std::unique_ptr<Texture> m_TextureNormal = nullptr;
+    std::unique_ptr<Texture> m_TextureRoughness = nullptr;
+    std::unique_ptr<Texture> m_TextureMetallic = nullptr;
+    std::unique_ptr<Texture> m_TextureAO = nullptr;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
