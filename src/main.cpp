@@ -3,6 +3,7 @@
 #include <csignal>
 #include <cstdint>
 #include <format>
+#include <glm/matrix.hpp>
 #include <glm/trigonometric.hpp>
 #include <iostream>
 #include <limits>
@@ -43,11 +44,11 @@ const std::string METALLIC_PATH = "models/pbr-case/textures/metallic.png";
 const std::string AO_PATH = "models/pbr-case/textures/ao.png";
 constexpr uint32_t PBR_TEXTURE_COUNT = 5;
 
-std::atomic<bool> gbShouldClose = false;
+std::atomic<bool> g_bShouldClose = false;
 
 void HandleSIGINT(int)
 {
-    gbShouldClose = true;
+    g_bShouldClose = true;
     std::cout << "\n";
 }
 
@@ -59,6 +60,7 @@ struct UniformBufferObject
     glm::mat4 Model;
     glm::mat4 View;
     glm::mat4 Proj;
+    glm::mat4 NormalMatrix;
     PointLight Light;
     glm::vec3 SphereColor;
     float Time;
@@ -150,7 +152,7 @@ public:
 
         SDL_ShowWindow(m_pWindow);
 
-        while (!gbShouldClose)
+        while (!g_bShouldClose)
         {
             if (!m_bIsFocused)
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -163,7 +165,7 @@ public:
                 switch (event.type)
                 {
                 case SDL_EVENT_QUIT:
-                    gbShouldClose = true;
+                    g_bShouldClose = true;
                     break;
                 case SDL_EVENT_WINDOW_RESIZED:
                     RecreateSwapchainAndDepthStencil();
@@ -178,7 +180,7 @@ public:
                     break;
                 case SDL_EVENT_KEY_DOWN:
                     if (event.key.key == SDLK_ESCAPE)
-                        gbShouldClose = true;
+                        g_bShouldClose = true;
                     break;
                 }
             }
@@ -258,22 +260,24 @@ private:
 
         m_TextureAlbedo = std::make_unique<Texture>();
         m_TextureAlbedo->LoadTexture(m_Device, m_PhysicalDevice, m_CommandPool,
-                                     m_GraphicsQueue, ALBEDO_PATH);
+                                     m_GraphicsQueue, ALBEDO_PATH,
+                                     vk::Format::eR8G8B8A8Srgb);
         m_TextureNormal = std::make_unique<Texture>();
         m_TextureNormal->LoadTexture(m_Device, m_PhysicalDevice, m_CommandPool,
-                                     m_GraphicsQueue, NORMAL_PATH);
+                                     m_GraphicsQueue, NORMAL_PATH,
+                                     vk::Format::eR8G8B8A8Unorm);
         m_TextureRoughness = std::make_unique<Texture>();
-        m_TextureRoughness->LoadTexture(m_Device, m_PhysicalDevice,
-                                        m_CommandPool, m_GraphicsQueue,
-                                        ROUGHNESS_PATH);
+        m_TextureRoughness->LoadTexture(
+            m_Device, m_PhysicalDevice, m_CommandPool, m_GraphicsQueue,
+            ROUGHNESS_PATH, vk::Format::eR8G8B8A8Unorm);
         m_TextureMetallic = std::make_unique<Texture>();
-        m_TextureMetallic->LoadTexture(m_Device, m_PhysicalDevice,
-                                       m_CommandPool, m_GraphicsQueue,
-                                       METALLIC_PATH);
+        m_TextureMetallic->LoadTexture(
+            m_Device, m_PhysicalDevice, m_CommandPool, m_GraphicsQueue,
+            METALLIC_PATH, vk::Format::eR8G8B8A8Unorm);
         m_TextureAO = std::make_unique<Texture>();
-        m_TextureAO->LoadTexture(m_Device, m_PhysicalDevice,
-                                       m_CommandPool, m_GraphicsQueue,
-                                       AO_PATH);
+        m_TextureAO->LoadTexture(m_Device, m_PhysicalDevice, m_CommandPool,
+                                 m_GraphicsQueue, AO_PATH,
+                                 vk::Format::eR8G8B8A8Unorm);
 
         CreateTextureSampler();
         CreateCommandBuffers();
@@ -1060,6 +1064,8 @@ private:
             glm::rotate(m_UBO.Model, glm::radians(angle), {0.f, 1.f, 0.f});
         float scale = 0.01f;
         m_UBO.Model = glm::scale(m_UBO.Model, {scale, scale, scale});
+
+        m_UBO.NormalMatrix = glm::transpose(glm::inverse(m_UBO.Model));
 
         memcpy(m_Frames[frameIndex].m_UniformBufferMapping, &m_UBO,
                sizeof(m_UBO));

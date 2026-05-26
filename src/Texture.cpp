@@ -1,8 +1,9 @@
-#include <iostream>
 #include <format>
+#include <iostream>
 
 #include "Texture.h"
 #include "Utility.h"
+#include "vulkan/vulkan.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -11,20 +12,21 @@ void Texture::LoadTexture(vk::raii::Device& device,
                           vk::raii::PhysicalDevice& physicalDevice,
                           vk::raii::CommandPool& commandPool,
                           vk::raii::Queue& transferQueue,
-                          const std::string& path)
+                          const std::string& path, const vk::Format format)
 {
-	std::cout << std::format("Loading texture: {}", path.c_str()) << "\n";
-	
+    std::cout << std::format("Loading texture: {}", path.c_str()) << "\n";
+
     m_Name = path;
-    CreateTextureImage(device, physicalDevice, commandPool, transferQueue,
-                       path);
+    CreateTextureImage(device, physicalDevice, commandPool, transferQueue, path,
+                       format);
 }
 
 void Texture::CreateTextureImage(vk::raii::Device& device,
                                  vk::raii::PhysicalDevice& physicalDevice,
                                  vk::raii::CommandPool& commandPool,
                                  vk::raii::Queue& transferQueue,
-                                 const std::string& path)
+                                 const std::string& path,
+                                 const vk::Format format)
 {
     int width, height, channels;
     stbi_uc* pixels =
@@ -52,7 +54,7 @@ void Texture::CreateTextureImage(vk::raii::Device& device,
     stbi_image_free(pixels);
 
     CreateImage(
-        device, physicalDevice, width, height, vk::Format::eR8G8B8A8Srgb,
+        device, physicalDevice, width, height, format,
         vk::ImageTiling::eOptimal,
         vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
         vk::MemoryPropertyFlagBits::eDeviceLocal, m_Image, m_ImageMemory);
@@ -69,7 +71,6 @@ void Texture::CreateTextureImage(vk::raii::Device& device,
                           vk::ImageLayout::eShaderReadOnlyOptimal,
                           vk::ImageAspectFlagBits::eColor);
 
-    m_ImageView = CreateImageView(device, m_Image, vk::Format::eR8G8B8A8Srgb,
+    m_ImageView = CreateImageView(device, m_Image, format,
                                   vk::ImageAspectFlagBits::eColor);
 }
-
