@@ -161,15 +161,15 @@ float CalcAttenuation(float3 FragPos, float3 LightPos)
 }
 
 // [[vk::binding(binding, set)]]
-[[vk::binding(1, 0)]]
+[[vk::binding(0, 1)]]
 Sampler2D albedoTex;
-[[vk::binding(2, 0)]]
+[[vk::binding(1, 1)]]
 Sampler2D normalTex;
-[[vk::binding(3, 0)]]
+[[vk::binding(2, 1)]]
 Sampler2D roughnessTex;
-[[vk::binding(4, 0)]]
+[[vk::binding(3, 1)]]
 Sampler2D metallicTex;
-[[vk::binding(5, 0)]]
+[[vk::binding(4, 1)]]
 Sampler2D aoTex;
 
 [shader("fragment")]

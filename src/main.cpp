@@ -37,12 +37,8 @@ constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 const std::string MODEL_PATH = "models/pbr-case/case.fbx";
-const std::string ALBEDO_PATH = "models/pbr-case/textures/albedo.png";
-const std::string NORMAL_PATH = "models/pbr-case/textures/normal.png";
-const std::string ROUGHNESS_PATH = "models/pbr-case/textures/roughness.png";
-const std::string METALLIC_PATH = "models/pbr-case/textures/metallic.png";
-const std::string AO_PATH = "models/pbr-case/textures/ao.png";
 constexpr uint32_t PBR_TEXTURE_COUNT = 5;
+constexpr uint32_t MAX_MATERIAL_SET_COUNT = 10;
 
 std::atomic<bool> g_bShouldClose = false;
 
@@ -203,7 +199,8 @@ private:
 
         m_Model = std::make_unique<Model>();
         m_Model->LoadModel(m_Device, m_PhysicalDevice, m_CommandPool,
-                           m_GraphicsQueue, MODEL_PATH);
+                           m_GraphicsQueue, m_MaterialDescriptorPool,
+                           m_MaterialSetLayout, m_TextureSampler, MODEL_PATH);
 
         std::cout << "Init() succeeded.\n";
     }
@@ -254,30 +251,9 @@ private:
         CreateSwapchain();
         CreateSwapchainImageViews();
         CreateDepthResources();
-        CreateDescriptorSetLayout();
+        CreateDescriptorSetLayouts();
         CreateGraphicsPipeline();
         CreateCommandPool();
-
-        m_TextureAlbedo = std::make_unique<Texture>();
-        m_TextureAlbedo->LoadTexture(m_Device, m_PhysicalDevice, m_CommandPool,
-                                     m_GraphicsQueue, ALBEDO_PATH,
-                                     vk::Format::eR8G8B8A8Srgb);
-        m_TextureNormal = std::make_unique<Texture>();
-        m_TextureNormal->LoadTexture(m_Device, m_PhysicalDevice, m_CommandPool,
-                                     m_GraphicsQueue, NORMAL_PATH,
-                                     vk::Format::eR8G8B8A8Unorm);
-        m_TextureRoughness = std::make_unique<Texture>();
-        m_TextureRoughness->LoadTexture(
-            m_Device, m_PhysicalDevice, m_CommandPool, m_GraphicsQueue,
-            ROUGHNESS_PATH, vk::Format::eR8G8B8A8Unorm);
-        m_TextureMetallic = std::make_unique<Texture>();
-        m_TextureMetallic->LoadTexture(
-            m_Device, m_PhysicalDevice, m_CommandPool, m_GraphicsQueue,
-            METALLIC_PATH, vk::Format::eR8G8B8A8Unorm);
-        m_TextureAO = std::make_unique<Texture>();
-        m_TextureAO->LoadTexture(m_Device, m_PhysicalDevice, m_CommandPool,
-                                 m_GraphicsQueue, AO_PATH,
-                                 vk::Format::eR8G8B8A8Unorm);
 
         CreateTextureSampler();
         CreateCommandBuffers();
@@ -378,7 +354,8 @@ private:
             ImGui::Text("Light");
             ImGui::DragFloat3("Position", &m_UBO.Light.Pos.x, 0.5f);
             ImGui::ColorEdit3("Color##Light", &m_UBO.Light.Color.r);
-            ImGui::SliderFloat("Intensity", &m_UBO.Light.Intensity, 0.f, 10.f);
+            ImGui::SliderFloat("Intensity", &m_UBO.Light.Intensity, 0.f,
+                               1000.f);
 
             ImGui::Dummy(ImVec2(2.f, 0.f));
             ImGui::Text("Spheres");
@@ -753,9 +730,11 @@ private:
             .attachmentCount = 1,
             .pAttachments = &attachmentState};
 
+        vk::DescriptorSetLayout descriptorSetLayouts[] = {m_FrameSetLayout,
+                                                          m_MaterialSetLayout};
         vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
-            .setLayoutCount = 1,
-            .pSetLayouts = &*m_DescriptorSetLayout,
+            .setLayoutCount = 2,
+            .pSetLayouts = descriptorSetLayouts,
             .pushConstantRangeCount = 0};
         m_PipelineLayout =
             vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
@@ -867,10 +846,17 @@ private:
             0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
         commandBuffer.bindDescriptorSets(
             vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 0,
-            *m_DescriptorSets[m_FrameIndex], nullptr);
+            *m_FrameDescriptorSets[m_FrameIndex], nullptr);
 
-        commandBuffer.drawIndexed(
-            static_cast<uint32_t>(m_Model->GetIndices().size()), 1, 0, 0, 0);
+        {
+            // per object
+            commandBuffer.bindDescriptorSets(
+                vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
+                m_Model->GetDescriptorSet(), nullptr);
+            commandBuffer.drawIndexed(
+                static_cast<uint32_t>(m_Model->GetIndices().size()), 1, 0, 0,
+                0);
+        }
 
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *commandBuffer);
 
@@ -968,32 +954,40 @@ private:
         ImGui_ImplVulkan_SetMinImageCount(m_MinImageCount);
     }
 
-    void CreateDescriptorSetLayout()
+    void CreateDescriptorSetLayouts()
     {
-        std::array bindings = {vk::DescriptorSetLayoutBinding(
-                                   0, vk::DescriptorType::eUniformBuffer, 1,
-                                   vk::ShaderStageFlagBits::eVertex |
-                                       vk::ShaderStageFlagBits::eFragment,
-                                   nullptr),
-                               vk::DescriptorSetLayoutBinding(
-                                   1, vk::DescriptorType::eCombinedImageSampler,
-                                   1, vk::ShaderStageFlagBits::eFragment),
-                               vk::DescriptorSetLayoutBinding(
-                                   2, vk::DescriptorType::eCombinedImageSampler,
-                                   1, vk::ShaderStageFlagBits::eFragment),
-                               vk::DescriptorSetLayoutBinding(
-                                   3, vk::DescriptorType::eCombinedImageSampler,
-                                   1, vk::ShaderStageFlagBits::eFragment),
-                               vk::DescriptorSetLayoutBinding(
-                                   4, vk::DescriptorType::eCombinedImageSampler,
-                                   1, vk::ShaderStageFlagBits::eFragment),
-                               vk::DescriptorSetLayoutBinding(
-                                   5, vk::DescriptorType::eCombinedImageSampler,
-                                   1, vk::ShaderStageFlagBits::eFragment)};
-        vk::DescriptorSetLayoutCreateInfo createInfo{
-            .bindingCount = bindings.size(), .pBindings = bindings.data()};
-        m_DescriptorSetLayout =
-            vk::raii::DescriptorSetLayout(m_Device, createInfo);
+        std::array frameBindings = {vk::DescriptorSetLayoutBinding(
+            0, vk::DescriptorType::eUniformBuffer, 1,
+            vk::ShaderStageFlagBits::eVertex |
+                vk::ShaderStageFlagBits::eFragment,
+            nullptr)};
+        vk::DescriptorSetLayoutCreateInfo frameCreateInfo{
+            .bindingCount = frameBindings.size(),
+            .pBindings = frameBindings.data()};
+        m_FrameSetLayout =
+            vk::raii::DescriptorSetLayout(m_Device, frameCreateInfo);
+
+        std::array matBindings = {
+            vk::DescriptorSetLayoutBinding(
+                0, vk::DescriptorType::eCombinedImageSampler, 1,
+                vk::ShaderStageFlagBits::eFragment),
+            vk::DescriptorSetLayoutBinding(
+                1, vk::DescriptorType::eCombinedImageSampler, 1,
+                vk::ShaderStageFlagBits::eFragment),
+            vk::DescriptorSetLayoutBinding(
+                2, vk::DescriptorType::eCombinedImageSampler, 1,
+                vk::ShaderStageFlagBits::eFragment),
+            vk::DescriptorSetLayoutBinding(
+                3, vk::DescriptorType::eCombinedImageSampler, 1,
+                vk::ShaderStageFlagBits::eFragment),
+            vk::DescriptorSetLayoutBinding(
+                4, vk::DescriptorType::eCombinedImageSampler, 1,
+                vk::ShaderStageFlagBits::eFragment)};
+        vk::DescriptorSetLayoutCreateInfo matCreateInfo{
+            .bindingCount = matBindings.size(),
+            .pBindings = matBindings.data()};
+        m_MaterialSetLayout =
+            vk::raii::DescriptorSetLayout(m_Device, matCreateInfo);
     }
 
     void CreateUniformBuffers()
@@ -1015,15 +1009,15 @@ private:
 
             m_Frames[i].m_UniformBuffer = std::move(buffer);
             m_Frames[i].m_UniformBufferMemory = std::move(bufferMemory);
-            // Mapping once like this for the application's whole lifetime is
-            // called Persistent Mapping. Increases performance since mapping is
-            // not free.
+            // Mapping once like this for the application's whole lifetime
+            // is called Persistent Mapping. Increases performance since
+            // mapping is not free.
             m_Frames[i].m_UniformBufferMapping =
                 m_Frames[i].m_UniformBufferMemory.mapMemory(0, size);
         }
 
-        // In GLM, matrices are COLUMN MAJOR, and so must apply transformations
-        // in reverse order.
+        // In GLM, matrices are COLUMN MAJOR, and so must apply
+        // transformations in reverse order.
         m_UBO.Model = glm::mat4(1.f);
         m_UBO.Model = glm::translate(m_UBO.Model, {0.f, 0.f, -10.f});
         m_UBO.Model = glm::scale(m_UBO.Model, {7.f, 7.f, 7.f});
@@ -1036,8 +1030,8 @@ private:
                              static_cast<float>(m_SwapchainExtent.width) /
                                  static_cast<float>(m_SwapchainExtent.height),
                              0.1f, 100.f);
-        // GLM was designed for OpenGL, which has its Y coordinate in clip space
-        // inverted. Compensate for this by scaling here.
+        // GLM was designed for OpenGL, which has its Y coordinate in clip
+        // space inverted. Compensate for this by scaling here.
         m_UBO.Proj[1][1] *= -1.f;
 
         m_UBO.Light.Pos = {10.f, 0.f, 0.f};
@@ -1073,33 +1067,42 @@ private:
 
     void CreateDescriptorPool()
     {
-        std::array poolSize = {
+        std::array framePoolSize = {
             vk::DescriptorPoolSize{.type = vk::DescriptorType::eUniformBuffer,
-                                   .descriptorCount = MAX_FRAMES_IN_FLIGHT},
-            vk::DescriptorPoolSize{
-                .type = vk::DescriptorType::eCombinedImageSampler,
-                .descriptorCount = MAX_FRAMES_IN_FLIGHT * PBR_TEXTURE_COUNT}};
-        vk::DescriptorPoolCreateInfo createInfo{
+                                   .descriptorCount = MAX_FRAMES_IN_FLIGHT}};
+        vk::DescriptorPoolCreateInfo frameCreateInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
             .maxSets = MAX_FRAMES_IN_FLIGHT,
-            .poolSizeCount = poolSize.size(),
-            .pPoolSizes = poolSize.data()};
+            .poolSizeCount = framePoolSize.size(),
+            .pPoolSizes = framePoolSize.data()};
 
-        m_DescriptorPool = vk::raii::DescriptorPool(m_Device, createInfo);
+        m_FrameDescriptorPool = vk::raii::DescriptorPool(m_Device, frameCreateInfo);
+
+        std::array materialPoolSize = {vk::DescriptorPoolSize{
+            .type = vk::DescriptorType::eCombinedImageSampler,
+            .descriptorCount = PBR_TEXTURE_COUNT}};
+        vk::DescriptorPoolCreateInfo matCreateInfo{
+            .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+            .maxSets = MAX_MATERIAL_SET_COUNT,
+            .poolSizeCount = materialPoolSize.size(),
+            .pPoolSizes = materialPoolSize.data()};
+
+        m_MaterialDescriptorPool =
+            vk::raii::DescriptorPool(m_Device, matCreateInfo);
     }
 
     void CreateDescriptorSets()
     {
-        m_DescriptorSets.clear();
+        m_FrameDescriptorSets.clear();
 
         std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT,
-                                                     *m_DescriptorSetLayout);
+                                                     *m_FrameSetLayout);
         vk::DescriptorSetAllocateInfo allocInfo{
-            .descriptorPool = *m_DescriptorPool,
+            .descriptorPool = *m_FrameDescriptorPool,
             .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
             .pSetLayouts = layouts.data()};
 
-        m_DescriptorSets = m_Device.allocateDescriptorSets(allocInfo);
+        m_FrameDescriptorSets = m_Device.allocateDescriptorSets(allocInfo);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
@@ -1107,70 +1110,14 @@ private:
                 .buffer = m_Frames[i].m_UniformBuffer,
                 .offset = 0,
                 .range = sizeof(UniformBufferObject)};
-            vk::DescriptorImageInfo albedoInfo{
-                .sampler = m_TextureSampler,
-                .imageView = m_TextureAlbedo->GetImageView(),
-                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
-            vk::DescriptorImageInfo normalInfo{
-                .sampler = m_TextureSampler,
-                .imageView = m_TextureNormal->GetImageView(),
-                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
-            vk::DescriptorImageInfo roughnessInfo{
-                .sampler = m_TextureSampler,
-                .imageView = m_TextureRoughness->GetImageView(),
-                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
-            vk::DescriptorImageInfo metallicInfo{
-                .sampler = m_TextureSampler,
-                .imageView = m_TextureMetallic->GetImageView(),
-                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
-            vk::DescriptorImageInfo aoInfo{
-                .sampler = m_TextureSampler,
-                .imageView = m_TextureAO->GetImageView(),
-                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
-            std::array descriptorWrites = {
-                vk::WriteDescriptorSet{.dstSet = m_DescriptorSets[i],
-                                       .dstBinding = 0,
-                                       .dstArrayElement = 0,
-                                       .descriptorCount = 1,
-                                       .descriptorType =
-                                           vk::DescriptorType::eUniformBuffer,
-                                       .pBufferInfo = &bufferInfo},
-                vk::WriteDescriptorSet{
-                    .dstSet = m_DescriptorSets[i],
-                    .dstBinding = 1,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo = &albedoInfo},
-                vk::WriteDescriptorSet{
-                    .dstSet = m_DescriptorSets[i],
-                    .dstBinding = 2,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo = &normalInfo},
-                vk::WriteDescriptorSet{
-                    .dstSet = m_DescriptorSets[i],
-                    .dstBinding = 3,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo = &roughnessInfo},
-                vk::WriteDescriptorSet{
-                    .dstSet = m_DescriptorSets[i],
-                    .dstBinding = 4,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo = &metallicInfo},
-                vk::WriteDescriptorSet{
-                    .dstSet = m_DescriptorSets[i],
-                    .dstBinding = 5,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo = &aoInfo}};
+            std::array descriptorWrites = {vk::WriteDescriptorSet{
+                .dstSet = m_FrameDescriptorSets[i],
+                .dstBinding = 0,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = vk::DescriptorType::eUniformBuffer,
+                .pBufferInfo = &bufferInfo}};
 
             m_Device.updateDescriptorSets(descriptorWrites, {});
         }
@@ -1258,13 +1205,15 @@ private:
     vk::raii::Queue m_GraphicsQueue = nullptr;
     vk::raii::SwapchainKHR m_Swapchain = nullptr;
     vk::raii::PipelineLayout m_PipelineLayout = nullptr;
-    vk::raii::DescriptorSetLayout m_DescriptorSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout m_FrameSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout m_MaterialSetLayout = nullptr;
     vk::raii::Pipeline m_GraphicsPipeline = nullptr;
     vk::raii::CommandPool m_CommandPool = nullptr;
     UniformBufferObject m_UBO = {};
     vk::raii::Sampler m_TextureSampler = nullptr;
-    vk::raii::DescriptorPool m_DescriptorPool = nullptr;
-    std::vector<vk::raii::DescriptorSet> m_DescriptorSets;
+    vk::raii::DescriptorPool m_FrameDescriptorPool = nullptr;
+    vk::raii::DescriptorPool m_MaterialDescriptorPool = nullptr;
+    std::vector<vk::raii::DescriptorSet> m_FrameDescriptorSets;
     vk::raii::Image m_DepthImage = nullptr;
     vk::raii::DeviceMemory m_DepthImageMemory = nullptr;
     vk::raii::ImageView m_DepthImageView = nullptr;
@@ -1282,11 +1231,6 @@ private:
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
 
     std::unique_ptr<Model> m_Model = nullptr;
-    std::unique_ptr<Texture> m_TextureAlbedo = nullptr;
-    std::unique_ptr<Texture> m_TextureNormal = nullptr;
-    std::unique_ptr<Texture> m_TextureRoughness = nullptr;
-    std::unique_ptr<Texture> m_TextureMetallic = nullptr;
-    std::unique_ptr<Texture> m_TextureAO = nullptr;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
