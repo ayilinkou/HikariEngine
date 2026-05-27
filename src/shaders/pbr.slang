@@ -15,6 +15,8 @@ struct UniformBuffer
 	PointLight Light;
 	float3 SphereColor;
 	float Time;
+	float3 CameraPos;
+	float Padding;
 };
 
 [[vk::binding(0, 0)]]
@@ -176,15 +178,15 @@ Sampler2D aoTex;
 float4 fragMain(VS_Out f) : SV_Target
 {
 	// TODO: move all these to UBO
-	float3 CamPos = float3(0.f);
 	bool bTwoSided = false;
+	
 	float3 albedo = albedoTex.Sample(f.TexCoord).rgb;
 	float ao = aoTex.Sample(f.TexCoord).r;
 	float roughness = roughnessTex.Sample(f.TexCoord).r;
 	float metallic = metallicTex.Sample(f.TexCoord).r;
 
 	float3 vertexNormal = normalize(f.Normal);
-	float3 camToFrag = normalize(f.WorldPos - CamPos);
+	float3 camToFrag = normalize(f.WorldPos - ubo.CameraPos);
 	float viewNormalAlignment = dot(camToFrag, vertexNormal); 
 	bool bNormalNeedsFlip = bTwoSided && (viewNormalAlignment > 0.f);
 

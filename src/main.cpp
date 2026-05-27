@@ -3,8 +3,6 @@
 #include <csignal>
 #include <cstdint>
 #include <format>
-#include <glm/matrix.hpp>
-#include <glm/trigonometric.hpp>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -29,7 +27,6 @@
 #include "FrameData.h"
 #include "Lights.h"
 #include "Model.h"
-#include "Texture.h"
 #include "Utility.h"
 #include "Vertex.h"
 
@@ -60,6 +57,8 @@ struct UniformBufferObject
     PointLight Light;
     glm::vec3 SphereColor;
     float Time;
+    glm::vec3 CameraPos;
+    float Padding;
 };
 
 std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -1022,8 +1021,10 @@ private:
         m_UBO.Model = glm::translate(m_UBO.Model, {0.f, 0.f, -10.f});
         m_UBO.Model = glm::scale(m_UBO.Model, {7.f, 7.f, 7.f});
 
+		m_UBO.CameraPos = glm::vec3(0.f, 0.f, 0.f);
+
         m_UBO.View =
-            glm::lookAt(glm::vec3(0.f, 0.f, 0.f), glm::vec3(0.f, 0.f, -1.f),
+            glm::lookAt(m_UBO.CameraPos, glm::vec3(0.f, 0.f, -1.f),
                         glm::vec3(0.f, 1.f, 0.f));
         m_UBO.Proj =
             glm::perspective(glm::radians(90.f),
@@ -1076,7 +1077,8 @@ private:
             .poolSizeCount = framePoolSize.size(),
             .pPoolSizes = framePoolSize.data()};
 
-        m_FrameDescriptorPool = vk::raii::DescriptorPool(m_Device, frameCreateInfo);
+        m_FrameDescriptorPool =
+            vk::raii::DescriptorPool(m_Device, frameCreateInfo);
 
         std::array materialPoolSize = {vk::DescriptorPoolSize{
             .type = vk::DescriptorType::eCombinedImageSampler,
