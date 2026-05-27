@@ -11,12 +11,12 @@ enum TextureBinding : uint8_t
 {
     Albedo,
     Normal,
-    Roughness,
-    Metallic,
-    AO,
+    MetallicRoughness,
 
     COUNT
 };
+
+struct aiMaterial;
 
 class Model
 {
@@ -51,7 +51,7 @@ private:
     void LoadTextures(vk::raii::Device& device,
                       vk::raii::PhysicalDevice& physicalDevice,
                       vk::raii::CommandPool& commandPool,
-                      vk::raii::Queue& transferQueue);
+                      vk::raii::Queue& transferQueue, aiMaterial* mat);
     void CreateDescriptorSet(vk::raii::Device& device,
                              vk::raii::DescriptorPool& descriptorPool,
                              vk::raii::DescriptorSetLayout& materialSetLayout,
@@ -68,11 +68,10 @@ private:
 
     std::unique_ptr<Texture> m_Albedo = nullptr;
     std::unique_ptr<Texture> m_Normal = nullptr;
-    std::unique_ptr<Texture> m_Roughness = nullptr;
-    std::unique_ptr<Texture> m_Metallic = nullptr;
-    std::unique_ptr<Texture> m_AO = nullptr;
+    std::unique_ptr<Texture> m_MetallicRoughness = nullptr;
 
     vk::raii::DescriptorSet m_DescriptorSet = nullptr;
 
     std::string m_Name = "Name";
+	std::string m_Path = "";
 };

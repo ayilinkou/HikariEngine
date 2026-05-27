@@ -1,0 +1,11 @@
+Model Information:
+* title:	PBR Case
+* source:	https://sketchfab.com/3d-models/pbr-case-4a3faa2800f94f9c8c0ffe9ceed17a09
+* author:	Simon Coenen (https://sketchfab.com/simoncoenen)
+
+Model License:
+* license type:	CC-BY-NC-ND-4.0 (http://creativecommons.org/licenses/by-nc-nd/4.0/)
+* requirements:	Author must be credited. No commercial use. Modified versions can not be distributed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "PBR Case" (https://sketchfab.com/3d-models/pbr-case-4a3faa2800f94f9c8c0ffe9ceed17a09) by Simon Coenen (https://sketchfab.com/simoncoenen) licensed under CC-BY-NC-ND-4.0 (http://creativecommons.org/licenses/by-nc-nd/4.0/)

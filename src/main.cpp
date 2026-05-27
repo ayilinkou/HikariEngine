@@ -33,7 +33,7 @@
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-const std::string MODEL_PATH = "models/pbr-case/case.fbx";
+const std::string MODEL_PATH = "models/pbr_case/scene.gltf";
 constexpr uint32_t PBR_TEXTURE_COUNT = 5;
 constexpr uint32_t MAX_MATERIAL_SET_COUNT = 10;
 
@@ -55,10 +55,8 @@ struct UniformBufferObject
     glm::mat4 Proj;
     glm::mat4 NormalMatrix;
     PointLight Light;
-    glm::vec3 SphereColor;
+	glm::vec3 CameraPos;
     float Time;
-    glm::vec3 CameraPos;
-    float Padding;
 };
 
 std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -355,10 +353,6 @@ private:
             ImGui::ColorEdit3("Color##Light", &m_UBO.Light.Color.r);
             ImGui::SliderFloat("Intensity", &m_UBO.Light.Intensity, 0.f,
                                1000.f);
-
-            ImGui::Dummy(ImVec2(2.f, 0.f));
-            ImGui::Text("Spheres");
-            ImGui::ColorEdit3("Color##Spheres", &m_UBO.SphereColor.r);
         }
         ImGui::End();
 
@@ -807,7 +801,7 @@ private:
                               vk::ImageLayout::eDepthAttachmentOptimal,
                               vk::ImageAspectFlagBits::eDepth);
 
-        vk::ClearValue clearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 1.f);
+        vk::ClearValue clearColor = vk::ClearColorValue(0.4f, 0.8f, 1.f, 1.f);
         vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.f, 0);
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
             .imageView = m_SwapImageViews[imageIndex],
@@ -1040,8 +1034,6 @@ private:
         m_UBO.Light.Color = {1.f, 1.f, 1.f};
 
         m_UBO.Time = 0.f;
-
-        m_UBO.SphereColor = {1.f, 0.f, 0.f};
     }
 
     void UpdateUniformBuffer(uint32_t frameIndex)

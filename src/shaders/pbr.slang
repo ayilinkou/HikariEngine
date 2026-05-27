@@ -13,11 +13,9 @@ struct UniformBuffer
 	float4x4 Proj;
 	float4x4 NormalMatrix;
 	PointLight Light;
-	float3 SphereColor;
-	float Time;
 	float3 CameraPos;
-	float Padding;
-};
+	float Time;
+}
 
 [[vk::binding(0, 0)]]
 ConstantBuffer<UniformBuffer> ubo;
@@ -168,11 +166,7 @@ Sampler2D albedoTex;
 [[vk::binding(1, 1)]]
 Sampler2D normalTex;
 [[vk::binding(2, 1)]]
-Sampler2D roughnessTex;
-[[vk::binding(3, 1)]]
-Sampler2D metallicTex;
-[[vk::binding(4, 1)]]
-Sampler2D aoTex;
+Sampler2D metallicRoughnessTex;
 
 [shader("fragment")]
 float4 fragMain(VS_Out f) : SV_Target
@@ -181,9 +175,9 @@ float4 fragMain(VS_Out f) : SV_Target
 	bool bTwoSided = false;
 	
 	float3 albedo = albedoTex.Sample(f.TexCoord).rgb;
-	float ao = aoTex.Sample(f.TexCoord).r;
-	float roughness = roughnessTex.Sample(f.TexCoord).r;
-	float metallic = metallicTex.Sample(f.TexCoord).r;
+	float ao = 1.f;
+	float roughness = metallicRoughnessTex.Sample(f.TexCoord).g;
+	float metallic = metallicRoughnessTex.Sample(f.TexCoord).b;
 
 	float3 vertexNormal = normalize(f.Normal);
 	float3 camToFrag = normalize(f.WorldPos - ubo.CameraPos);
@@ -214,7 +208,7 @@ float4 fragMain(VS_Out f) : SV_Target
 	float3 Lo = float3(0.f, 0.f, 0.f);
 	Lo += BRDF * Li * NdotL;
 	
-	float3 ambient = 0.01f * albedo * ao;
+	float3 ambient = 0.05f * albedo * ao;
 	float3 color = ambient + Lo;
 	color = HillACES(color); // tone mapping
 	color = pow(color, float3(1.f / 2.2f)); // gamma correction
