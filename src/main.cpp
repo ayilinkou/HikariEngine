@@ -1,3 +1,5 @@
+#include <SDL3/SDL_keyboard.h>
+#include <SDL3/SDL_keycode.h>
 #include <algorithm>
 #include <chrono>
 #include <csignal>
@@ -24,6 +26,7 @@
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
 
+#include "Camera.h"
 #include "FrameData.h"
 #include "Lights.h"
 #include "Model.h"
@@ -55,7 +58,7 @@ struct UniformBufferObject
     glm::mat4 Proj;
     glm::mat4 NormalMatrix;
     PointLight Light;
-	glm::vec3 CameraPos;
+    glm::vec3 CameraPos;
     float Time;
 };
 
@@ -150,6 +153,13 @@ public:
             if (!m_bIsFocused)
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
+            auto now = std::chrono::high_resolution_clock::now();
+            m_DeltaTime =
+                std::chrono::duration<float, std::chrono::seconds::period>(
+                    now - m_LastTime)
+                    .count();
+            m_LastTime = now;
+
             SDL_Event event;
             while (SDL_PollEvent(&event))
             {
@@ -172,11 +182,13 @@ public:
                     std::cout << "Focus lost.\n";
                     break;
                 case SDL_EVENT_KEY_DOWN:
-                    if (event.key.key == SDLK_ESCAPE)
-                        g_bShouldClose = true;
+                    if (m_bIsFocused)
+                        HandleKey(event.key.key);
                     break;
                 }
             }
+
+            HandleMovement();
 
             DrawImGuiFrame();
             DrawFrame();
@@ -190,6 +202,7 @@ private:
     void Init()
     {
         m_StartTime = std::chrono::high_resolution_clock::now();
+        m_LastTime = m_StartTime;
 
         InitVulkan();
         InitImGui();
@@ -198,6 +211,8 @@ private:
         m_Model->LoadModel(m_Device, m_PhysicalDevice, m_CommandPool,
                            m_GraphicsQueue, m_MaterialDescriptorPool,
                            m_MaterialSetLayout, m_TextureSampler, MODEL_PATH);
+
+        m_Camera = std::make_unique<Camera>();
 
         std::cout << "Init() succeeded.\n";
     }
@@ -267,6 +282,45 @@ private:
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
+    }
+
+	// This includes OS key repeat delay.
+    void HandleKey(SDL_Keycode key)
+    {
+        switch (key)
+        {
+        case SDLK_ESCAPE:
+        {
+            g_bShouldClose = true;
+            break;
+        }
+        }
+    }
+
+	// Checking the state of the keys every frame, bypassing OS key repeat delay.
+    void HandleMovement()
+    {
+        const bool* state = SDL_GetKeyboardState(nullptr);
+        if (state[SDL_SCANCODE_A])
+        {
+            m_Camera->AddPositionOffset(glm::vec3(-1.f, 0.f, 0.f) *
+                                        m_Camera->GetSpeed() * m_DeltaTime);
+        }
+        if (state[SDL_SCANCODE_D])
+        {
+            m_Camera->AddPositionOffset(glm::vec3(1.f, 0.f, 0.f) *
+                                        m_Camera->GetSpeed() * m_DeltaTime);
+        }
+        if (state[SDL_SCANCODE_W])
+        {
+            m_Camera->AddPositionOffset(glm::vec3(0.f, 0.f, -1.f) *
+                                        m_Camera->GetSpeed() * m_DeltaTime);
+        }
+        if (state[SDL_SCANCODE_S])
+        {
+            m_Camera->AddPositionOffset(glm::vec3(0.f, 0.f, 1.f) *
+                                        m_Camera->GetSpeed() * m_DeltaTime);
+        }
     }
 
     void DrawFrame()
@@ -1015,11 +1069,10 @@ private:
         m_UBO.Model = glm::translate(m_UBO.Model, {0.f, 0.f, -10.f});
         m_UBO.Model = glm::scale(m_UBO.Model, {7.f, 7.f, 7.f});
 
-		m_UBO.CameraPos = glm::vec3(0.f, 0.f, 0.f);
+        m_UBO.CameraPos = glm::vec3(0.f, 0.f, 0.f);
 
-        m_UBO.View =
-            glm::lookAt(m_UBO.CameraPos, glm::vec3(0.f, 0.f, -1.f),
-                        glm::vec3(0.f, 1.f, 0.f));
+        m_UBO.View = glm::lookAt(m_UBO.CameraPos, glm::vec3(0.f, 0.f, -1.f),
+                                 glm::vec3(0.f, 1.f, 0.f));
         m_UBO.Proj =
             glm::perspective(glm::radians(90.f),
                              static_cast<float>(m_SwapchainExtent.width) /
@@ -1051,6 +1104,10 @@ private:
             glm::rotate(m_UBO.Model, glm::radians(angle), {0.f, 1.f, 0.f});
         float scale = 0.01f;
         m_UBO.Model = glm::scale(m_UBO.Model, {scale, scale, scale});
+
+        m_UBO.CameraPos = m_Camera->GetPosition();
+        m_UBO.View = glm::lookAt(m_UBO.CameraPos, glm::vec3(0.f, 0.f, -1.f),
+                                 glm::vec3(0.f, 1.f, 0.f));
 
         m_UBO.NormalMatrix = glm::transpose(glm::inverse(m_UBO.Model));
 
@@ -1224,6 +1281,7 @@ private:
     std::array<FrameData, MAX_FRAMES_IN_FLIGHT> m_Frames;
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
 
+    std::unique_ptr<Camera> m_Camera = nullptr;
     std::unique_ptr<Model> m_Model = nullptr;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
@@ -1231,6 +1289,8 @@ private:
     SDL_Window* m_pWindow = nullptr;
     bool m_bIsFocused = true;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
+    std::chrono::time_point<std::chrono::high_resolution_clock> m_LastTime;
+    float m_DeltaTime = 0.f;
 };
 
 int main()
