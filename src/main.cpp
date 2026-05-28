@@ -188,6 +188,7 @@ public:
                 }
             }
 
+            m_Camera->CalcViewMatrix();
             HandleMovement();
 
             DrawImGuiFrame();
@@ -284,7 +285,7 @@ private:
         ImGui::DestroyContext();
     }
 
-	// This includes OS key repeat delay.
+    // This includes OS key repeat delay.
     void HandleKey(SDL_Keycode key)
     {
         switch (key)
@@ -297,7 +298,8 @@ private:
         }
     }
 
-	// Checking the state of the keys every frame, bypassing OS key repeat delay.
+    // Checking the state of the keys every frame, bypassing OS key repeat
+    // delay.
     void HandleMovement()
     {
         const bool* state = SDL_GetKeyboardState(nullptr);
@@ -319,6 +321,16 @@ private:
         if (state[SDL_SCANCODE_S])
         {
             m_Camera->AddPositionOffset(glm::vec3(0.f, 0.f, 1.f) *
+                                        m_Camera->GetSpeed() * m_DeltaTime);
+        }
+		if (state[SDL_SCANCODE_Q])
+        {
+            m_Camera->AddPositionOffset(glm::vec3(0.f, -1.f, 0.f) *
+                                        m_Camera->GetSpeed() * m_DeltaTime);
+        }
+        if (state[SDL_SCANCODE_E])
+        {
+            m_Camera->AddPositionOffset(glm::vec3(0.f, 1.f, 0.f) *
                                         m_Camera->GetSpeed() * m_DeltaTime);
         }
     }
@@ -1106,8 +1118,7 @@ private:
         m_UBO.Model = glm::scale(m_UBO.Model, {scale, scale, scale});
 
         m_UBO.CameraPos = m_Camera->GetPosition();
-        m_UBO.View = glm::lookAt(m_UBO.CameraPos, glm::vec3(0.f, 0.f, -1.f),
-                                 glm::vec3(0.f, 1.f, 0.f));
+        m_UBO.View = m_Camera->GetViewMatrix();
 
         m_UBO.NormalMatrix = glm::transpose(glm::inverse(m_UBO.Model));
 
@@ -1297,15 +1308,18 @@ int main()
 {
     std::signal(SIGINT, HandleSIGINT);
 
-    SDL_Window* pWindow = nullptr;
+	// will be destroyed in reverse order of declaration
+    std::unique_ptr<SDL_Window, decltype(&ShutdownSDL)> pWindow(nullptr,
+                                                                &ShutdownSDL);
+    std::unique_ptr<App> pApp = nullptr;
 
     try
     {
         InitSDL();
-        pWindow = CreateSDLWindow();
+        pWindow.reset(CreateSDLWindow());
 
-        App app(pWindow);
-        app.Run();
+        pApp = std::make_unique<App>(pWindow.get());
+        pApp->Run();
     }
     catch (const SDLException& e)
     {
@@ -1325,8 +1339,8 @@ int main()
         return EXIT_FAILURE;
     }
 
-    ShutdownSDL(pWindow);
-    pWindow = nullptr;
+    pApp.reset();
+    pWindow.reset();
 
     std::cout << "Exiting gracefully..." << std::endl;
     return EXIT_SUCCESS;
