@@ -4,8 +4,8 @@ set(VCPKG_LIBRARY_LINKAGE dynamic)
 
 set(VCPKG_CMAKE_SYSTEM_NAME Linux)
 
-set(VCPKG_C_FLAGS "-fsanitize=address,undefined -fno-omit-frame-pointer")
-set(VCPKG_CXX_FLAGS "-fsanitize=address,undefined -fno-omit-frame-pointer")
+set(VCPKG_C_FLAGS "-fsanitize=address,undefined -fno-omit-frame-pointer -g")
+set(VCPKG_CXX_FLAGS "-fsanitize=address,undefined -fno-omit-frame-pointer -g")
 
 set(VCPKG_LINKER_FLAGS "-fsanitize=address,undefined")
 
