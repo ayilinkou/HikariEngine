@@ -161,6 +161,13 @@ public:
                     .count();
             m_LastTime = now;
 
+            const float smoothing = 0.9f;
+            float currentFrameTime = m_DeltaTime * 1000.f;
+			m_FrameTime = (m_FrameTime * smoothing) + (currentFrameTime * (1.f - smoothing));
+
+			float currentFPS = 1.f / m_DeltaTime;
+			m_FPS = (m_FPS * smoothing) + (currentFPS * (1.f - smoothing));
+
             SDL_Event event;
             while (SDL_PollEvent(&event))
             {
@@ -427,6 +434,10 @@ private:
             ImGui::ColorEdit3("Color##Light", &m_UBO.Light.Color.r);
             ImGui::SliderFloat("Intensity", &m_UBO.Light.Intensity, 0.f,
                                1000.f);
+
+            ImGui::Dummy(ImVec2(0.f, 20.f));
+            ImGui::Text("Frame time: %.4fms", m_FrameTime);
+            ImGui::Text("FPS: %.1f", m_FPS);
         }
         ImGui::End();
 
@@ -1310,6 +1321,8 @@ private:
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_LastTime;
     float m_DeltaTime = 0.f;
+    float m_FrameTime = 0.f;
+    float m_FPS = 0.f;
 };
 
 int main()
