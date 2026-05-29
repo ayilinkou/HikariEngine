@@ -16,6 +16,7 @@ MaterialFactory::MaterialFactory(vk::raii::Device& device,
       m_Sampler(sampler)
 {
     CreateDescriptorPool();
+	CreateDescriptorSetLayout();
 }
 
 void MaterialFactory::Init(vk::raii::Device& device,

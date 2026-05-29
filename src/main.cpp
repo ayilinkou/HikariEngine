@@ -1,3 +1,5 @@
+#include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_oldnames.h>
 #include <algorithm>
 #include <chrono>
 #include <csignal>
@@ -121,14 +123,17 @@ SDL_Window* CreateSDLWindow()
         throw SDLException("Failed to create window!");
 
     SDL_SetWindowFullscreen(window, false);
-
+    SDL_SetWindowRelativeMouseMode(window, true);
     return window;
 }
 
 void ShutdownSDL(SDL_Window* pWindow)
 {
     if (pWindow)
+    {
+        SDL_SetWindowRelativeMouseMode(pWindow, false);
         SDL_DestroyWindow(pWindow);
+    }
 
     SDL_Vulkan_UnloadLibrary();
     SDL_Quit();
@@ -174,6 +179,9 @@ public:
 
                 switch (event.type)
                 {
+                case SDL_EVENT_MOUSE_MOTION:
+                    HandleMouse(event.motion.xrel, event.motion.yrel);
+                    break;
                 case SDL_EVENT_QUIT:
                     g_bShouldClose = true;
                     break;
@@ -195,7 +203,7 @@ public:
                 }
             }
 
-            m_Camera->CalcViewMatrix();
+            m_Camera->Tick();
             HandleMovement();
 
             DrawImGuiFrame();
@@ -214,9 +222,6 @@ private:
 
         InitVulkan();
         InitImGui();
-
-        MaterialFactory::Init(m_Device, m_PhysicalDevice, m_CommandPool,
-                              m_GraphicsQueue, m_TextureSampler);
 
         m_Model = std::make_unique<Model>();
         m_Model->LoadModel(m_Device, m_PhysicalDevice, m_CommandPool,
@@ -274,10 +279,13 @@ private:
         CreateSwapchainImageViews();
         CreateDepthResources();
         CreateDescriptorSetLayouts();
-        CreateGraphicsPipeline();
         CreateCommandPool();
-
         CreateTextureSampler();
+
+        MaterialFactory::Init(m_Device, m_PhysicalDevice, m_CommandPool,
+                              m_GraphicsQueue, m_TextureSampler);
+
+        CreateGraphicsPipeline();
         CreateCommandBuffers();
         CreateUniformBuffers();
         CreateDescriptorPool();
@@ -287,7 +295,8 @@ private:
 
     void Shutdown()
     {
-        MaterialFactory::Shutdown();
+        m_Model.reset();
+		MaterialFactory::Shutdown();
         ShutdownImGui();
     }
 
@@ -297,6 +306,8 @@ private:
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
     }
+
+    void HandleMouse(float x, float y) { m_Camera->Rotate(x, y); }
 
     // This includes OS key repeat delay.
     void HandleKey(SDL_Keycode key)
@@ -318,33 +329,33 @@ private:
         const bool* state = SDL_GetKeyboardState(nullptr);
         if (state[SDL_SCANCODE_A])
         {
-            m_Camera->AddPositionOffset(glm::vec3(-1.f, 0.f, 0.f) *
-                                        m_Camera->GetSpeed() * m_DeltaTime);
+            m_Camera->AddPositionOffset(-m_Camera->GetRightVector() *
+                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
         }
         if (state[SDL_SCANCODE_D])
         {
-            m_Camera->AddPositionOffset(glm::vec3(1.f, 0.f, 0.f) *
-                                        m_Camera->GetSpeed() * m_DeltaTime);
+            m_Camera->AddPositionOffset(m_Camera->GetRightVector() *
+                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
         }
         if (state[SDL_SCANCODE_W])
         {
-            m_Camera->AddPositionOffset(glm::vec3(0.f, 0.f, -1.f) *
-                                        m_Camera->GetSpeed() * m_DeltaTime);
+			m_Camera->AddPositionOffset(m_Camera->GetForwardVector() *
+                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
         }
         if (state[SDL_SCANCODE_S])
         {
-            m_Camera->AddPositionOffset(glm::vec3(0.f, 0.f, 1.f) *
-                                        m_Camera->GetSpeed() * m_DeltaTime);
+            m_Camera->AddPositionOffset(-m_Camera->GetForwardVector() *
+                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
         }
         if (state[SDL_SCANCODE_Q])
         {
             m_Camera->AddPositionOffset(glm::vec3(0.f, -1.f, 0.f) *
-                                        m_Camera->GetSpeed() * m_DeltaTime);
+                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
         }
         if (state[SDL_SCANCODE_E])
         {
             m_Camera->AddPositionOffset(glm::vec3(0.f, 1.f, 0.f) *
-                                        m_Camera->GetSpeed() * m_DeltaTime);
+                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
         }
     }
 
@@ -1105,10 +1116,6 @@ private:
         m_UBO.Time = time;
         m_UBO.Model = glm::mat4(1.f);
         m_UBO.Model = glm::translate(m_UBO.Model, {0.f, 0.f, -2.f});
-        const float rotateSpeed = 30.f;
-        const float angle = std::fmod(time * rotateSpeed, 360.f);
-        m_UBO.Model =
-            glm::rotate(m_UBO.Model, glm::radians(angle), {0.f, 1.f, 0.f});
         float scale = 0.01f;
         m_UBO.Model = glm::scale(m_UBO.Model, {scale, scale, scale});
 
