@@ -90,7 +90,7 @@ ChooseSwapMinImageCount(const vk::SurfaceCapabilitiesKHR& capabilities)
     return minCount;
 }
 
-inline uint32_t FindMemoryType(vk::raii::PhysicalDevice physicalDevice,
+inline uint32_t FindMemoryType(vk::PhysicalDevice physicalDevice,
                                uint32_t typeFilter,
                                vk::MemoryPropertyFlags properties)
 {
@@ -130,7 +130,7 @@ inline void CreateBuffer(vk::raii::Device& device,
 
 inline vk::raii::CommandBuffer
 BeginSingleTimeCommand(vk::raii::Device& device,
-                       vk::raii::CommandPool& commandPool)
+                       vk::CommandPool commandPool)
 {
     vk::CommandBufferAllocateInfo allocInfo{
         .commandPool = commandPool,
@@ -144,12 +144,12 @@ BeginSingleTimeCommand(vk::raii::Device& device,
     return commandBuffer;
 }
 
-inline void EndSingleTimeCommand(vk::raii::CommandBuffer& commandBuffer,
-                                 vk::raii::Queue queue)
+inline void EndSingleTimeCommand(vk::CommandBuffer commandBuffer,
+                                 vk::Queue queue)
 {
     commandBuffer.end();
     vk::SubmitInfo submitInfo{.commandBufferCount = 1,
-                              .pCommandBuffers = &*commandBuffer};
+                              .pCommandBuffers = &commandBuffer};
     queue.submit(submitInfo, nullptr);
     queue.waitIdle();
 }

@@ -1,26 +1,23 @@
 #include "Model.h"
 
 #include <filesystem>
-#include <iostream>
 
 #include "assimp/Importer.hpp"
-#include "assimp/material.h"
 #include "assimp/postprocess.h"
 #include "assimp/scene.h"
 
 #include "vulkan/vulkan.hpp"
-#include <assimp/types.h>
 #include <vulkan/vulkan_raii.hpp>
 
+#include "PBRMaterial.h"
+#include "MaterialFactory.h"
 #include "Utility.h"
 
 void Model::LoadModel(vk::raii::Device& device,
-                      vk::raii::PhysicalDevice& physicalDevice,
-                      vk::raii::CommandPool& commandPool,
-                      vk::raii::Queue& transferQueue,
-                      vk::raii::DescriptorPool& descriptorPool,
-                      vk::raii::DescriptorSetLayout& materialSetLayout,
-                      const vk::raii::Sampler& sampler, const std::string& path)
+                   vk::raii::PhysicalDevice& physicalDevice,
+                   vk::raii::CommandPool& commandPool,
+                   vk::raii::Queue& transferQueue,
+                   const std::string& path)
 {
     m_Name = path;
     m_Path = path;
@@ -69,8 +66,10 @@ void Model::LoadModel(vk::raii::Device& device,
 
     CreateVertexBuffer(device, physicalDevice, commandPool, transferQueue);
     CreateIndexBuffer(device, physicalDevice, commandPool, transferQueue);
-    LoadTextures(device, physicalDevice, commandPool, transferQueue, mat);
-    CreateDescriptorSet(device, descriptorPool, materialSetLayout, sampler);
+
+    std::filesystem::path modelPath = m_Path;
+    std::string modelRoot = modelPath.parent_path().string() + "/";
+    m_Material = MaterialFactory::Get()->CreatePBRMaterial(mat, modelRoot);
 }
 
 void Model::CreateVertexBuffer(vk::raii::Device& device,
@@ -129,98 +128,4 @@ void Model::CreateIndexBuffer(vk::raii::Device& device,
 
     CopyBuffer(device, commandPool, transferQueue, stagingBuffer, m_IndexBuffer,
                bufferSize);
-}
-
-void Model::LoadTextures(vk::raii::Device& device,
-                         vk::raii::PhysicalDevice& physicalDevice,
-                         vk::raii::CommandPool& commandPool,
-                         vk::raii::Queue& transferQueue, aiMaterial* mat)
-{
-    std::filesystem::path modelPath = m_Path;
-    std::string modelRoot = modelPath.parent_path().string() + "/";
-    aiString texturePath;
-
-    // use BASE_COLOR if available, DIFFUSE as fallback
-    if (mat->GetTexture(aiTextureType::aiTextureType_BASE_COLOR, 0,
-                        &texturePath) == AI_SUCCESS ||
-        mat->GetTexture(aiTextureType::aiTextureType_DIFFUSE, 0,
-                        &texturePath) == AI_SUCCESS)
-    {
-        std::string path = modelRoot + texturePath.C_Str();
-        m_Albedo = std::make_unique<Texture>();
-        m_Albedo->LoadTexture(device, physicalDevice, commandPool,
-                              transferQueue, path, vk::Format::eR8G8B8A8Srgb);
-    }
-
-    if (mat->GetTexture(aiTextureType::aiTextureType_NORMALS, 0,
-                        &texturePath) == AI_SUCCESS)
-    {
-        std::string path = modelRoot + texturePath.C_Str();
-        m_Normal = std::make_unique<Texture>();
-        m_Normal->LoadTexture(device, physicalDevice, commandPool,
-                              transferQueue, path, vk::Format::eR8G8B8A8Unorm);
-    }
-
-    if (mat->GetTexture(aiTextureType::aiTextureType_GLTF_METALLIC_ROUGHNESS, 0,
-                        &texturePath) == AI_SUCCESS)
-    {
-        std::string path = modelRoot + texturePath.C_Str();
-        m_MetallicRoughness = std::make_unique<Texture>();
-        m_MetallicRoughness->LoadTexture(device, physicalDevice, commandPool,
-                                         transferQueue, path,
-                                         vk::Format::eR8G8B8A8Unorm);
-    }
-}
-
-void Model::CreateDescriptorSet(
-    vk::raii::Device& device, vk::raii::DescriptorPool& descriptorPool,
-    vk::raii::DescriptorSetLayout& materialSetLayout,
-    const vk::raii::Sampler& sampler)
-{
-    std::vector<vk::DescriptorSetLayout> layouts(1, *materialSetLayout);
-    vk::DescriptorSetAllocateInfo allocInfo{
-        .descriptorPool = *descriptorPool,
-        .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
-        .pSetLayouts = layouts.data()};
-
-    auto sets = device.allocateDescriptorSets(allocInfo);
-    m_DescriptorSet = std::move(sets.front());
-
-    vk::DescriptorImageInfo albedoInfo{
-        .sampler = sampler,
-        .imageView = m_Albedo->GetImageView(),
-        .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
-    vk::DescriptorImageInfo normalInfo{
-        .sampler = sampler,
-        .imageView = m_Normal->GetImageView(),
-        .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
-    vk::DescriptorImageInfo metallicRoughnessInfo{
-        .sampler = sampler,
-        .imageView = m_MetallicRoughness->GetImageView(),
-        .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
-
-    std::array writeDescriptors{
-        vk::WriteDescriptorSet{.dstSet = m_DescriptorSet,
-                               .dstBinding = TextureBinding::Albedo,
-                               .dstArrayElement = 0,
-                               .descriptorCount = 1,
-                               .descriptorType =
-                                   vk::DescriptorType::eCombinedImageSampler,
-                               .pImageInfo = &albedoInfo},
-        vk::WriteDescriptorSet{.dstSet = m_DescriptorSet,
-                               .dstBinding = TextureBinding::Normal,
-                               .dstArrayElement = 0,
-                               .descriptorCount = 1,
-                               .descriptorType =
-                                   vk::DescriptorType::eCombinedImageSampler,
-                               .pImageInfo = &normalInfo},
-        vk::WriteDescriptorSet{.dstSet = m_DescriptorSet,
-                               .dstBinding = TextureBinding::MetallicRoughness,
-                               .dstArrayElement = 0,
-                               .descriptorCount = 1,
-                               .descriptorType =
-                                   vk::DescriptorType::eCombinedImageSampler,
-                               .pImageInfo = &metallicRoughnessInfo}};
-
-    device.updateDescriptorSets(writeDescriptors, {});
 }

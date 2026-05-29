@@ -1,5 +1,3 @@
-#include <SDL3/SDL_keyboard.h>
-#include <SDL3/SDL_keycode.h>
 #include <algorithm>
 #include <chrono>
 #include <csignal>
@@ -15,6 +13,8 @@
 #include "SDL3/SDL_events.h"
 #include "SDL3/SDL_video.h"
 #include "SDL3/SDL_vulkan.h"
+#include <SDL3/SDL_keyboard.h>
+#include <SDL3/SDL_keycode.h>
 
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_raii.hpp"
@@ -29,6 +29,7 @@
 #include "Camera.h"
 #include "FrameData.h"
 #include "Lights.h"
+#include "MaterialFactory.h"
 #include "Model.h"
 #include "Utility.h"
 #include "Vertex.h"
@@ -208,10 +209,13 @@ private:
         InitVulkan();
         InitImGui();
 
+        MaterialFactory::Init(m_Device, m_PhysicalDevice, m_CommandPool,
+                              m_GraphicsQueue, m_MaterialDescriptorPool,
+                              m_MaterialSetLayout, m_TextureSampler);
+
         m_Model = std::make_unique<Model>();
         m_Model->LoadModel(m_Device, m_PhysicalDevice, m_CommandPool,
-                           m_GraphicsQueue, m_MaterialDescriptorPool,
-                           m_MaterialSetLayout, m_TextureSampler, MODEL_PATH);
+                           m_GraphicsQueue, MODEL_PATH);
 
         m_Camera = std::make_unique<Camera>();
 
@@ -276,7 +280,11 @@ private:
         CreateSyncObjects();
     }
 
-    void Shutdown() { ShutdownImGui(); }
+    void Shutdown()
+    {
+        MaterialFactory::Shutdown();
+        ShutdownImGui();
+    }
 
     void ShutdownImGui()
     {
@@ -323,7 +331,7 @@ private:
             m_Camera->AddPositionOffset(glm::vec3(0.f, 0.f, 1.f) *
                                         m_Camera->GetSpeed() * m_DeltaTime);
         }
-		if (state[SDL_SCANCODE_Q])
+        if (state[SDL_SCANCODE_Q])
         {
             m_Camera->AddPositionOffset(glm::vec3(0.f, -1.f, 0.f) *
                                         m_Camera->GetSpeed() * m_DeltaTime);
@@ -911,7 +919,7 @@ private:
             // per object
             commandBuffer.bindDescriptorSets(
                 vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
-                m_Model->GetDescriptorSet(), nullptr);
+                m_Model->GetMaterial()->GetDescriptorSet(), nullptr);
             commandBuffer.drawIndexed(
                 static_cast<uint32_t>(m_Model->GetIndices().size()), 1, 0, 0,
                 0);
@@ -1308,7 +1316,7 @@ int main()
 {
     std::signal(SIGINT, HandleSIGINT);
 
-	// will be destroyed in reverse order of declaration
+    // will be destroyed in reverse order of declaration
     std::unique_ptr<SDL_Window, decltype(&ShutdownSDL)> pWindow(nullptr,
                                                                 &ShutdownSDL);
     std::unique_ptr<App> pApp = nullptr;

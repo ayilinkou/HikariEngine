@@ -20,7 +20,8 @@ endif()
 
 project(VulkanApp VERSION 1.0)
 
-set(SOURCES src/main.cpp src/Model.cpp src/Texture.cpp src/Camera.cpp)
+set(SOURCES src/main.cpp src/Model.cpp src/Texture.cpp src/Camera.cpp
+	src/PBRMaterial.cpp src/MaterialFactory.cpp)
 
 find_package(Vulkan REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)

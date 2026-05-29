@@ -2,6 +2,15 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
+enum TextureBinding : uint8_t
+{
+    Albedo,
+    Normal,
+    MetallicRoughness,
+
+    COUNT
+};
+
 class Texture
 {
 public:
@@ -27,5 +36,6 @@ private:
     vk::raii::DeviceMemory m_ImageMemory = nullptr;
     vk::raii::ImageView m_ImageView = nullptr;
 
+	// TODO: maybe add TextureBinding as a member?
     std::string m_Name = "Name";
 };
