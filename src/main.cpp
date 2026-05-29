@@ -38,8 +38,6 @@ constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 const std::string MODEL_PATH = "models/pbr_case/scene.gltf";
-constexpr uint32_t PBR_TEXTURE_COUNT = 5;
-constexpr uint32_t MAX_MATERIAL_SET_COUNT = 10;
 
 std::atomic<bool> g_bShouldClose = false;
 
@@ -163,10 +161,11 @@ public:
 
             const float smoothing = 0.9f;
             float currentFrameTime = m_DeltaTime * 1000.f;
-			m_FrameTime = (m_FrameTime * smoothing) + (currentFrameTime * (1.f - smoothing));
+            m_FrameTime = (m_FrameTime * smoothing) +
+                          (currentFrameTime * (1.f - smoothing));
 
-			float currentFPS = 1.f / m_DeltaTime;
-			m_FPS = (m_FPS * smoothing) + (currentFPS * (1.f - smoothing));
+            float currentFPS = 1.f / m_DeltaTime;
+            m_FPS = (m_FPS * smoothing) + (currentFPS * (1.f - smoothing));
 
             SDL_Event event;
             while (SDL_PollEvent(&event))
@@ -217,8 +216,7 @@ private:
         InitImGui();
 
         MaterialFactory::Init(m_Device, m_PhysicalDevice, m_CommandPool,
-                              m_GraphicsQueue, m_MaterialDescriptorPool,
-                              m_MaterialSetLayout, m_TextureSampler);
+                              m_GraphicsQueue, m_TextureSampler);
 
         m_Model = std::make_unique<Model>();
         m_Model->LoadModel(m_Device, m_PhysicalDevice, m_CommandPool,
@@ -808,8 +806,8 @@ private:
             .attachmentCount = 1,
             .pAttachments = &attachmentState};
 
-        vk::DescriptorSetLayout descriptorSetLayouts[] = {m_FrameSetLayout,
-                                                          m_MaterialSetLayout};
+        vk::DescriptorSetLayout descriptorSetLayouts[] = {
+            m_FrameSetLayout, MaterialFactory::Get()->GetDescriptorSetLayout()};
         vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
             .setLayoutCount = 2,
             .pSetLayouts = descriptorSetLayouts,
@@ -1044,28 +1042,6 @@ private:
             .pBindings = frameBindings.data()};
         m_FrameSetLayout =
             vk::raii::DescriptorSetLayout(m_Device, frameCreateInfo);
-
-        std::array matBindings = {
-            vk::DescriptorSetLayoutBinding(
-                0, vk::DescriptorType::eCombinedImageSampler, 1,
-                vk::ShaderStageFlagBits::eFragment),
-            vk::DescriptorSetLayoutBinding(
-                1, vk::DescriptorType::eCombinedImageSampler, 1,
-                vk::ShaderStageFlagBits::eFragment),
-            vk::DescriptorSetLayoutBinding(
-                2, vk::DescriptorType::eCombinedImageSampler, 1,
-                vk::ShaderStageFlagBits::eFragment),
-            vk::DescriptorSetLayoutBinding(
-                3, vk::DescriptorType::eCombinedImageSampler, 1,
-                vk::ShaderStageFlagBits::eFragment),
-            vk::DescriptorSetLayoutBinding(
-                4, vk::DescriptorType::eCombinedImageSampler, 1,
-                vk::ShaderStageFlagBits::eFragment)};
-        vk::DescriptorSetLayoutCreateInfo matCreateInfo{
-            .bindingCount = matBindings.size(),
-            .pBindings = matBindings.data()};
-        m_MaterialSetLayout =
-            vk::raii::DescriptorSetLayout(m_Device, matCreateInfo);
     }
 
     void CreateUniformBuffers()
@@ -1158,18 +1134,6 @@ private:
 
         m_FrameDescriptorPool =
             vk::raii::DescriptorPool(m_Device, frameCreateInfo);
-
-        std::array materialPoolSize = {vk::DescriptorPoolSize{
-            .type = vk::DescriptorType::eCombinedImageSampler,
-            .descriptorCount = PBR_TEXTURE_COUNT}};
-        vk::DescriptorPoolCreateInfo matCreateInfo{
-            .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-            .maxSets = MAX_MATERIAL_SET_COUNT,
-            .poolSizeCount = materialPoolSize.size(),
-            .pPoolSizes = materialPoolSize.data()};
-
-        m_MaterialDescriptorPool =
-            vk::raii::DescriptorPool(m_Device, matCreateInfo);
     }
 
     void CreateDescriptorSets()
@@ -1287,13 +1251,11 @@ private:
     vk::raii::SwapchainKHR m_Swapchain = nullptr;
     vk::raii::PipelineLayout m_PipelineLayout = nullptr;
     vk::raii::DescriptorSetLayout m_FrameSetLayout = nullptr;
-    vk::raii::DescriptorSetLayout m_MaterialSetLayout = nullptr;
     vk::raii::Pipeline m_GraphicsPipeline = nullptr;
     vk::raii::CommandPool m_CommandPool = nullptr;
     UniformBufferObject m_UBO = {};
     vk::raii::Sampler m_TextureSampler = nullptr;
     vk::raii::DescriptorPool m_FrameDescriptorPool = nullptr;
-    vk::raii::DescriptorPool m_MaterialDescriptorPool = nullptr;
     std::vector<vk::raii::DescriptorSet> m_FrameDescriptorSets;
     vk::raii::Image m_DepthImage = nullptr;
     vk::raii::DeviceMemory m_DepthImageMemory = nullptr;
