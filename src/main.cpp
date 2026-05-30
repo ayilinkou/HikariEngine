@@ -123,7 +123,6 @@ SDL_Window* CreateSDLWindow()
         throw SDLException("Failed to create window!");
 
     SDL_SetWindowFullscreen(window, false);
-    SDL_SetWindowRelativeMouseMode(window, true);
     return window;
 }
 
@@ -131,6 +130,7 @@ void ShutdownSDL(SDL_Window* pWindow)
 {
     if (pWindow)
     {
+        SDL_WarpMouseInWindow(pWindow, 0.f, 0.f);
         SDL_SetWindowRelativeMouseMode(pWindow, false);
         SDL_DestroyWindow(pWindow);
     }
@@ -151,6 +151,7 @@ public:
         Init();
 
         SDL_ShowWindow(m_pWindow);
+        HideCursor();
 
         while (!g_bShouldClose)
         {
@@ -206,7 +207,9 @@ public:
             m_Camera->Tick();
             HandleMovement();
 
-            DrawImGuiFrame();
+            if (m_bCursorVisible)
+                DrawImGuiFrame();
+
             DrawFrame();
         }
 
@@ -296,7 +299,7 @@ private:
     void Shutdown()
     {
         m_Model.reset();
-		MaterialFactory::Shutdown();
+        MaterialFactory::Shutdown();
         ShutdownImGui();
     }
 
@@ -307,7 +310,26 @@ private:
         ImGui::DestroyContext();
     }
 
-    void HandleMouse(float x, float y) { m_Camera->Rotate(x, y); }
+    void HandleMouse(float x, float y)
+    {
+        if (!m_bCursorVisible)
+            m_Camera->Rotate(x, y);
+    }
+
+    void ShowCursor()
+    {
+        SDL_WarpMouseInWindow(
+            m_pWindow, static_cast<float>(m_SwapchainExtent.width / 2.f),
+            static_cast<float>(m_SwapchainExtent.height / 2.f));
+        SDL_SetWindowRelativeMouseMode(m_pWindow, false);
+        m_bCursorVisible = true;
+    }
+
+    void HideCursor()
+    {
+        SDL_SetWindowRelativeMouseMode(m_pWindow, true);
+        m_bCursorVisible = false;
+    }
 
     // This includes OS key repeat delay.
     void HandleKey(SDL_Keycode key)
@@ -315,10 +337,14 @@ private:
         switch (key)
         {
         case SDLK_ESCAPE:
-        {
             g_bShouldClose = true;
             break;
-        }
+        case SDLK_M:
+            if (m_bCursorVisible)
+                HideCursor();
+            else
+                ShowCursor();
+            break;
         }
     }
 
@@ -339,7 +365,7 @@ private:
         }
         if (state[SDL_SCANCODE_W])
         {
-			m_Camera->AddPositionOffset(m_Camera->GetForwardVector() *
+            m_Camera->AddPositionOffset(m_Camera->GetForwardVector() *
                                         m_Camera->GetMoveSpeed() * m_DeltaTime);
         }
         if (state[SDL_SCANCODE_S])
@@ -945,7 +971,9 @@ private:
                 0);
         }
 
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *commandBuffer);
+        if (m_bCursorVisible)
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
+                                            *commandBuffer);
 
         commandBuffer.endRendering();
 
@@ -1287,6 +1315,7 @@ private:
     uint32_t m_FrameIndex = 0;
     SDL_Window* m_pWindow = nullptr;
     bool m_bIsFocused = true;
+    bool m_bCursorVisible = false;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_LastTime;
     float m_DeltaTime = 0.f;
