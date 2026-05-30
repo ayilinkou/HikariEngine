@@ -69,7 +69,7 @@ void Model::LoadModel(vk::raii::Device& device,
 
     std::filesystem::path modelPath = m_Path;
     std::string modelRoot = modelPath.parent_path().string() + "/";
-    m_Material = MaterialFactory::Get()->CreatePBRMaterial(mat, modelRoot);
+    m_Material.reset(MaterialFactory::Get()->CreatePBRMaterial(mat, modelRoot));
 }
 
 void Model::CreateVertexBuffer(vk::raii::Device& device,

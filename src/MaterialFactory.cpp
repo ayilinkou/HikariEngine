@@ -16,7 +16,7 @@ MaterialFactory::MaterialFactory(vk::raii::Device& device,
       m_Sampler(sampler)
 {
     CreateDescriptorPool();
-	CreateDescriptorSetLayout();
+    CreateDescriptorSetLayout();
 }
 
 void MaterialFactory::Init(vk::raii::Device& device,
@@ -73,15 +73,14 @@ void MaterialFactory::CreateDescriptorSetLayout()
                                   1, vk::ShaderStageFlagBits::eFragment)};
     vk::DescriptorSetLayoutCreateInfo matCreateInfo{
         .bindingCount = matBindings.size(), .pBindings = matBindings.data()};
-    m_SetLayout =
-        vk::raii::DescriptorSetLayout(m_Device, matCreateInfo);
+    m_SetLayout = vk::raii::DescriptorSetLayout(m_Device, matCreateInfo);
 }
 
-std::unique_ptr<PBRMaterial>
+PBRMaterial*
 MaterialFactory::CreatePBRMaterial(aiMaterial* mat,
                                    const std::string& texturesParentFolder)
 {
-    return std::make_unique<PBRMaterial>(
-        m_Device, m_PhysicalDevice, m_CommandPool, m_TransferQueue,
-        m_DescriptorPool, m_SetLayout, m_Sampler, mat, texturesParentFolder);
+    return new PBRMaterial(m_Device, m_PhysicalDevice, m_CommandPool,
+                           m_TransferQueue, m_DescriptorPool, m_SetLayout,
+                           m_Sampler, mat, texturesParentFolder);
 }

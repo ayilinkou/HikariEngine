@@ -48,7 +48,7 @@ private:
     std::vector<Vertex> m_Vertices;
     std::vector<uint32_t> m_Indices;
 
-	std::unique_ptr<PBRMaterial> m_Material = nullptr; // TODO: change to Material
+	std::unique_ptr<Material> m_Material = nullptr;
 
     std::string m_Name = "Name";
 	std::string m_Path = "";

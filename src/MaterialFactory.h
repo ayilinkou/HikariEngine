@@ -21,7 +21,7 @@ public:
 
     static MaterialFactory* Get() { return s_Instance; }
 
-    [[nodiscard]] std::unique_ptr<PBRMaterial>
+    [[nodiscard]] PBRMaterial*
     CreatePBRMaterial(aiMaterial* mat, const std::string& texturesParentFolder);
 
     vk::DescriptorSetLayout GetDescriptorSetLayout() const
