@@ -1,3 +1,5 @@
+#pragma once
+
 #ifdef DEBUG
 #include <signal.h>
 #if defined(_MSC_VER)
