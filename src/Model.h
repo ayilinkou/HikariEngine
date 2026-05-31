@@ -1,43 +1,30 @@
-#include <string>
-#include <vector>
 #include <memory>
+#include <string>
 
-#include "PBRMaterial.h"
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_raii.hpp"
 
-#include "Vertex.h"
+#include "Material.h"
 
 struct aiMaterial;
 
 class Model
 {
 public:
-    Model() {}
-
-    void LoadModel(vk::raii::Device& device,
-                   vk::raii::PhysicalDevice& physicalDevice,
-                   vk::raii::CommandPool& commandPool,
-                   vk::raii::Queue& transferQueue,
-                   const std::string& path);
-
-    const std::vector<Vertex>& GetVertices() const { return m_Vertices; }
-    const std::vector<uint32_t>& GetIndices() const { return m_Indices; }
+    Model(vk::raii::Buffer vertexBuffer, vk::raii::DeviceMemory vertexMemory,
+          vk::raii::Buffer indexBuffer, vk::raii::DeviceMemory indexMemory,
+          Material* pMaterial, uint32_t indexCount, const std::string& path);
 
     vk::Buffer GetVertexBuffer() const { return *m_VertexBuffer; }
     vk::Buffer GetIndexBuffer() const { return *m_IndexBuffer; }
 
-	Material* GetMaterial() const { return m_Material.get(); }
+    uint32_t GetIndexCount() const { return m_IndexCount; }
+    Material* GetMaterial() const { return m_Material.get(); }
 
-private:
-    void CreateVertexBuffer(vk::raii::Device& device,
-                            vk::raii::PhysicalDevice& physicalDevice,
-                            vk::raii::CommandPool& commandPool,
-                            vk::raii::Queue& transferQueue);
-    void CreateIndexBuffer(vk::raii::Device& device,
-                           vk::raii::PhysicalDevice& physicalDevice,
-                           vk::raii::CommandPool& commandPool,
-                           vk::raii::Queue& transferQueue);
+    const std::string& GetName() const { return m_Name; }
+    const std::string& GetFilepath() const { return m_Path; }
+
+    void SetName(const std::string& name) { m_Name = name; }
 
 private:
     vk::raii::Buffer m_VertexBuffer = nullptr;
@@ -45,11 +32,10 @@ private:
     vk::raii::DeviceMemory m_VertexMemory = nullptr;
     vk::raii::DeviceMemory m_IndexMemory = nullptr;
 
-    std::vector<Vertex> m_Vertices;
-    std::vector<uint32_t> m_Indices;
+    uint32_t m_IndexCount = 0u;
 
-	std::unique_ptr<Material> m_Material = nullptr;
+    std::unique_ptr<Material> m_Material = nullptr;
 
-    std::string m_Name = "Name";
-	std::string m_Path = "";
+    std::string m_Name = "Model Name";
+    const std::string m_Path;
 };

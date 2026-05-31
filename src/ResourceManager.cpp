@@ -1,8 +1,12 @@
 #include "ResourceManager.h"
+
+#include <stdexcept>
+
+#include "Model.h"
+#include "ModelLoader.h"
 #include "MyMacros.h"
 #include "Texture.h"
 #include "TextureLoader.h"
-#include <stdexcept>
 
 void ResourceManager::Init(vk::raii::Device& device,
                            vk::raii::PhysicalDevice& physicalDevice,
@@ -15,6 +19,7 @@ void ResourceManager::Init(vk::raii::Device& device,
 
     s_Instance = new ResourceManager();
     TextureLoader::Init(device, physicalDevice, commandPool, transferQueue);
+    ModelLoader::Init(device, physicalDevice, commandPool, transferQueue);
 }
 
 void ResourceManager::Shutdown()
@@ -23,17 +28,19 @@ void ResourceManager::Shutdown()
         throw std::runtime_error(
             "Attempting to shutdown ResourceManager when it is already null!");
 
+    ModelLoader::Shutdown();
     TextureLoader::Shutdown();
 
-    if (!s_Instance->m_TexturesMap.empty())
+    if (!s_Instance->m_TexturesMap.empty() || !s_Instance->m_ModelsMap.empty())
     {
         DEBUG_BREAK(); // Attempting to shutdown when resources are still
                        // loaded!
     }
 
+    s_Instance->m_ModelsMap.clear();
     s_Instance->m_TexturesMap.clear();
     delete s_Instance;
-	s_Instance = nullptr;
+    s_Instance = nullptr;
 }
 
 Texture* ResourceManager::LoadTexture(const std::string& filepath,
@@ -48,11 +55,26 @@ Texture* ResourceManager::LoadTexture(const std::string& filepath,
 
     Texture* pData = TextureLoader::Get()->Load(filepath, format);
     if (!pData)
-    {
         return nullptr;
-    }
 
     m_TexturesMap[filepath] = std::make_unique<Resource>(pData);
+    return pData;
+}
+
+Model* ResourceManager::LoadModel(const std::string& modelPath)
+{
+    auto it = m_ModelsMap.find(modelPath);
+    if (it != m_ModelsMap.end() && it->second.get())
+    {
+        it->second->AddRef();
+        return static_cast<Model*>(it->second->m_pData);
+    }
+
+    Model* pData = ModelLoader::Get()->Load(modelPath);
+    if (!pData)
+        return nullptr;
+
+    m_ModelsMap[modelPath] = std::make_unique<Resource>(pData);
     return pData;
 }
 
@@ -75,9 +97,35 @@ uint32_t ResourceManager::UnloadTexture(const std::string& filepath)
     return 0u;
 }
 
+uint32_t ResourceManager::UnloadModel(const std::string& filepath)
+{
+    Resource* ResourceToUnload = m_ModelsMap[filepath].get();
+    if (!ResourceToUnload)
+    {
+        m_ModelsMap.erase(filepath);
+        return 0u;
+    }
+
+    ResourceToUnload->RemoveRef();
+    if (ResourceToUnload->m_RefCount > 0u)
+    {
+        return ResourceToUnload->m_RefCount;
+    }
+
+    Internal_UnloadModel(filepath);
+    return 0u;
+}
+
 void ResourceManager::Internal_UnloadTexture(const std::string filepath)
 {
     Texture* pTexture = static_cast<Texture*>(m_TexturesMap[filepath]->m_pData);
     delete pTexture;
     m_TexturesMap.erase(filepath);
+}
+
+void ResourceManager::Internal_UnloadModel(const std::string filepath)
+{
+    Model* pModelData = static_cast<Model*>(m_ModelsMap[filepath]->m_pData);
+    delete pModelData;
+    m_ModelsMap.erase(filepath);
 }

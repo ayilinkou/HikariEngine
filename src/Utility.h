@@ -129,8 +129,7 @@ inline void CreateBuffer(vk::raii::Device& device,
 }
 
 inline vk::raii::CommandBuffer
-BeginSingleTimeCommand(vk::raii::Device& device,
-                       vk::CommandPool commandPool)
+BeginSingleTimeCommand(vk::raii::Device& device, vk::CommandPool commandPool)
 {
     vk::CommandBufferAllocateInfo allocInfo{
         .commandPool = commandPool,
@@ -180,10 +179,12 @@ CreateImageView(vk::raii::Device& device, const vk::Image& image,
 }
 
 inline void CreateImage(vk::raii::Device& device,
-                 vk::raii::PhysicalDevice& physicalDevice, uint32_t width,
-                 uint32_t height, vk::Format format, vk::ImageTiling tiling,
-                 vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties,
-                 vk::raii::Image& image, vk::raii::DeviceMemory& imageMemory)
+                        vk::raii::PhysicalDevice& physicalDevice,
+                        uint32_t width, uint32_t height, vk::Format format,
+                        vk::ImageTiling tiling, vk::ImageUsageFlags usage,
+                        vk::MemoryPropertyFlags properties,
+                        vk::raii::Image& image,
+                        vk::raii::DeviceMemory& imageMemory)
 {
     vk::ImageCreateInfo createInfo{.imageType = vk::ImageType::e2D,
                                    .format = format,
@@ -206,11 +207,12 @@ inline void CreateImage(vk::raii::Device& device,
 }
 
 inline void TransitionImageLayout(vk::raii::Device& device,
-                           vk::raii::CommandPool& commandPool,
-                           vk::raii::Queue& transferQueue,
-                           const vk::raii::Image& image,
-                           vk::ImageLayout oldLayout, vk::ImageLayout newLayout,
-                           vk::ImageAspectFlags aspectFlags)
+                                  vk::raii::CommandPool& commandPool,
+                                  vk::raii::Queue& transferQueue,
+                                  const vk::raii::Image& image,
+                                  vk::ImageLayout oldLayout,
+                                  vk::ImageLayout newLayout,
+                                  vk::ImageAspectFlags aspectFlags)
 {
     auto commandBuffer = BeginSingleTimeCommand(device, commandPool);
     vk::ImageMemoryBarrier2 barrier{
@@ -264,10 +266,11 @@ inline void TransitionImageLayout(vk::raii::Device& device,
 }
 
 inline void CopyBufferToImage(vk::raii::Device& device,
-                       vk::raii::CommandPool& commandPool,
-                       vk::raii::Queue& transferQueue,
-                       const vk::raii::Buffer& buffer, vk::raii::Image& image,
-                       uint32_t width, uint32_t height)
+                              vk::raii::CommandPool& commandPool,
+                              vk::raii::Queue& transferQueue,
+                              const vk::raii::Buffer& buffer,
+                              vk::raii::Image& image, uint32_t width,
+                              uint32_t height)
 {
     auto commandBuffer = BeginSingleTimeCommand(device, commandPool);
     vk::BufferImageCopy region{
@@ -280,4 +283,68 @@ inline void CopyBufferToImage(vk::raii::Device& device,
     commandBuffer.copyBufferToImage(
         buffer, image, vk::ImageLayout::eTransferDstOptimal, {region});
     EndSingleTimeCommand(commandBuffer, transferQueue);
+}
+
+inline void CreateVertexBuffer(vk::raii::Device& device,
+                               vk::raii::PhysicalDevice& physicalDevice,
+                               vk::raii::CommandPool& commandPool,
+                               vk::raii::Queue& transferQueue,
+                               size_t elementSize, size_t vertexCount,
+                               void* pData, vk::raii::Buffer& vertexBuffer,
+                               vk::raii::DeviceMemory& bufferMemory)
+{
+    vk::DeviceSize bufferSize = elementSize * vertexCount;
+
+    vk::raii::Buffer stagingBuffer({});
+    vk::raii::DeviceMemory stagingBufferMemory({});
+    CreateBuffer(device, physicalDevice, bufferSize,
+                 vk::BufferUsageFlagBits::eTransferSrc,
+                 vk::MemoryPropertyFlagBits::eHostCoherent |
+                     vk::MemoryPropertyFlagBits::eHostCoherent,
+                 stagingBuffer, stagingBufferMemory);
+
+    void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
+    memcpy(dataStaging, pData, static_cast<size_t>(bufferSize));
+    stagingBufferMemory.unmapMemory();
+
+    CreateBuffer(device, physicalDevice, bufferSize,
+                 vk::BufferUsageFlagBits::eVertexBuffer |
+                     vk::BufferUsageFlagBits::eTransferDst,
+                 vk::MemoryPropertyFlagBits::eDeviceLocal, vertexBuffer,
+                 bufferMemory);
+
+    CopyBuffer(device, commandPool, transferQueue, stagingBuffer, vertexBuffer,
+               bufferSize);
+}
+
+inline void CreateIndexBuffer(vk::raii::Device& device,
+                              vk::raii::PhysicalDevice& physicalDevice,
+                              vk::raii::CommandPool& commandPool,
+                              vk::raii::Queue& transferQueue,
+                              size_t elementSize, size_t indexCount,
+                              void* pData, vk::raii::Buffer& indexBuffer,
+                              vk::raii::DeviceMemory& bufferMemory)
+{
+    vk::DeviceSize bufferSize = elementSize * indexCount;
+
+    vk::raii::Buffer stagingBuffer({});
+    vk::raii::DeviceMemory stagingBufferMemory({});
+    CreateBuffer(device, physicalDevice, bufferSize,
+                 vk::BufferUsageFlagBits::eTransferSrc,
+                 vk::MemoryPropertyFlagBits::eHostCoherent |
+                     vk::MemoryPropertyFlagBits::eHostCoherent,
+                 stagingBuffer, stagingBufferMemory);
+
+    void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
+    memcpy(dataStaging, pData, static_cast<size_t>(bufferSize));
+    stagingBufferMemory.unmapMemory();
+
+    CreateBuffer(device, physicalDevice, bufferSize,
+                 vk::BufferUsageFlagBits::eIndexBuffer |
+                     vk::BufferUsageFlagBits::eTransferDst,
+                 vk::MemoryPropertyFlagBits::eDeviceLocal, indexBuffer,
+                 bufferMemory);
+
+    CopyBuffer(device, commandPool, transferQueue, stagingBuffer, indexBuffer,
+               bufferSize);
 }

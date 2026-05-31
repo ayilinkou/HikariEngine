@@ -32,9 +32,9 @@
 #include "Lights.h"
 #include "MaterialFactory.h"
 #include "Model.h"
+#include "ResourceManager.h"
 #include "Utility.h"
 #include "Vertex.h"
-#include "ResourceManager.h"
 
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
@@ -226,10 +226,7 @@ private:
         InitVulkan();
         InitImGui();
 
-        m_Model = std::make_unique<Model>();
-        m_Model->LoadModel(m_Device, m_PhysicalDevice, m_CommandPool,
-                           m_GraphicsQueue, MODEL_PATH);
-
+        m_Model = ResourceManager::Get()->LoadModel(MODEL_PATH);
         m_Camera = std::make_unique<Camera>();
 
         std::cout << "Init() succeeded.\n";
@@ -299,10 +296,10 @@ private:
 
     void Shutdown()
     {
-        m_Model.reset();
-		ShutdownImGui();
+        ResourceManager::Get()->UnloadModel(m_Model->GetFilepath());
+        ShutdownImGui();
         MaterialFactory::Shutdown();
-		ResourceManager::Shutdown();
+        ResourceManager::Shutdown();
     }
 
     void ShutdownImGui()
@@ -968,9 +965,7 @@ private:
             commandBuffer.bindDescriptorSets(
                 vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
                 m_Model->GetMaterial()->GetDescriptorSet(), nullptr);
-            commandBuffer.drawIndexed(
-                static_cast<uint32_t>(m_Model->GetIndices().size()), 1, 0, 0,
-                0);
+            commandBuffer.drawIndexed(m_Model->GetIndexCount(), 1, 0, 0, 0);
         }
 
         if (m_bCursorVisible)
@@ -1311,7 +1306,7 @@ private:
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
 
     std::unique_ptr<Camera> m_Camera = nullptr;
-    std::unique_ptr<Model> m_Model = nullptr;
+    Model* m_Model = nullptr;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;

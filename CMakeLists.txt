@@ -28,7 +28,8 @@ set(SOURCES
     src/PBRMaterial.cpp
     src/MaterialFactory.cpp
     src/ResourceManager.cpp
-    src/TextureLoader.cpp)
+    src/TextureLoader.cpp
+    src/ModelLoader.cpp)
 
 find_package(Vulkan REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)

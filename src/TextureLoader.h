@@ -9,7 +9,9 @@ class Texture;
 class TextureLoader
 {
 private:
-    TextureLoader(vk::raii::Device& device,
+	friend class ResourceManager;
+   
+	TextureLoader(vk::raii::Device& device,
                   vk::raii::PhysicalDevice& physicalDevice,
                   vk::raii::CommandPool& commandPool,
                   vk::raii::Queue& transferQueue);
@@ -21,8 +23,6 @@ private:
     static void Shutdown();
 
     static TextureLoader* Get() { return s_Instance; }
-
-    friend class ResourceManager;
 
     [[nodiscard]] Texture* Load(const std::string& filepath,
                                        const vk::Format format);
