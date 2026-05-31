@@ -14,28 +14,21 @@ enum TextureBinding : uint8_t
 class Texture
 {
 public:
-    void LoadTexture(vk::raii::Device& device,
-                     vk::raii::PhysicalDevice& physicalDevice,
-                     vk::raii::CommandPool& commandPool,
-                     vk::raii::Queue& transferQueue, const std::string& path,
-                     const vk::Format format);
+    Texture(vk::raii::Image image, vk::raii::ImageView imageView,
+            vk::raii::DeviceMemory deviceMemory, const std::string& path);
 
     vk::raii::Image& GetImage() { return m_Image; }
     vk::raii::DeviceMemory& GetImageMemory() { return m_ImageMemory; }
     vk::raii::ImageView& GetImageView() { return m_ImageView; }
-
-private:
-    void CreateTextureImage(vk::raii::Device& device,
-                            vk::raii::PhysicalDevice& physicalDevice,
-                            vk::raii::CommandPool& commandPool,
-                            vk::raii::Queue& transferQueue,
-                            const std::string& path, const vk::Format format);
+	
+	const std::string& GetPath() { return m_Path; }
 
 private:
     vk::raii::Image m_Image = nullptr;
     vk::raii::DeviceMemory m_ImageMemory = nullptr;
     vk::raii::ImageView m_ImageView = nullptr;
 
-	// TODO: maybe add TextureBinding as a member?
+    // TODO: maybe add TextureBinding as a member?
     std::string m_Name = "Name";
+    std::string m_Path = "";
 };

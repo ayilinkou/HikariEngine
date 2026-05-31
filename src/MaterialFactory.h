@@ -12,11 +12,7 @@ struct aiMaterial;
 class MaterialFactory
 {
 public:
-    static void Init(vk::raii::Device& device,
-                     vk::raii::PhysicalDevice& physicalDevice,
-                     vk::raii::CommandPool& commandPool,
-                     vk::raii::Queue& transferQueue,
-                     vk::raii::Sampler& sampler);
+    static void Init(vk::raii::Device& device, vk::raii::Sampler& sampler);
     static void Shutdown();
 
     static MaterialFactory* Get() { return s_Instance; }
@@ -30,10 +26,7 @@ public:
     }
 
 private:
-    MaterialFactory(vk::raii::Device& device,
-                    vk::raii::PhysicalDevice& physicalDevice,
-                    vk::raii::CommandPool& commandPool,
-                    vk::raii::Queue& transferQueue, vk::raii::Sampler& sampler);
+    MaterialFactory(vk::raii::Device& device, vk::raii::Sampler& sampler);
 
     void CreateDescriptorPool();
     void CreateDescriptorSetLayout();
@@ -45,9 +38,6 @@ private:
     vk::raii::DescriptorPool m_DescriptorPool = nullptr;
 
     vk::raii::Device& m_Device;
-    vk::raii::PhysicalDevice& m_PhysicalDevice;
-    vk::raii::CommandPool& m_CommandPool;
-    vk::raii::Queue& m_TransferQueue;
     vk::raii::Sampler& m_Sampler;
 
     static const uint8_t s_MAX_TEXTURE_COUNT_PER_MAT;

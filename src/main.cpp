@@ -1,5 +1,3 @@
-#include <SDL3/SDL_mouse.h>
-#include <SDL3/SDL_oldnames.h>
 #include <algorithm>
 #include <chrono>
 #include <csignal>
@@ -17,6 +15,7 @@
 #include "SDL3/SDL_vulkan.h"
 #include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_keycode.h>
+#include <SDL3/SDL_mouse.h>
 
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_raii.hpp"
@@ -35,6 +34,7 @@
 #include "Model.h"
 #include "Utility.h"
 #include "Vertex.h"
+#include "ResourceManager.h"
 
 constexpr uint32_t WIDTH = 1920;
 constexpr uint32_t HEIGHT = 1080;
@@ -285,8 +285,9 @@ private:
         CreateCommandPool();
         CreateTextureSampler();
 
-        MaterialFactory::Init(m_Device, m_PhysicalDevice, m_CommandPool,
-                              m_GraphicsQueue, m_TextureSampler);
+        ResourceManager::Init(m_Device, m_PhysicalDevice, m_CommandPool,
+                              m_GraphicsQueue);
+        MaterialFactory::Init(m_Device, m_TextureSampler);
 
         CreateGraphicsPipeline();
         CreateCommandBuffers();
@@ -299,8 +300,9 @@ private:
     void Shutdown()
     {
         m_Model.reset();
+		ShutdownImGui();
         MaterialFactory::Shutdown();
-        ShutdownImGui();
+		ResourceManager::Shutdown();
     }
 
     void ShutdownImGui()

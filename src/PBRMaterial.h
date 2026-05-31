@@ -10,28 +10,22 @@ class PBRMaterial : public Material
 {
 public:
     PBRMaterial(vk::raii::Device& device,
-                vk::raii::PhysicalDevice& physicalDevice,
-                vk::raii::CommandPool& commandPool,
-                vk::raii::Queue& transferQueue,
                 vk::raii::DescriptorPool& descriptorPool,
                 vk::raii::DescriptorSetLayout& setLayout,
                 vk::raii::Sampler& sampler, aiMaterial* mat,
                 const std::string& texturesParentFolder);
-    virtual ~PBRMaterial() override = default;
+    virtual ~PBRMaterial() override;
 
 private:
-    void LoadTextures(vk::raii::Device& device,
-                      vk::raii::PhysicalDevice& physicalDevice,
-                      vk::raii::CommandPool& commandPool,
-                      vk::raii::Queue& transferQueue, aiMaterial* mat,
-                      const std::string& texturesParentFolder);
+    void LoadTextures(aiMaterial* mat, const std::string& texturesParentFolder);
     void CreateDescriptorSet(vk::raii::Device& device,
                              vk::raii::DescriptorPool& descriptorPool,
                              vk::raii::DescriptorSetLayout& setLayout,
                              vk::raii::Sampler& sampler);
+	void Shutdown();
 
 private:
-    std::unique_ptr<Texture> m_Albedo = nullptr;
-    std::unique_ptr<Texture> m_Normal = nullptr;
-    std::unique_ptr<Texture> m_MetallicRoughness = nullptr;
+    Texture* m_Albedo = nullptr;
+    Texture* m_Normal = nullptr;
+    Texture* m_MetallicRoughness = nullptr;
 };

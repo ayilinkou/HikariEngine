@@ -7,24 +7,28 @@
 
 #include "assimp/material.h"
 
+#include "ResourceManager.h"
+
 PBRMaterial::PBRMaterial(vk::raii::Device& device,
-                         vk::raii::PhysicalDevice& physicalDevice,
-                         vk::raii::CommandPool& commandPool,
-                         vk::raii::Queue& transferQueue,
                          vk::raii::DescriptorPool& descriptorPool,
                          vk::raii::DescriptorSetLayout& setLayout,
                          vk::raii::Sampler& sampler, aiMaterial* mat,
                          const std::string& texturesParentFolder)
 {
-    LoadTextures(device, physicalDevice, commandPool, transferQueue, mat,
-                 texturesParentFolder);
+    LoadTextures(mat, texturesParentFolder);
     CreateDescriptorSet(device, descriptorPool, setLayout, sampler);
 }
 
-void PBRMaterial::LoadTextures(vk::raii::Device& device,
-                               vk::raii::PhysicalDevice& physicalDevice,
-                               vk::raii::CommandPool& commandPool,
-                               vk::raii::Queue& transferQueue, aiMaterial* mat,
+PBRMaterial::~PBRMaterial() { Shutdown(); }
+
+void PBRMaterial::Shutdown()
+{
+    ResourceManager::Get()->UnloadTexture(m_Albedo->GetPath());
+    ResourceManager::Get()->UnloadTexture(m_Normal->GetPath());
+    ResourceManager::Get()->UnloadTexture(m_MetallicRoughness->GetPath());
+}
+
+void PBRMaterial::LoadTextures(aiMaterial* mat,
                                const std::string& texturesParentFolder)
 {
     aiString texturePath;
@@ -36,28 +40,24 @@ void PBRMaterial::LoadTextures(vk::raii::Device& device,
                         &texturePath) == AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_Albedo = std::make_unique<Texture>();
-        m_Albedo->LoadTexture(device, physicalDevice, commandPool,
-                              transferQueue, path, vk::Format::eR8G8B8A8Srgb);
+        m_Albedo = ResourceManager::Get()->LoadTexture(
+            path, vk::Format::eR8G8B8A8Srgb);
     }
 
     if (mat->GetTexture(aiTextureType::aiTextureType_NORMALS, 0,
                         &texturePath) == AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_Normal = std::make_unique<Texture>();
-        m_Normal->LoadTexture(device, physicalDevice, commandPool,
-                              transferQueue, path, vk::Format::eR8G8B8A8Unorm);
+        m_Normal = ResourceManager::Get()->LoadTexture(
+            path, vk::Format::eR8G8B8A8Unorm);
     }
 
     if (mat->GetTexture(aiTextureType::aiTextureType_GLTF_METALLIC_ROUGHNESS, 0,
                         &texturePath) == AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_MetallicRoughness = std::make_unique<Texture>();
-        m_MetallicRoughness->LoadTexture(device, physicalDevice, commandPool,
-                                         transferQueue, path,
-                                         vk::Format::eR8G8B8A8Unorm);
+        m_MetallicRoughness = ResourceManager::Get()->LoadTexture(
+            path, vk::Format::eR8G8B8A8Unorm);
     }
 }
 
