@@ -1,12 +1,26 @@
 #include "Model.h"
 
-Model::Model(vk::raii::Buffer vertexBuffer, vk::raii::DeviceMemory vertexMemory,
-      vk::raii::Buffer indexBuffer, vk::raii::DeviceMemory indexMemory,
-      Material* pMaterial, uint32_t indexCount, const std::string& path)
-    : m_VertexBuffer(std::move(vertexBuffer)),
-      m_IndexBuffer(std::move(indexBuffer)),
-      m_VertexMemory(std::move(vertexMemory)),
-      m_IndexMemory(std::move(indexMemory)), m_IndexCount(indexCount),
-      m_Material(pMaterial), m_Name(path), m_Path(path)
+#include "ModelData.h"
+#include "ResourceManager.h"
+
+Model::Model(const std::string& path)
+    : m_pModelData(ResourceManager::Get()->LoadModel(path))
 {
 }
+
+Model::~Model()
+{
+    ResourceManager::Get()->UnloadModel(m_pModelData->GetFilepath());
+}
+
+vk::Buffer Model::GetVertexBuffer() const
+{
+    return m_pModelData->GetVertexBuffer();
+}
+vk::Buffer Model::GetIndexBuffer() const
+{
+    return m_pModelData->GetIndexBuffer();
+}
+
+uint32_t Model::GetIndexCount() const { return m_pModelData->GetIndexCount(); }
+Material* Model::GetMaterial() const { return m_pModelData->GetMaterial(); }

@@ -23,6 +23,7 @@ project(VulkanApp VERSION 1.0)
 set(SOURCES
     src/main.cpp
     src/Model.cpp
+	src/ModelData.cpp
     src/Texture.cpp
     src/Camera.cpp
     src/PBRMaterial.cpp

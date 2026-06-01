@@ -10,7 +10,7 @@
 #include "Resource.h"
 
 class Texture;
-class Model;
+class ModelData;
 
 class ResourceManager
 {
@@ -31,7 +31,7 @@ public:
     static void Shutdown();
 
     Texture* LoadTexture(const std::string& filepath, const vk::Format format);
-    Model* LoadModel(const std::string& modelPath);
+    ModelData* LoadModel(const std::string& modelPath);
 
     uint32_t UnloadTexture(const std::string& filepath);
     uint32_t UnloadModel(const std::string& filepath);

@@ -10,7 +10,7 @@
 #include "assimp/scene.h"
 
 #include "MaterialFactory.h"
-#include "Model.h"
+#include "ModelData.h"
 #include "Utility.h"
 #include "Vertex.h"
 
@@ -46,7 +46,7 @@ void ModelLoader::Shutdown()
     s_Instance = nullptr;
 }
 
-Model* ModelLoader::Load(const std::string& path)
+ModelData* ModelLoader::Load(const std::string& path)
 {
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(
@@ -109,7 +109,7 @@ Model* ModelLoader::Load(const std::string& path)
     Material* material =
         MaterialFactory::Get()->CreatePBRMaterial(mat, modelRoot);
 
-    return new Model(std::move(vertexBuffer), std::move(vertexMemory),
+    return new ModelData(std::move(vertexBuffer), std::move(vertexMemory),
                      std::move(indexBuffer), std::move(indexMemory), material,
                      indices.size(), path);
 }

@@ -3,6 +3,7 @@
 #include <csignal>
 #include <cstdint>
 #include <format>
+#include <glm/trigonometric.hpp>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -29,6 +30,7 @@
 
 #include "Camera.h"
 #include "FrameData.h"
+#include "GameObject.h"
 #include "Lights.h"
 #include "MaterialFactory.h"
 #include "Model.h"
@@ -226,7 +228,9 @@ private:
         InitVulkan();
         InitImGui();
 
-        m_Model = ResourceManager::Get()->LoadModel(MODEL_PATH);
+        m_GameObject = std::make_unique<GameObject>();
+        m_GameObject->AddComponent(std::make_unique<Model>(MODEL_PATH));
+
         m_Camera = std::make_unique<Camera>();
 
         std::cout << "Init() succeeded.\n";
@@ -296,7 +300,7 @@ private:
 
     void Shutdown()
     {
-        ResourceManager::Get()->UnloadModel(m_Model->GetFilepath());
+        m_GameObject.reset();
         ShutdownImGui();
         MaterialFactory::Shutdown();
         ResourceManager::Shutdown();
@@ -947,8 +951,14 @@ private:
 
         commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                    *m_GraphicsPipeline);
-        commandBuffer.bindVertexBuffers(0, m_Model->GetVertexBuffer(), {0});
-        commandBuffer.bindIndexBuffer(m_Model->GetIndexBuffer(), 0,
+
+        Model* pModel = m_GameObject->GetComponent<Model>();
+        if (!pModel)
+            throw std::runtime_error(
+                "Could not find Model in game object's component vector!");
+
+        commandBuffer.bindVertexBuffers(0, pModel->GetVertexBuffer(), {0});
+        commandBuffer.bindIndexBuffer(pModel->GetIndexBuffer(), 0,
                                       vk::IndexType::eUint32);
         commandBuffer.setViewport(
             0, vk::Viewport(
@@ -964,8 +974,8 @@ private:
             // per object
             commandBuffer.bindDescriptorSets(
                 vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
-                m_Model->GetMaterial()->GetDescriptorSet(), nullptr);
-            commandBuffer.drawIndexed(m_Model->GetIndexCount(), 1, 0, 0, 0);
+                pModel->GetMaterial()->GetDescriptorSet(), nullptr);
+            commandBuffer.drawIndexed(pModel->GetIndexCount(), 1, 0, 0, 0);
         }
 
         if (m_bCursorVisible)
@@ -1106,16 +1116,6 @@ private:
                 m_Frames[i].m_UniformBufferMemory.mapMemory(0, size);
         }
 
-        // In GLM, matrices are COLUMN MAJOR, and so must apply
-        // transformations in reverse order.
-        m_UBO.Model = glm::mat4(1.f);
-        m_UBO.Model = glm::translate(m_UBO.Model, {0.f, 0.f, -10.f});
-        m_UBO.Model = glm::scale(m_UBO.Model, {7.f, 7.f, 7.f});
-
-        m_UBO.CameraPos = glm::vec3(0.f, 0.f, 0.f);
-
-        m_UBO.View = glm::lookAt(m_UBO.CameraPos, glm::vec3(0.f, 0.f, -1.f),
-                                 glm::vec3(0.f, 1.f, 0.f));
         m_UBO.Proj =
             glm::perspective(glm::radians(90.f),
                              static_cast<float>(m_SwapchainExtent.width) /
@@ -1139,10 +1139,16 @@ private:
                          currentTime - m_StartTime)
                          .count();
         m_UBO.Time = time;
+
+        // In GLM, matrices are COLUMN MAJOR, and so must apply
+        // transformations in reverse order.
+        const Transform& transform = m_GameObject->GetTransform();
         m_UBO.Model = glm::mat4(1.f);
-        m_UBO.Model = glm::translate(m_UBO.Model, {0.f, 0.f, -2.f});
+        m_UBO.Model = glm::translate(m_UBO.Model, transform.Position);
+        glm::quat rotation = glm::quat(transform.Rotation);
+        m_UBO.Model = glm::mat4_cast(rotation) * m_UBO.Model;
         float scale = 0.01f;
-        m_UBO.Model = glm::scale(m_UBO.Model, {scale, scale, scale});
+        m_UBO.Model = glm::scale(m_UBO.Model, transform.Scale * scale);
 
         m_UBO.CameraPos = m_Camera->GetPosition();
         m_UBO.View = m_Camera->GetViewMatrix();
@@ -1306,7 +1312,7 @@ private:
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
 
     std::unique_ptr<Camera> m_Camera = nullptr;
-    Model* m_Model = nullptr;
+    std::unique_ptr<GameObject> m_GameObject = nullptr;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;

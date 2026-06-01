@@ -2,7 +2,7 @@
 
 #include <stdexcept>
 
-#include "Model.h"
+#include "ModelData.h"
 #include "ModelLoader.h"
 #include "MyMacros.h"
 #include "Texture.h"
@@ -61,16 +61,16 @@ Texture* ResourceManager::LoadTexture(const std::string& filepath,
     return pData;
 }
 
-Model* ResourceManager::LoadModel(const std::string& modelPath)
+ModelData* ResourceManager::LoadModel(const std::string& modelPath)
 {
     auto it = m_ModelsMap.find(modelPath);
     if (it != m_ModelsMap.end() && it->second.get())
     {
         it->second->AddRef();
-        return static_cast<Model*>(it->second->m_pData);
+        return static_cast<ModelData*>(it->second->m_pData);
     }
 
-    Model* pData = ModelLoader::Get()->Load(modelPath);
+    ModelData* pData = ModelLoader::Get()->Load(modelPath);
     if (!pData)
         return nullptr;
 
@@ -125,7 +125,7 @@ void ResourceManager::Internal_UnloadTexture(const std::string filepath)
 
 void ResourceManager::Internal_UnloadModel(const std::string filepath)
 {
-    Model* pModelData = static_cast<Model*>(m_ModelsMap[filepath]->m_pData);
+    ModelData* pModelData = static_cast<ModelData*>(m_ModelsMap[filepath]->m_pData);
     delete pModelData;
     m_ModelsMap.erase(filepath);
 }

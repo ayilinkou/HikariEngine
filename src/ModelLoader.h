@@ -4,7 +4,7 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
-class Model;
+class ModelData;
 
 class ModelLoader
 {
@@ -24,7 +24,7 @@ private:
 
     static ModelLoader* Get() { return s_Instance; }
 
-    [[nodiscard]] Model* Load(const std::string& path);
+    [[nodiscard]] ModelData* Load(const std::string& path);
 
 private:
     inline static ModelLoader* s_Instance = nullptr;
