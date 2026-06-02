@@ -4,7 +4,6 @@
 #include <csignal>
 #include <cstdint>
 #include <format>
-#include <glm/trigonometric.hpp>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -23,7 +22,6 @@
 #include "vulkan/vulkan_raii.hpp"
 
 #include "glm/glm.hpp"
-#include "glm/gtc/matrix_transform.hpp"
 
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
@@ -230,9 +228,12 @@ private:
         InitImGui();
 
         m_GameObject = std::make_unique<GameObject>();
+        m_GameObject->GetTransform().Scale *= 0.1f;
+        m_GameObject->GetTransform().Position += glm::vec3(0.f, 0.f, -5.f);
         m_GameObject->AddComponent(std::make_unique<Model>(MODEL_PATH));
 
         m_Camera = std::make_unique<Camera>();
+        m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
 
         std::cout << "Init() succeeded.\n";
     }
@@ -1122,14 +1123,15 @@ private:
                 m_Frames[i].m_UniformBufferMemory.mapMemory(0, size);
         }
 
-        m_UBO.Proj =
+        glm::mat4 colMajProj =
             glm::perspective(glm::radians(90.f),
                              static_cast<float>(m_SwapchainExtent.width) /
                                  static_cast<float>(m_SwapchainExtent.height),
                              0.1f, 100.f);
         // GLM was designed for OpenGL, which has its Y coordinate in clip
         // space inverted. Compensate for this by scaling here.
-        m_UBO.Proj[1][1] *= -1.f;
+        colMajProj[1][1] *= -1.f;
+        m_UBO.Proj = glm::transpose(colMajProj);
 
         m_UBO.Light.Pos = {10.f, 0.f, 0.f};
         m_UBO.Light.Intensity = 1000.f;
@@ -1146,20 +1148,16 @@ private:
                          .count();
         m_UBO.Time = time;
 
-        // In GLM, matrices are COLUMN MAJOR, and so must apply
-        // transformations in reverse order.
-        const Transform& transform = m_GameObject->GetTransform();
-        m_UBO.Model = glm::mat4(1.f);
-        m_UBO.Model = glm::translate(m_UBO.Model, transform.Position);
-        glm::quat rotation = glm::quat(transform.Rotation);
-        m_UBO.Model = glm::mat4_cast(rotation) * m_UBO.Model;
-        float scale = 0.01f;
-        m_UBO.Model = glm::scale(m_UBO.Model, transform.Scale * scale);
+        glm::mat4 colMajModel = m_GameObject->GetTransform().ToLocalMatrix();
+        colMajModel = colMajModel *
+                      glm::rotate(glm::mat4(1.f),
+                                  glm::radians(std::fmod(time, 360.f) * 50.f),
+                                  {0.f, 1.f, 0.f});
+        m_UBO.Model = glm::transpose(colMajModel);
+        m_UBO.NormalMatrix = glm::transpose(glm::inverse(colMajModel));
 
         m_UBO.CameraPos = m_Camera->GetPosition();
-        m_UBO.View = m_Camera->GetViewMatrix();
-
-        m_UBO.NormalMatrix = glm::transpose(glm::inverse(m_UBO.Model));
+        m_UBO.View = glm::transpose(m_Camera->GetViewMatrix());
 
         memcpy(m_Frames[frameIndex].m_UniformBufferMapping, &m_UBO,
                sizeof(m_UBO));

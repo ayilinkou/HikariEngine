@@ -1,3 +1,7 @@
+// Matrices in Slang are row-major by default, just like HLSL. GLM stores
+// matrices in column-major order. In order to keep things consistent, all
+// matrices that are sent to the GPU will be transposed into row-major.
+
 struct PointLight
 {
 	float3 Pos;
@@ -45,14 +49,14 @@ static const float PI = 3.14159265359f;
 VS_Out vertMain(VS_In v)
 {
 	VS_Out o;
-	float4 worldPos = mul(ubo.Model, float4(v.Pos, 1.f));
-	o.Pos = mul(ubo.Proj, mul(ubo.View, worldPos));
+	float4 worldPos = mul(float4(v.Pos, 1.f), ubo.Model);
+	o.Pos = mul(mul(worldPos, ubo.View), ubo.Proj);
 	o.WorldPos = worldPos.xyz;
 	o.Color = v.Color;
 	o.TexCoord = v.TexCoord;
-	float3x3 inverseTransposeMatrix = (float3x3)ubo.NormalMatrix;
-	o.Normal = mul(inverseTransposeMatrix, v.Normal);
-	o.Tangent = float4(mul(inverseTransposeMatrix, v.Tangent.xyz), v.Tangent.w);
+	float3x3 normalMatrix = (float3x3)ubo.NormalMatrix;
+	o.Normal = mul(v.Normal, normalMatrix);
+	o.Tangent = float4(mul(v.Tangent.xyz, normalMatrix), v.Tangent.w);
 	return o;
 }
 
@@ -213,5 +217,5 @@ float4 fragMain(VS_Out f) : SV_Target
 	color = HillACES(color); // tone mapping
 	color = pow(color, float3(1.f / 2.2f)); // gamma correction
 
-	return float4(ambient + color, 1.f);
+	return float4(color, 1.f);
 }
