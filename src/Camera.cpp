@@ -4,18 +4,24 @@
 #include <glm/ext/vector_float3.hpp>
 #include <glm/trigonometric.hpp>
 
+Camera::Camera()
+{
+    m_View = glm::mat4(1.f);
+    m_RotationMatrix = glm::mat4(1.f);
+
+    m_ForwardVector = {0.f, 0.f, -1.f};
+    m_UpVector = {0.f, 1.f, 0.f};
+    m_RightVector = {1.f, 0.f, 0.f};
+
+    m_MoveSpeed = 10.f;
+    m_LookSens = 0.1f;
+}
+
 void Camera::Tick() { CalcViewMatrix(); }
 
 void Camera::CalcViewMatrix()
 {
-    float pitch = glm::radians(m_Transform.Rotation.x);
-    float yaw = glm::radians(m_Transform.Rotation.y);
-
-    m_RotationMatrix = glm::mat4(1.f);
-    m_RotationMatrix =
-        glm::rotate(m_RotationMatrix, yaw, glm::vec3(0.f, 1.f, 0.f));
-    m_RotationMatrix =
-        glm::rotate(m_RotationMatrix, pitch, glm::vec3(1.f, 0.f, 0.f));
+    m_RotationMatrix = m_Transform.ToRotationMatrix();
 
     m_ForwardVector =
         glm::vec3(m_RotationMatrix * glm::vec4(0.f, 0.f, -1.f, 0.f));

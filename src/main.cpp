@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstdint>
 #include <format>
@@ -355,37 +356,42 @@ private:
     // delay.
     void HandleMovement()
     {
+        glm::vec3 camOffset = {0.f, 0.f, 0.f};
         const bool* state = SDL_GetKeyboardState(nullptr);
         if (state[SDL_SCANCODE_A])
         {
-            m_Camera->AddPositionOffset(-m_Camera->GetRightVector() *
-                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
+            camOffset += -m_Camera->GetRightVector() *
+                         m_Camera->GetMoveSpeed() * m_DeltaTime;
         }
         if (state[SDL_SCANCODE_D])
         {
-            m_Camera->AddPositionOffset(m_Camera->GetRightVector() *
-                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
+            camOffset += m_Camera->GetRightVector() * m_Camera->GetMoveSpeed() *
+                         m_DeltaTime;
         }
         if (state[SDL_SCANCODE_W])
         {
-            m_Camera->AddPositionOffset(m_Camera->GetForwardVector() *
-                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
+            camOffset += m_Camera->GetForwardVector() *
+                         m_Camera->GetMoveSpeed() * m_DeltaTime;
         }
         if (state[SDL_SCANCODE_S])
         {
-            m_Camera->AddPositionOffset(-m_Camera->GetForwardVector() *
-                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
+            camOffset += -m_Camera->GetForwardVector() *
+                         m_Camera->GetMoveSpeed() * m_DeltaTime;
         }
         if (state[SDL_SCANCODE_Q])
         {
-            m_Camera->AddPositionOffset(glm::vec3(0.f, -1.f, 0.f) *
-                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
+            camOffset += glm::vec3(0.f, -1.f, 0.f) * m_Camera->GetMoveSpeed() *
+                         m_DeltaTime;
         }
         if (state[SDL_SCANCODE_E])
         {
-            m_Camera->AddPositionOffset(glm::vec3(0.f, 1.f, 0.f) *
-                                        m_Camera->GetMoveSpeed() * m_DeltaTime);
+            camOffset += glm::vec3(0.f, 1.f, 0.f) * m_Camera->GetMoveSpeed() *
+                         m_DeltaTime;
         }
+
+        if ((std::fabs(camOffset.x) + std::fabs(camOffset.y) +
+             std::fabs(camOffset.z)) > 0.f)
+            m_Camera->GetTransform().Position += camOffset;
     }
 
     void DrawFrame()
