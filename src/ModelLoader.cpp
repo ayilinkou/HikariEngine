@@ -74,8 +74,14 @@ ModelData* ModelLoader::Load(const std::string& path)
 
         assert(mesh->HasTangentsAndBitangents() &&
                "Mesh does not have tangents and bitangents!");
-        v.Tangent = {mesh->mTangents[i].x, mesh->mTangents[i].y,
-                     mesh->mTangents[i].z};
+        glm::vec3 tangent = {mesh->mTangents[i].x, mesh->mTangents[i].y,
+                             mesh->mTangents[i].z};
+        glm::vec3 bitangent = {mesh->mBitangents[i].x, mesh->mBitangents[i].y,
+                               mesh->mBitangents[i].z};
+        float handedness =
+            (glm::dot(glm::cross(v.Normal, tangent), bitangent) > 0.f) ? -1.f
+                                                                       : 1.f;
+		v.Tangent = glm::vec4(tangent, handedness);
 
         vertices.push_back(v);
     }
@@ -110,7 +116,6 @@ ModelData* ModelLoader::Load(const std::string& path)
         MaterialFactory::Get()->CreatePBRMaterial(mat, modelRoot);
 
     return new ModelData(std::move(vertexBuffer), std::move(vertexMemory),
-                     std::move(indexBuffer), std::move(indexMemory), material,
-                     indices.size(), path);
+                         std::move(indexBuffer), std::move(indexMemory),
+                         material, indices.size(), path);
 }
-

@@ -11,7 +11,7 @@ struct Vertex
     glm::vec3 Color;
     glm::vec2 TexCoord;
     glm::vec3 Normal;
-    glm::vec3 Tangent;
+    glm::vec4 Tangent;
 
     static constexpr uint32_t AttributeCount = 5;
     static constexpr uint32_t GetAttributeCount() { return AttributeCount; }
@@ -45,7 +45,7 @@ struct Vertex
                   .offset = offsetof(Vertex, Normal)},
                  {.location = 4,
                   .binding = 0,
-                  .format = vk::Format::eR32G32B32Sfloat,
+                  .format = vk::Format::eR32G32B32A32Sfloat,
                   .offset = offsetof(Vertex, Tangent)}}};
     }
 
