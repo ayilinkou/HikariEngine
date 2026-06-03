@@ -933,11 +933,11 @@ private:
             .commandPool = m_CommandPool,
             .level = vk::CommandBufferLevel::ePrimary,
             .commandBufferCount = MAX_FRAMES_IN_FLIGHT};
-		auto commandBuffers = vk::raii::CommandBuffers(m_Device, allocInfo);
+        auto commandBuffers = vk::raii::CommandBuffers(m_Device, allocInfo);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-			m_Frames[i].CommandBuffer = std::move(commandBuffers[i]);
+            m_Frames[i].CommandBuffer = std::move(commandBuffers[i]);
             SetVkDebugName(m_Device, *m_Frames[i].CommandBuffer,
                            vk::ObjectType::eCommandBuffer,
                            std::format("Main Command Buffer_{}", i).c_str());
@@ -1207,7 +1207,11 @@ private:
                                   glm::radians(std::fmod(time, 360.f) * 50.f),
                                   {0.f, 1.f, 0.f});
         m_UBO.Model = glm::transpose(colMajModel);
-        m_UBO.NormalMatrix = glm::transpose(glm::inverse(colMajModel));
+
+        // Normal matrix is the inverse transpose of the model matrix.
+        // However GLM matrices are in column major and so we want to transpose
+        // to row major. The two transposes cancel each other out.
+        m_UBO.NormalMatrix = glm::inverse(colMajModel);
 
         m_UBO.CameraPos = m_Camera->GetPosition();
         m_UBO.View = glm::transpose(m_Camera->GetViewMatrix());
