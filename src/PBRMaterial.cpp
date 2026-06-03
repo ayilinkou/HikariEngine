@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "Utility.h"
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_raii.hpp"
 
@@ -14,6 +15,7 @@ PBRMaterial::PBRMaterial(vk::raii::Device& device,
                          vk::raii::DescriptorSetLayout& setLayout,
                          vk::raii::Sampler& sampler, aiMaterial* mat,
                          const std::string& texturesParentFolder)
+    : Material(mat->GetName().C_Str())
 {
     LoadTextures(mat, texturesParentFolder);
     CreateDescriptorSet(device, descriptorPool, setLayout, sampler);
@@ -74,6 +76,8 @@ void PBRMaterial::CreateDescriptorSet(
 
     auto sets = device.allocateDescriptorSets(allocInfo);
     m_DescriptorSet = std::move(sets.front());
+    SetVkDebugName(device, *m_DescriptorSet, vk::ObjectType::eDescriptorSet,
+                   std::format("{} Material Descriptor Set", m_Name).c_str());
 
     vk::DescriptorImageInfo albedoInfo{
         .sampler = sampler,

@@ -1,8 +1,9 @@
 #include "TextureLoader.h"
 
-#include <stdexcept>
-#include <iostream>
 #include <format>
+#include <iostream>
+#include <regex>
+#include <stdexcept>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
@@ -46,7 +47,7 @@ Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
 {
     std::cout << std::format("Loading texture: {}", path.c_str()) << "\n";
 
-	int width, height, channels;
+    int width, height, channels;
     stbi_uc* pixels =
         stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
     vk::DeviceSize imageSize = width * height * 4;
@@ -78,6 +79,10 @@ Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
                 vk::ImageUsageFlagBits::eTransferDst |
                     vk::ImageUsageFlagBits::eSampled,
                 vk::MemoryPropertyFlagBits::eDeviceLocal, image, imageMemory);
+    SetVkDebugName(m_Device, *image, vk::ObjectType::eImage,
+                   std::format("{} Image", path).c_str());
+    SetVkDebugName(m_Device, *imageMemory, vk::ObjectType::eDeviceMemory,
+                   std::format("{} Device Memory", path).c_str());
 
     TransitionImageLayout(m_Device, m_CommandPool, m_TransferQueue, image,
                           vk::ImageLayout::eUndefined,
@@ -93,6 +98,8 @@ Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
 
     vk::raii::ImageView imageView = CreateImageView(
         m_Device, image, format, vk::ImageAspectFlagBits::eColor);
+    SetVkDebugName(m_Device, *imageView, vk::ObjectType::eImageView,
+                   std::format("{} Image View", path).c_str());
 
     return new Texture(std::move(image), std::move(imageView),
                        std::move(imageMemory), path);

@@ -1,4 +1,5 @@
 #include "MaterialFactory.h"
+#include "Utility.h"
 
 #include <stdexcept>
 
@@ -44,6 +45,8 @@ void MaterialFactory::CreateDescriptorPool()
         .pPoolSizes = materialPoolSize.data()};
 
     m_DescriptorPool = vk::raii::DescriptorPool(m_Device, matCreateInfo);
+    SetVkDebugName(m_Device, *m_DescriptorPool, vk::ObjectType::eDescriptorPool,
+                   "Material Factory Descriptor Pool");
 }
 
 void MaterialFactory::CreateDescriptorSetLayout()
@@ -66,6 +69,8 @@ void MaterialFactory::CreateDescriptorSetLayout()
     vk::DescriptorSetLayoutCreateInfo matCreateInfo{
         .bindingCount = matBindings.size(), .pBindings = matBindings.data()};
     m_SetLayout = vk::raii::DescriptorSetLayout(m_Device, matCreateInfo);
+    SetVkDebugName(m_Device, *m_SetLayout, vk::ObjectType::eDescriptorSetLayout,
+                   "Material Factory Descriptor Set Layout");
 }
 
 PBRMaterial*

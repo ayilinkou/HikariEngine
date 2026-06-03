@@ -89,7 +89,8 @@ else()
     PRIVATE -Wall
             -Wextra
             -Wpedantic
-            $<$<CONFIG:Debug>:
+			-Wshadow
+			$<$<CONFIG:Debug>:
             -O0
             -g
             >

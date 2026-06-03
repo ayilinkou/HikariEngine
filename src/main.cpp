@@ -406,13 +406,13 @@ private:
         // explicitely reset by the host.
 
         FrameData& frameData = m_Frames[m_FrameIndex];
-        auto fenceResult = m_Device.waitForFences(*frameData.m_DrawFence,
-                                                  vk::True, UINT64_MAX);
+        auto fenceResult =
+            m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
         if (fenceResult != vk::Result::eSuccess)
             throw std::runtime_error("Failed to wait for fence!");
 
         auto [result, imageIndex] = m_Swapchain.acquireNextImage(
-            UINT64_MAX, *frameData.m_PresentCompleteSemaphore, nullptr);
+            UINT64_MAX, *frameData.PresentCompleteSemaphore, nullptr);
 
         if (result == vk::Result::eErrorOutOfDateKHR)
         {
@@ -427,7 +427,7 @@ private:
             throw std::runtime_error("Failed to acquire next swapchain image!");
         }
 
-        m_Device.resetFences(*frameData.m_DrawFence);
+        m_Device.resetFences(*frameData.DrawFence);
 
         UpdateUniformBuffer(m_FrameIndex);
         RecordCommandBuffer(imageIndex);
@@ -436,14 +436,14 @@ private:
             vk::PipelineStageFlagBits::eColorAttachmentOutput);
         const vk::SubmitInfo submitInfo{
             .waitSemaphoreCount = 1,
-            .pWaitSemaphores = &*frameData.m_PresentCompleteSemaphore,
+            .pWaitSemaphores = &*frameData.PresentCompleteSemaphore,
             .pWaitDstStageMask = &waitDestinationStageFlags,
             .commandBufferCount = 1,
-            .pCommandBuffers = &*frameData.m_CommandBuffer,
+            .pCommandBuffers = &*frameData.CommandBuffer,
             .signalSemaphoreCount = 1,
             .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
 
-        m_GraphicsQueue.submit(submitInfo, *frameData.m_DrawFence);
+        m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
 
         const vk::PresentInfoKHR presentInfo{
             .waitSemaphoreCount = 1,
@@ -708,7 +708,19 @@ private:
             .ppEnabledExtensionNames = requiredDeviceExtensions.data()};
 
         m_Device = vk::raii::Device(m_PhysicalDevice, deviceCreateInfo);
+        SetVkDebugName(m_Device, *m_Device, vk::ObjectType::eDevice, "Device");
         m_GraphicsQueue = vk::raii::Queue(m_Device, m_QueueIndex, 0);
+        SetVkDebugName(m_Device, *m_GraphicsQueue, vk::ObjectType::eQueue,
+                       "Graphics Queue");
+
+        // Setting debug names for objects which were created before the device
+        // was created.
+        SetVkDebugName(m_Device, *m_Instance, vk::ObjectType::eInstance,
+                       "Instance");
+        SetVkDebugName(m_Device, *m_PhysicalDevice,
+                       vk::ObjectType::ePhysicalDevice, "Physical Device");
+        SetVkDebugName(m_Device, *m_Surface, vk::ObjectType::eSurfaceKHR,
+                       "Surface");
     }
 
     void CreateSwapchain()
@@ -742,7 +754,15 @@ private:
             .oldSwapchain = nullptr};
 
         m_Swapchain = vk::raii::SwapchainKHR(m_Device, createInfo);
+        SetVkDebugName(m_Device, *m_Swapchain, vk::ObjectType::eSwapchainKHR,
+                       "Swapchain");
+
         m_SwapImages = m_Swapchain.getImages();
+        for (size_t i = 0; i < m_SwapImages.size(); i++)
+        {
+            SetVkDebugName(m_Device, m_SwapImages[i], vk::ObjectType::eImage,
+                           std::format("Swapchain Image_{}", i).c_str());
+        }
 
         std::cout << "Swapchain image count: " << m_SwapImages.size() << "\n";
     }
@@ -750,11 +770,14 @@ private:
     void CreateSwapchainImageViews()
     {
         assert(m_SwapImageViews.empty());
-        for (const vk::Image& image : m_SwapImages)
+        for (size_t i = 0; i < m_SwapImages.size(); i++)
         {
             m_SwapImageViews.push_back(CreateImageView(
-                m_Device, image, m_SwapchainSurfaceFormat.format,
+                m_Device, m_SwapImages[i], m_SwapchainSurfaceFormat.format,
                 vk::ImageAspectFlagBits::eColor));
+            SetVkDebugName(m_Device, *m_SwapImageViews.back(),
+                           vk::ObjectType::eImageView,
+                           std::format("Swapchain Image View_{}", i).c_str());
         }
     }
 
@@ -773,6 +796,8 @@ private:
     {
         vk::raii::ShaderModule shaderModule =
             CreateShaderModule(ReadFile("shaders/pbr.spv"));
+        SetVkDebugName(m_Device, *shaderModule, vk::ObjectType::eShaderModule,
+                       "PBR Shader Module");
 
         vk::PipelineShaderStageCreateInfo vertCreateInfo{
             .stage = vk::ShaderStageFlagBits::eVertex,
@@ -861,6 +886,8 @@ private:
             .pushConstantRangeCount = 0};
         m_PipelineLayout =
             vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
+        SetVkDebugName(m_Device, *m_PipelineLayout,
+                       vk::ObjectType::ePipelineLayout, "PBR Pipeline Layout");
 
         m_PipelineRenderingCreateInfo = {
             .colorAttachmentCount = 1,
@@ -886,6 +913,8 @@ private:
         m_GraphicsPipeline = vk::raii::Pipeline(
             m_Device, nullptr,
             pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+        SetVkDebugName(m_Device, *m_GraphicsPipeline, vk::ObjectType::ePipeline,
+                       "PBR Pipeline");
     }
 
     void CreateCommandPool()
@@ -894,6 +923,8 @@ private:
             .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
             .queueFamilyIndex = m_QueueIndex};
         m_CommandPool = vk::raii::CommandPool(m_Device, createInfo);
+        SetVkDebugName(m_Device, *m_CommandPool, vk::ObjectType::eCommandPool,
+                       "Main Command Pool");
     }
 
     void CreateCommandBuffers()
@@ -902,18 +933,21 @@ private:
             .commandPool = m_CommandPool,
             .level = vk::CommandBufferLevel::ePrimary,
             .commandBufferCount = MAX_FRAMES_IN_FLIGHT};
-        auto m_CommandBuffers = vk::raii::CommandBuffers(m_Device, allocInfo);
+		auto commandBuffers = vk::raii::CommandBuffers(m_Device, allocInfo);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            m_Frames[i].m_CommandBuffer = std::move(m_CommandBuffers[i]);
+			m_Frames[i].CommandBuffer = std::move(commandBuffers[i]);
+            SetVkDebugName(m_Device, *m_Frames[i].CommandBuffer,
+                           vk::ObjectType::eCommandBuffer,
+                           std::format("Main Command Buffer_{}", i).c_str());
         }
     }
 
     void RecordCommandBuffer(uint32_t imageIndex)
     {
         vk::raii::CommandBuffer& commandBuffer =
-            m_Frames[m_FrameIndex].m_CommandBuffer;
+            m_Frames[m_FrameIndex].CommandBuffer;
         commandBuffer.reset();
 
         vk::CommandBufferBeginInfo beginInfo{};
@@ -955,7 +989,6 @@ private:
             .pDepthAttachment = &depthAttachmentInfo};
 
         commandBuffer.beginRendering(renderingInfo);
-
         commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                    *m_GraphicsPipeline);
 
@@ -1028,7 +1061,7 @@ private:
         vk::DependencyInfo info = {.dependencyFlags = {},
                                    .imageMemoryBarrierCount = 1,
                                    .pImageMemoryBarriers = &barrier};
-        m_Frames[m_FrameIndex].m_CommandBuffer.pipelineBarrier2(info);
+        m_Frames[m_FrameIndex].CommandBuffer.pipelineBarrier2(info);
     }
 
     void CreateSyncObjects()
@@ -1037,14 +1070,26 @@ private:
         {
             m_RenderCompleteSemaphores.emplace_back(
                 vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo()));
+            SetVkDebugName(
+                m_Device, *m_RenderCompleteSemaphores.back(),
+                vk::ObjectType::eSemaphore,
+                std::format("Render Complete Semaphore_{}", i).c_str());
         }
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            m_Frames[i].m_PresentCompleteSemaphore =
+            m_Frames[i].PresentCompleteSemaphore =
                 vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
-            m_Frames[i].m_DrawFence = vk::raii::Fence(
+            SetVkDebugName(
+                m_Device, *m_Frames[i].PresentCompleteSemaphore,
+                vk::ObjectType::eSemaphore,
+                std::format("Present Complete Semaphore_{}", i).c_str());
+
+            m_Frames[i].DrawFence = vk::raii::Fence(
                 m_Device, {.flags = vk::FenceCreateFlagBits::eSignaled});
+            SetVkDebugName(m_Device, *m_Frames[i].DrawFence,
+                           vk::ObjectType::eFence,
+                           std::format("Draw Fence_{}", i).c_str());
         }
     }
 
@@ -1095,6 +1140,9 @@ private:
             .pBindings = frameBindings.data()};
         m_FrameSetLayout =
             vk::raii::DescriptorSetLayout(m_Device, frameCreateInfo);
+        SetVkDebugName(m_Device, *m_FrameSetLayout,
+                       vk::ObjectType::eDescriptorSetLayout,
+                       "Frame Descriptor Set Layout");
     }
 
     void CreateUniformBuffers()
@@ -1113,14 +1161,19 @@ private:
                          vk::MemoryPropertyFlagBits::eHostVisible |
                              vk::MemoryPropertyFlagBits::eHostCoherent,
                          buffer, bufferMemory);
+            SetVkDebugName(m_Device, *buffer, vk::ObjectType::eBuffer,
+                           std::format("Uniform Buffer Frame {}", i).c_str());
+            SetVkDebugName(
+                m_Device, *bufferMemory, vk::ObjectType::eDeviceMemory,
+                std::format("Uniform Buffer Memory Frame {}", i).c_str());
 
-            m_Frames[i].m_UniformBuffer = std::move(buffer);
-            m_Frames[i].m_UniformBufferMemory = std::move(bufferMemory);
+            m_Frames[i].UniformBuffer = std::move(buffer);
+            m_Frames[i].UniformBufferMemory = std::move(bufferMemory);
             // Mapping once like this for the application's whole lifetime
             // is called Persistent Mapping. Increases performance since
             // mapping is not free.
-            m_Frames[i].m_UniformBufferMapping =
-                m_Frames[i].m_UniformBufferMemory.mapMemory(0, size);
+            m_Frames[i].UniformBufferMapping =
+                m_Frames[i].UniformBufferMemory.mapMemory(0, size);
         }
 
         glm::mat4 colMajProj =
@@ -1159,7 +1212,7 @@ private:
         m_UBO.CameraPos = m_Camera->GetPosition();
         m_UBO.View = glm::transpose(m_Camera->GetViewMatrix());
 
-        memcpy(m_Frames[frameIndex].m_UniformBufferMapping, &m_UBO,
+        memcpy(m_Frames[frameIndex].UniformBufferMapping, &m_UBO,
                sizeof(m_UBO));
     }
 
@@ -1176,6 +1229,9 @@ private:
 
         m_FrameDescriptorPool =
             vk::raii::DescriptorPool(m_Device, frameCreateInfo);
+        SetVkDebugName(m_Device, *m_FrameDescriptorPool,
+                       vk::ObjectType::eDescriptorPool,
+                       "Frame Descriptor Pool");
     }
 
     void CreateDescriptorSets()
@@ -1193,8 +1249,13 @@ private:
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
+            SetVkDebugName(
+                m_Device, *m_FrameDescriptorSets[i],
+                vk::ObjectType::eDescriptorSet,
+                std::format("Main Descriptor Set Frame {}", i).c_str());
+
             vk::DescriptorBufferInfo bufferInfo{
-                .buffer = m_Frames[i].m_UniformBuffer,
+                .buffer = m_Frames[i].UniformBuffer,
                 .offset = 0,
                 .range = sizeof(UniformBufferObject)};
 
@@ -1231,6 +1292,8 @@ private:
             .borderColor = vk::BorderColor::eIntOpaqueBlack,
             .unnormalizedCoordinates = vk::False};
         m_TextureSampler = vk::raii::Sampler(m_Device, createInfo);
+        SetVkDebugName(m_Device, *m_TextureSampler, vk::ObjectType::eSampler,
+                       "Texture Sampler");
     }
 
     void CreateDepthResources()
@@ -1242,9 +1305,16 @@ private:
                     vk::ImageUsageFlagBits::eDepthStencilAttachment,
                     vk::MemoryPropertyFlagBits::eDeviceLocal, m_DepthImage,
                     m_DepthImageMemory);
+        SetVkDebugName(m_Device, *m_DepthImage, vk::ObjectType::eImage,
+                       "Depth Image");
+        SetVkDebugName(m_Device, *m_DepthImageMemory,
+                       vk::ObjectType::eDeviceMemory, "Depth Image Memory");
+
         m_DepthImageView =
             CreateImageView(m_Device, m_DepthImage, m_DepthFormat,
                             vk::ImageAspectFlagBits::eDepth);
+        SetVkDebugName(m_Device, *m_DepthImageView, vk::ObjectType::eImageView,
+                       "Depth Image View");
     }
 
     vk::Format FindSupportedFormat(const std::vector<vk::Format>& candidates,

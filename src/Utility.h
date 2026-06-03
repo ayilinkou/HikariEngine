@@ -3,10 +3,28 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <vulkan/vulkan_core.h>
 
 #include "SDL3/SDL.h"
 
 #include "vulkan/vulkan_raii.hpp"
+
+template <typename T>
+inline void SetVkDebugName(vk::raii::Device& device, T handle,
+                           vk::ObjectType objectType, const char* name)
+{
+#ifdef DEBUG
+    // convert vk:: C++ types into C types
+    // eg. vk::Image -> VkImage
+    using CType = decltype(static_cast<typename T::CType>(handle));
+
+    vk::DebugUtilsObjectNameInfoEXT nameInfo{
+        .objectType = objectType,
+        .objectHandle = reinterpret_cast<uint64_t>(static_cast<CType>(handle)),
+        .pObjectName = name};
+    device.setDebugUtilsObjectNameEXT(nameInfo);
+#endif
+}
 
 inline std::vector<char> ReadFile(const std::string filename)
 {
@@ -137,6 +155,8 @@ BeginSingleTimeCommand(vk::raii::Device& device, vk::CommandPool commandPool)
         .commandBufferCount = 1};
     vk::raii::CommandBuffer commandBuffer =
         std::move(device.allocateCommandBuffers(allocInfo).front());
+    SetVkDebugName(device, *commandBuffer, vk::ObjectType::eCommandBuffer,
+                   "Single Use Command Buffer");
     vk::CommandBufferBeginInfo beginInfo{
         .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
     commandBuffer.begin(beginInfo);

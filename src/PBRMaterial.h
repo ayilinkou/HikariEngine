@@ -22,7 +22,7 @@ private:
                              vk::raii::DescriptorPool& descriptorPool,
                              vk::raii::DescriptorSetLayout& setLayout,
                              vk::raii::Sampler& sampler);
-	void Shutdown();
+    void Shutdown();
 
 private:
     Texture* m_Albedo = nullptr;

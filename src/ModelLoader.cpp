@@ -81,7 +81,7 @@ ModelData* ModelLoader::Load(const std::string& path)
         float handedness =
             (glm::dot(glm::cross(v.Normal, tangent), bitangent) > 0.f) ? -1.f
                                                                        : 1.f;
-		v.Tangent = glm::vec4(tangent, handedness);
+        v.Tangent = glm::vec4(tangent, handedness);
 
         vertices.push_back(v);
     }
@@ -103,12 +103,20 @@ ModelData* ModelLoader::Load(const std::string& path)
     CreateVertexBuffer(m_Device, m_PhysicalDevice, m_CommandPool,
                        m_TransferQueue, sizeof(vertices[0]), vertices.size(),
                        vertices.data(), vertexBuffer, vertexMemory);
+    SetVkDebugName(m_Device, *vertexBuffer, vk::ObjectType::eBuffer,
+                   std::format("{} Vertex Buffer", path).c_str());
+    SetVkDebugName(m_Device, *vertexMemory, vk::ObjectType::eDeviceMemory,
+                   std::format("{} Vertex Buffer Memory", path).c_str());
 
     vk::raii::Buffer indexBuffer({});
     vk::raii::DeviceMemory indexMemory({});
     CreateIndexBuffer(m_Device, m_PhysicalDevice, m_CommandPool,
                       m_TransferQueue, sizeof(indices[0]), indices.size(),
                       indices.data(), indexBuffer, indexMemory);
+    SetVkDebugName(m_Device, *indexBuffer, vk::ObjectType::eBuffer,
+                   std::format("{} Index Buffer", path).c_str());
+    SetVkDebugName(m_Device, *indexMemory, vk::ObjectType::eDeviceMemory,
+                   std::format("{} Index Buffer Memory", path).c_str());
 
     std::filesystem::path modelPath = path;
     std::string modelRoot = modelPath.parent_path().string() + "/";
