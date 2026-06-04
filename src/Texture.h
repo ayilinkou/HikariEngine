@@ -28,7 +28,6 @@ private:
     vk::raii::DeviceMemory m_ImageMemory = nullptr;
     vk::raii::ImageView m_ImageView = nullptr;
 
-    // TODO: maybe add TextureBinding as a member?
     std::string m_Name = "Name";
     std::string m_Path = "";
 };

@@ -26,21 +26,20 @@ ConstantBuffer<UniformBuffer> ubo;
 
 struct VS_In
 {
-	float3 Pos;
-	float3 Color;
-	float2 TexCoord;
-	float3 Normal;
-	float4 Tangent;
+	float3 Pos : POSITION;
+	float2 TexCoord : TEXCOORD0;
+	float3 Normal : NORMAL;
+	float4 Tangent : TANGENT;
 };
 
 struct VS_Out
 {
 	float4 Pos : SV_Position;
-	float3 WorldPos;
-	float3 Color;
-	float2 TexCoord;
-	float3 Normal;
-	float4 Tangent;
+	float3 WorldPos : TEXCOORD0;
+	float3 Color : TEXCOORD1;
+	float2 TexCoord : TEXCOORD2;
+	float3 Normal : TEXCOORD3;
+	float4 Tangent : TEXCOORD4;
 };
 
 static const float PI = 3.14159265359f;
@@ -52,7 +51,6 @@ VS_Out vertMain(VS_In v)
 	float4 worldPos = mul(float4(v.Pos, 1.f), ubo.Model);
 	o.Pos = mul(mul(worldPos, ubo.View), ubo.Proj);
 	o.WorldPos = worldPos.xyz;
-	o.Color = v.Color;
 	o.TexCoord = v.TexCoord;
 	float3x3 normalMatrix = (float3x3)ubo.NormalMatrix;
 	o.Normal = mul(v.Normal, normalMatrix);

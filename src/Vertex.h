@@ -8,12 +8,11 @@
 struct Vertex
 {
     glm::vec3 Pos;
-    glm::vec3 Color;
     glm::vec2 TexCoord;
     glm::vec3 Normal;
     glm::vec4 Tangent;
 
-    static constexpr uint32_t AttributeCount = 5;
+    static constexpr uint32_t AttributeCount = 4;
     static constexpr uint32_t GetAttributeCount() { return AttributeCount; }
 
     static constexpr vk::VertexInputBindingDescription GetBindingDescription()
@@ -33,17 +32,13 @@ struct Vertex
                   .offset = offsetof(Vertex, Pos)},
                  {.location = 1,
                   .binding = 0,
-                  .format = vk::Format::eR32G32B32Sfloat,
-                  .offset = offsetof(Vertex, Color)},
-                 {.location = 2,
-                  .binding = 0,
                   .format = vk::Format::eR32G32Sfloat,
                   .offset = offsetof(Vertex, TexCoord)},
-                 {.location = 3,
+                 {.location = 2,
                   .binding = 0,
                   .format = vk::Format::eR32G32B32Sfloat,
                   .offset = offsetof(Vertex, Normal)},
-                 {.location = 4,
+                 {.location = 3,
                   .binding = 0,
                   .format = vk::Format::eR32G32B32A32Sfloat,
                   .offset = offsetof(Vertex, Tangent)}}};
@@ -51,9 +46,8 @@ struct Vertex
 
     constexpr bool operator==(const Vertex& other) const
     {
-        return Pos == other.Pos && Color == other.Color &&
-               TexCoord == other.TexCoord && Normal == other.Normal &&
-               Tangent == other.Tangent;
+        return Pos == other.Pos && TexCoord == other.TexCoord &&
+               Normal == other.Normal && Tangent == other.Tangent;
     }
 };
 
@@ -64,7 +58,7 @@ template <> struct hash<Vertex>
     size_t operator()(const Vertex& vertex) const
     {
         return ((hash<glm::vec3>()(vertex.Pos) ^
-                 (hash<glm::vec3>()(vertex.Color) << 1)) >>
+                 (hash<glm::vec3>()(vertex.Normal) << 1)) >>
                 1) ^
                (hash<glm::vec2>()(vertex.TexCoord) << 1);
     }

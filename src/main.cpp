@@ -227,10 +227,10 @@ private:
         InitVulkan();
         InitImGui();
 
-        m_GameObject = std::make_unique<GameObject>();
-        m_GameObject->GetTransform().Scale *= 0.1f;
-        m_GameObject->GetTransform().Position += glm::vec3(0.f, 0.f, -5.f);
-        m_GameObject->AddComponent(std::make_unique<Model>(MODEL_PATH));
+        m_GameObjects.push_back(std::make_unique<GameObject>());
+        m_GameObjects.back()->GetTransform().Scale *= 0.1f;
+        m_GameObjects.back()->GetTransform().Position += glm::vec3(0.f, 0.f, -5.f);
+        m_GameObjects.back()->AddComponent(std::make_unique<Model>(MODEL_PATH));
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
@@ -302,7 +302,7 @@ private:
 
     void Shutdown()
     {
-        m_GameObject.reset();
+        m_GameObjects.clear();
         ShutdownImGui();
         MaterialFactory::Shutdown();
         ResourceManager::Shutdown();
@@ -992,14 +992,6 @@ private:
         commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
                                    *m_GraphicsPipeline);
 
-        Model* pModel = m_GameObject->GetComponent<Model>();
-        if (!pModel)
-            throw std::runtime_error(
-                "Could not find Model in game object's component vector!");
-
-        commandBuffer.bindVertexBuffers(0, pModel->GetVertexBuffer(), {0});
-        commandBuffer.bindIndexBuffer(pModel->GetIndexBuffer(), 0,
-                                      vk::IndexType::eUint32);
         commandBuffer.setViewport(
             0, vk::Viewport(
                    0.f, 0.f, static_cast<float>(m_SwapchainExtent.width),
@@ -1010,8 +1002,18 @@ private:
             vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 0,
             *m_FrameDescriptorSets[m_FrameIndex], nullptr);
 
+        // per object
+        for (const std::unique_ptr<GameObject>& go : m_GameObjects)
         {
-            // per object
+            Model* pModel = go->GetComponent<Model>();
+            if (!pModel)
+                continue;
+
+			// TODO: update model matrix
+
+            commandBuffer.bindVertexBuffers(0, pModel->GetVertexBuffer(), {0});
+            commandBuffer.bindIndexBuffer(pModel->GetIndexBuffer(), 0,
+                                          vk::IndexType::eUint32);
             commandBuffer.bindDescriptorSets(
                 vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
                 pModel->GetMaterial()->GetDescriptorSet(), nullptr);
@@ -1201,7 +1203,7 @@ private:
                          .count();
         m_UBO.Time = time;
 
-        glm::mat4 colMajModel = m_GameObject->GetTransform().ToLocalMatrix();
+        glm::mat4 colMajModel = m_GameObjects.back()->GetTransform().ToLocalMatrix();
         colMajModel = colMajModel *
                       glm::rotate(glm::mat4(1.f),
                                   glm::radians(std::fmod(time, 360.f) * 50.f),
@@ -1390,7 +1392,7 @@ private:
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
 
     std::unique_ptr<Camera> m_Camera = nullptr;
-    std::unique_ptr<GameObject> m_GameObject = nullptr;
+    std::vector<std::unique_ptr<GameObject>> m_GameObjects;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
