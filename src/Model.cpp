@@ -24,3 +24,12 @@ vk::Buffer Model::GetIndexBuffer() const
 
 uint32_t Model::GetIndexCount() const { return m_pModelData->GetIndexCount(); }
 Material* Model::GetMaterial() const { return m_pModelData->GetMaterial(); }
+
+MeshBatch Model::GetMeshBatch() const
+{
+    return {.InstanceCount = 1u,
+            .IndexCount = GetIndexCount(),
+            .pMaterial = GetMaterial(),
+            .IndexBuffer = GetIndexBuffer(),
+            .VertexBuffer = GetVertexBuffer()};
+}

@@ -5,7 +5,8 @@
 
 #include "vulkan/vulkan.hpp"
 
-#include <Component.h>
+#include "Component.h"
+#include "InstanceData.h"
 
 class ModelData;
 class Material;
@@ -21,6 +22,8 @@ public:
 
     uint32_t GetIndexCount() const;
     Material* GetMaterial() const;
+
+	MeshBatch GetMeshBatch() const;
 
 private:
     ModelData* m_pModelData;

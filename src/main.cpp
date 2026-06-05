@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <thread>
 
+#include "InstanceData.h"
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_events.h"
 #include "SDL3/SDL_video.h"
@@ -30,6 +31,7 @@
 #include "Camera.h"
 #include "FrameData.h"
 #include "GameObject.h"
+#include "InstanceData.h"
 #include "Lights.h"
 #include "MaterialFactory.h"
 #include "Model.h"
@@ -207,6 +209,7 @@ public:
 
             m_Camera->Tick();
             HandleMovement();
+            BatchMeshes();
 
             if (m_bCursorVisible)
                 DrawImGuiFrame();
@@ -229,7 +232,8 @@ private:
 
         m_GameObjects.push_back(std::make_unique<GameObject>());
         m_GameObjects.back()->GetTransform().Scale *= 0.1f;
-        m_GameObjects.back()->GetTransform().Position += glm::vec3(0.f, 0.f, -5.f);
+        m_GameObjects.back()->GetTransform().Position +=
+            glm::vec3(0.f, 0.f, -5.f);
         m_GameObjects.back()->AddComponent(std::make_unique<Model>(MODEL_PATH));
 
         m_Camera = std::make_unique<Camera>();
@@ -1002,22 +1006,19 @@ private:
             vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 0,
             *m_FrameDescriptorSets[m_FrameIndex], nullptr);
 
-        // per object
-        for (const std::unique_ptr<GameObject>& go : m_GameObjects)
+        // TODO: bind instance buffer here
+
+        // per mesh batch
+        for (const MeshBatch& batch : m_MeshBatches)
         {
-            Model* pModel = go->GetComponent<Model>();
-            if (!pModel)
-                continue;
-
-			// TODO: update model matrix
-
-            commandBuffer.bindVertexBuffers(0, pModel->GetVertexBuffer(), {0});
-            commandBuffer.bindIndexBuffer(pModel->GetIndexBuffer(), 0,
+            commandBuffer.bindVertexBuffers(0, batch.VertexBuffer, {0});
+            commandBuffer.bindIndexBuffer(batch.IndexBuffer, 0,
                                           vk::IndexType::eUint32);
             commandBuffer.bindDescriptorSets(
                 vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
-                pModel->GetMaterial()->GetDescriptorSet(), nullptr);
-            commandBuffer.drawIndexed(pModel->GetIndexCount(), 1, 0, 0, 0);
+                batch.pMaterial->GetDescriptorSet(), nullptr);
+            commandBuffer.drawIndexed(batch.IndexCount, batch.InstanceCount,
+                                      batch.FirstIndex, 0, batch.FirstInstance);
         }
 
         if (m_bCursorVisible)
@@ -1203,7 +1204,8 @@ private:
                          .count();
         m_UBO.Time = time;
 
-        glm::mat4 colMajModel = m_GameObjects.back()->GetTransform().ToLocalMatrix();
+        glm::mat4 colMajModel =
+            m_GameObjects.back()->GetTransform().ToLocalMatrix();
         colMajModel = colMajModel *
                       glm::rotate(glm::mat4(1.f),
                                   glm::radians(std::fmod(time, 360.f) * 50.f),
@@ -1358,6 +1360,19 @@ private:
                format == vk::Format::eD16UnormS8Uint;
     }
 
+    void BatchMeshes()
+    {
+        m_MeshBatches.clear();
+        for (const std::unique_ptr<GameObject>& go : m_GameObjects)
+        {
+            Model* pModel = go->GetComponent<Model>();
+            if (!pModel)
+                continue;
+
+            m_MeshBatches.push_back(pModel->GetMeshBatch());
+        }
+    }
+
 private:
     vk::raii::Context m_Context;
     vk::raii::Instance m_Instance = nullptr;
@@ -1393,6 +1408,7 @@ private:
 
     std::unique_ptr<Camera> m_Camera = nullptr;
     std::vector<std::unique_ptr<GameObject>> m_GameObjects;
+    std::vector<MeshBatch> m_MeshBatches;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
