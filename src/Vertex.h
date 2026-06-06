@@ -13,7 +13,6 @@ struct Vertex
     glm::vec4 Tangent;
 
     static constexpr uint32_t AttributeCount = 4;
-    static constexpr uint32_t GetAttributeCount() { return AttributeCount; }
 
     static constexpr vk::VertexInputBindingDescription GetBindingDescription()
     {

@@ -23,14 +23,15 @@ project(VulkanApp VERSION 1.0)
 set(SOURCES
     src/main.cpp
     src/Model.cpp
-	src/ModelData.cpp
+    src/ModelData.cpp
     src/Texture.cpp
     src/Camera.cpp
     src/PBRMaterial.cpp
     src/MaterialFactory.cpp
     src/ResourceManager.cpp
     src/TextureLoader.cpp
-    src/ModelLoader.cpp)
+    src/ModelLoader.cpp
+    src/ModelManager.cpp)
 
 find_package(Vulkan REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
@@ -89,8 +90,8 @@ else()
     PRIVATE -Wall
             -Wextra
             -Wpedantic
-			-Wshadow
-			$<$<CONFIG:Debug>:
+            -Wshadow
+            $<$<CONFIG:Debug>:
             -O0
             -g
             >

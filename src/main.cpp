@@ -4,6 +4,7 @@
 #include <csignal>
 #include <cstdint>
 #include <format>
+#include <glm/gtc/quaternion.hpp>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -11,6 +12,7 @@
 #include <thread>
 
 #include "InstanceData.h"
+#include "ModelManager.h"
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_events.h"
 #include "SDL3/SDL_video.h"
@@ -39,9 +41,12 @@
 #include "Utility.h"
 #include "Vertex.h"
 
-constexpr uint32_t WIDTH = 1920;
-constexpr uint32_t HEIGHT = 1080;
+constexpr uint32_t WIDTH = 1920u;
+constexpr uint32_t HEIGHT = 1080u;
+constexpr uint32_t MAX_INSTANCE_COUNT = 128u;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+constexpr float NEAR_PLANE = 0.1f;
+constexpr float FAR_PLANE = 1000.f;
 const std::string MODEL_PATH = "models/pbr_case/scene.gltf";
 
 std::atomic<bool> g_bShouldClose = false;
@@ -57,10 +62,8 @@ void HandleSIGINT(int)
 // glm::vec3 is 12 bytes wide by default but is 16 byte aligned.
 struct UniformBufferObject
 {
-    glm::mat4 Model;
     glm::mat4 View;
     glm::mat4 Proj;
-    glm::mat4 NormalMatrix;
     PointLight Light;
     glm::vec3 CameraPos;
     float Time;
@@ -166,15 +169,20 @@ public:
                 std::chrono::duration<float, std::chrono::seconds::period>(
                     now - m_LastTime)
                     .count();
+            m_RunTime =
+                std::chrono::duration<float, std::chrono::seconds::period>(
+                    now - m_StartTime)
+                    .count();
             m_LastTime = now;
 
             const float smoothing = 0.9f;
             float currentFrameTime = m_DeltaTime * 1000.f;
-            m_FrameTime = (m_FrameTime * smoothing) +
-                          (currentFrameTime * (1.f - smoothing));
+            m_DisplayFrameTime = (m_DisplayFrameTime * smoothing) +
+                                 (currentFrameTime * (1.f - smoothing));
 
             float currentFPS = 1.f / m_DeltaTime;
-            m_FPS = (m_FPS * smoothing) + (currentFPS * (1.f - smoothing));
+            m_DisplayFPS =
+                (m_DisplayFPS * smoothing) + (currentFPS * (1.f - smoothing));
 
             SDL_Event event;
             while (SDL_PollEvent(&event))
@@ -207,9 +215,10 @@ public:
                 }
             }
 
+
             m_Camera->Tick();
             HandleMovement();
-            BatchMeshes();
+            ModelManager::Get()->GenerateBatches();
 
             if (m_bCursorVisible)
                 DrawImGuiFrame();
@@ -231,10 +240,7 @@ private:
         InitImGui();
 
         m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Scale *= 0.1f;
-        m_GameObjects.back()->GetTransform().Position +=
-            glm::vec3(0.f, 0.f, -5.f);
-        m_GameObjects.back()->AddComponent(std::make_unique<Model>(MODEL_PATH));
+		m_GameObjects.back()->AddComponent(std::make_unique<Model>(MODEL_PATH));
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
@@ -299,6 +305,7 @@ private:
         CreateGraphicsPipeline();
         CreateCommandBuffers();
         CreateUniformBuffers();
+        CreateInstanceBuffers();
         CreateDescriptorPool();
         CreateDescriptorSets();
         CreateSyncObjects();
@@ -434,6 +441,7 @@ private:
         m_Device.resetFences(*frameData.DrawFence);
 
         UpdateUniformBuffer(m_FrameIndex);
+        UpdateInstanceBuffer(m_FrameIndex);
         RecordCommandBuffer(imageIndex);
 
         vk::PipelineStageFlags waitDestinationStageFlags(
@@ -485,8 +493,8 @@ private:
                                1000.f);
 
             ImGui::Dummy(ImVec2(0.f, 20.f));
-            ImGui::Text("Frame time: %.4fms", m_FrameTime);
-            ImGui::Text("FPS: %.1f", m_FPS);
+            ImGui::Text("Frame time: %.4fms", m_DisplayFrameTime);
+            ImGui::Text("FPS: %.1f", m_DisplayFPS);
         }
         ImGui::End();
 
@@ -816,15 +824,26 @@ private:
         std::vector<vk::PipelineShaderStageCreateInfo> shaderStages = {
             vertCreateInfo, fragCreateInfo};
 
-        auto bindingDesc = Vertex::GetBindingDescription();
-        auto attributeDesc = Vertex::GetAttributeDescription();
-        auto attributeCount = Vertex::GetAttributeCount();
+        auto vertexBindingDesc = Vertex::GetBindingDescription();
+        auto vertexAttributeDesc = Vertex::GetAttributeDescription();
+
+        auto instanceBindingDesc = InstanceData::GetBindingDescription();
+        auto instanceAttributeDesc = InstanceData::GetAttributeDescription();
+
+        std::array<vk::VertexInputBindingDescription, 2> bindingDescs = {
+            vertexBindingDesc, instanceBindingDesc};
+        std::array<vk::VertexInputAttributeDescription,
+                   Vertex::AttributeCount + InstanceData::AttributeCount>
+            attributeDescs;
+        std::ranges::copy(vertexAttributeDesc, attributeDescs.begin());
+        std::ranges::copy(instanceAttributeDesc,
+                          attributeDescs.begin() + Vertex::AttributeCount);
 
         vk::PipelineVertexInputStateCreateInfo vertexInput{
-            .vertexBindingDescriptionCount = 1,
-            .pVertexBindingDescriptions = &bindingDesc,
-            .vertexAttributeDescriptionCount = attributeCount,
-            .pVertexAttributeDescriptions = attributeDesc.data()};
+            .vertexBindingDescriptionCount = bindingDescs.size(),
+            .pVertexBindingDescriptions = bindingDescs.data(),
+            .vertexAttributeDescriptionCount = attributeDescs.size(),
+            .pVertexAttributeDescriptions = attributeDescs.data()};
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
             .topology = vk::PrimitiveTopology::eTriangleList};
 
@@ -950,12 +969,11 @@ private:
 
     void RecordCommandBuffer(uint32_t imageIndex)
     {
-        vk::raii::CommandBuffer& commandBuffer =
-            m_Frames[m_FrameIndex].CommandBuffer;
-        commandBuffer.reset();
+        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
+        cmd.reset();
 
         vk::CommandBufferBeginInfo beginInfo{};
-        commandBuffer.begin(beginInfo);
+        cmd.begin(beginInfo);
 
         TransitionSwapImageLayout(
             imageIndex, vk::ImageLayout::eUndefined,
@@ -992,40 +1010,38 @@ private:
             .pColorAttachments = &colorAttachmentInfo,
             .pDepthAttachment = &depthAttachmentInfo};
 
-        commandBuffer.beginRendering(renderingInfo);
-        commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                                   *m_GraphicsPipeline);
+        cmd.beginRendering(renderingInfo);
+        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_GraphicsPipeline);
 
-        commandBuffer.setViewport(
+        cmd.setViewport(
             0, vk::Viewport(
                    0.f, 0.f, static_cast<float>(m_SwapchainExtent.width),
                    static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
-        commandBuffer.setScissor(
-            0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
-        commandBuffer.bindDescriptorSets(
-            vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 0,
-            *m_FrameDescriptorSets[m_FrameIndex], nullptr);
+        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
+        cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                               m_PipelineLayout, 0,
+                               *m_FrameDescriptorSets[m_FrameIndex], nullptr);
 
-        // TODO: bind instance buffer here
+        cmd.bindVertexBuffers(1, *m_Frames[m_FrameIndex].InstanceBuffer, {0});
 
         // per mesh batch
-        for (const MeshBatch& batch : m_MeshBatches)
+        const std::vector<MeshBatch>& batches =
+            ModelManager::Get()->GetBatches();
+        for (const MeshBatch& batch : batches)
         {
-            commandBuffer.bindVertexBuffers(0, batch.VertexBuffer, {0});
-            commandBuffer.bindIndexBuffer(batch.IndexBuffer, 0,
-                                          vk::IndexType::eUint32);
-            commandBuffer.bindDescriptorSets(
+            cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
+            cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);
+            cmd.bindDescriptorSets(
                 vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
                 batch.pMaterial->GetDescriptorSet(), nullptr);
-            commandBuffer.drawIndexed(batch.IndexCount, batch.InstanceCount,
-                                      batch.FirstIndex, 0, batch.FirstInstance);
+            cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
+                            batch.FirstIndex, 0, batch.FirstInstance);
         }
 
         if (m_bCursorVisible)
-            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
-                                            *commandBuffer);
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *cmd);
 
-        commandBuffer.endRendering();
+        cmd.endRendering();
 
         TransitionSwapImageLayout(
             imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
@@ -1034,7 +1050,7 @@ private:
             vk::PipelineStageFlagBits2::eColorAttachmentOutput,
             vk::PipelineStageFlagBits2::eBottomOfPipe);
 
-        commandBuffer.end();
+        cmd.end();
     }
 
     void TransitionSwapImageLayout(uint32_t imageIndex,
@@ -1183,7 +1199,7 @@ private:
             glm::perspective(glm::radians(90.f),
                              static_cast<float>(m_SwapchainExtent.width) /
                                  static_cast<float>(m_SwapchainExtent.height),
-                             0.1f, 100.f);
+                             NEAR_PLANE, FAR_PLANE);
         // GLM was designed for OpenGL, which has its Y coordinate in clip
         // space inverted. Compensate for this by scaling here.
         colMajProj[1][1] *= -1.f;
@@ -1198,25 +1214,7 @@ private:
 
     void UpdateUniformBuffer(uint32_t frameIndex)
     {
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        float time = std::chrono::duration<float, std::chrono::seconds::period>(
-                         currentTime - m_StartTime)
-                         .count();
-        m_UBO.Time = time;
-
-        glm::mat4 colMajModel =
-            m_GameObjects.back()->GetTransform().ToLocalMatrix();
-        colMajModel = colMajModel *
-                      glm::rotate(glm::mat4(1.f),
-                                  glm::radians(std::fmod(time, 360.f) * 50.f),
-                                  {0.f, 1.f, 0.f});
-        m_UBO.Model = glm::transpose(colMajModel);
-
-        // Normal matrix is the inverse transpose of the model matrix.
-        // However GLM matrices are in column major and so we want to transpose
-        // to row major. The two transposes cancel each other out.
-        m_UBO.NormalMatrix = glm::inverse(colMajModel);
-
+        m_UBO.Time = m_RunTime;
         m_UBO.CameraPos = m_Camera->GetPosition();
         m_UBO.View = glm::transpose(m_Camera->GetViewMatrix());
 
@@ -1360,17 +1358,42 @@ private:
                format == vk::Format::eD16UnormS8Uint;
     }
 
-    void BatchMeshes()
+    void CreateInstanceBuffers()
     {
-        m_MeshBatches.clear();
-        for (const std::unique_ptr<GameObject>& go : m_GameObjects)
+        // TODO: allocating memory 3 times, can probably allocate once and store
+        // offsets Can do the same with uniform buffer.
+        vk::DeviceSize size = sizeof(InstanceData) * MAX_INSTANCE_COUNT;
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            Model* pModel = go->GetComponent<Model>();
-            if (!pModel)
-                continue;
+            CreateBuffer(m_Device, m_PhysicalDevice, size,
+                         vk::BufferUsageFlagBits::eVertexBuffer,
+                         vk::MemoryPropertyFlagBits::eHostVisible |
+                             vk::MemoryPropertyFlagBits::eHostCoherent,
+                         m_Frames[i].InstanceBuffer,
+                         m_Frames[i].InstanceBufferMemory);
+            SetVkDebugName(m_Device, *m_Frames[i].InstanceBuffer,
+                           vk::ObjectType::eBuffer,
+                           std::format("Instance Buffer Frame {}", i).c_str());
+            SetVkDebugName(
+                m_Device, *m_Frames[i].InstanceBufferMemory,
+                vk::ObjectType::eDeviceMemory,
+                std::format("Instance Buffer Memory Frame {}", i).c_str());
 
-            m_MeshBatches.push_back(pModel->GetMeshBatch());
+            m_Frames[i].InstanceBufferMapping =
+                m_Frames[i].InstanceBufferMemory.mapMemory(0, size);
         }
+    }
+
+    void UpdateInstanceBuffer(uint32_t frameIndex)
+    {
+        const std::vector<InstanceData>& instanceDatas =
+            ModelManager::Get()->GetInstanceDatas();
+
+        if (instanceDatas.size() > MAX_INSTANCE_COUNT)
+            throw std::runtime_error("Max instance count exceeded!");
+
+        memcpy(m_Frames[frameIndex].InstanceBufferMapping, instanceDatas.data(),
+               sizeof(InstanceData) * instanceDatas.size());
     }
 
 private:
@@ -1408,7 +1431,6 @@ private:
 
     std::unique_ptr<Camera> m_Camera = nullptr;
     std::vector<std::unique_ptr<GameObject>> m_GameObjects;
-    std::vector<MeshBatch> m_MeshBatches;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
@@ -1417,9 +1439,10 @@ private:
     bool m_bCursorVisible = false;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_LastTime;
+    float m_RunTime = 0.f;
     float m_DeltaTime = 0.f;
-    float m_FrameTime = 0.f;
-    float m_FPS = 0.f;
+    float m_DisplayFrameTime = 0.f;
+    float m_DisplayFPS = 0.f;
 };
 
 int main()

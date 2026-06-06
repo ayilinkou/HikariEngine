@@ -12,10 +12,8 @@ struct PointLight
 
 struct UniformBuffer
 {
-	float4x4 Model;
 	float4x4 View;
 	float4x4 Proj;
-	float4x4 NormalMatrix;
 	PointLight Light;
 	float3 CameraPos;
 	float Time;
@@ -26,10 +24,33 @@ ConstantBuffer<UniformBuffer> ubo;
 
 struct VS_In
 {
-	float3 Pos : POSITION;
+	// per vertex
+	float3 Pos : POSITION0;
 	float2 TexCoord : TEXCOORD0;
-	float3 Normal : NORMAL;
-	float4 Tangent : TANGENT;
+	float3 Normal : NORMAL0;
+	float4 Tangent : TANGENT0;
+
+	// per instance
+	// transposed so that float4x4 constructor makes a row major matrix
+	float4 TModelCol0 : POSITION1;
+	float4 TModelCol1 : POSITION2;
+	float4 TModelCol2 : POSITION3;
+	float4 TModelCol3 : POSITION4;
+	
+	float4 TNormalCol0 : NORMAL1;
+	float4 TNormalCol1 : NORMAL2;
+	float4 TNormalCol2 : NORMAL3;
+	float4 TNormalCol3 : NORMAL4;
+
+	float4x4 GetModelMatrix()
+	{
+		return float4x4(TModelCol0, TModelCol1, TModelCol2, TModelCol3);
+	}
+
+	float4x4 GetNormalMatrix()
+	{
+		return float4x4(TNormalCol0, TNormalCol1, TNormalCol2, TNormalCol3); // TODO: only upload 3x3 matrix
+	}
 };
 
 struct VS_Out
@@ -48,11 +69,11 @@ static const float PI = 3.14159265359f;
 VS_Out vertMain(VS_In v)
 {
 	VS_Out o;
-	float4 worldPos = mul(float4(v.Pos, 1.f), ubo.Model);
+	float4 worldPos = mul(float4(v.Pos, 1.f), v.GetModelMatrix());
 	o.Pos = mul(mul(worldPos, ubo.View), ubo.Proj);
 	o.WorldPos = worldPos.xyz;
 	o.TexCoord = v.TexCoord;
-	float3x3 normalMatrix = (float3x3)ubo.NormalMatrix;
+	float3x3 normalMatrix = (float3x3)v.GetNormalMatrix();
 	o.Normal = mul(v.Normal, normalMatrix);
 	o.Tangent = float4(mul(v.Tangent.xyz, normalMatrix), v.Tangent.w);
 	return o;

@@ -4,6 +4,7 @@
 
 #include "ModelData.h"
 #include "ModelLoader.h"
+#include "ModelManager.h"
 #include "MyMacros.h"
 #include "Texture.h"
 #include "TextureLoader.h"
@@ -20,6 +21,7 @@ void ResourceManager::Init(vk::raii::Device& device,
     s_Instance = new ResourceManager();
     TextureLoader::Init(device, physicalDevice, commandPool, transferQueue);
     ModelLoader::Init(device, physicalDevice, commandPool, transferQueue);
+    ModelManager::Init();
 }
 
 void ResourceManager::Shutdown()
@@ -28,6 +30,7 @@ void ResourceManager::Shutdown()
         throw std::runtime_error(
             "Attempting to shutdown ResourceManager when it is already null!");
 
+    ModelManager::Shutdown();
     ModelLoader::Shutdown();
     TextureLoader::Shutdown();
 
@@ -125,7 +128,8 @@ void ResourceManager::Internal_UnloadTexture(const std::string filepath)
 
 void ResourceManager::Internal_UnloadModel(const std::string filepath)
 {
-    ModelData* pModelData = static_cast<ModelData*>(m_ModelsMap[filepath]->m_pData);
+    ModelData* pModelData =
+        static_cast<ModelData*>(m_ModelsMap[filepath]->m_pData);
     delete pModelData;
     m_ModelsMap.erase(filepath);
 }
