@@ -1,28 +1,40 @@
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <memory>
 
 #include "Component.h"
+#include "LogicComponent.h"
 #include "SceneComponent.h"
 
-class GameObject : public SceneComponent
+class GameObject
 {
 public:
-    GameObject() { m_ID = s_NextID++; }
+    GameObject() : m_ID(s_NextID++) { m_RootComponent.SetOwner(this); }
     virtual ~GameObject() = default;
 
-    // This moves a component into the components vector. Be sure to call with
-    // std::move().
-    void AddComponent(std::unique_ptr<Component> comp)
+    // This moves a component into the SceneComponents vector. Be sure to call
+    // with std::move().
+    void AddComponent(std::unique_ptr<SceneComponent> comp)
     {
-        m_Components.push_back(std::move(comp));
+        comp->SetOwner(this);
+        comp->SetOwningComponent(&m_RootComponent);
+        m_SceneComponents.push_back(std::move(comp));
     }
 
-    // Gets the first instance of a Component of the templated type
-    template <typename T> T* GetComponent()
+    // This moves a component into the LogicComponents vector. Be sure to call
+    // with std::move().
+    void AddComponent(std::unique_ptr<LogicComponent> comp)
     {
-        for (std::unique_ptr<Component>& comp : m_Components)
+        comp->SetOwner(this);
+        m_LogicComponents.push_back(std::move(comp));
+    }
+
+    // Gets the first instance of a Component of the templated type.
+    template <std::derived_from<SceneComponent> T> T* GetComponent() const
+    {
+        for (const std::unique_ptr<SceneComponent>& comp : m_SceneComponents)
         {
             T* ptr = dynamic_cast<T*>(comp.get());
             if (ptr)
@@ -31,8 +43,25 @@ public:
         return nullptr;
     }
 
+    // Gets the first instance of a Component of the templated type.
+    template <std::derived_from<LogicComponent> T> T* GetComponent() const
+    {
+        for (const std::unique_ptr<LogicComponent>& comp : m_LogicComponents)
+        {
+            T* ptr = dynamic_cast<T*>(comp.get());
+            if (ptr)
+                return ptr;
+        }
+        return nullptr;
+    }
+
+    SceneComponent* GetRootComponent() { return &m_RootComponent; }
+    Transform& GetTransform() { return m_RootComponent.GetTransform(); }
+
 private:
-    std::vector<std::unique_ptr<Component>> m_Components;
+    SceneComponent m_RootComponent{};
+    std::vector<std::unique_ptr<SceneComponent>> m_SceneComponents;
+    std::vector<std::unique_ptr<LogicComponent>> m_LogicComponents;
 
     uint32_t m_ID;
     inline static uint32_t s_NextID = 0u;
