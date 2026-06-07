@@ -11,25 +11,11 @@
 class GameObject
 {
 public:
-    GameObject() : m_ID(s_NextID++) { m_RootComponent.SetOwner(this); }
+    GameObject();
     virtual ~GameObject() = default;
 
-    // This moves a component into the SceneComponents vector. Be sure to call
-    // with std::move().
-    void AddComponent(std::unique_ptr<SceneComponent> comp)
-    {
-        comp->SetOwner(this);
-        comp->SetOwningComponent(&m_RootComponent);
-        m_SceneComponents.push_back(std::move(comp));
-    }
-
-    // This moves a component into the LogicComponents vector. Be sure to call
-    // with std::move().
-    void AddComponent(std::unique_ptr<LogicComponent> comp)
-    {
-        comp->SetOwner(this);
-        m_LogicComponents.push_back(std::move(comp));
-    }
+    void AddComponent(std::unique_ptr<SceneComponent> comp);
+    void AddComponent(std::unique_ptr<LogicComponent> comp);
 
     // Gets the first instance of a Component of the templated type.
     template <std::derived_from<SceneComponent> T> T* GetComponent() const

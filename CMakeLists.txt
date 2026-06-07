@@ -31,7 +31,10 @@ set(SOURCES
     src/ResourceManager.cpp
     src/TextureLoader.cpp
     src/ModelLoader.cpp
-    src/ModelManager.cpp)
+    src/ModelManager.cpp
+    src/GameObject.cpp
+    src/SceneComponent.cpp
+    src/Transform.cpp)
 
 find_package(Vulkan REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
