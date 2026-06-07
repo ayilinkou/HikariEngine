@@ -1,10 +1,5 @@
 #include "TextureLoader.h"
 
-#include <format>
-#include <iostream>
-#include <regex>
-#include <stdexcept>
-
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 

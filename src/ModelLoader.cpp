@@ -1,10 +1,5 @@
 #include "ModelLoader.h"
 
-#include <filesystem>
-#include <stdexcept>
-#include <vector>
-#include <vulkan/vulkan_raii.hpp>
-
 #include "assimp/Importer.hpp"
 #include "assimp/postprocess.h"
 #include "assimp/scene.h"

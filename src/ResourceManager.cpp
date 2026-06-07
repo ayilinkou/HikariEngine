@@ -1,7 +1,5 @@
 #include "ResourceManager.h"
 
-#include <stdexcept>
-
 #include "ModelData.h"
 #include "ModelLoader.h"
 #include "ModelManager.h"

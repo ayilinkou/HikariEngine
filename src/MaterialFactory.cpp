@@ -1,8 +1,6 @@
 #include "MaterialFactory.h"
 #include "Utility.h"
 
-#include <stdexcept>
-
 MaterialFactory* MaterialFactory::s_Instance = nullptr;
 const uint8_t MaterialFactory::s_MAX_TEXTURE_COUNT_PER_MAT = 5u;
 const uint16_t MaterialFactory::s_MAX_MATERIAL_SET_COUNT = 2u;

@@ -1,7 +1,5 @@
 #include "ModelManager.h"
 
-#include <stdexcept>
-
 #include "ModelData.h"
 
 void ModelManager::Init()

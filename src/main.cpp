@@ -1,35 +1,3 @@
-#include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <csignal>
-#include <cstdint>
-#include <format>
-#include <glm/gtc/quaternion.hpp>
-#include <iostream>
-#include <limits>
-#include <memory>
-#include <stdexcept>
-#include <thread>
-
-#include "InstanceData.h"
-#include "ModelManager.h"
-#include "SDL3/SDL.h"
-#include "SDL3/SDL_events.h"
-#include "SDL3/SDL_video.h"
-#include "SDL3/SDL_vulkan.h"
-#include <SDL3/SDL_keyboard.h>
-#include <SDL3/SDL_keycode.h>
-#include <SDL3/SDL_mouse.h>
-
-#include "vulkan/vulkan.hpp"
-#include "vulkan/vulkan_raii.hpp"
-
-#include "glm/glm.hpp"
-
-#include "imgui.h"
-#include "imgui_impl_sdl3.h"
-#include "imgui_impl_vulkan.h"
-
 #include "Camera.h"
 #include "FrameData.h"
 #include "GameObject.h"
@@ -40,13 +8,15 @@
 #include "ResourceManager.h"
 #include "Utility.h"
 #include "Vertex.h"
+#include "InstanceData.h"
+#include "ModelManager.h"
 
 constexpr uint32_t WIDTH = 1920u;
 constexpr uint32_t HEIGHT = 1080u;
 constexpr uint32_t MAX_INSTANCE_COUNT = 128u;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 constexpr float NEAR_PLANE = 0.1f;
-constexpr float FAR_PLANE = 1000.f;
+constexpr float FAR_PLANE = 10000.f;
 const std::string MODEL_PATH = "models/pbr_case/scene.gltf";
 
 std::atomic<bool> g_bShouldClose = false;
@@ -240,7 +210,9 @@ private:
         InitImGui();
 
         m_GameObjects.push_back(std::make_unique<GameObject>());
-		m_GameObjects.back()->AddComponent(std::make_unique<Model>(MODEL_PATH));
+		auto model = std::make_unique<Model>(MODEL_PATH);
+		model->GetTransform().Scale *= 0.1f;
+		m_GameObjects.back()->AddComponent(std::move(model));
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);

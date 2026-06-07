@@ -1,13 +1,8 @@
 #include "PBRMaterial.h"
 
-#include <string>
-
-#include "Utility.h"
-#include "vulkan/vulkan.hpp"
-#include "vulkan/vulkan_raii.hpp"
-
 #include "assimp/material.h"
 
+#include "Utility.h"
 #include "ResourceManager.h"
 
 PBRMaterial::PBRMaterial(vk::raii::Device& device,

@@ -47,6 +47,8 @@ endif()
 
 add_executable(VulkanApp)
 
+target_precompile_headers(VulkanApp PRIVATE src/pch.h)
+
 target_sources(VulkanApp PRIVATE ${SOURCES})
 
 target_link_libraries(

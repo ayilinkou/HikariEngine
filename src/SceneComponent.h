@@ -1,5 +1,7 @@
 #pragma once
 
+#include "glm/glm.hpp"
+
 #include "Component.h"
 #include "Transform.h"
 
@@ -15,6 +17,22 @@ public:
 
     Component* GetOwningComponent() const { return m_pOwningComp; }
     Transform& GetTransform() { return m_Transform; }
+
+    glm::mat4 GetAccumulatedTransform() const
+    {
+        // if this component is the root component
+        if (m_pOwningComp == nullptr)
+        {
+            // This component is the root component. Its translation should
+            // not be affected by scale and so will use ToWorldMatrix()
+            return m_Transform.ToWorldMatrix();
+        }
+
+        // We want the transform to be affected by the parent's scale so
+        // ToLocalMatrix() is used here.
+        return m_pOwningComp->GetAccumulatedTransform() *
+               m_Transform.ToLocalMatrix();
+    }
 
 protected:
     Transform m_Transform;

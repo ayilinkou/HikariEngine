@@ -1,9 +1,5 @@
 #include "Camera.h"
 
-#include "glm/ext/matrix_transform.hpp"
-#include <glm/ext/vector_float3.hpp>
-#include <glm/trigonometric.hpp>
-
 Camera::Camera()
 {
     m_View = glm::mat4(1.f);
