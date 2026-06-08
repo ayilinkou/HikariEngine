@@ -1,9 +1,5 @@
 #pragma once
 
-#include <unordered_map>
-
-#include "glm/glm.hpp"
-
 #include "InstanceData.h"
 #include "Model.h"
 #include "SwapbackArray.h"

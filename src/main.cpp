@@ -210,6 +210,7 @@ private:
         InitImGui();
 
         m_GameObjects.push_back(std::make_unique<GameObject>());
+		m_GameObjects.back()->GetTransform().Position.y += -10.f;
 		auto model = std::make_unique<Model>(MODEL_PATH);
 		model->GetTransform().Scale *= 0.1f;
 		m_GameObjects.back()->AddComponent(std::move(model));

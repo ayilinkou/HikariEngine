@@ -35,7 +35,8 @@ void ModelManager::GenerateBatches()
     // when sorted
     // iterate and build batches and instance transforms
     size_t size = m_Drawables.size();
-    for (size_t i = 0; i < size; i++)
+    size_t i = 0;
+    while (i < size)
     {
         ModelData* pModelData =
             m_Drawables[i].pModelData; // TODO: update to mesh after refactor
@@ -52,12 +53,11 @@ void ModelManager::GenerateBatches()
                m_Drawables[i].pMat == batch.pMaterial)
         {
             InstanceData data;
-            data.ModelMatrix = glm::transpose(m_Drawables[i].Transform);
-
-            // Normal matrix is the inverse transpose of the model matrix.
-            // However GLM matrices are in column major and so we want to
-            // transpose to row major. The two transposes cancel each other out.
-            data.NormalMatrix = glm::inverse(m_Drawables[i].Transform);
+            // float4x4 constructor already implicitely transposes, no don't
+            // need to explicitely transpose here before sending to GPU
+            data.ModelMatrix = m_Drawables[i].Transform;
+            data.NormalMatrix =
+                glm::transpose(glm::inverse(m_Drawables[i].Transform));
             m_InstanceDatas.push_back(data);
             batch.InstanceCount++;
             i++;
