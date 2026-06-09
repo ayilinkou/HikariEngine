@@ -210,8 +210,8 @@ private:
         InitVulkan();
         InitImGui();
 
-/*        m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Position.y += -5.f;
+        m_GameObjects.push_back(std::make_unique<GameObject>());
+        m_GameObjects.back()->GetTransform().Position.y += -15.f;
         auto modelOne = std::make_unique<Model>(MODEL_PATH);
         modelOne->GetTransform().Scale *= 0.1f;
         m_GameObjects.back()->AddComponent(std::move(modelOne));
@@ -221,11 +221,12 @@ private:
         auto modelTwo = std::make_unique<Model>(MODEL_PATH);
         modelTwo->GetTransform().Scale *= 0.1f;
         m_GameObjects.back()->AddComponent(std::move(modelTwo));
-*/
+
         m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Position.x += 5.f;
+        m_GameObjects.back()->GetTransform().Position.x += 15.f;
         auto modelThree = std::make_unique<Model>(MODEL_TWO_PATH);
-        m_GameObjects.back()->AddComponent(std::move(modelThree));
+		modelThree->GetTransform().Scale *= 10.f;
+		m_GameObjects.back()->AddComponent(std::move(modelThree));
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);

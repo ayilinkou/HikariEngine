@@ -1,7 +1,6 @@
 #include "MaterialFactory.h"
+
 #include "Utility.h"
-#include "vulkan/vulkan.hpp"
-#include <functional>
 
 MaterialFactory* MaterialFactory::s_Instance = nullptr;
 const uint8_t MaterialFactory::s_MAX_TEXTURE_COUNT_PER_MAT = 3u;
@@ -41,9 +40,10 @@ void MaterialFactory::CreateDescriptorPool()
     std::array materialPoolSize = {
         vk::DescriptorPoolSize{.type =
                                    vk::DescriptorType::eCombinedImageSampler,
-                               .descriptorCount = s_MAX_TEXTURE_COUNT_PER_MAT},
+                               .descriptorCount = s_MAX_TEXTURE_COUNT_PER_MAT *
+                                                  s_MAX_MATERIAL_SET_COUNT},
         vk::DescriptorPoolSize{.type = vk::DescriptorType::eUniformBuffer,
-                               .descriptorCount = 1u}};
+                               .descriptorCount = s_MAX_MATERIAL_SET_COUNT}};
     vk::DescriptorPoolCreateInfo matCreateInfo{
         .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
         .maxSets = s_MAX_MATERIAL_SET_COUNT,
