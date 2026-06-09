@@ -9,7 +9,6 @@ class MaterialFactory
 {
 public:
     static void Init(vk::raii::Device& device,
-                     vk::raii::PhysicalDevice& physicalDevice,
                      vk::raii::Sampler& sampler);
     static void Shutdown();
 
@@ -25,7 +24,6 @@ public:
 
 private:
     MaterialFactory(vk::raii::Device& device,
-                    vk::raii::PhysicalDevice& physicalDevice,
                     vk::raii::Sampler& sampler);
 
     void CreateDescriptorPool();
@@ -38,7 +36,6 @@ private:
     vk::raii::DescriptorPool m_DescriptorPool = nullptr;
 
     vk::raii::Device& m_Device;
-    vk::raii::PhysicalDevice& m_PhysicalDevice;
     vk::raii::Sampler& m_Sampler;
 
     static const uint8_t s_MAX_TEXTURE_COUNT_PER_MAT;

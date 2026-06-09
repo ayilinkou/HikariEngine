@@ -6,6 +6,7 @@
 #include "MaterialFactory.h"
 #include "Model.h"
 #include "ModelManager.h"
+#include "PBRMaterial.h"
 #include "ResourceManager.h"
 #include "Utility.h"
 #include "Vertex.h"
@@ -225,8 +226,8 @@ private:
         m_GameObjects.push_back(std::make_unique<GameObject>());
         m_GameObjects.back()->GetTransform().Position.x += 15.f;
         auto modelThree = std::make_unique<Model>(MODEL_TWO_PATH);
-		modelThree->GetTransform().Scale *= 10.f;
-		m_GameObjects.back()->AddComponent(std::move(modelThree));
+        modelThree->GetTransform().Scale *= 10.f;
+        m_GameObjects.back()->AddComponent(std::move(modelThree));
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
@@ -286,7 +287,7 @@ private:
 
         ResourceManager::Init(m_Device, m_PhysicalDevice, m_CommandPool,
                               m_GraphicsQueue);
-        MaterialFactory::Init(m_Device, m_PhysicalDevice, m_TextureSampler);
+        MaterialFactory::Init(m_Device, m_TextureSampler);
 
         CreateGraphicsPipeline();
         CreateCommandBuffers();
@@ -892,10 +893,14 @@ private:
 
         vk::DescriptorSetLayout descriptorSetLayouts[] = {
             m_FrameSetLayout, MaterialFactory::Get()->GetDescriptorSetLayout()};
+        vk::PushConstantRange pushConstantRange{
+            .stageFlags = vk::ShaderStageFlagBits::eFragment,
+            .size = sizeof(PBRMaterial::MaterialData)};
         vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
             .setLayoutCount = 2,
             .pSetLayouts = descriptorSetLayouts,
-            .pushConstantRangeCount = 0};
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pushConstantRange};
         m_PipelineLayout =
             vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
         SetVkDebugName(m_Device, *m_PipelineLayout,
@@ -1023,6 +1028,10 @@ private:
             cmd.bindDescriptorSets(
                 vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
                 batch.pMaterial->GetDescriptorSet(), nullptr);
+            cmd.pushConstants<PBRMaterial::MaterialData>(m_PipelineLayout,
+                              vk::ShaderStageFlagBits::eFragment, 0u,
+                              *static_cast<PBRMaterial::MaterialData*>(
+                                  batch.pMaterial->GetPushConstantData()));
             cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
                             batch.FirstIndex, 0, batch.FirstInstance);
         }

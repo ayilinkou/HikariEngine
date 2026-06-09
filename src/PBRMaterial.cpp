@@ -6,7 +6,6 @@
 #include "Utility.h"
 
 PBRMaterial::PBRMaterial(vk::raii::Device& device,
-                         vk::raii::PhysicalDevice& physicalDevice,
                          vk::raii::DescriptorPool& descriptorPool,
                          vk::raii::DescriptorSetLayout& setLayout,
                          vk::raii::Sampler& sampler, aiMaterial* mat,
@@ -14,7 +13,6 @@ PBRMaterial::PBRMaterial(vk::raii::Device& device,
     : Material(mat->GetName().C_Str())
 {
     LoadTextures(mat, texturesParentFolder);
-    CreateUniformBuffer(device, physicalDevice);
     CreateDescriptorSet(device, descriptorPool, setLayout, sampler);
 }
 
@@ -48,7 +46,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
         std::string path = texturesParentFolder + texturePath.C_Str();
         m_Albedo = ResourceManager::Get()->LoadTexture(
             path, vk::Format::eR8G8B8A8Srgb);
-        m_MaterialData.bHasAlbedoTex = true;
+        m_MatData.bHasAlbedoTex = true;
     }
 
     if (mat->GetTexture(aiTextureType::aiTextureType_NORMALS, 0,
@@ -57,7 +55,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
         std::string path = texturesParentFolder + texturePath.C_Str();
         m_Normal = ResourceManager::Get()->LoadTexture(
             path, vk::Format::eR8G8B8A8Unorm);
-        m_MaterialData.bHasNormalTex = true;
+        m_MatData.bHasNormalTex = true;
     }
 
     if (mat->GetTexture(aiTextureType::aiTextureType_GLTF_METALLIC_ROUGHNESS, 0,
@@ -66,27 +64,8 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
         std::string path = texturesParentFolder + texturePath.C_Str();
         m_MetallicRoughness = ResourceManager::Get()->LoadTexture(
             path, vk::Format::eR8G8B8A8Unorm);
-        m_MaterialData.bHasMetallicRoughnessTex = true;
+        m_MatData.bHasMetallicRoughnessTex = true;
     }
-}
-
-void PBRMaterial::CreateUniformBuffer(vk::raii::Device& device,
-                                      vk::raii::PhysicalDevice& physicalDevice)
-{
-    vk::DeviceSize size = sizeof(MaterialData);
-    CreateBuffer(device, physicalDevice, size,
-                 vk::BufferUsageFlagBits::eUniformBuffer,
-                 vk::MemoryPropertyFlagBits::eHostVisible |
-                     vk::MemoryPropertyFlagBits::eHostCoherent,
-                 m_Buffer, m_BufferMemory);
-    SetVkDebugName(device, *m_Buffer, vk::ObjectType::eBuffer,
-                   (m_Name + " material buffer").c_str());
-    SetVkDebugName(device, *m_BufferMemory, vk::ObjectType::eDeviceMemory,
-                   (m_Name + " material buffer memory").c_str());
-
-    void* data = m_BufferMemory.mapMemory(0u, size);
-    memcpy(data, &m_MaterialData, sizeof(MaterialData));
-    m_BufferMemory.unmapMemory();
 }
 
 void PBRMaterial::CreateDescriptorSet(
@@ -155,17 +134,6 @@ void PBRMaterial::CreateDescriptorSet(
             .pImageInfo = &metallicRoughnessInfo};
         writeDescriptors.push_back(metallicRoughnessWriteSet);
     };
-
-    vk::DescriptorBufferInfo bufferInfo{
-        .buffer = *m_Buffer, .offset = 0u, .range = sizeof(MaterialData)};
-    vk::WriteDescriptorSet matDataWriteSet{
-        .dstSet = m_DescriptorSet,
-        .dstBinding = TextureBinding::COUNT,
-        .dstArrayElement = 0u,
-        .descriptorCount = 1u,
-        .descriptorType = vk::DescriptorType::eUniformBuffer,
-        .pBufferInfo = &bufferInfo};
-    writeDescriptors.push_back(matDataWriteSet);
 
     device.updateDescriptorSets(writeDescriptors, {});
 }

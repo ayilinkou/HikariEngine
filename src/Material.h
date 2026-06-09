@@ -1,6 +1,5 @@
 #pragma once
 
-#include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_raii.hpp"
 
 #include <string>
@@ -12,6 +11,7 @@ public:
     Material(const std::string& name);
     virtual ~Material() = 0;
 
+	virtual void* GetPushConstantData() = 0;
     vk::DescriptorSet GetDescriptorSet() const { return *m_DescriptorSet; }
     const std::string& GetName() const { return m_Name; }
 

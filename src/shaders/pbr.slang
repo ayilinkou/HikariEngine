@@ -19,7 +19,7 @@ struct UniformBuffer
 	float Time;
 };
 
-struct MaterialUniformBuffer
+struct MaterialPushConstant
 {
 	float3 Albedo;
 	float Metallic;
@@ -29,7 +29,6 @@ struct MaterialUniformBuffer
 	int bHasNormalTex;
 	int bHasMetallicRoughnessTex;
 	int bTwoSided;
-    float2 Padding;
 };
 
 [[vk::binding(0, 0)]]
@@ -203,36 +202,36 @@ Sampler2D albedoTex;
 Sampler2D normalTex;
 [[vk::binding(2, 1)]]
 Sampler2D metallicRoughnessTex;
-[[vk::binding(3, 1)]]
-ConstantBuffer<MaterialUniformBuffer> matData;
+[[vk::push_constant]]
+MaterialPushConstant pcMatData;
 
 [shader("fragment")]
 float4 fragMain(VS_Out f) : SV_Target
 {
 	float3 albedo;
-	if (matData.bHasAlbedoTex == true)
+	if (pcMatData.bHasAlbedoTex == true)
 		albedo = albedoTex.Sample(f.TexCoord).rgb;
 	else
-		albedo = matData.Albedo;
+		albedo = pcMatData.Albedo;
 		
 	float metallic, roughness;
-	if (matData.bHasMetallicRoughnessTex == true)
+	if (pcMatData.bHasMetallicRoughnessTex == true)
 	{
 		metallic = metallicRoughnessTex.Sample(f.TexCoord).b;
 		roughness = metallicRoughnessTex.Sample(f.TexCoord).g;
 	}
 	else
 	{
-		metallic = matData.Metallic;
-		roughness = matData.Roughness;
+		metallic = pcMatData.Metallic;
+		roughness = pcMatData.Roughness;
 	}
 
-	float ao = matData.AO;
+	float ao = pcMatData.AO;
 
 	float3 vertexNormal = normalize(f.Normal);
 	float3 camToFrag = normalize(f.WorldPos - ubo.CameraPos);
 	float viewNormalAlignment = dot(camToFrag, vertexNormal); 
-	bool bNormalNeedsFlip = (matData.bTwoSided == true) && (viewNormalAlignment > 0.f);
+	bool bNormalNeedsFlip = (pcMatData.bTwoSided == true) && (viewNormalAlignment > 0.f);
 
 	float3 tangentNormal = normalTex.Sample(f.TexCoord).xyz; // packed tangent space normal
 	tangentNormal = tangentNormal * 2.f - float3(1.f); // unpacked tangent space
