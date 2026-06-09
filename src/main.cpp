@@ -5,11 +5,12 @@
 #include "Lights.h"
 #include "MaterialFactory.h"
 #include "Model.h"
+#include "ModelManager.h"
 #include "ResourceManager.h"
 #include "Utility.h"
 #include "Vertex.h"
-#include "InstanceData.h"
-#include "ModelManager.h"
+#include "vulkan/vulkan.hpp"
+#include <vulkan/vulkan.hpp>
 
 constexpr uint32_t WIDTH = 1920u;
 constexpr uint32_t HEIGHT = 1080u;
@@ -18,6 +19,7 @@ constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 constexpr float NEAR_PLANE = 0.1f;
 constexpr float FAR_PLANE = 10000.f;
 const std::string MODEL_PATH = "models/pbr_case/scene.gltf";
+const std::string MODEL_TWO_PATH = "models/m1887/scene.gltf";
 
 std::atomic<bool> g_bShouldClose = false;
 
@@ -185,7 +187,6 @@ public:
                 }
             }
 
-
             m_Camera->Tick();
             HandleMovement();
             ModelManager::Get()->GenerateBatches();
@@ -209,11 +210,22 @@ private:
         InitVulkan();
         InitImGui();
 
+/*        m_GameObjects.push_back(std::make_unique<GameObject>());
+        m_GameObjects.back()->GetTransform().Position.y += -5.f;
+        auto modelOne = std::make_unique<Model>(MODEL_PATH);
+        modelOne->GetTransform().Scale *= 0.1f;
+        m_GameObjects.back()->AddComponent(std::move(modelOne));
+
         m_GameObjects.push_back(std::make_unique<GameObject>());
-		m_GameObjects.back()->GetTransform().Position.y += -10.f;
-		auto model = std::make_unique<Model>(MODEL_PATH);
-		model->GetTransform().Scale *= 0.1f;
-		m_GameObjects.back()->AddComponent(std::move(model));
+        m_GameObjects.back()->GetTransform().Position.y += 10.f;
+        auto modelTwo = std::make_unique<Model>(MODEL_PATH);
+        modelTwo->GetTransform().Scale *= 0.1f;
+        m_GameObjects.back()->AddComponent(std::move(modelTwo));
+*/
+        m_GameObjects.push_back(std::make_unique<GameObject>());
+        m_GameObjects.back()->GetTransform().Position.x += 5.f;
+        auto modelThree = std::make_unique<Model>(MODEL_TWO_PATH);
+        m_GameObjects.back()->AddComponent(std::move(modelThree));
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
@@ -273,7 +285,7 @@ private:
 
         ResourceManager::Init(m_Device, m_PhysicalDevice, m_CommandPool,
                               m_GraphicsQueue);
-        MaterialFactory::Init(m_Device, m_TextureSampler);
+        MaterialFactory::Init(m_Device, m_PhysicalDevice, m_TextureSampler);
 
         CreateGraphicsPipeline();
         CreateCommandBuffers();
@@ -586,7 +598,8 @@ private:
             { return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics); });
 
         std::vector<const char*> requiredExtensions = {
-            vk::KHRSwapchainExtensionName};
+            vk::KHRSwapchainExtensionName,
+            vk::EXTDescriptorIndexingExtensionName};
         auto availableExtensions = device.enumerateDeviceExtensionProperties();
         bool bSupportsAllExtensions = std::ranges::all_of(
             requiredExtensions,
@@ -675,12 +688,14 @@ private:
         vk::StructureChain<vk::PhysicalDeviceFeatures2,
                            vk::PhysicalDeviceVulkan11Features,
                            vk::PhysicalDeviceVulkan13Features,
-                           vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
+                           vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
+                           vk::PhysicalDeviceDescriptorIndexingFeaturesEXT>
             featureChain = {
                 {.features = {.samplerAnisotropy = true}},
                 {.shaderDrawParameters = true},
                 {.synchronization2 = true, .dynamicRendering = true},
-                {.extendedDynamicState = true}};
+                {.extendedDynamicState = true},
+                {.descriptorBindingPartiallyBound = true}};
 
         std::vector<const char*> requiredDeviceExtensions = {
             vk::KHRSwapchainExtensionName};

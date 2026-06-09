@@ -1,9 +1,5 @@
 #pragma once
 
-#include <memory>
-
-#include "vulkan/vulkan.hpp"
-
 #include "Material.h"
 #include "PBRMaterial.h"
 
@@ -12,7 +8,9 @@ struct aiMaterial;
 class MaterialFactory
 {
 public:
-    static void Init(vk::raii::Device& device, vk::raii::Sampler& sampler);
+    static void Init(vk::raii::Device& device,
+                     vk::raii::PhysicalDevice& physicalDevice,
+                     vk::raii::Sampler& sampler);
     static void Shutdown();
 
     static MaterialFactory* Get() { return s_Instance; }
@@ -26,7 +24,9 @@ public:
     }
 
 private:
-    MaterialFactory(vk::raii::Device& device, vk::raii::Sampler& sampler);
+    MaterialFactory(vk::raii::Device& device,
+                    vk::raii::PhysicalDevice& physicalDevice,
+                    vk::raii::Sampler& sampler);
 
     void CreateDescriptorPool();
     void CreateDescriptorSetLayout();
@@ -38,6 +38,7 @@ private:
     vk::raii::DescriptorPool m_DescriptorPool = nullptr;
 
     vk::raii::Device& m_Device;
+    vk::raii::PhysicalDevice& m_PhysicalDevice;
     vk::raii::Sampler& m_Sampler;
 
     static const uint8_t s_MAX_TEXTURE_COUNT_PER_MAT;

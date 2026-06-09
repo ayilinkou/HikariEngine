@@ -17,7 +17,20 @@ struct UniformBuffer
 	PointLight Light;
 	float3 CameraPos;
 	float Time;
-}
+};
+
+struct MaterialUniformBuffer
+{
+	float3 Albedo;
+	float Metallic;
+	float Roughness;
+	float AO;
+	int bHasAlbedoTex;
+	int bHasNormalTex;
+	int bHasMetallicRoughnessTex;
+	int bTwoSided;
+    float2 Padding;
+};
 
 [[vk::binding(0, 0)]]
 ConstantBuffer<UniformBuffer> ubo;
@@ -190,22 +203,36 @@ Sampler2D albedoTex;
 Sampler2D normalTex;
 [[vk::binding(2, 1)]]
 Sampler2D metallicRoughnessTex;
+[[vk::binding(3, 1)]]
+ConstantBuffer<MaterialUniformBuffer> matData;
 
 [shader("fragment")]
 float4 fragMain(VS_Out f) : SV_Target
 {
-	// TODO: move all these to UBO
-	bool bTwoSided = false;
-	
-	float3 albedo = albedoTex.Sample(f.TexCoord).rgb;
-	float ao = 1.f;
-	float roughness = metallicRoughnessTex.Sample(f.TexCoord).g;
-	float metallic = metallicRoughnessTex.Sample(f.TexCoord).b;
+	float3 albedo;
+	if (matData.bHasAlbedoTex == true)
+		albedo = albedoTex.Sample(f.TexCoord).rgb;
+	else
+		albedo = matData.Albedo;
+		
+	float metallic, roughness;
+	if (matData.bHasMetallicRoughnessTex == true)
+	{
+		metallic = metallicRoughnessTex.Sample(f.TexCoord).b;
+		roughness = metallicRoughnessTex.Sample(f.TexCoord).g;
+	}
+	else
+	{
+		metallic = matData.Metallic;
+		roughness = matData.Roughness;
+	}
+
+	float ao = matData.AO;
 
 	float3 vertexNormal = normalize(f.Normal);
 	float3 camToFrag = normalize(f.WorldPos - ubo.CameraPos);
 	float viewNormalAlignment = dot(camToFrag, vertexNormal); 
-	bool bNormalNeedsFlip = bTwoSided && (viewNormalAlignment > 0.f);
+	bool bNormalNeedsFlip = (matData.bTwoSided == true) && (viewNormalAlignment > 0.f);
 
 	float3 tangentNormal = normalTex.Sample(f.TexCoord).xyz; // packed tangent space normal
 	tangentNormal = tangentNormal * 2.f - float3(1.f); // unpacked tangent space
