@@ -1,8 +1,13 @@
 #pragma once
 
 #include <string>
+#include <memory>
 
 #include "vulkan/vulkan_raii.hpp"
+
+#include "PBRMaterial.h"
+
+struct aiScene;
 
 class ModelData;
 
@@ -25,6 +30,9 @@ private:
     static ModelLoader* Get() { return s_Instance; }
 
     [[nodiscard]] ModelData* Load(const std::string& path);
+
+    static std::vector<std::unique_ptr<Material>>
+    LoadMaterials(const aiScene* pScene, const std::string& modelRoot);
 
 private:
     inline static ModelLoader* s_Instance = nullptr;

@@ -6,35 +6,48 @@
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_raii.hpp"
 
+#include "Drawable.h"
 #include "Material.h"
+#include "Mesh.h"
+#include "Node.h"
 
 struct aiMaterial;
 
 class ModelData
 {
 public:
-    ModelData(vk::raii::Buffer vertexBuffer,
+    ModelData(const std::string& path,
+              std::vector<std::unique_ptr<Material>> materials);
+    void Init(vk::raii::Buffer vertexBuffer,
               vk::raii::DeviceMemory vertexMemory, vk::raii::Buffer indexBuffer,
-              vk::raii::DeviceMemory indexMemory, Material* pMaterial,
-              uint32_t indexCount, const std::string& path);
+              vk::raii::DeviceMemory indexMemory,
+              std::unique_ptr<Node> rootNode);
+
+    Mesh* RegisterMesh(aiMesh* mesh, uint32_t meshIndex,
+                       const glm::mat4& localTransform,
+                       std::vector<Vertex>& vertices,
+                       std::vector<uint32_t>& indices);
 
     vk::Buffer GetVertexBuffer() const { return *m_VertexBuffer; }
     vk::Buffer GetIndexBuffer() const { return *m_IndexBuffer; }
 
-    uint32_t GetIndexCount() const { return m_IndexCount; }
-    Material* GetMaterial() const { return m_Material.get(); }
+    const std::vector<Drawable>& GetDrawables() const { return m_Drawables; }
 
     const std::string& GetFilepath() const { return m_Path; }
 
 private:
+    std::vector<Mesh> m_Meshes;
+    std::vector<std::unique_ptr<Material>> m_Materials;
+    std::unordered_map<uint32_t, std::vector<glm::mat4>> m_MeshLocalTransforms;
+
+    std::unique_ptr<Node> m_RootNode = nullptr;
+
     vk::raii::Buffer m_VertexBuffer = nullptr;
     vk::raii::Buffer m_IndexBuffer = nullptr;
     vk::raii::DeviceMemory m_VertexMemory = nullptr;
     vk::raii::DeviceMemory m_IndexMemory = nullptr;
 
-    uint32_t m_IndexCount = 0u;
-
-    std::unique_ptr<Material> m_Material = nullptr;
+    std::vector<Drawable> m_Drawables;
 
     const std::string m_Path;
 };

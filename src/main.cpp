@@ -19,8 +19,8 @@ constexpr uint32_t MAX_INSTANCE_COUNT = 128u;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 constexpr float NEAR_PLANE = 0.1f;
 constexpr float FAR_PLANE = 10000.f;
-const std::string MODEL_PATH = "models/pbr_case/scene.gltf";
-const std::string MODEL_TWO_PATH = "models/m1887/scene.gltf";
+const std::string BOX_MODEL_PATH = "models/pbr_case/scene.gltf";
+const std::string CAR_MODEL_PATH = "models/american_fullsize_73/scene.gltf";
 
 std::atomic<bool> g_bShouldClose = false;
 
@@ -212,22 +212,25 @@ private:
         InitImGui();
 
         m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Position.y += -15.f;
-        auto modelOne = std::make_unique<Model>(MODEL_PATH);
-        modelOne->GetTransform().Scale *= 0.1f;
-        m_GameObjects.back()->AddComponent(std::move(modelOne));
+        m_GameObjects.back()->GetTransform().Position +=
+            glm::vec3(-60.f, -15.f, -5.f);
+        auto boxModelOne = std::make_unique<Model>(BOX_MODEL_PATH);
+        boxModelOne->GetTransform().Scale *= 0.1f;
+        m_GameObjects.back()->AddComponent(std::move(boxModelOne));
 
         m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Position.y += 10.f;
-        auto modelTwo = std::make_unique<Model>(MODEL_PATH);
-        modelTwo->GetTransform().Scale *= 0.1f;
-        m_GameObjects.back()->AddComponent(std::move(modelTwo));
+        m_GameObjects.back()->GetTransform().Position +=
+            glm::vec3(-60.f, 10.f, -5.f);
+        auto boxModelTwo = std::make_unique<Model>(BOX_MODEL_PATH);
+        boxModelTwo->GetTransform().Scale *= 0.1f;
+        m_GameObjects.back()->AddComponent(std::move(boxModelTwo));
 
         m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Position.x += 15.f;
-        auto modelThree = std::make_unique<Model>(MODEL_TWO_PATH);
-        modelThree->GetTransform().Scale *= 10.f;
-        m_GameObjects.back()->AddComponent(std::move(modelThree));
+        m_GameObjects.back()->GetTransform().Position +=
+            glm::vec3(0.f, 0.f, -20.f);
+        auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
+        carModel->GetTransform().Scale *= 10.f;
+        m_GameObjects.back()->AddComponent(std::move(carModel));
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
@@ -1028,10 +1031,10 @@ private:
             cmd.bindDescriptorSets(
                 vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
                 batch.pMaterial->GetDescriptorSet(), nullptr);
-            cmd.pushConstants<PBRMaterial::MaterialData>(m_PipelineLayout,
-                              vk::ShaderStageFlagBits::eFragment, 0u,
-                              *static_cast<PBRMaterial::MaterialData*>(
-                                  batch.pMaterial->GetPushConstantData()));
+            cmd.pushConstants<PBRMaterial::MaterialData>(
+                m_PipelineLayout, vk::ShaderStageFlagBits::eFragment, 0u,
+                *static_cast<PBRMaterial::MaterialData*>(
+                    batch.pMaterial->GetPushConstantData()));
             cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
                             batch.FirstIndex, 0, batch.FirstInstance);
         }

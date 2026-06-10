@@ -16,9 +16,14 @@ Model::~Model()
     ResourceManager::Get()->UnloadModel(m_pModelData->GetFilepath());
 }
 
-Drawable Model::GetDrawable() const
+std::vector<Drawable> Model::GetDrawables() const
 {
-    return {.pModelData = m_pModelData,
-            .pMat = m_pModelData->GetMaterial(),
-            .Transform = GetAccumulatedTransform()};
+    std::vector<Drawable> drawables = m_pModelData->GetDrawables();
+    // TODO: not ideal, can maybe move into a GPU buffer and handle in the
+    // shader
+    for (Drawable& d : drawables)
+    {
+        d.Transform = GetAccumulatedTransform() * d.Transform;
+    }
+    return drawables;
 }

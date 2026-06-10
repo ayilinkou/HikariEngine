@@ -4,7 +4,7 @@
 
 MaterialFactory* MaterialFactory::s_Instance = nullptr;
 const uint8_t MaterialFactory::s_MAX_TEXTURE_COUNT_PER_MAT = 3u;
-const uint16_t MaterialFactory::s_MAX_MATERIAL_SET_COUNT = 5u;
+const uint16_t MaterialFactory::s_MAX_MATERIAL_SET_COUNT = 100u;
 
 MaterialFactory::MaterialFactory(vk::raii::Device& device,
                                  vk::raii::Sampler& sampler)

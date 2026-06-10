@@ -26,7 +26,9 @@ void ModelManager::GenerateBatches()
     // get all drawables
     for (Model* pModel : m_Models)
     {
-        m_Drawables.push_back(pModel->GetDrawable());
+        const std::vector<Drawable> drawables = pModel->GetDrawables();
+        m_Drawables.insert(m_Drawables.end(), drawables.begin(),
+                           drawables.end());
     }
 
     // sort by mesh and material
@@ -38,18 +40,18 @@ void ModelManager::GenerateBatches()
     size_t i = 0;
     while (i < size)
     {
-        ModelData* pModelData =
-            m_Drawables[i].pModelData; // TODO: update to mesh after refactor
+        Mesh* pMesh = m_Drawables[i].pMesh;
+        ModelData* pModelData = pMesh->GetModelData();
 
         MeshBatch batch;
         batch.pMaterial = m_Drawables[i].pMat;
         batch.FirstInstance = i;
         batch.IndexBuffer = pModelData->GetIndexBuffer();
         batch.VertexBuffer = pModelData->GetVertexBuffer();
-        batch.IndexCount = pModelData->GetIndexCount();
-        batch.FirstIndex = 0u; // TODO: update when added meshes
+        batch.IndexCount = pMesh->GetIndexCount();
+        batch.FirstIndex = pMesh->GetIndexOffset();
 
-        while (i < size && pModelData == m_Drawables[i].pModelData &&
+        while (i < size && pMesh == m_Drawables[i].pMesh &&
                m_Drawables[i].pMat == batch.pMaterial)
         {
             InstanceData data;

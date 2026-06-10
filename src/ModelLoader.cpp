@@ -6,6 +6,7 @@
 
 #include "MaterialFactory.h"
 #include "ModelData.h"
+#include "Node.h"
 #include "Utility.h"
 #include "Vertex.h"
 
@@ -44,53 +45,25 @@ void ModelLoader::Shutdown()
 ModelData* ModelLoader::Load(const std::string& path)
 {
     Assimp::Importer importer;
-    const aiScene* scene = importer.ReadFile(
+    const aiScene* pScene = importer.ReadFile(
         path.data(), aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
                          aiProcess_CalcTangentSpace);
 
-    if (!scene)
+    if (!pScene)
         throw std::runtime_error(std::format("Failed to load model: {}", path));
 
+    std::filesystem::path modelPath = path;
+    std::string modelRoot = modelPath.parent_path().string() + "/";
+
     std::vector<Vertex> vertices;
-    aiMesh* mesh = scene->mMeshes[0];
-    for (size_t i = 0; i < mesh->mNumVertices; i++)
-    {
-        Vertex v;
-        v.Pos = {mesh->mVertices[i].x, mesh->mVertices[i].y,
-                 mesh->mVertices[i].z};
-        if (mesh->mTextureCoords[0])
-        {
-            v.TexCoord = {mesh->mTextureCoords[0][i].x,
-                          1.f - mesh->mTextureCoords[0][i].y};
-        }
-        v.Normal = {mesh->mNormals[i].x, mesh->mNormals[i].y,
-                    mesh->mNormals[i].z};
-
-        assert(mesh->HasTangentsAndBitangents() &&
-               "Mesh does not have tangents and bitangents!");
-        glm::vec3 tangent = {mesh->mTangents[i].x, mesh->mTangents[i].y,
-                             mesh->mTangents[i].z};
-        glm::vec3 bitangent = {mesh->mBitangents[i].x, mesh->mBitangents[i].y,
-                               mesh->mBitangents[i].z};
-        float handedness =
-            (glm::dot(glm::cross(v.Normal, tangent), bitangent) > 0.f) ? -1.f
-                                                                       : 1.f;
-        v.Tangent = glm::vec4(tangent, handedness);
-
-        vertices.push_back(v);
-    }
-
     std::vector<uint32_t> indices;
-    for (size_t i = 0; i < mesh->mNumFaces; i++)
-    {
-        const aiFace& face = mesh->mFaces[i];
-        for (size_t j = 0; j < face.mNumIndices; j++)
-        {
-            indices.push_back(static_cast<uint32_t>(face.mIndices[j]));
-        }
-    }
+    std::vector<std::unique_ptr<Material>> materials =
+        LoadMaterials(pScene, modelRoot);
 
-    aiMaterial* mat = scene->mMaterials[mesh->mMaterialIndex];
+    ModelData* pModelData = new ModelData(path, std::move(materials));
+    std::unique_ptr<Node> rootNode = std::make_unique<Node>();
+    rootNode->ProcessNode(pModelData, pScene->mRootNode, pScene, glm::mat4(1.f),
+                          vertices, indices);
 
     vk::raii::Buffer vertexBuffer({});
     vk::raii::DeviceMemory vertexMemory({});
@@ -112,12 +85,22 @@ ModelData* ModelLoader::Load(const std::string& path)
     SetVkDebugName(m_Device, *indexMemory, vk::ObjectType::eDeviceMemory,
                    std::format("{} Index Buffer Memory", path).c_str());
 
-    std::filesystem::path modelPath = path;
-    std::string modelRoot = modelPath.parent_path().string() + "/";
-    Material* material =
-        MaterialFactory::Get()->CreatePBRMaterial(mat, modelRoot);
+    pModelData->Init(std::move(vertexBuffer), std::move(vertexMemory),
+                     std::move(indexBuffer), std::move(indexMemory),
+                     std::move(rootNode));
 
-    return new ModelData(std::move(vertexBuffer), std::move(vertexMemory),
-                         std::move(indexBuffer), std::move(indexMemory),
-                         material, indices.size(), path);
+    return pModelData;
+}
+
+std::vector<std::unique_ptr<Material>>
+ModelLoader::LoadMaterials(const aiScene* pScene, const std::string& modelRoot)
+{
+    std::vector<std::unique_ptr<Material>> materials;
+    for (size_t i = 0; i < pScene->mNumMaterials; i++)
+    {
+        aiMaterial* pMat = pScene->mMaterials[i];
+        materials.emplace_back(
+            MaterialFactory::Get()->CreatePBRMaterial(pMat, modelRoot));
+    }
+    return materials;
 }

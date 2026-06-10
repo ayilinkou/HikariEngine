@@ -24,6 +24,7 @@
 #include "glm/gtc/matrix_transform.hpp"
 #include "glm/gtx/hash.hpp"
 #include "glm/gtc/quaternion.hpp"
+#include "glm/gtc/type_ptr.hpp"
 
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_vulkan.h"
