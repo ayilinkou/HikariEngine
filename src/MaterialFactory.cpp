@@ -14,8 +14,7 @@ MaterialFactory::MaterialFactory(vk::raii::Device& device,
     CreateDescriptorSetLayout();
 }
 
-void MaterialFactory::Init(vk::raii::Device& device,
-                           vk::raii::Sampler& sampler)
+void MaterialFactory::Init(vk::raii::Device& device, vk::raii::Sampler& sampler)
 {
     if (s_Instance)
         throw std::runtime_error(
@@ -35,13 +34,10 @@ void MaterialFactory::Shutdown()
 
 void MaterialFactory::CreateDescriptorPool()
 {
-    std::array materialPoolSize = {
-        vk::DescriptorPoolSize{.type =
-                                   vk::DescriptorType::eCombinedImageSampler,
-                               .descriptorCount = s_MAX_TEXTURE_COUNT_PER_MAT *
-                                                  s_MAX_MATERIAL_SET_COUNT},
-        vk::DescriptorPoolSize{.type = vk::DescriptorType::eUniformBuffer,
-                               .descriptorCount = s_MAX_MATERIAL_SET_COUNT}};
+    std::array materialPoolSize = {vk::DescriptorPoolSize{
+        .type = vk::DescriptorType::eCombinedImageSampler,
+        .descriptorCount =
+            s_MAX_TEXTURE_COUNT_PER_MAT * s_MAX_MATERIAL_SET_COUNT}};
     vk::DescriptorPoolCreateInfo matCreateInfo{
         .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
         .maxSets = s_MAX_MATERIAL_SET_COUNT,
@@ -65,18 +61,12 @@ void MaterialFactory::CreateDescriptorSetLayout()
         vk::DescriptorSetLayoutBinding(
             TextureBinding::MetallicRoughness,
             vk::DescriptorType::eCombinedImageSampler, 1,
-            vk::ShaderStageFlagBits::eFragment),
-        vk::DescriptorSetLayoutBinding(
-            TextureBinding::COUNT, // TODO: using TextureBinding::COUNT feels
-                                   // bad here
-            vk::DescriptorType::eUniformBuffer, 1,
             vk::ShaderStageFlagBits::eFragment)};
 
-    std::array<vk::DescriptorBindingFlags, 4> bindingFlags = {
+    std::array<vk::DescriptorBindingFlags, 3> bindingFlags = {
         vk::DescriptorBindingFlagBits::ePartiallyBound,
         vk::DescriptorBindingFlagBits::ePartiallyBound,
-        vk::DescriptorBindingFlagBits::ePartiallyBound,
-        {}};
+        vk::DescriptorBindingFlagBits::ePartiallyBound};
 
     vk::DescriptorSetLayoutBindingFlagsCreateInfo flagsInfo{
         .bindingCount = bindingFlags.size(),
@@ -96,6 +86,6 @@ PBRMaterial*
 MaterialFactory::CreatePBRMaterial(aiMaterial* mat,
                                    const std::string& texturesParentFolder)
 {
-    return new PBRMaterial(m_Device, m_DescriptorPool,
-                           m_SetLayout, m_Sampler, mat, texturesParentFolder);
+    return new PBRMaterial(m_Device, m_DescriptorPool, m_SetLayout, m_Sampler,
+                           mat, texturesParentFolder);
 }
