@@ -227,24 +227,31 @@ float4 fragMain(VS_Out f) : SV_Target
 	}
 
 	float ao = pcMatData.AO;
-
 	float3 vertexNormal = normalize(f.Normal);
+
+	float3 N;
+	if (pcMatData.bHasNormalTex)
+	{
+		float3 tangentNormal = normalTex.Sample(f.TexCoord).xyz; // packed tangent space normal
+		tangentNormal = tangentNormal * 2.f - float3(1.f); // unpacked tangent space
+	
+		float3 T = normalize(f.Tangent.xyz);
+		T = normalize(T - vertexNormal * dot(T, vertexNormal)); // re-orthogonalise tangent
+		float3 B = cross(vertexNormal, T) * f.Tangent.w; // w contains the handedness
+
+		float3x3 TBN = float3x3(T, B, vertexNormal);
+		N = normalize(mul(tangentNormal, TBN)); // world space normal
+	}
+	else
+	{
+		N = vertexNormal;
+	}
+
 	float3 camToFrag = normalize(f.WorldPos - ubo.CameraPos);
 	float viewNormalAlignment = dot(camToFrag, vertexNormal); 
 	bool bNormalNeedsFlip = pcMatData.bTwoSided && (viewNormalAlignment > 0.f);
-
-	float3 tangentNormal = normalTex.Sample(f.TexCoord).xyz; // packed tangent space normal
-	tangentNormal = tangentNormal * 2.f - float3(1.f); // unpacked tangent space
-	
-	float3 T = normalize(f.Tangent.xyz);
-	T = normalize(T - vertexNormal * dot(T, vertexNormal)); // re-orthogonalise tangent
-	float3 B = cross(vertexNormal, T) * f.Tangent.w; // w contains the handedness
-
-	float3x3 TBN = float3x3(T, B, vertexNormal);
-	float3 N = normalize(mul(tangentNormal, TBN)); // world space normal
-	
 	N = bNormalNeedsFlip ? -1.f * N : N;
-
+	
 	float attenuation = CalcAttenuation(f.WorldPos, ubo.Light.Pos);
 	float3 Li = ubo.Light.Color * ubo.Light.Intensity * attenuation; // light radiance
 	float3 V = -1.f * camToFrag; // view vector
