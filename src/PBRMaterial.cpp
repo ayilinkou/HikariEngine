@@ -34,7 +34,8 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
 {
     aiString texturePath;
 
-    mat->Get(AI_MATKEY_TWOSIDED, m_MatData.bTwoSided);
+    mat->Get(AI_MATKEY_TWOSIDED, m_bTwoSided);
+	m_MatData.bTwoSided = m_bTwoSided;
 
     // use BASE_COLOR if available, DIFFUSE as fallback
     // prefer texture, get value if texture not available

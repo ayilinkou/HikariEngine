@@ -850,7 +850,8 @@ private:
         vk::Rect2D scissor{.offset = vk::Offset2D{0, 0},
                            .extent = m_SwapchainExtent};
         std::vector<vk::DynamicState> dynamicStates = {
-            vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+            vk::DynamicState::eViewport, vk::DynamicState::eScissor,
+            vk::DynamicState::eCullMode};
         vk::PipelineDynamicStateCreateInfo dynamicState{
             .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
             .pDynamicStates = dynamicStates.data()};
@@ -866,7 +867,8 @@ private:
             .depthClampEnable = vk::False,
             .rasterizerDiscardEnable = vk::False,
             .polygonMode = vk::PolygonMode::eFill,
-            .cullMode = vk::CullModeFlagBits::eBack,
+            .cullMode =
+                vk::CullModeFlagBits::eNone, // ignored, using dynamic state
             .frontFace = vk::FrontFace::eCounterClockwise,
             .depthBiasEnable = vk::False,
             .lineWidth = 1.f};
@@ -1021,11 +1023,23 @@ private:
 
         cmd.bindVertexBuffers(1, *m_Frames[m_FrameIndex].InstanceBuffer, {0});
 
+		vk::CullModeFlags cullMode = vk::CullModeFlagBits::eBack;
+
         // per mesh batch
         const std::vector<MeshBatch>& batches =
             ModelManager::Get()->GetBatches();
         for (const MeshBatch& batch : batches)
         {
+            vk::CullModeFlags requiredCullMode =
+                batch.pMaterial->IsTwoSided() ? vk::CullModeFlagBits::eNone
+                                              : vk::CullModeFlagBits::eBack;
+
+			if (requiredCullMode != cullMode)
+			{
+				cmd.setCullMode(requiredCullMode);
+				cullMode = requiredCullMode;
+			}
+
             cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
             cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);
             cmd.bindDescriptorSets(
