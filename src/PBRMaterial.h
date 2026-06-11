@@ -30,7 +30,7 @@ private:
 public:
     struct MaterialData
     {
-        glm::vec3 Albedo{1.f, 1.f, 1.f};
+        glm::vec3 Albedo{1.f, 0.f, 1.f};
         float Metallic = 0.f;
         float Roughness = 1.f;
         float AO = 1.f;

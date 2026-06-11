@@ -4,6 +4,7 @@
 
 #include "ResourceManager.h"
 #include "Utility.h"
+#include <assimp/types.h>
 
 PBRMaterial::PBRMaterial(vk::raii::Device& device,
                          vk::raii::DescriptorPool& descriptorPool,
@@ -33,11 +34,12 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
 {
     aiString texturePath;
 
-    // TODO: read material values and assign in m_MaterialData if texture is not
-    // found
-    // TODO: set bTwoSided and AO
+    mat->Get(AI_MATKEY_TWOSIDED, m_MatData.bTwoSided);
 
     // use BASE_COLOR if available, DIFFUSE as fallback
+    // prefer texture, get value if texture not available
+    aiColor4D baseColor;
+    aiColor3D diffuse;
     if (mat->GetTexture(aiTextureType::aiTextureType_BASE_COLOR, 0,
                         &texturePath) == AI_SUCCESS ||
         mat->GetTexture(aiTextureType::aiTextureType_DIFFUSE, 0,
@@ -47,6 +49,14 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
         m_Albedo = ResourceManager::Get()->LoadTexture(
             path, vk::Format::eR8G8B8A8Srgb);
         m_MatData.bHasAlbedoTex = true;
+    }
+    else if (mat->Get(AI_MATKEY_BASE_COLOR, baseColor) == AI_SUCCESS)
+    {
+        m_MatData.Albedo = {baseColor.r, baseColor.g, baseColor.b};
+    }
+    else if (mat->Get(AI_MATKEY_COLOR_DIFFUSE, diffuse) == AI_SUCCESS)
+    {
+        m_MatData.Albedo = {diffuse.r, diffuse.g, diffuse.b};
     }
 
     if (mat->GetTexture(aiTextureType::aiTextureType_NORMALS, 0,
@@ -66,6 +76,9 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
             path, vk::Format::eR8G8B8A8Unorm);
         m_MatData.bHasMetallicRoughnessTex = true;
     }
+
+    mat->Get(AI_MATKEY_METALLIC_FACTOR, m_MatData.Metallic);
+    mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, m_MatData.Roughness);
 }
 
 void PBRMaterial::CreateDescriptorSet(
