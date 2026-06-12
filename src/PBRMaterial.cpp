@@ -37,6 +37,9 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
     mat->Get(AI_MATKEY_TWOSIDED, m_bTwoSided);
 	m_MatData.bTwoSided = m_bTwoSided;
 
+	mat->Get(AI_MATKEY_OPACITY, m_Opacity);
+	m_MatData.Opacity = m_Opacity;
+
     // use BASE_COLOR if available, DIFFUSE as fallback
     // prefer texture, get value if texture not available
     aiColor4D baseColor;
@@ -53,11 +56,11 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
     }
     else if (mat->Get(AI_MATKEY_BASE_COLOR, baseColor) == AI_SUCCESS)
     {
-        m_MatData.Albedo = {baseColor.r, baseColor.g, baseColor.b};
+        m_MatData.Albedo = {baseColor.r, baseColor.g, baseColor.b, baseColor.a};
     }
     else if (mat->Get(AI_MATKEY_COLOR_DIFFUSE, diffuse) == AI_SUCCESS)
     {
-        m_MatData.Albedo = {diffuse.r, diffuse.g, diffuse.b};
+        m_MatData.Albedo = {diffuse.r, diffuse.g, diffuse.b, m_Opacity};
     }
 
     if (mat->GetTexture(aiTextureType::aiTextureType_NORMALS, 0,

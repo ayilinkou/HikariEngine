@@ -21,10 +21,11 @@ struct UniformBuffer
 
 struct MaterialPushConstant
 {
-	float3 Albedo;
+	float4 Albedo;
 	float Metallic;
 	float Roughness;
 	float AO;
+	float Opacity;
 	bool bHasAlbedoTex;
 	bool bHasNormalTex;
 	bool bHasMetallicRoughnessTex;
@@ -208,12 +209,15 @@ MaterialPushConstant pcMatData;
 [shader("fragment")]
 float4 fragMain(VS_Out f) : SV_Target
 {
-	float3 albedo;
+	float4 albedo;
 	if (pcMatData.bHasAlbedoTex)
-		albedo = albedoTex.Sample(f.TexCoord).rgb;
+		albedo = albedoTex.Sample(f.TexCoord);
 	else
 		albedo = pcMatData.Albedo;
-		
+	
+	if (albedo.a < 0.01f) // might need to play around with this number
+		discard;
+
 	float metallic, roughness;
 	if (pcMatData.bHasMetallicRoughnessTex)
 	{
@@ -259,12 +263,12 @@ float4 fragMain(VS_Out f) : SV_Target
 	float3 H = normalize(L + V); // halfway vector
 	float NdotL = saturate(dot(N, L));
 	float NdotH = saturate(dot(N, H));
-	float3 BRDF = CookTorrenceBRDF(N, V, L, H, albedo, roughness, metallic);
+	float3 BRDF = CookTorrenceBRDF(N, V, L, H, albedo.rgb, roughness, metallic);
 
 	float3 Lo = float3(0.f, 0.f, 0.f);
 	Lo += BRDF * Li * NdotL;
 	
-	float3 ambient = 0.05f * albedo * ao;
+	float3 ambient = 0.05f * albedo.rgb * ao;
 	float3 color = ambient + Lo;
 	color = HillACES(color); // tone mapping
 	color = pow(color, float3(1.f / 2.2f)); // gamma correction

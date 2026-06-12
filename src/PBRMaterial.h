@@ -30,10 +30,11 @@ private:
 public:
     struct MaterialData
     {
-        glm::vec3 Albedo{1.f, 0.f, 1.f};
+        glm::vec4 Albedo{1.f, 0.f, 1.f, 1.f};
         float Metallic = 0.f;
         float Roughness = 1.f;
         float AO = 1.f;
+		float Opacity = 1.f; // might be redundant, can pack into albedo
         int bHasAlbedoTex = false;
         int bHasNormalTex = false;
         int bHasMetallicRoughnessTex = false;
