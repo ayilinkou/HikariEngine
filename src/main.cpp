@@ -10,8 +10,6 @@
 #include "ResourceManager.h"
 #include "Utility.h"
 #include "Vertex.h"
-#include "vulkan/vulkan.hpp"
-#include <vulkan/vulkan.hpp>
 
 constexpr uint32_t WIDTH = 1920u;
 constexpr uint32_t HEIGHT = 1080u;
@@ -21,6 +19,7 @@ constexpr float NEAR_PLANE = 0.1f;
 constexpr float FAR_PLANE = 10000.f;
 const std::string BOX_MODEL_PATH = "models/pbr_case/scene.gltf";
 const std::string CAR_MODEL_PATH = "models/american_fullsize_73/scene.gltf";
+const std::string SPONZA_MODEL_PATH = "models/sponza/Sponza.gltf";
 
 std::atomic<bool> g_bShouldClose = false;
 
@@ -231,7 +230,11 @@ private:
         auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
         carModel->GetTransform().Scale *= 10.f;
         m_GameObjects.back()->AddComponent(std::move(carModel));
-
+/*
+        m_GameObjects.push_back(std::make_unique<GameObject>());
+        auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
+        m_GameObjects.back()->AddComponent(std::move(sponzaModel));
+*/
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
 
@@ -1023,22 +1026,22 @@ private:
 
         cmd.bindVertexBuffers(1, *m_Frames[m_FrameIndex].InstanceBuffer, {0});
 
-		vk::CullModeFlags cullMode = vk::CullModeFlagBits::eBack;
+        vk::CullModeFlags cullMode = vk::CullModeFlagBits::eBack;
 
         // per mesh batch
         const std::vector<MeshBatch>& batches =
-            ModelManager::Get()->GetBatches();
+            ModelManager::Get()->GetOpaqueBatches();
         for (const MeshBatch& batch : batches)
         {
             vk::CullModeFlags requiredCullMode =
                 batch.pMaterial->IsTwoSided() ? vk::CullModeFlagBits::eNone
                                               : vk::CullModeFlagBits::eBack;
 
-			if (requiredCullMode != cullMode)
-			{
-				cmd.setCullMode(requiredCullMode);
-				cullMode = requiredCullMode;
-			}
+            if (requiredCullMode != cullMode)
+            {
+                cmd.setCullMode(requiredCullMode);
+                cullMode = requiredCullMode;
+            }
 
             cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
             cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);

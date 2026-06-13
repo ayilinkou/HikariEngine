@@ -9,7 +9,7 @@ Camera::Camera()
     m_UpVector = {0.f, 1.f, 0.f};
     m_RightVector = {1.f, 0.f, 0.f};
 
-    m_MoveSpeed = 10.f;
+    m_MoveSpeed = 5.f;
     m_LookSens = 0.1f;
 }
 

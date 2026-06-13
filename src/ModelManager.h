@@ -7,7 +7,7 @@
 class ModelManager
 {
 private:
-    ModelManager(){}
+    ModelManager() {}
 
 public:
     static void Init();
@@ -18,16 +18,27 @@ public:
     void RegisterModel(Model* pModel);
     void UnregisterModel(Model* pModel);
 
-	void GenerateBatches();
-	const std::vector<MeshBatch>& GetBatches() const { return m_Batches; }
-	const std::vector<InstanceData>& GetInstanceDatas() { return m_InstanceDatas; }
+    void GenerateBatches();
+    const std::vector<MeshBatch>& GetOpaqueBatches() const
+    {
+        return m_OpaqueBatches;
+    }
+    const std::vector<MeshBatch>& GetTransparentBatches() const
+    {
+        return m_TransparentBatches;
+    }
+    const std::vector<InstanceData>& GetInstanceDatas() const
+    {
+        return m_InstanceDatas;
+    }
 
 private:
     SwapbackArray<Model*> m_Models;
 
     std::vector<InstanceData> m_InstanceDatas;
-    std::vector<MeshBatch> m_Batches;
-	std::vector<Drawable> m_Drawables;
+    std::vector<MeshBatch> m_OpaqueBatches;
+    std::vector<MeshBatch> m_TransparentBatches;
+    std::vector<Drawable> m_Drawables;
 
     inline static ModelManager* s_Instance = nullptr;
 };

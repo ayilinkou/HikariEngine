@@ -26,6 +26,7 @@ set(SOURCES
     src/ModelData.cpp
     src/Texture.cpp
     src/Camera.cpp
+    src/Material.cpp
     src/PBRMaterial.cpp
     src/MaterialFactory.cpp
     src/ResourceManager.cpp
@@ -35,8 +36,8 @@ set(SOURCES
     src/GameObject.cpp
     src/SceneComponent.cpp
     src/Transform.cpp
-	src/Node.cpp
-	src/Mesh.cpp)
+    src/Node.cpp
+    src/Mesh.cpp)
 
 find_package(Vulkan REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)

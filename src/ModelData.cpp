@@ -26,9 +26,11 @@ void ModelData::Init(vk::raii::Buffer vertexBuffer,
         uint32_t meshIndex = mesh.GetMeshIndex();
         for (const glm::mat4& transform : m_MeshLocalTransforms.at(meshIndex))
         {
-            m_Drawables.push_back(Drawable{.pMesh = pMesh,
-                                           .pMat = mesh.GetMaterial(),
-                                           .Transform = transform});
+            m_Drawables.push_back(
+                Drawable{.pMesh = pMesh,
+                         .pMat = mesh.GetMaterial(),
+                         .blendMode = mesh.GetMaterial()->GetBlendMode(),
+                         .Transform = transform});
         }
     }
 }

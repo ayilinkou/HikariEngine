@@ -4,14 +4,13 @@
 
 #include "ResourceManager.h"
 #include "Utility.h"
-#include <assimp/types.h>
 
 PBRMaterial::PBRMaterial(vk::raii::Device& device,
                          vk::raii::DescriptorPool& descriptorPool,
                          vk::raii::DescriptorSetLayout& setLayout,
                          vk::raii::Sampler& sampler, aiMaterial* mat,
                          const std::string& texturesParentFolder)
-    : Material(mat->GetName().C_Str())
+    : Material(mat)
 {
     LoadTextures(mat, texturesParentFolder);
     CreateDescriptorSet(device, descriptorPool, setLayout, sampler);

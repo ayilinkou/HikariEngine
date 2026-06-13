@@ -1,6 +1,7 @@
 #include "ModelManager.h"
 
 #include "ModelData.h"
+#include <stdexcept>
 
 void ModelManager::Init()
 {
@@ -21,7 +22,8 @@ void ModelManager::GenerateBatches()
 {
     m_Drawables.clear();
     m_InstanceDatas.clear();
-    m_Batches.clear();
+    m_OpaqueBatches.clear();
+    m_TransparentBatches.clear();
 
     // get all drawables
     for (Model* pModel : m_Models)
@@ -65,6 +67,14 @@ void ModelManager::GenerateBatches()
             i++;
         }
 
-        m_Batches.push_back(batch);
+        BlendMode blendMode = batch.pMaterial->GetBlendMode();
+        if (blendMode == BlendMode::Opaque)
+            m_OpaqueBatches.push_back(batch);
+        else if (blendMode == BlendMode::Transparent)
+            m_TransparentBatches.push_back(batch);
+        else
+            throw std::runtime_error(
+                std::format("BlendMode of type {} is not supported!",
+                            static_cast<uint8_t>(blendMode)));
     }
 }
