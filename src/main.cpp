@@ -10,6 +10,7 @@
 #include "ResourceManager.h"
 #include "Utility.h"
 #include "Vertex.h"
+#include "vulkan/vulkan.hpp"
 
 constexpr uint32_t WIDTH = 1920u;
 constexpr uint32_t HEIGHT = 1080u;
@@ -230,11 +231,11 @@ private:
         auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
         carModel->GetTransform().Scale *= 10.f;
         m_GameObjects.back()->AddComponent(std::move(carModel));
-/*
-        m_GameObjects.push_back(std::make_unique<GameObject>());
-        auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
-        m_GameObjects.back()->AddComponent(std::move(sponzaModel));
-*/
+        /*
+                m_GameObjects.push_back(std::make_unique<GameObject>());
+                auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
+                m_GameObjects.back()->AddComponent(std::move(sponzaModel));
+        */
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
 
@@ -295,7 +296,7 @@ private:
                               m_GraphicsQueue);
         MaterialFactory::Init(m_Device, m_TextureSampler);
 
-        CreateGraphicsPipeline();
+        CreatePipelines();
         CreateCommandBuffers();
         CreateUniformBuffers();
         CreateInstanceBuffers();
@@ -435,7 +436,9 @@ private:
 
         UpdateUniformBuffer(m_FrameIndex);
         UpdateInstanceBuffer(m_FrameIndex);
-        RecordCommandBuffer(imageIndex);
+
+        // opaque pass
+        RecordOpaqueCommandBuffer(imageIndex);
 
         vk::PipelineStageFlags waitDestinationStageFlags(
             vk::PipelineStageFlagBits::eColorAttachmentOutput);
@@ -449,6 +452,13 @@ private:
             .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
 
         m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
+
+		// transparency pass
+        RecordTransparentCommandBuffer(imageIndex);
+		// TODO: composite pass
+		// TODO: ImGui pass
+		
+		// convert to present image layout
 
         const vk::PresentInfoKHR presentInfo{
             .waitSemaphoreCount = 1,
@@ -800,7 +810,7 @@ private:
         return shaderModule;
     }
 
-    void CreateGraphicsPipeline()
+    void CreatePipelines()
     {
         vk::raii::ShaderModule shaderModule =
             CreateShaderModule(ReadFile("shaders/pbr.spv"));
@@ -870,8 +880,7 @@ private:
             .depthClampEnable = vk::False,
             .rasterizerDiscardEnable = vk::False,
             .polygonMode = vk::PolygonMode::eFill,
-            .cullMode =
-                vk::CullModeFlagBits::eNone, // ignored, using dynamic state
+            .cullMode = vk::CullModeFlagBits::eNone,
             .frontFace = vk::FrontFace::eCounterClockwise,
             .depthBiasEnable = vk::False,
             .lineWidth = 1.f};
@@ -935,11 +944,42 @@ private:
                  .renderPass = nullptr},
                 m_PipelineRenderingCreateInfo};
 
-        m_GraphicsPipeline = vk::raii::Pipeline(
+        m_OpaquePipeline = vk::raii::Pipeline(
             m_Device, nullptr,
             pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
-        SetVkDebugName(m_Device, *m_GraphicsPipeline, vk::ObjectType::ePipeline,
-                       "PBR Pipeline");
+        SetVkDebugName(m_Device, *m_OpaquePipeline, vk::ObjectType::ePipeline,
+                       "Opaque Pipeline");
+
+        dynamicStates = {vk::DynamicState::eViewport,
+                         vk::DynamicState::eScissor};
+        dynamicState = vk::PipelineDynamicStateCreateInfo{
+            .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+            .pDynamicStates = dynamicStates.data()};
+
+        depthStencilState = vk::PipelineDepthStencilStateCreateInfo{
+            .depthTestEnable = vk::True,
+            .depthWriteEnable = vk::False,
+            .depthCompareOp = vk::CompareOp::eLess,
+            .depthBoundsTestEnable = vk::False,
+            .stencilTestEnable = vk::False};
+
+        attachmentState = vk::PipelineColorBlendAttachmentState{
+            .blendEnable = vk::True,
+            .srcColorBlendFactor = vk::BlendFactor::eSrcAlpha,
+            .dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha,
+            .colorBlendOp = vk::BlendOp::eAdd,
+            .srcAlphaBlendFactor = vk::BlendFactor::eOne,
+            .dstAlphaBlendFactor = vk::BlendFactor::eZero,
+            .alphaBlendOp = vk::BlendOp::eAdd,
+            .colorWriteMask = vk::ColorComponentFlagBits::eR |
+                              vk::ColorComponentFlagBits::eG |
+                              vk::ColorComponentFlagBits::eB |
+                              vk::ColorComponentFlagBits::eA};
+        m_TransparentPipeline = vk::raii::Pipeline(
+            m_Device, nullptr,
+            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+        SetVkDebugName(m_Device, *m_TransparentPipeline,
+                       vk::ObjectType::ePipeline, "Transparent Pipeline");
     }
 
     void CreateCommandPool()
@@ -969,7 +1009,7 @@ private:
         }
     }
 
-    void RecordCommandBuffer(uint32_t imageIndex)
+    void RecordOpaqueCommandBuffer(uint32_t imageIndex)
     {
         vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
         cmd.reset();
@@ -1013,7 +1053,7 @@ private:
             .pDepthAttachment = &depthAttachmentInfo};
 
         cmd.beginRendering(renderingInfo);
-        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_GraphicsPipeline);
+        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_OpaquePipeline);
 
         cmd.setViewport(
             0, vk::Viewport(
@@ -1056,11 +1096,95 @@ private:
                             batch.FirstIndex, 0, batch.FirstInstance);
         }
 
+		// TODO: move into its own command buffer
         if (m_bCursorVisible)
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *cmd);
 
         cmd.endRendering();
 
+        cmd.end();
+    }
+
+    void RecordTransparentCommandBuffer(uint32_t imageIndex)
+    {
+        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
+        cmd.reset();
+
+        vk::CommandBufferBeginInfo beginInfo{};
+        cmd.begin(beginInfo);
+
+        TransitionSwapImageLayout(
+            imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
+            vk::ImageLayout::eColorAttachmentOptimal,
+            vk::AccessFlagBits2::eColorAttachmentRead,
+            vk::AccessFlagBits2::eColorAttachmentWrite,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput);
+        TransitionImageLayout(m_Device, m_CommandPool, m_GraphicsQueue,
+                              m_DepthImage,
+                              vk::ImageLayout::eDepthAttachmentOptimal,
+                              vk::ImageLayout::eDepthReadOnlyOptimal,
+                              vk::ImageAspectFlagBits::eDepth);
+
+        vk::RenderingAttachmentInfo colorAttachmentInfo = {
+            .imageView = m_SwapImageViews[imageIndex],
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
+            .storeOp = vk::AttachmentStoreOp::eStore};
+        vk::RenderingAttachmentInfo depthAttachmentInfo = {
+            .imageView = m_DepthImageView,
+            .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
+            .storeOp = vk::AttachmentStoreOp::eNone};
+
+        vk::RenderingInfo renderingInfo = {
+            .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
+            .layerCount = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colorAttachmentInfo,
+            .pDepthAttachment = &depthAttachmentInfo};
+
+        cmd.beginRendering(renderingInfo);
+        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                         *m_TransparentPipeline);
+
+        cmd.setViewport(
+            0, vk::Viewport(
+                   0.f, 0.f, static_cast<float>(m_SwapchainExtent.width),
+                   static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
+        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
+        cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                               m_PipelineLayout, 0,
+                               *m_FrameDescriptorSets[m_FrameIndex], nullptr);
+
+        cmd.bindVertexBuffers(1, *m_Frames[m_FrameIndex].InstanceBuffer, {0});
+
+        cmd.setCullMode(
+            vk::CullModeFlagBits::eNone); // won't have to set this as long as I
+                                          // remove culling from dynamic state
+                                          // in the transparent pipeline
+
+        // per mesh batch
+        const std::vector<MeshBatch>& batches =
+            ModelManager::Get()->GetTransparentBatches();
+        for (const MeshBatch& batch : batches)
+        {
+            cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
+            cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);
+            cmd.bindDescriptorSets(
+                vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
+                batch.pMaterial->GetDescriptorSet(), nullptr);
+            cmd.pushConstants<PBRMaterial::MaterialData>(
+                m_PipelineLayout, vk::ShaderStageFlagBits::eFragment, 0u,
+                *static_cast<PBRMaterial::MaterialData*>(
+                    batch.pMaterial->GetPushConstantData()));
+            cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
+                            batch.FirstIndex, 0, batch.FirstInstance);
+        }
+
+        cmd.endRendering();
+
+		// TODO: would be cleaner to put this in its own command buffer
         TransitionSwapImageLayout(
             imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
             vk::ImageLayout::ePresentSrcKHR,
@@ -1425,7 +1549,8 @@ private:
     vk::raii::SwapchainKHR m_Swapchain = nullptr;
     vk::raii::PipelineLayout m_PipelineLayout = nullptr;
     vk::raii::DescriptorSetLayout m_FrameSetLayout = nullptr;
-    vk::raii::Pipeline m_GraphicsPipeline = nullptr;
+    vk::raii::Pipeline m_OpaquePipeline = nullptr;
+    vk::raii::Pipeline m_TransparentPipeline = nullptr;
     vk::raii::CommandPool m_CommandPool = nullptr;
     UniformBufferObject m_UBO = {};
     vk::raii::Sampler m_TextureSampler = nullptr;
