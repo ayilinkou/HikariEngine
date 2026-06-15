@@ -468,13 +468,50 @@ private:
             .commandBufferCount = 1u,
             .pCommandBuffers = &*frameData.CommandBuffer,
             .signalSemaphoreCount = 1u,
-            .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
+            .pSignalSemaphores = &*frameData.TransparentCompleteSemaphore};
         m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
 
         // TODO: composite pass
-        // TODO: ImGui pass
 
-        // convert to present image layout
+        // ImGui pass
+        fenceResult =
+            m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
+        if (fenceResult != vk::Result::eSuccess)
+            throw std::runtime_error("Failed to wait for fence!");
+        m_Device.resetFences(*frameData.DrawFence);
+
+        RecordImGui(imageIndex);
+        waitDestinationStageFlags =
+            vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        submitInfo = vk::SubmitInfo{
+            .waitSemaphoreCount = 1u,
+            .pWaitSemaphores = &*frameData.TransparentCompleteSemaphore,
+            .pWaitDstStageMask = &waitDestinationStageFlags,
+            .commandBufferCount = 1u,
+            .pCommandBuffers = &*frameData.CommandBuffer,
+            .signalSemaphoreCount = 1u,
+            .pSignalSemaphores = &*frameData.ImGuiCompleteSemaphore};
+        m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
+
+        // convert to present src image layout
+        fenceResult =
+            m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
+        if (fenceResult != vk::Result::eSuccess)
+            throw std::runtime_error("Failed to wait for fence!");
+        m_Device.resetFences(*frameData.DrawFence);
+
+        RecordSwapImageToPresentLayout(imageIndex);
+        waitDestinationStageFlags =
+            vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        submitInfo = vk::SubmitInfo{
+            .waitSemaphoreCount = 1u,
+            .pWaitSemaphores = &*frameData.ImGuiCompleteSemaphore,
+            .pWaitDstStageMask = &waitDestinationStageFlags,
+            .commandBufferCount = 1u,
+            .pCommandBuffers = &*frameData.CommandBuffer,
+            .signalSemaphoreCount = 1u,
+            .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
+        m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
 
         const vk::PresentInfoKHR presentInfo{
             .waitSemaphoreCount = 1,
@@ -1112,10 +1149,6 @@ private:
                             batch.FirstIndex, 0, batch.FirstInstance);
         }
 
-        // TODO: move into its own command buffer
-        if (m_bCursorVisible)
-            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *cmd);
-
         cmd.endRendering();
 
         cmd.end();
@@ -1195,7 +1228,48 @@ private:
 
         cmd.endRendering();
 
-        // TODO: would be cleaner to put this in its own command buffer
+        cmd.end();
+    }
+
+    void RecordImGui(uint32_t imageIndex)
+    {
+        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
+        vk::CommandBufferBeginInfo beginInfo{};
+        cmd.begin(beginInfo);
+
+        vk::RenderingAttachmentInfo colorAttachmentInfo = {
+            .imageView = m_SwapImageViews[imageIndex],
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
+            .storeOp = vk::AttachmentStoreOp::eStore};
+        vk::RenderingAttachmentInfo depthAttachmentInfo = {
+            .imageView = m_DepthImageView,
+            .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
+            .storeOp = vk::AttachmentStoreOp::eNone};
+
+        vk::RenderingInfo renderingInfo = {
+            .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
+            .layerCount = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colorAttachmentInfo,
+            .pDepthAttachment = &depthAttachmentInfo};
+
+        cmd.beginRendering(renderingInfo);
+
+        if (m_bCursorVisible)
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *cmd);
+
+        cmd.endRendering();
+        cmd.end();
+    }
+
+    void RecordSwapImageToPresentLayout(uint32_t imageIndex)
+    {
+        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
+        vk::CommandBufferBeginInfo beginInfo{};
+        cmd.begin(beginInfo);
+
         TransitionSwapImageLayout(
             imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
             vk::ImageLayout::ePresentSrcKHR,
@@ -1263,6 +1337,20 @@ private:
                 m_Device, *m_Frames[i].OpaqueCompleteSemaphore,
                 vk::ObjectType::eSemaphore,
                 std::format("Opaque Complete Semaphore_{}", i).c_str());
+
+            m_Frames[i].TransparentCompleteSemaphore =
+                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
+            SetVkDebugName(
+                m_Device, *m_Frames[i].TransparentCompleteSemaphore,
+                vk::ObjectType::eSemaphore,
+                std::format("Transparent Complete Semaphore_{}", i).c_str());
+
+            m_Frames[i].ImGuiCompleteSemaphore =
+                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
+            SetVkDebugName(
+                m_Device, *m_Frames[i].ImGuiCompleteSemaphore,
+                vk::ObjectType::eSemaphore,
+                std::format("ImGui Complete Semaphore_{}", i).c_str());
 
             m_Frames[i].DrawFence = vk::raii::Fence(
                 m_Device, {.flags = vk::FenceCreateFlagBits::eSignaled});
