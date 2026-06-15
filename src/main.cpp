@@ -437,78 +437,25 @@ private:
         UpdateUniformBuffer(m_FrameIndex);
         UpdateInstanceBuffer(m_FrameIndex);
 
-        // opaque pass
+        RecordSwapImageToDrawLayout(imageIndex);
         RecordOpaqueCommandBuffer(imageIndex);
+        RecordTransparentCommandBuffer(imageIndex);
+        // TODO: composite pass
+        RecordImGui(imageIndex);
+        RecordSwapImageToPresentLayout(imageIndex);
+
+        std::array<vk::CommandBuffer, 5> commandBuffers = {
+            frameData.DrawLayoutCommandBuffer, frameData.OpaqueCommandBuffer,
+            frameData.TransparentCommandBuffer, frameData.ImGuiCommandBuffer,
+            frameData.PresentLayoutCommandBuffer};
         vk::PipelineStageFlags waitDestinationStageFlags(
             vk::PipelineStageFlagBits::eColorAttachmentOutput);
         vk::SubmitInfo submitInfo{
             .waitSemaphoreCount = 1u,
             .pWaitSemaphores = &*frameData.PresentCompleteSemaphore,
             .pWaitDstStageMask = &waitDestinationStageFlags,
-            .commandBufferCount = 1u,
-            .pCommandBuffers = &*frameData.CommandBuffer,
-            .signalSemaphoreCount = 1u,
-            .pSignalSemaphores = &*frameData.OpaqueCompleteSemaphore};
-        m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
-
-        // transparency pass
-        fenceResult =
-            m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
-        if (fenceResult != vk::Result::eSuccess)
-            throw std::runtime_error("Failed to wait for fence!");
-        m_Device.resetFences(*frameData.DrawFence);
-
-        RecordTransparentCommandBuffer(imageIndex);
-        waitDestinationStageFlags =
-            vk::PipelineStageFlagBits::eColorAttachmentOutput;
-        submitInfo = vk::SubmitInfo{
-            .waitSemaphoreCount = 1u,
-            .pWaitSemaphores = &*frameData.OpaqueCompleteSemaphore,
-            .pWaitDstStageMask = &waitDestinationStageFlags,
-            .commandBufferCount = 1u,
-            .pCommandBuffers = &*frameData.CommandBuffer,
-            .signalSemaphoreCount = 1u,
-            .pSignalSemaphores = &*frameData.TransparentCompleteSemaphore};
-        m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
-
-        // TODO: composite pass
-
-        // ImGui pass
-        fenceResult =
-            m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
-        if (fenceResult != vk::Result::eSuccess)
-            throw std::runtime_error("Failed to wait for fence!");
-        m_Device.resetFences(*frameData.DrawFence);
-
-        RecordImGui(imageIndex);
-        waitDestinationStageFlags =
-            vk::PipelineStageFlagBits::eColorAttachmentOutput;
-        submitInfo = vk::SubmitInfo{
-            .waitSemaphoreCount = 1u,
-            .pWaitSemaphores = &*frameData.TransparentCompleteSemaphore,
-            .pWaitDstStageMask = &waitDestinationStageFlags,
-            .commandBufferCount = 1u,
-            .pCommandBuffers = &*frameData.CommandBuffer,
-            .signalSemaphoreCount = 1u,
-            .pSignalSemaphores = &*frameData.ImGuiCompleteSemaphore};
-        m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
-
-        // convert to present src image layout
-        fenceResult =
-            m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
-        if (fenceResult != vk::Result::eSuccess)
-            throw std::runtime_error("Failed to wait for fence!");
-        m_Device.resetFences(*frameData.DrawFence);
-
-        RecordSwapImageToPresentLayout(imageIndex);
-        waitDestinationStageFlags =
-            vk::PipelineStageFlagBits::eColorAttachmentOutput;
-        submitInfo = vk::SubmitInfo{
-            .waitSemaphoreCount = 1u,
-            .pWaitSemaphores = &*frameData.ImGuiCompleteSemaphore,
-            .pWaitDstStageMask = &waitDestinationStageFlags,
-            .commandBufferCount = 1u,
-            .pCommandBuffers = &*frameData.CommandBuffer,
+            .commandBufferCount = commandBuffers.size(),
+            .pCommandBuffers = commandBuffers.data(),
             .signalSemaphoreCount = 1u,
             .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
         m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
@@ -1047,38 +994,61 @@ private:
 
     void CreateCommandBuffers()
     {
+        constexpr uint32_t BUFFERS_PER_FRAME = 6u;
+        constexpr uint32_t BUFFERS_COUNT =
+            MAX_FRAMES_IN_FLIGHT * BUFFERS_PER_FRAME;
         vk::CommandBufferAllocateInfo allocInfo{
             .commandPool = m_CommandPool,
             .level = vk::CommandBufferLevel::ePrimary,
-            .commandBufferCount = MAX_FRAMES_IN_FLIGHT};
+            .commandBufferCount = BUFFERS_COUNT};
         auto commandBuffers = vk::raii::CommandBuffers(m_Device, allocInfo);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            m_Frames[i].CommandBuffer = std::move(commandBuffers[i]);
-            SetVkDebugName(m_Device, *m_Frames[i].CommandBuffer,
+            FrameData& frameData = m_Frames[i];
+            uint8_t j = i * BUFFERS_PER_FRAME;
+
+            frameData.GenericCommandBuffer = std::move(commandBuffers[j++]);
+            SetVkDebugName(m_Device, *frameData.GenericCommandBuffer,
                            vk::ObjectType::eCommandBuffer,
-                           std::format("Main Command Buffer_{}", i).c_str());
+                           std::format("Generic Command Buffer_{}", i).c_str());
+            frameData.OpaqueCommandBuffer = std::move(commandBuffers[j++]);
+            SetVkDebugName(m_Device, *frameData.OpaqueCommandBuffer,
+                           vk::ObjectType::eCommandBuffer,
+                           std::format("Opaque Command Buffer_{}", i).c_str());
+            frameData.TransparentCommandBuffer = std::move(commandBuffers[j++]);
+            SetVkDebugName(
+                m_Device, *frameData.TransparentCommandBuffer,
+                vk::ObjectType::eCommandBuffer,
+                std::format("Transparent Command Buffer_{}", i).c_str());
+            frameData.ImGuiCommandBuffer = std::move(commandBuffers[j++]);
+            SetVkDebugName(m_Device, *frameData.ImGuiCommandBuffer,
+                           vk::ObjectType::eCommandBuffer,
+                           std::format("ImGui Command Buffer_{}", i).c_str());
+            frameData.DrawLayoutCommandBuffer = std::move(commandBuffers[j++]);
+            SetVkDebugName(
+                m_Device, *frameData.DrawLayoutCommandBuffer,
+                vk::ObjectType::eCommandBuffer,
+                std::format("Draw Layout Command Buffer_{}", i).c_str());
+            frameData.PresentLayoutCommandBuffer =
+                std::move(commandBuffers[j++]);
+            SetVkDebugName(
+                m_Device, *frameData.PresentLayoutCommandBuffer,
+                vk::ObjectType::eCommandBuffer,
+                std::format("Present Layout Command Buffer_{}", i).c_str());
         }
     }
 
     void RecordOpaqueCommandBuffer(uint32_t imageIndex)
     {
-        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
+        vk::raii::CommandBuffer& cmd =
+            m_Frames[m_FrameIndex].OpaqueCommandBuffer;
         cmd.reset();
 
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        TransitionSwapImageLayout(
-            imageIndex, vk::ImageLayout::eUndefined,
-            vk::ImageLayout::eColorAttachmentOptimal, {},
-            vk::AccessFlagBits2::eColorAttachmentWrite,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput);
-
-        TransitionImageLayout(m_Device, m_CommandPool, m_GraphicsQueue,
-                              m_DepthImage, vk::ImageLayout::eUndefined,
+        TransitionImageLayout(cmd, m_DepthImage, vk::ImageLayout::eUndefined,
                               vk::ImageLayout::eDepthAttachmentOptimal,
                               vk::ImageAspectFlagBits::eDepth);
 
@@ -1094,8 +1064,7 @@ private:
             .imageView = m_DepthImageView,
             .imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eClear,
-            .storeOp =
-                vk::AttachmentStoreOp::eDontCare, // might need to store later
+            .storeOp = vk::AttachmentStoreOp::eStore,
             .clearValue = clearDepth};
 
         vk::RenderingInfo renderingInfo = {
@@ -1156,21 +1125,21 @@ private:
 
     void RecordTransparentCommandBuffer(uint32_t imageIndex)
     {
-        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
+        vk::raii::CommandBuffer& cmd =
+            m_Frames[m_FrameIndex].TransparentCommandBuffer;
         cmd.reset();
 
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
         TransitionSwapImageLayout(
-            imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
+            cmd, imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
             vk::ImageLayout::eColorAttachmentOptimal,
             vk::AccessFlagBits2::eColorAttachmentRead,
             vk::AccessFlagBits2::eColorAttachmentWrite,
             vk::PipelineStageFlagBits2::eColorAttachmentOutput,
             vk::PipelineStageFlagBits2::eColorAttachmentOutput);
-        TransitionImageLayout(m_Device, m_CommandPool, m_GraphicsQueue,
-                              m_DepthImage,
+        TransitionImageLayout(cmd, m_DepthImage,
                               vk::ImageLayout::eDepthAttachmentOptimal,
                               vk::ImageLayout::eDepthReadOnlyOptimal,
                               vk::ImageAspectFlagBits::eDepth);
@@ -1233,7 +1202,8 @@ private:
 
     void RecordImGui(uint32_t imageIndex)
     {
-        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
+        vk::raii::CommandBuffer& cmd =
+            m_Frames[m_FrameIndex].ImGuiCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
@@ -1264,14 +1234,32 @@ private:
         cmd.end();
     }
 
-    void RecordSwapImageToPresentLayout(uint32_t imageIndex)
+    void RecordSwapImageToDrawLayout(uint32_t imageIndex)
     {
-        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
+        vk::raii::CommandBuffer& cmd =
+            m_Frames[m_FrameIndex].DrawLayoutCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
         TransitionSwapImageLayout(
-            imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
+            cmd, imageIndex, vk::ImageLayout::eUndefined,
+            vk::ImageLayout::eColorAttachmentOptimal, {},
+            vk::AccessFlagBits2::eColorAttachmentWrite,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput);
+
+        cmd.end();
+    }
+
+    void RecordSwapImageToPresentLayout(uint32_t imageIndex)
+    {
+        vk::raii::CommandBuffer& cmd =
+            m_Frames[m_FrameIndex].PresentLayoutCommandBuffer;
+        vk::CommandBufferBeginInfo beginInfo{};
+        cmd.begin(beginInfo);
+
+        TransitionSwapImageLayout(
+            cmd, imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
             vk::ImageLayout::ePresentSrcKHR,
             vk::AccessFlagBits2::eColorAttachmentWrite, {},
             vk::PipelineStageFlagBits2::eColorAttachmentOutput,
@@ -1280,7 +1268,8 @@ private:
         cmd.end();
     }
 
-    void TransitionSwapImageLayout(uint32_t imageIndex,
+    void TransitionSwapImageLayout(vk::raii::CommandBuffer& cmd,
+                                   uint32_t imageIndex,
                                    vk::ImageLayout oldLayout,
                                    vk::ImageLayout newLayout,
                                    vk::AccessFlags2 srcAccessMask,
@@ -1307,7 +1296,7 @@ private:
         vk::DependencyInfo info = {.dependencyFlags = {},
                                    .imageMemoryBarrierCount = 1,
                                    .pImageMemoryBarriers = &barrier};
-        m_Frames[m_FrameIndex].CommandBuffer.pipelineBarrier2(info);
+        cmd.pipelineBarrier2(info);
     }
 
     void CreateSyncObjects()
@@ -1330,27 +1319,6 @@ private:
                 m_Device, *m_Frames[i].PresentCompleteSemaphore,
                 vk::ObjectType::eSemaphore,
                 std::format("Present Complete Semaphore_{}", i).c_str());
-
-            m_Frames[i].OpaqueCompleteSemaphore =
-                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
-            SetVkDebugName(
-                m_Device, *m_Frames[i].OpaqueCompleteSemaphore,
-                vk::ObjectType::eSemaphore,
-                std::format("Opaque Complete Semaphore_{}", i).c_str());
-
-            m_Frames[i].TransparentCompleteSemaphore =
-                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
-            SetVkDebugName(
-                m_Device, *m_Frames[i].TransparentCompleteSemaphore,
-                vk::ObjectType::eSemaphore,
-                std::format("Transparent Complete Semaphore_{}", i).c_str());
-
-            m_Frames[i].ImGuiCompleteSemaphore =
-                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
-            SetVkDebugName(
-                m_Device, *m_Frames[i].ImGuiCompleteSemaphore,
-                vk::ObjectType::eSemaphore,
-                std::format("ImGui Complete Semaphore_{}", i).c_str());
 
             m_Frames[i].DrawFence = vk::raii::Fence(
                 m_Device, {.flags = vk::FenceCreateFlagBits::eSignaled});
