@@ -10,6 +10,7 @@
 #include "ResourceManager.h"
 #include "Utility.h"
 #include "Vertex.h"
+#include "vulkan/vulkan.hpp"
 
 constexpr uint32_t WIDTH = 1920u;
 constexpr uint32_t HEIGHT = 1080u;
@@ -230,11 +231,11 @@ private:
         auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
         carModel->GetTransform().Scale *= 10.f;
         m_GameObjects.back()->AddComponent(std::move(carModel));
-/*
-        m_GameObjects.push_back(std::make_unique<GameObject>());
-        auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
-        m_GameObjects.back()->AddComponent(std::move(sponzaModel));
-*/
+        /*
+                m_GameObjects.push_back(std::make_unique<GameObject>());
+                auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
+                m_GameObjects.back()->AddComponent(std::move(sponzaModel));
+        */
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
 
@@ -295,7 +296,7 @@ private:
                               m_GraphicsQueue);
         MaterialFactory::Init(m_Device, m_TextureSampler);
 
-        CreateGraphicsPipeline();
+        CreatePipelines();
         CreateCommandBuffers();
         CreateUniformBuffers();
         CreateInstanceBuffers();
@@ -435,19 +436,81 @@ private:
 
         UpdateUniformBuffer(m_FrameIndex);
         UpdateInstanceBuffer(m_FrameIndex);
-        RecordCommandBuffer(imageIndex);
 
+        // opaque pass
+        RecordOpaqueCommandBuffer(imageIndex);
         vk::PipelineStageFlags waitDestinationStageFlags(
             vk::PipelineStageFlagBits::eColorAttachmentOutput);
-        const vk::SubmitInfo submitInfo{
-            .waitSemaphoreCount = 1,
+        vk::SubmitInfo submitInfo{
+            .waitSemaphoreCount = 1u,
             .pWaitSemaphores = &*frameData.PresentCompleteSemaphore,
             .pWaitDstStageMask = &waitDestinationStageFlags,
-            .commandBufferCount = 1,
+            .commandBufferCount = 1u,
             .pCommandBuffers = &*frameData.CommandBuffer,
-            .signalSemaphoreCount = 1,
-            .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
+            .signalSemaphoreCount = 1u,
+            .pSignalSemaphores = &*frameData.OpaqueCompleteSemaphore};
+        m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
 
+        // transparency pass
+        fenceResult =
+            m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
+        if (fenceResult != vk::Result::eSuccess)
+            throw std::runtime_error("Failed to wait for fence!");
+        m_Device.resetFences(*frameData.DrawFence);
+
+        RecordTransparentCommandBuffer(imageIndex);
+        waitDestinationStageFlags =
+            vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        submitInfo = vk::SubmitInfo{
+            .waitSemaphoreCount = 1u,
+            .pWaitSemaphores = &*frameData.OpaqueCompleteSemaphore,
+            .pWaitDstStageMask = &waitDestinationStageFlags,
+            .commandBufferCount = 1u,
+            .pCommandBuffers = &*frameData.CommandBuffer,
+            .signalSemaphoreCount = 1u,
+            .pSignalSemaphores = &*frameData.TransparentCompleteSemaphore};
+        m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
+
+        // TODO: composite pass
+
+        // ImGui pass
+        fenceResult =
+            m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
+        if (fenceResult != vk::Result::eSuccess)
+            throw std::runtime_error("Failed to wait for fence!");
+        m_Device.resetFences(*frameData.DrawFence);
+
+        RecordImGui(imageIndex);
+        waitDestinationStageFlags =
+            vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        submitInfo = vk::SubmitInfo{
+            .waitSemaphoreCount = 1u,
+            .pWaitSemaphores = &*frameData.TransparentCompleteSemaphore,
+            .pWaitDstStageMask = &waitDestinationStageFlags,
+            .commandBufferCount = 1u,
+            .pCommandBuffers = &*frameData.CommandBuffer,
+            .signalSemaphoreCount = 1u,
+            .pSignalSemaphores = &*frameData.ImGuiCompleteSemaphore};
+        m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
+
+        // convert to present src image layout
+        fenceResult =
+            m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
+        if (fenceResult != vk::Result::eSuccess)
+            throw std::runtime_error("Failed to wait for fence!");
+        m_Device.resetFences(*frameData.DrawFence);
+
+        RecordSwapImageToPresentLayout(imageIndex);
+        waitDestinationStageFlags =
+            vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        submitInfo = vk::SubmitInfo{
+            .waitSemaphoreCount = 1u,
+            .pWaitSemaphores = &*frameData.ImGuiCompleteSemaphore,
+            .pWaitDstStageMask = &waitDestinationStageFlags,
+            .commandBufferCount = 1u,
+            .pCommandBuffers = &*frameData.CommandBuffer,
+            .signalSemaphoreCount = 1u,
+            .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
         m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
 
         const vk::PresentInfoKHR presentInfo{
@@ -800,7 +863,7 @@ private:
         return shaderModule;
     }
 
-    void CreateGraphicsPipeline()
+    void CreatePipelines()
     {
         vk::raii::ShaderModule shaderModule =
             CreateShaderModule(ReadFile("shaders/pbr.spv"));
@@ -870,8 +933,7 @@ private:
             .depthClampEnable = vk::False,
             .rasterizerDiscardEnable = vk::False,
             .polygonMode = vk::PolygonMode::eFill,
-            .cullMode =
-                vk::CullModeFlagBits::eNone, // ignored, using dynamic state
+            .cullMode = vk::CullModeFlagBits::eNone,
             .frontFace = vk::FrontFace::eCounterClockwise,
             .depthBiasEnable = vk::False,
             .lineWidth = 1.f};
@@ -935,11 +997,42 @@ private:
                  .renderPass = nullptr},
                 m_PipelineRenderingCreateInfo};
 
-        m_GraphicsPipeline = vk::raii::Pipeline(
+        m_OpaquePipeline = vk::raii::Pipeline(
             m_Device, nullptr,
             pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
-        SetVkDebugName(m_Device, *m_GraphicsPipeline, vk::ObjectType::ePipeline,
-                       "PBR Pipeline");
+        SetVkDebugName(m_Device, *m_OpaquePipeline, vk::ObjectType::ePipeline,
+                       "Opaque Pipeline");
+
+        dynamicStates = {vk::DynamicState::eViewport,
+                         vk::DynamicState::eScissor};
+        dynamicState = vk::PipelineDynamicStateCreateInfo{
+            .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+            .pDynamicStates = dynamicStates.data()};
+
+        depthStencilState = vk::PipelineDepthStencilStateCreateInfo{
+            .depthTestEnable = vk::True,
+            .depthWriteEnable = vk::False,
+            .depthCompareOp = vk::CompareOp::eLess,
+            .depthBoundsTestEnable = vk::False,
+            .stencilTestEnable = vk::False};
+
+        attachmentState = vk::PipelineColorBlendAttachmentState{
+            .blendEnable = vk::True,
+            .srcColorBlendFactor = vk::BlendFactor::eSrcAlpha,
+            .dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha,
+            .colorBlendOp = vk::BlendOp::eAdd,
+            .srcAlphaBlendFactor = vk::BlendFactor::eOne,
+            .dstAlphaBlendFactor = vk::BlendFactor::eZero,
+            .alphaBlendOp = vk::BlendOp::eAdd,
+            .colorWriteMask = vk::ColorComponentFlagBits::eR |
+                              vk::ColorComponentFlagBits::eG |
+                              vk::ColorComponentFlagBits::eB |
+                              vk::ColorComponentFlagBits::eA};
+        m_TransparentPipeline = vk::raii::Pipeline(
+            m_Device, nullptr,
+            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+        SetVkDebugName(m_Device, *m_TransparentPipeline,
+                       vk::ObjectType::ePipeline, "Transparent Pipeline");
     }
 
     void CreateCommandPool()
@@ -969,7 +1062,7 @@ private:
         }
     }
 
-    void RecordCommandBuffer(uint32_t imageIndex)
+    void RecordOpaqueCommandBuffer(uint32_t imageIndex)
     {
         vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
         cmd.reset();
@@ -1013,7 +1106,7 @@ private:
             .pDepthAttachment = &depthAttachmentInfo};
 
         cmd.beginRendering(renderingInfo);
-        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_GraphicsPipeline);
+        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_OpaquePipeline);
 
         cmd.setViewport(
             0, vk::Viewport(
@@ -1056,10 +1149,126 @@ private:
                             batch.FirstIndex, 0, batch.FirstInstance);
         }
 
+        cmd.endRendering();
+
+        cmd.end();
+    }
+
+    void RecordTransparentCommandBuffer(uint32_t imageIndex)
+    {
+        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
+        cmd.reset();
+
+        vk::CommandBufferBeginInfo beginInfo{};
+        cmd.begin(beginInfo);
+
+        TransitionSwapImageLayout(
+            imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
+            vk::ImageLayout::eColorAttachmentOptimal,
+            vk::AccessFlagBits2::eColorAttachmentRead,
+            vk::AccessFlagBits2::eColorAttachmentWrite,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput);
+        TransitionImageLayout(m_Device, m_CommandPool, m_GraphicsQueue,
+                              m_DepthImage,
+                              vk::ImageLayout::eDepthAttachmentOptimal,
+                              vk::ImageLayout::eDepthReadOnlyOptimal,
+                              vk::ImageAspectFlagBits::eDepth);
+
+        vk::RenderingAttachmentInfo colorAttachmentInfo = {
+            .imageView = m_SwapImageViews[imageIndex],
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
+            .storeOp = vk::AttachmentStoreOp::eStore};
+        vk::RenderingAttachmentInfo depthAttachmentInfo = {
+            .imageView = m_DepthImageView,
+            .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
+            .storeOp = vk::AttachmentStoreOp::eNone};
+
+        vk::RenderingInfo renderingInfo = {
+            .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
+            .layerCount = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colorAttachmentInfo,
+            .pDepthAttachment = &depthAttachmentInfo};
+
+        cmd.beginRendering(renderingInfo);
+        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                         *m_TransparentPipeline);
+
+        cmd.setViewport(
+            0, vk::Viewport(
+                   0.f, 0.f, static_cast<float>(m_SwapchainExtent.width),
+                   static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
+        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
+        cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                               m_PipelineLayout, 0,
+                               *m_FrameDescriptorSets[m_FrameIndex], nullptr);
+
+        cmd.bindVertexBuffers(1, *m_Frames[m_FrameIndex].InstanceBuffer, {0});
+
+        // per mesh batch
+        const std::vector<MeshBatch>& batches =
+            ModelManager::Get()->GetTransparentBatches();
+        for (const MeshBatch& batch : batches)
+        {
+            cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
+            cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);
+            cmd.bindDescriptorSets(
+                vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
+                batch.pMaterial->GetDescriptorSet(), nullptr);
+            cmd.pushConstants<PBRMaterial::MaterialData>(
+                m_PipelineLayout, vk::ShaderStageFlagBits::eFragment, 0u,
+                *static_cast<PBRMaterial::MaterialData*>(
+                    batch.pMaterial->GetPushConstantData()));
+            cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
+                            batch.FirstIndex, 0, batch.FirstInstance);
+        }
+
+        cmd.endRendering();
+
+        cmd.end();
+    }
+
+    void RecordImGui(uint32_t imageIndex)
+    {
+        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
+        vk::CommandBufferBeginInfo beginInfo{};
+        cmd.begin(beginInfo);
+
+        vk::RenderingAttachmentInfo colorAttachmentInfo = {
+            .imageView = m_SwapImageViews[imageIndex],
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
+            .storeOp = vk::AttachmentStoreOp::eStore};
+        vk::RenderingAttachmentInfo depthAttachmentInfo = {
+            .imageView = m_DepthImageView,
+            .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
+            .storeOp = vk::AttachmentStoreOp::eNone};
+
+        vk::RenderingInfo renderingInfo = {
+            .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
+            .layerCount = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colorAttachmentInfo,
+            .pDepthAttachment = &depthAttachmentInfo};
+
+        cmd.beginRendering(renderingInfo);
+
         if (m_bCursorVisible)
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *cmd);
 
         cmd.endRendering();
+        cmd.end();
+    }
+
+    void RecordSwapImageToPresentLayout(uint32_t imageIndex)
+    {
+        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].CommandBuffer;
+        vk::CommandBufferBeginInfo beginInfo{};
+        cmd.begin(beginInfo);
 
         TransitionSwapImageLayout(
             imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
@@ -1121,6 +1330,27 @@ private:
                 m_Device, *m_Frames[i].PresentCompleteSemaphore,
                 vk::ObjectType::eSemaphore,
                 std::format("Present Complete Semaphore_{}", i).c_str());
+
+            m_Frames[i].OpaqueCompleteSemaphore =
+                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
+            SetVkDebugName(
+                m_Device, *m_Frames[i].OpaqueCompleteSemaphore,
+                vk::ObjectType::eSemaphore,
+                std::format("Opaque Complete Semaphore_{}", i).c_str());
+
+            m_Frames[i].TransparentCompleteSemaphore =
+                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
+            SetVkDebugName(
+                m_Device, *m_Frames[i].TransparentCompleteSemaphore,
+                vk::ObjectType::eSemaphore,
+                std::format("Transparent Complete Semaphore_{}", i).c_str());
+
+            m_Frames[i].ImGuiCompleteSemaphore =
+                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
+            SetVkDebugName(
+                m_Device, *m_Frames[i].ImGuiCompleteSemaphore,
+                vk::ObjectType::eSemaphore,
+                std::format("ImGui Complete Semaphore_{}", i).c_str());
 
             m_Frames[i].DrawFence = vk::raii::Fence(
                 m_Device, {.flags = vk::FenceCreateFlagBits::eSignaled});
@@ -1425,7 +1655,8 @@ private:
     vk::raii::SwapchainKHR m_Swapchain = nullptr;
     vk::raii::PipelineLayout m_PipelineLayout = nullptr;
     vk::raii::DescriptorSetLayout m_FrameSetLayout = nullptr;
-    vk::raii::Pipeline m_GraphicsPipeline = nullptr;
+    vk::raii::Pipeline m_OpaquePipeline = nullptr;
+    vk::raii::Pipeline m_TransparentPipeline = nullptr;
     vk::raii::CommandPool m_CommandPool = nullptr;
     UniformBufferObject m_UBO = {};
     vk::raii::Sampler m_TextureSampler = nullptr;

@@ -273,5 +273,5 @@ float4 fragMain(VS_Out f) : SV_Target
 	color = HillACES(color); // tone mapping
 	color = pow(color, float3(1.f / 2.2f)); // gamma correction
 
-	return float4(color, 1.f);
+	return float4(color, albedo.a);
 }
