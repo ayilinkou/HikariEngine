@@ -79,17 +79,16 @@ Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
     SetVkDebugName(m_Device, *imageMemory, vk::ObjectType::eDeviceMemory,
                    std::format("{} Device Memory", path).c_str());
 
-    TransitionImageLayout(m_Device, m_CommandPool, m_TransferQueue, image,
-                          vk::ImageLayout::eUndefined,
+    auto cmd = BeginSingleTimeCommand(m_Device, m_CommandPool);
+    TransitionImageLayout(cmd, image, vk::ImageLayout::eUndefined,
                           vk::ImageLayout::eTransferDstOptimal,
                           vk::ImageAspectFlagBits::eColor);
-    CopyBufferToImage(m_Device, m_CommandPool, m_TransferQueue, stagingBuffer,
-                      image, static_cast<uint32_t>(width),
+    CopyBufferToImage(cmd, stagingBuffer, image, static_cast<uint32_t>(width),
                       static_cast<uint32_t>(height));
-    TransitionImageLayout(m_Device, m_CommandPool, m_TransferQueue, image,
-                          vk::ImageLayout::eTransferDstOptimal,
+    TransitionImageLayout(cmd, image, vk::ImageLayout::eTransferDstOptimal,
                           vk::ImageLayout::eShaderReadOnlyOptimal,
                           vk::ImageAspectFlagBits::eColor);
+    EndSingleTimeCommand(cmd, m_TransferQueue);
 
     vk::raii::ImageView imageView = CreateImageView(
         m_Device, image, format, vk::ImageAspectFlagBits::eColor);

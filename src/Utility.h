@@ -3,11 +3,6 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include <vulkan/vulkan_core.h>
-
-#include "SDL3/SDL.h"
-
-#include "vulkan/vulkan_raii.hpp"
 
 template <typename T>
 inline void SetVkDebugName(vk::raii::Device& device, T handle,
@@ -226,15 +221,12 @@ inline void CreateImage(vk::raii::Device& device,
     image.bindMemory(imageMemory, 0);
 }
 
-inline void TransitionImageLayout(vk::raii::Device& device,
-                                  vk::raii::CommandPool& commandPool,
-                                  vk::raii::Queue& transferQueue,
+inline void TransitionImageLayout(vk::raii::CommandBuffer& cmd,
                                   const vk::raii::Image& image,
                                   vk::ImageLayout oldLayout,
                                   vk::ImageLayout newLayout,
                                   vk::ImageAspectFlags aspectFlags)
 {
-    auto commandBuffer = BeginSingleTimeCommand(device, commandPool);
     vk::ImageMemoryBarrier2 barrier{
         .oldLayout = oldLayout,
         .newLayout = newLayout,
@@ -294,18 +286,14 @@ inline void TransitionImageLayout(vk::raii::Device& device,
 
     vk::DependencyInfo dependencyInfo{.imageMemoryBarrierCount = 1,
                                       .pImageMemoryBarriers = &barrier};
-    commandBuffer.pipelineBarrier2(dependencyInfo);
-    EndSingleTimeCommand(commandBuffer, transferQueue);
+    cmd.pipelineBarrier2(dependencyInfo);
 }
 
-inline void CopyBufferToImage(vk::raii::Device& device,
-                              vk::raii::CommandPool& commandPool,
-                              vk::raii::Queue& transferQueue,
+inline void CopyBufferToImage(vk::raii::CommandBuffer& cmd,
                               const vk::raii::Buffer& buffer,
                               vk::raii::Image& image, uint32_t width,
                               uint32_t height)
 {
-    auto commandBuffer = BeginSingleTimeCommand(device, commandPool);
     vk::BufferImageCopy region{
         .bufferOffset = 0,
         .bufferRowLength = 0,
@@ -313,9 +301,8 @@ inline void CopyBufferToImage(vk::raii::Device& device,
         .imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
         .imageOffset = {0, 0, 0},
         .imageExtent = {width, height, 1}};
-    commandBuffer.copyBufferToImage(
+    cmd.copyBufferToImage(
         buffer, image, vk::ImageLayout::eTransferDstOptimal, {region});
-    EndSingleTimeCommand(commandBuffer, transferQueue);
 }
 
 inline void CreateVertexBuffer(vk::raii::Device& device,
