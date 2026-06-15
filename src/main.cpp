@@ -439,26 +439,42 @@ private:
 
         // opaque pass
         RecordOpaqueCommandBuffer(imageIndex);
-
         vk::PipelineStageFlags waitDestinationStageFlags(
             vk::PipelineStageFlagBits::eColorAttachmentOutput);
-        const vk::SubmitInfo submitInfo{
-            .waitSemaphoreCount = 1,
+        vk::SubmitInfo submitInfo{
+            .waitSemaphoreCount = 1u,
             .pWaitSemaphores = &*frameData.PresentCompleteSemaphore,
             .pWaitDstStageMask = &waitDestinationStageFlags,
-            .commandBufferCount = 1,
+            .commandBufferCount = 1u,
             .pCommandBuffers = &*frameData.CommandBuffer,
-            .signalSemaphoreCount = 1,
-            .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
-
+            .signalSemaphoreCount = 1u,
+            .pSignalSemaphores = &*frameData.OpaqueCompleteSemaphore};
         m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
 
-		// transparency pass
+        // transparency pass
+        fenceResult =
+            m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
+        if (fenceResult != vk::Result::eSuccess)
+            throw std::runtime_error("Failed to wait for fence!");
+        m_Device.resetFences(*frameData.DrawFence);
+
         RecordTransparentCommandBuffer(imageIndex);
-		// TODO: composite pass
-		// TODO: ImGui pass
-		
-		// convert to present image layout
+        waitDestinationStageFlags =
+            vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        submitInfo = vk::SubmitInfo{
+            .waitSemaphoreCount = 1u,
+            .pWaitSemaphores = &*frameData.OpaqueCompleteSemaphore,
+            .pWaitDstStageMask = &waitDestinationStageFlags,
+            .commandBufferCount = 1u,
+            .pCommandBuffers = &*frameData.CommandBuffer,
+            .signalSemaphoreCount = 1u,
+            .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
+        m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
+
+        // TODO: composite pass
+        // TODO: ImGui pass
+
+        // convert to present image layout
 
         const vk::PresentInfoKHR presentInfo{
             .waitSemaphoreCount = 1,
@@ -1096,7 +1112,7 @@ private:
                             batch.FirstIndex, 0, batch.FirstInstance);
         }
 
-		// TODO: move into its own command buffer
+        // TODO: move into its own command buffer
         if (m_bCursorVisible)
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *cmd);
 
@@ -1159,11 +1175,6 @@ private:
 
         cmd.bindVertexBuffers(1, *m_Frames[m_FrameIndex].InstanceBuffer, {0});
 
-        cmd.setCullMode(
-            vk::CullModeFlagBits::eNone); // won't have to set this as long as I
-                                          // remove culling from dynamic state
-                                          // in the transparent pipeline
-
         // per mesh batch
         const std::vector<MeshBatch>& batches =
             ModelManager::Get()->GetTransparentBatches();
@@ -1184,7 +1195,7 @@ private:
 
         cmd.endRendering();
 
-		// TODO: would be cleaner to put this in its own command buffer
+        // TODO: would be cleaner to put this in its own command buffer
         TransitionSwapImageLayout(
             imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
             vk::ImageLayout::ePresentSrcKHR,
@@ -1245,6 +1256,13 @@ private:
                 m_Device, *m_Frames[i].PresentCompleteSemaphore,
                 vk::ObjectType::eSemaphore,
                 std::format("Present Complete Semaphore_{}", i).c_str());
+
+            m_Frames[i].OpaqueCompleteSemaphore =
+                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
+            SetVkDebugName(
+                m_Device, *m_Frames[i].OpaqueCompleteSemaphore,
+                vk::ObjectType::eSemaphore,
+                std::format("Opaque Complete Semaphore_{}", i).c_str());
 
             m_Frames[i].DrawFence = vk::raii::Fence(
                 m_Device, {.flags = vk::FenceCreateFlagBits::eSignaled});

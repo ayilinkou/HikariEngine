@@ -246,33 +246,46 @@ inline void TransitionImageLayout(vk::raii::Device& device,
     if (oldLayout == vk::ImageLayout::eUndefined &&
         newLayout == vk::ImageLayout::eTransferDstOptimal)
     {
-        barrier.srcAccessMask = vk::AccessFlagBits2::eHostWrite;
-        barrier.dstAccessMask = vk::AccessFlagBits2::eTransferWrite;
-
         barrier.srcStageMask = vk::PipelineStageFlagBits2::eHost;
+        barrier.srcAccessMask = vk::AccessFlagBits2::eHostWrite;
+
         barrier.dstStageMask = vk::PipelineStageFlagBits2::eTransfer;
+        barrier.dstAccessMask = vk::AccessFlagBits2::eTransferWrite;
     }
     else if (oldLayout == vk::ImageLayout::eTransferDstOptimal &&
              newLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
     {
         barrier.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
-        barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
-
         barrier.srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
+
         barrier.dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
+        barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
     }
     else if (newLayout == vk::ImageLayout::eDepthAttachmentOptimal &&
              aspectFlags == vk::ImageAspectFlagBits::eDepth)
     {
-        barrier.srcAccessMask =
-            vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
-        barrier.dstAccessMask =
-            vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
-
         barrier.srcStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
                                vk::PipelineStageFlagBits2::eLateFragmentTests;
+        barrier.srcAccessMask =
+            vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+
         barrier.dstStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
                                vk::PipelineStageFlagBits2::eLateFragmentTests;
+        barrier.dstAccessMask =
+            vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+    }
+    else if (oldLayout == vk::ImageLayout::eDepthAttachmentOptimal &&
+             newLayout == vk::ImageLayout::eDepthReadOnlyOptimal)
+    {
+        barrier.srcStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                               vk::PipelineStageFlagBits2::eLateFragmentTests;
+        barrier.srcAccessMask =
+            vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+
+        barrier.dstStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                               vk::PipelineStageFlagBits2::eLateFragmentTests;
+        barrier.dstAccessMask =
+            vk::AccessFlagBits2::eDepthStencilAttachmentRead;
     }
     else
     {
