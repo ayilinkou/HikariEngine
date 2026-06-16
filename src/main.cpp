@@ -12,6 +12,8 @@
 #include "Vertex.h"
 #include "vulkan/vulkan.hpp"
 
+#define MULTITHREADED_COMMAND_RECORDING 1
+
 constexpr uint32_t WIDTH = 1920u;
 constexpr uint32_t HEIGHT = 1080u;
 constexpr uint32_t MAX_INSTANCE_COUNT = 1024u;
@@ -440,6 +442,7 @@ private:
         UpdateUniformBuffer(m_FrameIndex);
         UpdateInstanceBuffer(m_FrameIndex);
 
+#if MULTITHREADED_COMMAND_RECORDING
         auto drawLayoutFuture =
             std::async(std::launch::async, [this, imageIndex]
                        { RecordSwapImageToDrawLayout(imageIndex); });
@@ -462,6 +465,13 @@ private:
 		transparentFuture.get();
 		imGuiFuture.get();
 		presentLayoutFuture.get();
+#else
+		RecordSwapImageToDrawLayout(imageIndex);
+		RecordOpaqueCommandBuffer(imageIndex);
+		RecordTransparentCommandBuffer(imageIndex);
+		RecordImGui(imageIndex);
+		RecordSwapImageToPresentLayout(imageIndex);
+#endif
 
         std::array<vk::CommandBuffer, 5> commandBuffers = {
             frameData.DrawLayoutCommandBuffer, frameData.OpaqueCommandBuffer,
