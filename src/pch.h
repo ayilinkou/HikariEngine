@@ -16,6 +16,7 @@
 #include <limits>
 #include <csignal>
 #include <thread>
+#include <future>
 
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_raii.hpp"

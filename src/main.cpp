@@ -210,32 +210,35 @@ private:
 
         InitVulkan();
         InitImGui();
-
-        m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Position +=
-            glm::vec3(-60.f, -15.f, -5.f);
-        auto boxModelOne = std::make_unique<Model>(BOX_MODEL_PATH);
-        boxModelOne->GetTransform().Scale *= 0.1f;
-        m_GameObjects.back()->AddComponent(std::move(boxModelOne));
-
-        m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Position +=
-            glm::vec3(-60.f, 10.f, -5.f);
-        auto boxModelTwo = std::make_unique<Model>(BOX_MODEL_PATH);
-        boxModelTwo->GetTransform().Scale *= 0.1f;
-        m_GameObjects.back()->AddComponent(std::move(boxModelTwo));
-
-        m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Position +=
-            glm::vec3(0.f, 0.f, -20.f);
-        auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
-        carModel->GetTransform().Scale *= 10.f;
-        m_GameObjects.back()->AddComponent(std::move(carModel));
         /*
                 m_GameObjects.push_back(std::make_unique<GameObject>());
-                auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
-                m_GameObjects.back()->AddComponent(std::move(sponzaModel));
-        */
+                m_GameObjects.back()->GetTransform().Position +=
+                    glm::vec3(-60.f, -15.f, -5.f);
+                auto boxModelOne = std::make_unique<Model>(BOX_MODEL_PATH);
+                boxModelOne->GetTransform().Scale *= 0.1f;
+                m_GameObjects.back()->AddComponent(std::move(boxModelOne));
+
+                m_GameObjects.push_back(std::make_unique<GameObject>());
+                m_GameObjects.back()->GetTransform().Position +=
+                    glm::vec3(-60.f, 10.f, -5.f);
+                auto boxModelTwo = std::make_unique<Model>(BOX_MODEL_PATH);
+                boxModelTwo->GetTransform().Scale *= 0.1f;
+                m_GameObjects.back()->AddComponent(std::move(boxModelTwo));
+
+                m_GameObjects.push_back(std::make_unique<GameObject>());
+                m_GameObjects.back()->GetTransform().Position +=
+                    glm::vec3(0.f, 0.f, -20.f);
+                auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
+                carModel->GetTransform().Scale *= 10.f;
+                m_GameObjects.back()->AddComponent(std::move(carModel));
+                */
+		for (int i = 0; i < 1; i++)
+		{
+			m_GameObjects.push_back(std::make_unique<GameObject>());
+			auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
+			m_GameObjects.back()->AddComponent(std::move(sponzaModel));
+		}
+
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
 
@@ -437,12 +440,28 @@ private:
         UpdateUniformBuffer(m_FrameIndex);
         UpdateInstanceBuffer(m_FrameIndex);
 
-        RecordSwapImageToDrawLayout(imageIndex);
-        RecordOpaqueCommandBuffer(imageIndex);
-        RecordTransparentCommandBuffer(imageIndex);
-        // TODO: composite pass
-        RecordImGui(imageIndex);
-        RecordSwapImageToPresentLayout(imageIndex);
+        auto drawLayoutFuture =
+            std::async(std::launch::async, [this, imageIndex]
+                       { RecordSwapImageToDrawLayout(imageIndex); });
+        auto opaqueFuture =
+            std::async(std::launch::async, [this, imageIndex]
+                       { RecordOpaqueCommandBuffer(imageIndex); });
+        auto transparentFuture =
+            std::async(std::launch::async, [this, imageIndex]
+                       { RecordTransparentCommandBuffer(imageIndex); });
+		// TODO: composite pass
+        auto imGuiFuture =
+            std::async(std::launch::async, [this, imageIndex]
+                       { RecordImGui(imageIndex); });
+        auto presentLayoutFuture =
+            std::async(std::launch::async, [this, imageIndex]
+                       { RecordSwapImageToPresentLayout(imageIndex); });
+
+		drawLayoutFuture.get();
+		opaqueFuture.get();
+		transparentFuture.get();
+		imGuiFuture.get();
+		presentLayoutFuture.get();
 
         std::array<vk::CommandBuffer, 5> commandBuffers = {
             frameData.DrawLayoutCommandBuffer, frameData.OpaqueCommandBuffer,
@@ -1111,8 +1130,8 @@ private:
 
     void RecordOpaqueCommandBuffer(uint32_t imageIndex)
     {
-		m_Frames[m_FrameIndex].OpaqueCommandPool.reset();
-		vk::raii::CommandBuffer& cmd =
+        m_Frames[m_FrameIndex].OpaqueCommandPool.reset();
+        vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].OpaqueCommandBuffer;
 
         vk::CommandBufferBeginInfo beginInfo{};
@@ -1195,8 +1214,8 @@ private:
 
     void RecordTransparentCommandBuffer(uint32_t imageIndex)
     {
-		m_Frames[m_FrameIndex].TransparentCommandPool.reset();
-		vk::raii::CommandBuffer& cmd =
+        m_Frames[m_FrameIndex].TransparentCommandPool.reset();
+        vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].TransparentCommandBuffer;
 
         vk::CommandBufferBeginInfo beginInfo{};
@@ -1272,7 +1291,7 @@ private:
 
     void RecordImGui(uint32_t imageIndex)
     {
-		m_Frames[m_FrameIndex].ImGuiCommandPool.reset();
+        m_Frames[m_FrameIndex].ImGuiCommandPool.reset();
         vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].ImGuiCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
@@ -1308,7 +1327,7 @@ private:
     void RecordSwapImageToDrawLayout(uint32_t imageIndex)
     {
         m_Frames[m_FrameIndex].DrawLayoutCommandPool.reset();
-		vk::raii::CommandBuffer& cmd =
+        vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].DrawLayoutCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
@@ -1326,7 +1345,7 @@ private:
     void RecordSwapImageToPresentLayout(uint32_t imageIndex)
     {
         m_Frames[m_FrameIndex].PresentLayoutCommandPool.reset();
-		vk::raii::CommandBuffer& cmd =
+        vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].PresentLayoutCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
