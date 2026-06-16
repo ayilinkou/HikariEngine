@@ -14,7 +14,7 @@
 
 constexpr uint32_t WIDTH = 1920u;
 constexpr uint32_t HEIGHT = 1080u;
-constexpr uint32_t MAX_INSTANCE_COUNT = 128u;
+constexpr uint32_t MAX_INSTANCE_COUNT = 1024u;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 constexpr float NEAR_PLANE = 0.1f;
 constexpr float FAR_PLANE = 10000.f;
