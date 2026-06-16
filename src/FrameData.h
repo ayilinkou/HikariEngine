@@ -4,11 +4,15 @@
 
 struct FrameData
 {
-    vk::raii::CommandBuffer GenericCommandBuffer = nullptr;
-    vk::raii::CommandBuffer OpaqueCommandBuffer = nullptr;
+	vk::raii::CommandPool DrawLayoutCommandPool = nullptr;
+	vk::raii::CommandPool OpaqueCommandPool = nullptr;
+	vk::raii::CommandPool TransparentCommandPool = nullptr;
+    vk::raii::CommandPool ImGuiCommandPool = nullptr;
+	vk::raii::CommandPool PresentLayoutCommandPool = nullptr;
+	vk::raii::CommandBuffer DrawLayoutCommandBuffer = nullptr;
+	vk::raii::CommandBuffer OpaqueCommandBuffer = nullptr;
     vk::raii::CommandBuffer TransparentCommandBuffer = nullptr;
     vk::raii::CommandBuffer ImGuiCommandBuffer = nullptr;
-    vk::raii::CommandBuffer DrawLayoutCommandBuffer = nullptr;
     vk::raii::CommandBuffer PresentLayoutCommandBuffer = nullptr;
     vk::raii::Semaphore PresentCompleteSemaphore = nullptr;
     vk::raii::Fence DrawFence = nullptr;
