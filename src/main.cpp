@@ -289,10 +289,10 @@ private:
         CreateSwapchainImageViews();
         CreateDepthResources();
         CreateDescriptorSetLayouts();
-        CreateCommandPool();
+        CreateCommandPools();
         CreateTextureSampler();
 
-        ResourceManager::Init(m_Device, m_PhysicalDevice, m_CommandPool,
+        ResourceManager::Init(m_Device, m_PhysicalDevice, m_GenericCommandPool,
                               m_GraphicsQueue);
         MaterialFactory::Init(m_Device, m_TextureSampler);
 
@@ -982,68 +982,138 @@ private:
                        vk::ObjectType::ePipeline, "Transparent Pipeline");
     }
 
-    void CreateCommandPool()
+    void CreateCommandPools()
     {
         vk::CommandPoolCreateInfo createInfo{
             .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
             .queueFamilyIndex = m_QueueIndex};
-        m_CommandPool = vk::raii::CommandPool(m_Device, createInfo);
-        SetVkDebugName(m_Device, *m_CommandPool, vk::ObjectType::eCommandPool,
-                       "Main Command Pool");
+        m_GenericCommandPool = vk::raii::CommandPool(m_Device, createInfo);
+        SetVkDebugName(m_Device, *m_GenericCommandPool,
+                       vk::ObjectType::eCommandPool, "Generic Command Pool");
+
+        createInfo =
+            vk::CommandPoolCreateInfo{.queueFamilyIndex = m_QueueIndex};
+        for (size_t i = 0u; i < MAX_FRAMES_IN_FLIGHT; i++)
+        {
+            FrameData& frame = m_Frames[i];
+
+            frame.DrawLayoutCommandPool =
+                vk::raii::CommandPool(m_Device, createInfo);
+            SetVkDebugName(
+                m_Device, *frame.DrawLayoutCommandPool,
+                vk::ObjectType::eCommandPool,
+                std::format("Draw Layout Command Pool Frame {}", i).c_str());
+
+            frame.OpaqueCommandPool =
+                vk::raii::CommandPool(m_Device, createInfo);
+            SetVkDebugName(
+                m_Device, *frame.OpaqueCommandPool,
+                vk::ObjectType::eCommandPool,
+                std::format("Opaque Command Pool Frame {}", i).c_str());
+
+            frame.TransparentCommandPool =
+                vk::raii::CommandPool(m_Device, createInfo);
+            SetVkDebugName(
+                m_Device, *frame.TransparentCommandPool,
+                vk::ObjectType::eCommandPool,
+                std::format("Transparent Command Pool Frame {}", i).c_str());
+
+            frame.ImGuiCommandPool =
+                vk::raii::CommandPool(m_Device, createInfo);
+            SetVkDebugName(
+                m_Device, *frame.ImGuiCommandPool, vk::ObjectType::eCommandPool,
+                std::format("ImGui Command Pool Frame {}", i).c_str());
+
+            frame.PresentLayoutCommandPool =
+                vk::raii::CommandPool(m_Device, createInfo);
+            SetVkDebugName(
+                m_Device, *frame.PresentLayoutCommandPool,
+                vk::ObjectType::eCommandPool,
+                std::format("Present Layout Command Pool Frame {}", i).c_str());
+        }
     }
 
     void CreateCommandBuffers()
     {
-        constexpr uint32_t BUFFERS_PER_FRAME = 6u;
-        constexpr uint32_t BUFFERS_COUNT =
-            MAX_FRAMES_IN_FLIGHT * BUFFERS_PER_FRAME;
-        vk::CommandBufferAllocateInfo allocInfo{
-            .commandPool = m_CommandPool,
-            .level = vk::CommandBufferLevel::ePrimary,
-            .commandBufferCount = BUFFERS_COUNT};
-        auto commandBuffers = vk::raii::CommandBuffers(m_Device, allocInfo);
-
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            FrameData& frameData = m_Frames[i];
-            uint8_t j = i * BUFFERS_PER_FRAME;
+            FrameData& frame = m_Frames[i];
+            vk::CommandBufferAllocateInfo allocInfo;
+            vk::raii::CommandBuffer cmd({});
 
-            frameData.GenericCommandBuffer = std::move(commandBuffers[j++]);
-            SetVkDebugName(m_Device, *frameData.GenericCommandBuffer,
-                           vk::ObjectType::eCommandBuffer,
-                           std::format("Generic Command Buffer_{}", i).c_str());
-            frameData.OpaqueCommandBuffer = std::move(commandBuffers[j++]);
-            SetVkDebugName(m_Device, *frameData.OpaqueCommandBuffer,
-                           vk::ObjectType::eCommandBuffer,
-                           std::format("Opaque Command Buffer_{}", i).c_str());
-            frameData.TransparentCommandBuffer = std::move(commandBuffers[j++]);
+            allocInfo = vk::CommandBufferAllocateInfo{
+                .commandPool = frame.DrawLayoutCommandPool,
+                .level = vk::CommandBufferLevel::ePrimary,
+                .commandBufferCount = 1u};
+            cmd = std::move(
+                vk::raii::CommandBuffers(m_Device, allocInfo).front());
+
+            frame.DrawLayoutCommandBuffer = std::move(cmd);
             SetVkDebugName(
-                m_Device, *frameData.TransparentCommandBuffer,
+                m_Device, *frame.DrawLayoutCommandBuffer,
                 vk::ObjectType::eCommandBuffer,
-                std::format("Transparent Command Buffer_{}", i).c_str());
-            frameData.ImGuiCommandBuffer = std::move(commandBuffers[j++]);
-            SetVkDebugName(m_Device, *frameData.ImGuiCommandBuffer,
-                           vk::ObjectType::eCommandBuffer,
-                           std::format("ImGui Command Buffer_{}", i).c_str());
-            frameData.DrawLayoutCommandBuffer = std::move(commandBuffers[j++]);
+                std::format("Draw Layout Command Buffer Frame {}", i).c_str());
+
+            allocInfo = vk::CommandBufferAllocateInfo{
+                .commandPool = frame.OpaqueCommandPool,
+                .level = vk::CommandBufferLevel::ePrimary,
+                .commandBufferCount = 1u};
+            cmd = std::move(
+                vk::raii::CommandBuffers(m_Device, allocInfo).front());
+
+            frame.OpaqueCommandBuffer = std::move(cmd);
             SetVkDebugName(
-                m_Device, *frameData.DrawLayoutCommandBuffer,
+                m_Device, *frame.OpaqueCommandBuffer,
                 vk::ObjectType::eCommandBuffer,
-                std::format("Draw Layout Command Buffer_{}", i).c_str());
-            frameData.PresentLayoutCommandBuffer =
-                std::move(commandBuffers[j++]);
+                std::format("Opaque Command Buffer Frame {}", i).c_str());
+
+            allocInfo = vk::CommandBufferAllocateInfo{
+                .commandPool = frame.TransparentCommandPool,
+                .level = vk::CommandBufferLevel::ePrimary,
+                .commandBufferCount = 1u};
+            cmd = std::move(
+                vk::raii::CommandBuffers(m_Device, allocInfo).front());
+
+            frame.TransparentCommandBuffer = std::move(cmd);
             SetVkDebugName(
-                m_Device, *frameData.PresentLayoutCommandBuffer,
+                m_Device, *frame.TransparentCommandBuffer,
                 vk::ObjectType::eCommandBuffer,
-                std::format("Present Layout Command Buffer_{}", i).c_str());
+                std::format("Transparent Command Buffer Frame {}", i).c_str());
+
+            allocInfo = vk::CommandBufferAllocateInfo{
+                .commandPool = frame.ImGuiCommandPool,
+                .level = vk::CommandBufferLevel::ePrimary,
+                .commandBufferCount = 1u};
+            cmd = std::move(
+                vk::raii::CommandBuffers(m_Device, allocInfo).front());
+
+            frame.ImGuiCommandBuffer = std::move(cmd);
+            SetVkDebugName(
+                m_Device, *frame.ImGuiCommandBuffer,
+                vk::ObjectType::eCommandBuffer,
+                std::format("ImGui Command Buffer Frame {}", i).c_str());
+
+            allocInfo = vk::CommandBufferAllocateInfo{
+                .commandPool = frame.PresentLayoutCommandPool,
+                .level = vk::CommandBufferLevel::ePrimary,
+                .commandBufferCount = 1u};
+            cmd = std::move(
+                vk::raii::CommandBuffers(m_Device, allocInfo).front());
+
+            frame.PresentLayoutCommandBuffer = std::move(cmd);
+            SetVkDebugName(
+                m_Device, *frame.PresentLayoutCommandBuffer,
+                vk::ObjectType::eCommandBuffer,
+                std::format("Present Layout Command Buffer Frame {}", i)
+                    .c_str());
         }
     }
 
     void RecordOpaqueCommandBuffer(uint32_t imageIndex)
     {
-        vk::raii::CommandBuffer& cmd =
+		m_Frames[m_FrameIndex].OpaqueCommandPool.reset();
+		vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].OpaqueCommandBuffer;
-        cmd.reset();
 
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
@@ -1125,9 +1195,9 @@ private:
 
     void RecordTransparentCommandBuffer(uint32_t imageIndex)
     {
-        vk::raii::CommandBuffer& cmd =
+		m_Frames[m_FrameIndex].TransparentCommandPool.reset();
+		vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].TransparentCommandBuffer;
-        cmd.reset();
 
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
@@ -1202,6 +1272,7 @@ private:
 
     void RecordImGui(uint32_t imageIndex)
     {
+		m_Frames[m_FrameIndex].ImGuiCommandPool.reset();
         vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].ImGuiCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
@@ -1236,7 +1307,8 @@ private:
 
     void RecordSwapImageToDrawLayout(uint32_t imageIndex)
     {
-        vk::raii::CommandBuffer& cmd =
+        m_Frames[m_FrameIndex].DrawLayoutCommandPool.reset();
+		vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].DrawLayoutCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
@@ -1253,7 +1325,8 @@ private:
 
     void RecordSwapImageToPresentLayout(uint32_t imageIndex)
     {
-        vk::raii::CommandBuffer& cmd =
+        m_Frames[m_FrameIndex].PresentLayoutCommandPool.reset();
+		vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].PresentLayoutCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
@@ -1625,7 +1698,7 @@ private:
     vk::raii::DescriptorSetLayout m_FrameSetLayout = nullptr;
     vk::raii::Pipeline m_OpaquePipeline = nullptr;
     vk::raii::Pipeline m_TransparentPipeline = nullptr;
-    vk::raii::CommandPool m_CommandPool = nullptr;
+    vk::raii::CommandPool m_GenericCommandPool = nullptr;
     UniformBufferObject m_UBO = {};
     vk::raii::Sampler m_TextureSampler = nullptr;
     vk::raii::DescriptorPool m_FrameDescriptorPool = nullptr;
