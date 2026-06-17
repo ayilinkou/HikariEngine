@@ -450,22 +450,6 @@ private:
         {
             Timer recordTimer("Command buffer recording");
 #if MULTITHREADED_COMMAND_RECORDING
-            /*auto drawLayoutFuture =
-                std::async(std::launch::async, [this, imageIndex]
-                           { RecordSwapImageToDrawLayout(imageIndex); });
-            auto opaqueFuture =
-                std::async(std::launch::async, [this, imageIndex]
-                           { RecordOpaqueCommandBuffer(imageIndex); });
-            auto transparentFuture =
-                std::async(std::launch::async, [this, imageIndex]
-                           { RecordTransparentCommandBuffer(imageIndex); });
-            // TODO: composite pass
-            auto imGuiFuture = std::async(std::launch::async, [this, imageIndex]
-                                          { RecordImGui(imageIndex); });
-            auto presentLayoutFuture =
-                std::async(std::launch::async, [this, imageIndex]
-                           { RecordSwapImageToPresentLayout(imageIndex); });*/
-
             ThreadPool* threadPool = ThreadPool::Get();
             std::future<void> drawLayoutFuture = threadPool->Submit(
                 [&] { RecordSwapImageToDrawLayout(imageIndex); });
