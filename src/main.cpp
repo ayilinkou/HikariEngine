@@ -8,6 +8,7 @@
 #include "ModelManager.h"
 #include "PBRMaterial.h"
 #include "ResourceManager.h"
+#include "ThreadPool.h"
 #include "Timer.h"
 #include "Utility.h"
 #include "Vertex.h"
@@ -212,6 +213,9 @@ private:
 
         InitVulkan();
         InitImGui();
+
+        ThreadPool::Init();
+
         /*
                 m_GameObjects.push_back(std::make_unique<GameObject>());
                 m_GameObjects.back()->GetTransform().Position +=
@@ -313,6 +317,7 @@ private:
     void Shutdown()
     {
         m_GameObjects.clear();
+        ThreadPool::Shutdown();
         ShutdownImGui();
         MaterialFactory::Shutdown();
         ResourceManager::Shutdown();
@@ -445,7 +450,7 @@ private:
         {
             Timer recordTimer("Command buffer recording");
 #if MULTITHREADED_COMMAND_RECORDING
-            auto drawLayoutFuture =
+            /*auto drawLayoutFuture =
                 std::async(std::launch::async, [this, imageIndex]
                            { RecordSwapImageToDrawLayout(imageIndex); });
             auto opaqueFuture =
@@ -459,7 +464,20 @@ private:
                                           { RecordImGui(imageIndex); });
             auto presentLayoutFuture =
                 std::async(std::launch::async, [this, imageIndex]
-                           { RecordSwapImageToPresentLayout(imageIndex); });
+                           { RecordSwapImageToPresentLayout(imageIndex); });*/
+
+            ThreadPool* threadPool = ThreadPool::Get();
+            std::future<void> drawLayoutFuture = threadPool->Submit(
+                [&] { RecordSwapImageToDrawLayout(imageIndex); });
+            std::future<void> opaqueFuture = threadPool->Submit(
+                [&] { RecordOpaqueCommandBuffer(imageIndex); });
+            std::future<void> transparentFuture = threadPool->Submit(
+                [&] { RecordTransparentCommandBuffer(imageIndex); });
+            // TODO: composite pass
+            std::future<void> imGuiFuture =
+                threadPool->Submit([&] { RecordImGui(imageIndex); });
+            std::future<void> presentLayoutFuture = threadPool->Submit(
+                [&] { RecordSwapImageToPresentLayout(imageIndex); });
 
             drawLayoutFuture.get();
             opaqueFuture.get();
