@@ -8,9 +8,9 @@
 #include "ModelManager.h"
 #include "PBRMaterial.h"
 #include "ResourceManager.h"
+#include "Timer.h"
 #include "Utility.h"
 #include "Vertex.h"
-#include "vulkan/vulkan.hpp"
 
 #define MULTITHREADED_COMMAND_RECORDING 1
 
@@ -234,12 +234,12 @@ private:
                 carModel->GetTransform().Scale *= 10.f;
                 m_GameObjects.back()->AddComponent(std::move(carModel));
                 */
-		for (int i = 0; i < 1; i++)
-		{
-			m_GameObjects.push_back(std::make_unique<GameObject>());
-			auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
-			m_GameObjects.back()->AddComponent(std::move(sponzaModel));
-		}
+        for (int i = 0; i < 1; i++)
+        {
+            m_GameObjects.push_back(std::make_unique<GameObject>());
+            auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
+            m_GameObjects.back()->AddComponent(std::move(sponzaModel));
+        }
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
@@ -442,36 +442,38 @@ private:
         UpdateUniformBuffer(m_FrameIndex);
         UpdateInstanceBuffer(m_FrameIndex);
 
+        {
+            Timer recordTimer("Command buffer recording");
 #if MULTITHREADED_COMMAND_RECORDING
-        auto drawLayoutFuture =
-            std::async(std::launch::async, [this, imageIndex]
-                       { RecordSwapImageToDrawLayout(imageIndex); });
-        auto opaqueFuture =
-            std::async(std::launch::async, [this, imageIndex]
-                       { RecordOpaqueCommandBuffer(imageIndex); });
-        auto transparentFuture =
-            std::async(std::launch::async, [this, imageIndex]
-                       { RecordTransparentCommandBuffer(imageIndex); });
-		// TODO: composite pass
-        auto imGuiFuture =
-            std::async(std::launch::async, [this, imageIndex]
-                       { RecordImGui(imageIndex); });
-        auto presentLayoutFuture =
-            std::async(std::launch::async, [this, imageIndex]
-                       { RecordSwapImageToPresentLayout(imageIndex); });
+            auto drawLayoutFuture =
+                std::async(std::launch::async, [this, imageIndex]
+                           { RecordSwapImageToDrawLayout(imageIndex); });
+            auto opaqueFuture =
+                std::async(std::launch::async, [this, imageIndex]
+                           { RecordOpaqueCommandBuffer(imageIndex); });
+            auto transparentFuture =
+                std::async(std::launch::async, [this, imageIndex]
+                           { RecordTransparentCommandBuffer(imageIndex); });
+            // TODO: composite pass
+            auto imGuiFuture = std::async(std::launch::async, [this, imageIndex]
+                                          { RecordImGui(imageIndex); });
+            auto presentLayoutFuture =
+                std::async(std::launch::async, [this, imageIndex]
+                           { RecordSwapImageToPresentLayout(imageIndex); });
 
-		drawLayoutFuture.get();
-		opaqueFuture.get();
-		transparentFuture.get();
-		imGuiFuture.get();
-		presentLayoutFuture.get();
+            drawLayoutFuture.get();
+            opaqueFuture.get();
+            transparentFuture.get();
+            imGuiFuture.get();
+            presentLayoutFuture.get();
 #else
-		RecordSwapImageToDrawLayout(imageIndex);
-		RecordOpaqueCommandBuffer(imageIndex);
-		RecordTransparentCommandBuffer(imageIndex);
-		RecordImGui(imageIndex);
-		RecordSwapImageToPresentLayout(imageIndex);
+            RecordSwapImageToDrawLayout(imageIndex);
+            RecordOpaqueCommandBuffer(imageIndex);
+            RecordTransparentCommandBuffer(imageIndex);
+            RecordImGui(imageIndex);
+            RecordSwapImageToPresentLayout(imageIndex);
 #endif
+        }
 
         std::array<vk::CommandBuffer, 5> commandBuffers = {
             frameData.DrawLayoutCommandBuffer, frameData.OpaqueCommandBuffer,
