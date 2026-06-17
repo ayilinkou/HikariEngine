@@ -37,7 +37,8 @@ set(SOURCES
     src/SceneComponent.cpp
     src/Transform.cpp
     src/Node.cpp
-    src/Mesh.cpp)
+    src/Mesh.cpp
+    src/ThreadPool.cpp)
 
 find_package(Vulkan REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)

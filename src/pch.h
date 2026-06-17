@@ -17,6 +17,7 @@
 #include <csignal>
 #include <thread>
 #include <future>
+#include <queue>
 
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_raii.hpp"
