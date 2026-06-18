@@ -16,7 +16,8 @@ struct FrameData
     vk::raii::CommandBuffer PresentLayoutCommandBuffer = nullptr;
     vk::raii::Semaphore PresentCompleteSemaphore = nullptr;
     vk::raii::Fence DrawFence = nullptr;
-    vk::raii::Buffer UniformBuffer = nullptr;
+	vk::raii::DescriptorSet DescriptorSet = nullptr;
+	vk::raii::Buffer UniformBuffer = nullptr;
     vk::raii::DeviceMemory UniformBufferMemory = nullptr;
 	vk::raii::Buffer InstanceBuffer = nullptr;
 	vk::raii::DeviceMemory InstanceBufferMemory = nullptr;

@@ -12,6 +12,7 @@
 #include "Timer.h"
 #include "Utility.h"
 #include "Vertex.h"
+#include <vulkan/vulkan_raii.hpp>
 
 #define MULTITHREADED_COMMAND_RECORDING 1
 
@@ -1187,7 +1188,7 @@ private:
         cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                                m_PipelineLayout, 0,
-                               *m_FrameDescriptorSets[m_FrameIndex], nullptr);
+                               *m_Frames[m_FrameIndex].DescriptorSet, nullptr);
 
         cmd.bindVertexBuffers(1, *m_Frames[m_FrameIndex].InstanceBuffer, {0});
 
@@ -1276,7 +1277,7 @@ private:
         cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                                m_PipelineLayout, 0,
-                               *m_FrameDescriptorSets[m_FrameIndex], nullptr);
+                               *m_Frames[m_FrameIndex].DescriptorSet, nullptr);
 
         cmd.bindVertexBuffers(1, *m_Frames[m_FrameIndex].InstanceBuffer, {0});
 
@@ -1564,8 +1565,6 @@ private:
 
     void CreateDescriptorSets()
     {
-        m_FrameDescriptorSets.clear();
-
         std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT,
                                                      *m_FrameSetLayout);
         vk::DescriptorSetAllocateInfo allocInfo{
@@ -1573,12 +1572,15 @@ private:
             .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
             .pSetLayouts = layouts.data()};
 
-        m_FrameDescriptorSets = m_Device.allocateDescriptorSets(allocInfo);
+        std::vector<vk::raii::DescriptorSet> descriptorSets =
+            m_Device.allocateDescriptorSets(allocInfo);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
+            m_Frames[i].DescriptorSet = std::move(descriptorSets[i]);
+
             SetVkDebugName(
-                m_Device, *m_FrameDescriptorSets[i],
+                m_Device, *m_Frames[i].DescriptorSet,
                 vk::ObjectType::eDescriptorSet,
                 std::format("Main Descriptor Set Frame {}", i).c_str());
 
@@ -1588,7 +1590,7 @@ private:
                 .range = sizeof(UniformBufferObject)};
 
             std::array descriptorWrites = {vk::WriteDescriptorSet{
-                .dstSet = m_FrameDescriptorSets[i],
+                .dstSet = m_Frames[i].DescriptorSet,
                 .dstBinding = 0,
                 .dstArrayElement = 0,
                 .descriptorCount = 1,
@@ -1735,7 +1737,6 @@ private:
     UniformBufferObject m_UBO = {};
     vk::raii::Sampler m_TextureSampler = nullptr;
     vk::raii::DescriptorPool m_FrameDescriptorPool = nullptr;
-    std::vector<vk::raii::DescriptorSet> m_FrameDescriptorSets;
     vk::raii::Image m_DepthImage = nullptr;
     vk::raii::DeviceMemory m_DepthImageMemory = nullptr;
     vk::raii::ImageView m_DepthImageView = nullptr;
