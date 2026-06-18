@@ -270,6 +270,9 @@ float4 fragMain(VS_Out f) : SV_Target
 	
 	float3 ambient = 0.05f * albedo.rgb * ao;
 	float3 color = ambient + Lo;
+
+	// TODO: These will need to be moved to a dedicated post process pass as linear
+	// color data will be needed for the composite pass.
 	color = HillACES(color); // tone mapping
 	color = pow(color, float3(1.f / 2.2f)); // gamma correction
 

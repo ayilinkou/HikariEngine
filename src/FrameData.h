@@ -2,6 +2,8 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
+#include "Texture.h"
+
 struct FrameData
 {
 	vk::raii::CommandPool DrawLayoutCommandPool = nullptr;
@@ -17,6 +19,7 @@ struct FrameData
     vk::raii::Semaphore PresentCompleteSemaphore = nullptr;
     vk::raii::Fence DrawFence = nullptr;
 	vk::raii::DescriptorSet DescriptorSet = nullptr;
+	Texture OpaqueTexture;
 	vk::raii::Buffer UniformBuffer = nullptr;
     vk::raii::DeviceMemory UniformBufferMemory = nullptr;
 	vk::raii::Buffer InstanceBuffer = nullptr;
