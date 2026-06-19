@@ -1,0 +1,19 @@
+struct PointLight
+{
+	float3 Pos;
+	float Intensity;
+	float3 Color;
+	float Padding;
+};
+
+struct UniformBuffer
+{
+	float4x4 View;
+	float4x4 Proj;
+	PointLight Light;
+	float3 CameraPos;
+	float Time;
+};
+
+[[vk::binding(0, 0)]]
+ConstantBuffer<UniformBuffer> ubo;

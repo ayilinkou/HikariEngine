@@ -2,22 +2,7 @@
 // matrices in column-major order. In order to keep things consistent, all
 // matrices that are sent to the GPU will be transposed into row-major.
 
-struct PointLight
-{
-	float3 Pos;
-	float Intensity;
-	float3 Color;
-	float Padding;
-};
-
-struct UniformBuffer
-{
-	float4x4 View;
-	float4x4 Proj;
-	PointLight Light;
-	float3 CameraPos;
-	float Time;
-};
+#include "common.slangh"
 
 struct MaterialPushConstant
 {
@@ -31,9 +16,6 @@ struct MaterialPushConstant
 	bool bHasMetallicRoughnessTex;
 	bool bTwoSided;
 };
-
-[[vk::binding(0, 0)]]
-ConstantBuffer<UniformBuffer> ubo;
 
 struct VS_In
 {

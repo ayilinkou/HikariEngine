@@ -37,7 +37,7 @@ void HandleSIGINT(int)
 // Each member must start at an offset that is a multiple of its base alignment.
 // Eg. a float can start on offset 0, 4, 8 or 12.
 // glm::vec3 is 12 bytes wide by default but is 16 byte aligned.
-struct UniformBufferObject
+struct GlobalBuffer
 {
     glm::mat4 View;
     glm::mat4 Proj;
@@ -310,10 +310,11 @@ private:
         CreateCommandBuffers();
         CreateUniformBuffers();
         CreateInstanceBuffers();
+        CreateRenderTargets();
         CreateDescriptorPool();
         CreateDescriptorSets();
         CreateSyncObjects();
-        CreateRenderTargets();
+        CreateQuadBuffers();
     }
 
     void Shutdown()
@@ -457,6 +458,8 @@ private:
                 [&] { RecordSwapImageToDrawLayout(imageIndex); });
             std::future<void> opaqueFuture =
                 threadPool->Submit([&] { RecordOpaqueCommandBuffer(); });
+            std::future<void> compositeFuture = threadPool->Submit(
+                [&] { RecordCompositeCommandBuffer(imageIndex); });
             // std::future<void> transparentFuture = threadPool->Submit(
             //     [&] { RecordTransparentCommandBuffer(imageIndex); });
             //  TODO: composite pass
@@ -468,19 +471,22 @@ private:
             drawLayoutFuture.get();
             opaqueFuture.get();
             // transparentFuture.get();
+            compositeFuture.get();
             // imGuiFuture.get();
             presentLayoutFuture.get();
 #else
             RecordSwapImageToDrawLayout(imageIndex);
             RecordOpaqueCommandBuffer(imageIndex);
             RecordTransparentCommandBuffer(imageIndex);
+            RecordCompositeCommandBuffer(imageIndex);
             RecordImGui(imageIndex);
             RecordSwapImageToPresentLayout(imageIndex);
 #endif
         }
 
-        std::array<vk::CommandBuffer, 3> commandBuffers = {
+        std::array<vk::CommandBuffer, 4> commandBuffers = {
             frameData.DrawLayoutCommandBuffer, frameData.OpaqueCommandBuffer,
+            frameData.CompositeCommandBuffer,
             frameData.PresentLayoutCommandBuffer};
         /*std::array<vk::CommandBuffer, 5> commandBuffers = {
             frameData.DrawLayoutCommandBuffer, frameData.OpaqueCommandBuffer,
@@ -528,10 +534,10 @@ private:
         if (ImGui::Begin("Menu"))
         {
             ImGui::Text("Light");
-            ImGui::DragFloat3("Position", &m_UBO.Light.Pos.x, 0.5f);
-            ImGui::ColorEdit3("Color##Light", &m_UBO.Light.Color.r);
-            ImGui::SliderFloat("Intensity", &m_UBO.Light.Intensity, 0.f,
-                               1000.f);
+            ImGui::DragFloat3("Position", &m_GlobalBuffer.Light.Pos.x, 0.5f);
+            ImGui::ColorEdit3("Color##Light", &m_GlobalBuffer.Light.Color.r);
+            ImGui::SliderFloat("Intensity", &m_GlobalBuffer.Light.Intensity,
+                               0.f, 1000.f);
 
             ImGui::Dummy(ImVec2(0.f, 20.f));
             ImGui::Text("Frame time: %.4fms", m_DisplayFrameTime);
@@ -848,7 +854,7 @@ private:
         return shaderModule;
     }
 
-    void CreatePipelines()
+    void CreateOpaquePipeline()
     {
         vk::raii::ShaderModule shaderModule =
             CreateShaderModule(ReadFile("shaders/pbr.spv"));
@@ -947,7 +953,8 @@ private:
             .pAttachments = &attachmentState};
 
         vk::DescriptorSetLayout descriptorSetLayouts[] = {
-            m_FrameSetLayout, MaterialFactory::Get()->GetDescriptorSetLayout()};
+            m_GlobalBufferSetLayout,
+            MaterialFactory::Get()->GetDescriptorSetLayout()};
         vk::PushConstantRange pushConstantRange{
             .stageFlags = vk::ShaderStageFlagBits::eFragment,
             .size = sizeof(PBRMaterial::MaterialData)};
@@ -959,7 +966,8 @@ private:
         m_OpaquePipelineLayout =
             vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
         SetVkDebugName(m_Device, *m_OpaquePipelineLayout,
-                       vk::ObjectType::ePipelineLayout, "PBR Pipeline Layout");
+                       vk::ObjectType::ePipelineLayout,
+                       "Opaque Pipeline Layout");
 
         m_PipelineRenderingCreateInfo = {
             .colorAttachmentCount = 1,
@@ -987,10 +995,12 @@ private:
             pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
         SetVkDebugName(m_Device, *m_OpaquePipeline, vk::ObjectType::ePipeline,
                        "Opaque Pipeline");
+    }
 
-        // TODO: this is now broken, will need its own function to create a new
-        // pipeline
-        dynamicStates = {vk::DynamicState::eViewport,
+    void CreateTransparentPipeline()
+    {
+        // TODO:
+        /*dynamicStates = {vk::DynamicState::eViewport,
                          vk::DynamicState::eScissor};
         dynamicState = vk::PipelineDynamicStateCreateInfo{
             .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
@@ -1019,7 +1029,136 @@ private:
             m_Device, nullptr,
             pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
         SetVkDebugName(m_Device, *m_TransparentPipeline,
-                       vk::ObjectType::ePipeline, "Transparent Pipeline");
+                       vk::ObjectType::ePipeline, "Transparent Pipeline");*/
+    }
+
+    void CreateCompositePipeline()
+    {
+        vk::raii::ShaderModule shaderModule =
+            CreateShaderModule(ReadFile("shaders/composite.spv"));
+        SetVkDebugName(m_Device, *shaderModule, vk::ObjectType::eShaderModule,
+                       "Composite Shader Module");
+
+        vk::PipelineShaderStageCreateInfo vertCreateInfo{
+            .stage = vk::ShaderStageFlagBits::eVertex,
+            .module = shaderModule,
+            .pName = "vertMain"};
+
+        vk::PipelineShaderStageCreateInfo fragCreateInfo{
+            .stage = vk::ShaderStageFlagBits::eFragment,
+            .module = shaderModule,
+            .pName = "fragMain"};
+
+        std::vector<vk::PipelineShaderStageCreateInfo> shaderStages = {
+            vertCreateInfo, fragCreateInfo};
+
+        auto vertexBindingDesc = QuadVertex::GetBindingDescription();
+        auto vertexAttributeDesc = QuadVertex::GetAttributeDescription();
+
+        vk::PipelineVertexInputStateCreateInfo vertexInput{
+            .vertexBindingDescriptionCount = 1u,
+            .pVertexBindingDescriptions = &vertexBindingDesc,
+            .vertexAttributeDescriptionCount = vertexAttributeDesc.size(),
+            .pVertexAttributeDescriptions = vertexAttributeDesc.data()};
+        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
+            .topology = vk::PrimitiveTopology::eTriangleList};
+
+        vk::Viewport viewport{
+            .x = 0.f,
+            .y = 0.f,
+            .width = static_cast<float>(m_SwapchainExtent.width),
+            .height = static_cast<float>(m_SwapchainExtent.height),
+            .minDepth = 0.f,
+            .maxDepth = 1.f};
+        vk::Rect2D scissor{.offset = vk::Offset2D{0, 0},
+                           .extent = m_SwapchainExtent};
+        std::vector<vk::DynamicState> dynamicStates = {
+            vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+        vk::PipelineDynamicStateCreateInfo dynamicState{
+            .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+            .pDynamicStates = dynamicStates.data()};
+        vk::PipelineViewportStateCreateInfo viewportState{
+            .viewportCount = 1,
+            .pViewports = &viewport,
+            .scissorCount = 1,
+            .pScissors = &scissor};
+
+        // frontFace is counter-clockwise because we are flipping the Y in the
+        // projection matrix
+        vk::PipelineRasterizationStateCreateInfo rasterState{
+            .depthClampEnable = vk::False,
+            .rasterizerDiscardEnable = vk::False,
+            .polygonMode = vk::PolygonMode::eFill,
+            .cullMode = vk::CullModeFlagBits::eBack,
+            .frontFace = vk::FrontFace::eCounterClockwise,
+            .depthBiasEnable = vk::False,
+            .lineWidth = 1.f};
+
+        vk::PipelineMultisampleStateCreateInfo multisampleState{
+            .rasterizationSamples = vk::SampleCountFlagBits::e1,
+            .sampleShadingEnable = vk::False};
+
+        vk::PipelineDepthStencilStateCreateInfo depthStencilState{
+            .depthTestEnable = vk::False, .depthWriteEnable = vk::False};
+
+        // TODO: enable blending
+        vk::PipelineColorBlendAttachmentState attachmentState{
+            .blendEnable = vk::False,
+            .colorWriteMask = vk::ColorComponentFlagBits::eR |
+                              vk::ColorComponentFlagBits::eG |
+                              vk::ColorComponentFlagBits::eB |
+                              vk::ColorComponentFlagBits::eA};
+        vk::PipelineColorBlendStateCreateInfo blendState{
+            .logicOpEnable = vk::False,
+            .logicOp = vk::LogicOp::eCopy,
+            .attachmentCount = 1,
+            .pAttachments = &attachmentState};
+
+        std::array<vk::DescriptorSetLayout, 2> descriptorSetLayouts = {
+            m_GlobalBufferSetLayout, m_CompositeSetLayout};
+        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
+            .setLayoutCount = descriptorSetLayouts.size(),
+            .pSetLayouts = descriptorSetLayouts.data()};
+        m_CompositePipelineLayout =
+            vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
+        SetVkDebugName(m_Device, *m_CompositePipelineLayout,
+                       vk::ObjectType::ePipelineLayout,
+                       "Composite Pipeline Layout");
+
+        vk::PipelineRenderingCreateInfo renderingCreateInfo{
+            .colorAttachmentCount = 1u,
+            .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format,
+            .depthAttachmentFormat = vk::Format::eUndefined};
+
+        vk::StructureChain<vk::GraphicsPipelineCreateInfo,
+                           vk::PipelineRenderingCreateInfo>
+            pipelineCreateInfoChain = {
+                {.stageCount = static_cast<uint32_t>(shaderStages.size()),
+                 .pStages = shaderStages.data(),
+                 .pVertexInputState = &vertexInput,
+                 .pInputAssemblyState = &inputAssembly,
+                 .pViewportState = &viewportState,
+                 .pRasterizationState = &rasterState,
+                 .pMultisampleState = &multisampleState,
+                 .pDepthStencilState = &depthStencilState,
+                 .pColorBlendState = &blendState,
+                 .pDynamicState = &dynamicState,
+                 .layout = m_CompositePipelineLayout,
+                 .renderPass = nullptr},
+                renderingCreateInfo};
+
+        m_CompositePipeline = vk::raii::Pipeline(
+            m_Device, nullptr,
+            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+        SetVkDebugName(m_Device, *m_CompositePipeline,
+                       vk::ObjectType::ePipeline, "Composite Pipeline");
+    }
+
+    void CreatePipelines()
+    {
+        CreateOpaquePipeline();
+        CreateTransparentPipeline();
+        CreateCompositePipeline();
     }
 
     void CreateCommandPools()
@@ -1057,6 +1196,13 @@ private:
                 m_Device, *frame.TransparentCommandPool,
                 vk::ObjectType::eCommandPool,
                 std::format("Transparent Command Pool Frame {}", i).c_str());
+
+            frame.CompositeCommandPool =
+                vk::raii::CommandPool(m_Device, createInfo);
+            SetVkDebugName(
+                m_Device, *frame.CompositeCommandPool,
+                vk::ObjectType::eCommandPool,
+                std::format("Composite Command Pool Frame {}", i).c_str());
 
             frame.ImGuiCommandPool =
                 vk::raii::CommandPool(m_Device, createInfo);
@@ -1119,6 +1265,19 @@ private:
                 m_Device, *frame.TransparentCommandBuffer,
                 vk::ObjectType::eCommandBuffer,
                 std::format("Transparent Command Buffer Frame {}", i).c_str());
+
+            allocInfo = vk::CommandBufferAllocateInfo{
+                .commandPool = frame.CompositeCommandPool,
+                .level = vk::CommandBufferLevel::ePrimary,
+                .commandBufferCount = 1u};
+            cmd = std::move(
+                vk::raii::CommandBuffers(m_Device, allocInfo).front());
+
+            frame.CompositeCommandBuffer = std::move(cmd);
+            SetVkDebugName(
+                m_Device, *frame.CompositeCommandBuffer,
+                vk::ObjectType::eCommandBuffer,
+                std::format("Composite Command Buffer Frame {}", i).c_str());
 
             allocInfo = vk::CommandBufferAllocateInfo{
                 .commandPool = frame.ImGuiCommandPool,
@@ -1198,8 +1357,8 @@ private:
                    static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
         cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                               m_OpaquePipelineLayout, 0, *frame.DescriptorSet,
-                               nullptr);
+                               m_OpaquePipelineLayout, 0,
+                               *frame.GlobalBufferDescriptorSet, nullptr);
 
         cmd.bindVertexBuffers(1, *frame.InstanceBuffer, {0});
 
@@ -1288,7 +1447,7 @@ private:
         cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                                m_TransparentPipelineLayout, 0,
-                               *frame.DescriptorSet, nullptr);
+                               *frame.GlobalBufferDescriptorSet, nullptr);
 
         cmd.bindVertexBuffers(1, *frame.InstanceBuffer, {0});
 
@@ -1310,6 +1469,74 @@ private:
             cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
                             batch.FirstIndex, 0, batch.FirstInstance);
         }
+
+        cmd.endRendering();
+
+        cmd.end();
+    }
+
+    void RecordCompositeCommandBuffer(uint32_t imageIndex)
+    {
+        FrameData& frame = m_Frames[m_FrameIndex];
+        frame.CompositeCommandPool.reset();
+        vk::raii::CommandBuffer& cmd = frame.CompositeCommandBuffer;
+
+        vk::CommandBufferBeginInfo beginInfo{};
+        cmd.begin(beginInfo);
+
+        // TODO: remove this after changing to read only in transparent pass
+        TransitionImageLayout(cmd, m_DepthImage,
+                              vk::ImageLayout::eDepthAttachmentOptimal,
+                              vk::ImageLayout::eDepthReadOnlyOptimal,
+                              vk::ImageAspectFlagBits::eDepth);
+
+        // TODO: remove this after changing to read only in transparent pass
+        TransitionImageLayout(cmd, frame.OpaqueTexture.GetImage(),
+                              vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::ImageLayout::eShaderReadOnlyOptimal,
+                              vk::ImageAspectFlagBits::eColor);
+
+        vk::ClearValue clearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 1.f);
+        vk::RenderingAttachmentInfo colorAttachmentInfo = {
+            .imageView = m_SwapImageViews[imageIndex],
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp = vk::AttachmentLoadOp::eClear,
+            .storeOp = vk::AttachmentStoreOp::eStore,
+            .clearValue = clearColor};
+        vk::RenderingAttachmentInfo depthAttachmentInfo = {
+            .imageView = m_DepthImageView,
+            .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
+            .storeOp = vk::AttachmentStoreOp::eNone};
+
+        vk::RenderingInfo renderingInfo = {
+            .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
+            .layerCount = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colorAttachmentInfo,
+            .pDepthAttachment = &depthAttachmentInfo};
+
+        cmd.beginRendering(renderingInfo);
+        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                         *m_CompositePipeline);
+
+        cmd.setViewport(
+            0, vk::Viewport(
+                   0.f, 0.f, static_cast<float>(m_SwapchainExtent.width),
+                   static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
+        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
+
+        std::array descriptorSets = {*frame.GlobalBufferDescriptorSet,
+                                     *frame.CompositeDescriptorSet};
+        cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                               m_CompositePipelineLayout, 0u, descriptorSets,
+                               nullptr);
+
+        cmd.bindVertexBuffers(0u, *m_QuadVertexBuffer, {0});
+        cmd.bindIndexBuffer(m_QuadIndexBuffer, 0u, vk::IndexType::eUint32);
+
+        constexpr uint32_t QUAD_INDEX_COUNT = 6u;
+        cmd.drawIndexed(QUAD_INDEX_COUNT, 1u, 0u, 0, 0u);
 
         cmd.endRendering();
 
@@ -1477,6 +1704,7 @@ private:
 
         CreateDepthResources();
         CreateRenderTargets();
+        UpdateCompositeDescriptorSet();
 
         // With dynamic rendering, this is the only change on the ImGui side
         // that has to be made.
@@ -1486,23 +1714,42 @@ private:
     void CreateDescriptorSetLayouts()
     {
         std::array frameBindings = {vk::DescriptorSetLayoutBinding(
-            0, vk::DescriptorType::eUniformBuffer, 1,
+            0u, vk::DescriptorType::eUniformBuffer, 1u,
             vk::ShaderStageFlagBits::eVertex |
                 vk::ShaderStageFlagBits::eFragment,
             nullptr)};
         vk::DescriptorSetLayoutCreateInfo frameCreateInfo{
             .bindingCount = frameBindings.size(),
             .pBindings = frameBindings.data()};
-        m_FrameSetLayout =
+        m_GlobalBufferSetLayout =
             vk::raii::DescriptorSetLayout(m_Device, frameCreateInfo);
-        SetVkDebugName(m_Device, *m_FrameSetLayout,
+        SetVkDebugName(m_Device, *m_GlobalBufferSetLayout,
                        vk::ObjectType::eDescriptorSetLayout,
-                       "Frame Descriptor Set Layout");
+                       "Frame Uniform Buffer Descriptor Set Layout");
+
+        std::array compositeBindings = {
+            vk::DescriptorSetLayoutBinding(
+                0u, vk::DescriptorType::eCombinedImageSampler, 1u,
+                vk::ShaderStageFlagBits::eFragment, nullptr),
+            vk::DescriptorSetLayoutBinding(
+                1u, vk::DescriptorType::eCombinedImageSampler, 1u,
+                vk::ShaderStageFlagBits::eFragment, nullptr),
+            vk::DescriptorSetLayoutBinding(
+                2u, vk::DescriptorType::eCombinedImageSampler, 1u,
+                vk::ShaderStageFlagBits::eFragment, nullptr)};
+        vk::DescriptorSetLayoutCreateInfo compositeCreateInfo{
+            .bindingCount = compositeBindings.size(),
+            .pBindings = compositeBindings.data()};
+        m_CompositeSetLayout =
+            vk::raii::DescriptorSetLayout(m_Device, compositeCreateInfo);
+        SetVkDebugName(m_Device, *m_CompositeSetLayout,
+                       vk::ObjectType::eDescriptorSetLayout,
+                       "Composite Descriptor Set Layout");
     }
 
     void CreateUniformBuffers()
     {
-        vk::DeviceSize size = sizeof(UniformBufferObject);
+        vk::DeviceSize size = sizeof(GlobalBuffer);
         if (size % 16 != 0)
             throw std::runtime_error(std::format(
                 "Buffer must be 16 byte aligned! Size is {}", size));
@@ -1517,18 +1764,18 @@ private:
                              vk::MemoryPropertyFlagBits::eHostCoherent,
                          buffer, bufferMemory);
             SetVkDebugName(m_Device, *buffer, vk::ObjectType::eBuffer,
-                           std::format("Uniform Buffer Frame {}", i).c_str());
+                           std::format("Global Buffer Frame {}", i).c_str());
             SetVkDebugName(
                 m_Device, *bufferMemory, vk::ObjectType::eDeviceMemory,
-                std::format("Uniform Buffer Memory Frame {}", i).c_str());
+                std::format("Global Buffer Memory Frame {}", i).c_str());
 
-            m_Frames[i].UniformBuffer = std::move(buffer);
-            m_Frames[i].UniformBufferMemory = std::move(bufferMemory);
+            m_Frames[i].GlobalBuffer = std::move(buffer);
+            m_Frames[i].GlobalBufferMemory = std::move(bufferMemory);
             // Mapping once like this for the application's whole lifetime
             // is called Persistent Mapping. Increases performance since
             // mapping is not free.
-            m_Frames[i].UniformBufferMapping =
-                m_Frames[i].UniformBufferMemory.mapMemory(0, size);
+            m_Frames[i].GlobalBufferMapping =
+                m_Frames[i].GlobalBufferMemory.mapMemory(0, size);
         }
 
         glm::mat4 colMajProj =
@@ -1539,23 +1786,23 @@ private:
         // GLM was designed for OpenGL, which has its Y coordinate in clip
         // space inverted. Compensate for this by scaling here.
         colMajProj[1][1] *= -1.f;
-        m_UBO.Proj = glm::transpose(colMajProj);
+        m_GlobalBuffer.Proj = glm::transpose(colMajProj);
 
-        m_UBO.Light.Pos = {10.f, 0.f, 0.f};
-        m_UBO.Light.Intensity = 1000.f;
-        m_UBO.Light.Color = {1.f, 1.f, 1.f};
+        m_GlobalBuffer.Light.Pos = {10.f, 0.f, 0.f};
+        m_GlobalBuffer.Light.Intensity = 10.f;
+        m_GlobalBuffer.Light.Color = {1.f, 1.f, 1.f};
 
-        m_UBO.Time = 0.f;
+        m_GlobalBuffer.Time = 0.f;
     }
 
     void UpdateUniformBuffer(uint32_t frameIndex)
     {
-        m_UBO.Time = m_RunTime;
-        m_UBO.CameraPos = m_Camera->GetPosition();
-        m_UBO.View = glm::transpose(m_Camera->GetViewMatrix());
+        m_GlobalBuffer.Time = m_RunTime;
+        m_GlobalBuffer.CameraPos = m_Camera->GetPosition();
+        m_GlobalBuffer.View = glm::transpose(m_Camera->GetViewMatrix());
 
-        memcpy(m_Frames[frameIndex].UniformBufferMapping, &m_UBO,
-               sizeof(m_UBO));
+        memcpy(m_Frames[frameIndex].GlobalBufferMapping, &m_GlobalBuffer,
+               sizeof(m_GlobalBuffer));
     }
 
     void CreateDescriptorPool()
@@ -1574,44 +1821,78 @@ private:
         SetVkDebugName(m_Device, *m_FrameDescriptorPool,
                        vk::ObjectType::eDescriptorPool,
                        "Frame Descriptor Pool");
+
+        std::array compositePoolSize = {vk::DescriptorPoolSize{
+            .type = vk::DescriptorType::eCombinedImageSampler,
+            .descriptorCount = MAX_FRAMES_IN_FLIGHT * 3}};
+        vk::DescriptorPoolCreateInfo compCreateInfo{
+            .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+            .maxSets = MAX_FRAMES_IN_FLIGHT,
+            .poolSizeCount = compositePoolSize.size(),
+            .pPoolSizes = compositePoolSize.data()};
+
+        m_CompositeDescriptorPool =
+            vk::raii::DescriptorPool(m_Device, compCreateInfo);
+        SetVkDebugName(m_Device, *m_CompositeDescriptorPool,
+                       vk::ObjectType::eDescriptorPool,
+                       "Composite Descriptor Pool");
     }
 
     void CreateDescriptorSets()
     {
-        std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT,
-                                                     *m_FrameSetLayout);
-        vk::DescriptorSetAllocateInfo allocInfo{
+        std::vector<vk::DescriptorSetLayout> globalBufferLayouts(
+            MAX_FRAMES_IN_FLIGHT, *m_GlobalBufferSetLayout);
+        vk::DescriptorSetAllocateInfo globalBufferAllocInfo{
             .descriptorPool = *m_FrameDescriptorPool,
-            .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
-            .pSetLayouts = layouts.data()};
+            .descriptorSetCount =
+                static_cast<uint32_t>(globalBufferLayouts.size()),
+            .pSetLayouts = globalBufferLayouts.data()};
+        std::vector<vk::raii::DescriptorSet> uniformDescriptorSets =
+            m_Device.allocateDescriptorSets(globalBufferAllocInfo);
 
-        std::vector<vk::raii::DescriptorSet> descriptorSets =
-            m_Device.allocateDescriptorSets(allocInfo);
+        std::vector<vk::DescriptorSetLayout> compSetLayouts(
+            MAX_FRAMES_IN_FLIGHT, *m_CompositeSetLayout);
+        vk::DescriptorSetAllocateInfo compAllocInfo{
+            .descriptorPool = m_CompositeDescriptorPool,
+            .descriptorSetCount = static_cast<uint32_t>(compSetLayouts.size()),
+            .pSetLayouts = compSetLayouts.data()};
+        std::vector<vk::raii::DescriptorSet> compositeDescriptorSets =
+            m_Device.allocateDescriptorSets(compAllocInfo);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            m_Frames[i].DescriptorSet = std::move(descriptorSets[i]);
+            FrameData& frame = m_Frames[i];
 
+            frame.GlobalBufferDescriptorSet =
+                std::move(uniformDescriptorSets[i]);
             SetVkDebugName(
-                m_Device, *m_Frames[i].DescriptorSet,
+                m_Device, *frame.GlobalBufferDescriptorSet,
                 vk::ObjectType::eDescriptorSet,
                 std::format("Main Descriptor Set Frame {}", i).c_str());
 
-            vk::DescriptorBufferInfo bufferInfo{
-                .buffer = m_Frames[i].UniformBuffer,
-                .offset = 0,
-                .range = sizeof(UniformBufferObject)};
+            vk::DescriptorBufferInfo bufferInfo{.buffer = frame.GlobalBuffer,
+                                                .offset = 0,
+                                                .range = sizeof(GlobalBuffer)};
 
-            std::array descriptorWrites = {vk::WriteDescriptorSet{
-                .dstSet = m_Frames[i].DescriptorSet,
+            std::array globalDescriptorWrites = {vk::WriteDescriptorSet{
+                .dstSet = frame.GlobalBufferDescriptorSet,
                 .dstBinding = 0,
                 .dstArrayElement = 0,
                 .descriptorCount = 1,
                 .descriptorType = vk::DescriptorType::eUniformBuffer,
                 .pBufferInfo = &bufferInfo}};
 
-            m_Device.updateDescriptorSets(descriptorWrites, {});
+            m_Device.updateDescriptorSets(globalDescriptorWrites, {});
+
+            frame.CompositeDescriptorSet =
+                std::move(compositeDescriptorSets[i]);
+            SetVkDebugName(
+                m_Device, *frame.CompositeDescriptorSet,
+                vk::ObjectType::eDescriptorSet,
+                std::format("Composite Descriptor Set Frame {}", i).c_str());
         }
+
+        UpdateCompositeDescriptorSet();
     }
 
     void CreateTextureSampler()
@@ -1697,8 +1978,8 @@ private:
 
     void CreateInstanceBuffers()
     {
-        // TODO: allocating memory 3 times, can probably allocate once and store
-        // offsets Can do the same with uniform buffer.
+        // TODO: allocating memory 3 times, can probably allocate once and
+        // store offsets Can do the same with uniform buffer.
         vk::DeviceSize size = sizeof(InstanceData) * MAX_INSTANCE_COUNT;
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
@@ -1761,6 +2042,69 @@ private:
         }
     }
 
+    void CreateQuadBuffers()
+    {
+        std::array<QuadVertex, 4> vertices = {
+            {{.Pos = {-1.f, -1.f}, .TexCoord{0.f, 0.f}},
+             {.Pos = {-1.f, 1.f}, .TexCoord{0.f, 1.f}},
+             {.Pos = {1.f, 1.f}, .TexCoord{1.f, 1.f}},
+             {.Pos = {1.f, -1.f}, .TexCoord{1.f, 0.f}}}};
+
+        assert(vertices.size() == 4);
+
+        CreateVertexBuffer(m_Device, m_PhysicalDevice, m_GenericCommandPool,
+                           m_GraphicsQueue, sizeof(vertices[0]),
+                           vertices.size(), vertices.data(), m_QuadVertexBuffer,
+                           m_QuadVertexBufferMemory);
+
+        std::array<uint32_t, 6> indices = {0, 1, 2, 0, 2, 3};
+
+        CreateIndexBuffer(m_Device, m_PhysicalDevice, m_GenericCommandPool,
+                          m_GraphicsQueue, sizeof(indices[0]), indices.size(),
+                          indices.data(), m_QuadIndexBuffer,
+                          m_QuadIndexBufferMemory);
+    }
+
+    void UpdateCompositeDescriptorSet()
+    {
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        {
+
+            FrameData& frame = m_Frames[i];
+            vk::DescriptorImageInfo opaqueImageInfo{
+                .sampler = m_TextureSampler,
+                .imageView = frame.OpaqueTexture.GetImageView(),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+
+            std::array compDescriptorWrites = {
+                vk::WriteDescriptorSet{
+                    .dstSet = frame.CompositeDescriptorSet,
+                    .dstBinding = 0u,
+                    .dstArrayElement = 0u,
+                    .descriptorCount = 1u,
+                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                    .pImageInfo = &opaqueImageInfo},
+                // TODO: update these 2 descriptors to use the accumulation and
+                // revealage images
+                vk::WriteDescriptorSet{
+                    .dstSet = frame.CompositeDescriptorSet,
+                    .dstBinding = 1u,
+                    .dstArrayElement = 0u,
+                    .descriptorCount = 1u,
+                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                    .pImageInfo = &opaqueImageInfo},
+                vk::WriteDescriptorSet{
+                    .dstSet = frame.CompositeDescriptorSet,
+                    .dstBinding = 2u,
+                    .dstArrayElement = 0u,
+                    .descriptorCount = 1u,
+                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                    .pImageInfo = &opaqueImageInfo}};
+
+            m_Device.updateDescriptorSets(compDescriptorWrites, {});
+        }
+    }
+
 private:
     vk::raii::Context m_Context;
     vk::raii::Instance m_Instance = nullptr;
@@ -1772,19 +2116,28 @@ private:
     vk::raii::SwapchainKHR m_Swapchain = nullptr;
     vk::raii::PipelineLayout m_OpaquePipelineLayout = nullptr;
     vk::raii::PipelineLayout m_TransparentPipelineLayout = nullptr;
-    vk::raii::DescriptorSetLayout m_FrameSetLayout = nullptr;
+    vk::raii::PipelineLayout m_CompositePipelineLayout = nullptr;
+    vk::raii::DescriptorSetLayout m_GlobalBufferSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout m_CompositeSetLayout = nullptr;
     vk::raii::Pipeline m_OpaquePipeline = nullptr;
     vk::raii::Pipeline m_TransparentPipeline = nullptr;
+    vk::raii::Pipeline m_CompositePipeline = nullptr;
     vk::raii::CommandPool m_GenericCommandPool = nullptr;
-    UniformBufferObject m_UBO = {};
+    GlobalBuffer m_GlobalBuffer = {};
     vk::raii::Sampler m_TextureSampler = nullptr;
     vk::raii::DescriptorPool m_FrameDescriptorPool = nullptr;
+    vk::raii::DescriptorPool m_CompositeDescriptorPool = nullptr;
     vk::raii::Image m_DepthImage = nullptr;
     vk::raii::DeviceMemory m_DepthImageMemory = nullptr;
     vk::raii::ImageView m_DepthImageView = nullptr;
     vk::Format m_DepthFormat = vk::Format::eUndefined;
     const vk::Format m_OpaqueImageFormat = vk::Format::eR16G16B16A16Sfloat;
     vk::PipelineRenderingCreateInfo m_PipelineRenderingCreateInfo = {};
+
+    vk::raii::Buffer m_QuadVertexBuffer = nullptr;
+    vk::raii::DeviceMemory m_QuadVertexBufferMemory = nullptr;
+    vk::raii::Buffer m_QuadIndexBuffer = nullptr;
+    vk::raii::DeviceMemory m_QuadIndexBufferMemory = nullptr;
 
     vk::SurfaceFormatKHR m_SwapchainSurfaceFormat;
     vk::Extent2D m_SwapchainExtent;

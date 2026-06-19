@@ -289,6 +289,16 @@ inline void TransitionImageLayout(vk::raii::CommandBuffer& cmd,
             vk::PipelineStageFlagBits2::eColorAttachmentOutput;
         barrier.dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
     }
+    else if (oldLayout == vk::ImageLayout::eColorAttachmentOptimal &&
+             newLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
+    {
+        barrier.srcStageMask =
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+        barrier.srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+
+        barrier.dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
+        barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
+    }
     else
     {
         throw std::runtime_error("Unsupported layout transition!");
