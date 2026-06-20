@@ -1,0 +1,31 @@
+struct PointLight
+{
+	float3 Pos;
+	float Intensity;
+	float3 Color;
+	float Padding;
+};
+
+struct GlobalBuffer
+{
+	float4x4 View;
+	float4x4 Proj;
+	PointLight Light;
+	float3 CameraPos;
+	float Time;
+	float NearPlane;
+	float FarPlane;
+	float2 Padding0;
+	float3 SkyColor;
+	float Padding1;
+};
+
+[[vk::binding(0, 0)]]
+ConstantBuffer<GlobalBuffer> globalBuffer;
+
+// Inverse-square law
+float CalcAttenuation(float3 FragPos, float3 LightPos)
+{
+	float Distance = distance(FragPos, LightPos);
+	return 1.f / (Distance * Distance);
+}

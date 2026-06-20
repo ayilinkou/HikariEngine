@@ -12,7 +12,7 @@
 #include "Timer.h"
 #include "Utility.h"
 #include "Vertex.h"
-#include <vulkan/vulkan_raii.hpp>
+#include "vulkan/vulkan.hpp"
 
 #define MULTITHREADED_COMMAND_RECORDING 1
 
@@ -22,6 +22,7 @@ constexpr uint32_t MAX_INSTANCE_COUNT = 1024u;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 constexpr float NEAR_PLANE = 0.1f;
 constexpr float FAR_PLANE = 10000.f;
+constexpr glm::vec3 SKY_COLOR = {0.4f, 0.8f, 1.f};
 const std::string BOX_MODEL_PATH = "models/pbr_case/scene.gltf";
 const std::string CAR_MODEL_PATH = "models/american_fullsize_73/scene.gltf";
 const std::string SPONZA_MODEL_PATH = "models/sponza/Sponza.gltf";
@@ -37,13 +38,18 @@ void HandleSIGINT(int)
 // Each member must start at an offset that is a multiple of its base alignment.
 // Eg. a float can start on offset 0, 4, 8 or 12.
 // glm::vec3 is 12 bytes wide by default but is 16 byte aligned.
-struct UniformBufferObject
+struct GlobalBuffer
 {
     glm::mat4 View;
     glm::mat4 Proj;
     PointLight Light;
     glm::vec3 CameraPos;
     float Time;
+    float NearPlane;
+    float FarPlane;
+    glm::vec2 Padding0;
+    glm::vec3 SkyColor;
+    float Padding1;
 };
 
 std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -175,7 +181,7 @@ public:
                     g_bShouldClose = true;
                     break;
                 case SDL_EVENT_WINDOW_RESIZED:
-                    RecreateSwapchainAndDepthStencil();
+                    RecreateSwapchainAndRenderImages();
                     break;
                 case SDL_EVENT_WINDOW_FOCUS_GAINED:
                     m_bIsFocused = true;
@@ -217,34 +223,33 @@ private:
 
         ThreadPool::Init();
 
-        /*
-                m_GameObjects.push_back(std::make_unique<GameObject>());
-                m_GameObjects.back()->GetTransform().Position +=
-                    glm::vec3(-60.f, -15.f, -5.f);
-                auto boxModelOne = std::make_unique<Model>(BOX_MODEL_PATH);
-                boxModelOne->GetTransform().Scale *= 0.1f;
-                m_GameObjects.back()->AddComponent(std::move(boxModelOne));
+        m_GameObjects.push_back(std::make_unique<GameObject>());
+        m_GameObjects.back()->GetTransform().Position +=
+            glm::vec3(-60.f, -15.f, -5.f);
+        auto boxModelOne = std::make_unique<Model>(BOX_MODEL_PATH);
+        boxModelOne->GetTransform().Scale *= 0.1f;
+        m_GameObjects.back()->AddComponent(std::move(boxModelOne));
 
-                m_GameObjects.push_back(std::make_unique<GameObject>());
-                m_GameObjects.back()->GetTransform().Position +=
-                    glm::vec3(-60.f, 10.f, -5.f);
-                auto boxModelTwo = std::make_unique<Model>(BOX_MODEL_PATH);
-                boxModelTwo->GetTransform().Scale *= 0.1f;
-                m_GameObjects.back()->AddComponent(std::move(boxModelTwo));
+        m_GameObjects.push_back(std::make_unique<GameObject>());
+        m_GameObjects.back()->GetTransform().Position +=
+            glm::vec3(-60.f, 10.f, -5.f);
+        auto boxModelTwo = std::make_unique<Model>(BOX_MODEL_PATH);
+        boxModelTwo->GetTransform().Scale *= 0.1f;
+        m_GameObjects.back()->AddComponent(std::move(boxModelTwo));
 
-                m_GameObjects.push_back(std::make_unique<GameObject>());
-                m_GameObjects.back()->GetTransform().Position +=
-                    glm::vec3(0.f, 0.f, -20.f);
-                auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
-                carModel->GetTransform().Scale *= 10.f;
-                m_GameObjects.back()->AddComponent(std::move(carModel));
-                */
-        for (int i = 0; i < 1; i++)
+        m_GameObjects.push_back(std::make_unique<GameObject>());
+        m_GameObjects.back()->GetTransform().Position +=
+            glm::vec3(0.f, 0.f, -20.f);
+        auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
+        carModel->GetTransform().Scale *= 10.f;
+        m_GameObjects.back()->AddComponent(std::move(carModel));
+
+        /*for (int i = 0; i < 1; i++)
         {
             m_GameObjects.push_back(std::make_unique<GameObject>());
             auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
             m_GameObjects.back()->AddComponent(std::move(sponzaModel));
-        }
+        }*/
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
@@ -308,11 +313,13 @@ private:
 
         CreatePipelines();
         CreateCommandBuffers();
-        CreateUniformBuffers();
+        CreateGlobalBuffers();
         CreateInstanceBuffers();
+        CreateRenderTargets();
         CreateDescriptorPool();
         CreateDescriptorSets();
         CreateSyncObjects();
+        CreateQuadBuffers();
     }
 
     void Shutdown()
@@ -432,7 +439,7 @@ private:
 
         if (result == vk::Result::eErrorOutOfDateKHR)
         {
-            RecreateSwapchainAndDepthStencil();
+            RecreateSwapchainAndRenderImages();
             return;
         }
         else if (result != vk::Result::eSuccess &&
@@ -445,7 +452,7 @@ private:
 
         m_Device.resetFences(*frameData.DrawFence);
 
-        UpdateUniformBuffer(m_FrameIndex);
+        UpdateGlobalBuffer(m_FrameIndex);
         UpdateInstanceBuffer(m_FrameIndex);
 
         {
@@ -454,33 +461,37 @@ private:
             ThreadPool* threadPool = ThreadPool::Get();
             std::future<void> drawLayoutFuture = threadPool->Submit(
                 [&] { RecordSwapImageToDrawLayout(imageIndex); });
-            std::future<void> opaqueFuture = threadPool->Submit(
-                [&] { RecordOpaqueCommandBuffer(imageIndex); });
-            std::future<void> transparentFuture = threadPool->Submit(
-                [&] { RecordTransparentCommandBuffer(imageIndex); });
-            // TODO: composite pass
-            std::future<void> imGuiFuture =
-                threadPool->Submit([&] { RecordImGui(imageIndex); });
+            std::future<void> opaqueFuture =
+                threadPool->Submit([&] { RecordOpaqueCommandBuffer(); });
+            std::future<void> transparentFuture =
+                threadPool->Submit([&] { RecordTransparentCommandBuffer(); });
+            std::future<void> compositeFuture = threadPool->Submit(
+                [&] { RecordCompositeCommandBuffer(imageIndex); });
+            // std::future<void> imGuiFuture =
+            //     threadPool->Submit([&] { RecordImGui(imageIndex); });
             std::future<void> presentLayoutFuture = threadPool->Submit(
                 [&] { RecordSwapImageToPresentLayout(imageIndex); });
 
             drawLayoutFuture.get();
             opaqueFuture.get();
             transparentFuture.get();
-            imGuiFuture.get();
+            compositeFuture.get();
+            // imGuiFuture.get();
             presentLayoutFuture.get();
 #else
             RecordSwapImageToDrawLayout(imageIndex);
             RecordOpaqueCommandBuffer(imageIndex);
             RecordTransparentCommandBuffer(imageIndex);
-            RecordImGui(imageIndex);
+            RecordCompositeCommandBuffer(imageIndex);
+            // RecordImGui(imageIndex);
             RecordSwapImageToPresentLayout(imageIndex);
 #endif
         }
 
         std::array<vk::CommandBuffer, 5> commandBuffers = {
             frameData.DrawLayoutCommandBuffer, frameData.OpaqueCommandBuffer,
-            frameData.TransparentCommandBuffer, frameData.ImGuiCommandBuffer,
+            frameData.TransparentCommandBuffer,
+            frameData.CompositeCommandBuffer,
             frameData.PresentLayoutCommandBuffer};
         vk::PipelineStageFlags waitDestinationStageFlags(
             vk::PipelineStageFlagBits::eColorAttachmentOutput);
@@ -505,7 +516,7 @@ private:
         if ((result == vk::Result::eSuboptimalKHR) ||
             (result == vk::Result::eErrorOutOfDateKHR))
         {
-            RecreateSwapchainAndDepthStencil();
+            RecreateSwapchainAndRenderImages();
         }
         else if (result != vk::Result::eSuccess)
         {
@@ -524,10 +535,10 @@ private:
         if (ImGui::Begin("Menu"))
         {
             ImGui::Text("Light");
-            ImGui::DragFloat3("Position", &m_UBO.Light.Pos.x, 0.5f);
-            ImGui::ColorEdit3("Color##Light", &m_UBO.Light.Color.r);
-            ImGui::SliderFloat("Intensity", &m_UBO.Light.Intensity, 0.f,
-                               1000.f);
+            ImGui::DragFloat3("Position", &m_GlobalBuffer.Light.Pos.x, 0.5f);
+            ImGui::ColorEdit3("Color##Light", &m_GlobalBuffer.Light.Color.r);
+            ImGui::SliderFloat("Intensity", &m_GlobalBuffer.Light.Intensity,
+                               0.f, 1000.f);
 
             ImGui::Dummy(ImVec2(0.f, 20.f));
             ImGui::Text("Frame time: %.4fms", m_DisplayFrameTime);
@@ -672,6 +683,8 @@ private:
         bool bSupportsAllFeatures =
             features.get<vk::PhysicalDeviceFeatures2>()
                 .features.samplerAnisotropy &&
+            features.get<vk::PhysicalDeviceFeatures2>()
+                .features.independentBlend &&
             features.get<vk::PhysicalDeviceVulkan13Features>()
                 .dynamicRendering &&
             features.get<vk::PhysicalDeviceVulkan13Features>()
@@ -743,7 +756,8 @@ private:
                            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
                            vk::PhysicalDeviceDescriptorIndexingFeaturesEXT>
             featureChain = {
-                {.features = {.samplerAnisotropy = true}},
+                {.features = {.independentBlend = true,
+                              .samplerAnisotropy = true}},
                 {.shaderDrawParameters = true},
                 {.synchronization2 = true, .dynamicRendering = true},
                 {.extendedDynamicState = true},
@@ -844,12 +858,12 @@ private:
         return shaderModule;
     }
 
-    void CreatePipelines()
+    void CreateOpaquePipeline()
     {
         vk::raii::ShaderModule shaderModule =
-            CreateShaderModule(ReadFile("shaders/pbr.spv"));
+            CreateShaderModule(ReadFile("shaders/opaque.spv"));
         SetVkDebugName(m_Device, *shaderModule, vk::ObjectType::eShaderModule,
-                       "PBR Shader Module");
+                       "PBR Opaque Shader Module");
 
         vk::PipelineShaderStageCreateInfo vertCreateInfo{
             .stage = vk::ShaderStageFlagBits::eVertex,
@@ -943,7 +957,8 @@ private:
             .pAttachments = &attachmentState};
 
         vk::DescriptorSetLayout descriptorSetLayouts[] = {
-            m_FrameSetLayout, MaterialFactory::Get()->GetDescriptorSetLayout()};
+            m_GlobalBufferSetLayout,
+            MaterialFactory::Get()->GetDescriptorSetLayout()};
         vk::PushConstantRange pushConstantRange{
             .stageFlags = vk::ShaderStageFlagBits::eFragment,
             .size = sizeof(PBRMaterial::MaterialData)};
@@ -952,14 +967,15 @@ private:
             .pSetLayouts = descriptorSetLayouts,
             .pushConstantRangeCount = 1,
             .pPushConstantRanges = &pushConstantRange};
-        m_PipelineLayout =
+        m_OpaquePipelineLayout =
             vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
-        SetVkDebugName(m_Device, *m_PipelineLayout,
-                       vk::ObjectType::ePipelineLayout, "PBR Pipeline Layout");
+        SetVkDebugName(m_Device, *m_OpaquePipelineLayout,
+                       vk::ObjectType::ePipelineLayout,
+                       "Opaque Pipeline Layout");
 
         m_PipelineRenderingCreateInfo = {
             .colorAttachmentCount = 1,
-            .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format,
+            .pColorAttachmentFormats = &m_OpaqueImageFormat,
             .depthAttachmentFormat = m_DepthFormat};
         vk::StructureChain<vk::GraphicsPipelineCreateInfo,
                            vk::PipelineRenderingCreateInfo>
@@ -974,7 +990,7 @@ private:
                  .pDepthStencilState = &depthStencilState,
                  .pColorBlendState = &blendState,
                  .pDynamicState = &dynamicState,
-                 .layout = m_PipelineLayout,
+                 .layout = m_OpaquePipelineLayout,
                  .renderPass = nullptr},
                 m_PipelineRenderingCreateInfo};
 
@@ -983,37 +999,289 @@ private:
             pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
         SetVkDebugName(m_Device, *m_OpaquePipeline, vk::ObjectType::ePipeline,
                        "Opaque Pipeline");
+    }
 
-        dynamicStates = {vk::DynamicState::eViewport,
-                         vk::DynamicState::eScissor};
-        dynamicState = vk::PipelineDynamicStateCreateInfo{
+    void CreateTransparentPipeline()
+    {
+        vk::raii::ShaderModule shaderModule =
+            CreateShaderModule(ReadFile("shaders/weightedBlendedOIT.spv"));
+        SetVkDebugName(m_Device, *shaderModule, vk::ObjectType::eShaderModule,
+                       "Order Independent Transparency Shader Module");
+
+        vk::PipelineShaderStageCreateInfo vertCreateInfo{
+            .stage = vk::ShaderStageFlagBits::eVertex,
+            .module = shaderModule,
+            .pName = "vertMain"};
+
+        vk::PipelineShaderStageCreateInfo fragCreateInfo{
+            .stage = vk::ShaderStageFlagBits::eFragment,
+            .module = shaderModule,
+            .pName = "fragMain"};
+
+        std::vector<vk::PipelineShaderStageCreateInfo> shaderStages = {
+            vertCreateInfo, fragCreateInfo};
+
+        auto vertexBindingDesc = Vertex::GetBindingDescription();
+        auto vertexAttributeDesc = Vertex::GetAttributeDescription();
+
+        auto instanceBindingDesc = InstanceData::GetBindingDescription();
+        auto instanceAttributeDesc = InstanceData::GetAttributeDescription();
+
+        std::array<vk::VertexInputBindingDescription, 2> bindingDescs = {
+            vertexBindingDesc, instanceBindingDesc};
+        std::array<vk::VertexInputAttributeDescription,
+                   Vertex::AttributeCount + InstanceData::AttributeCount>
+            attributeDescs;
+        std::ranges::copy(vertexAttributeDesc, attributeDescs.begin());
+        std::ranges::copy(instanceAttributeDesc,
+                          attributeDescs.begin() + Vertex::AttributeCount);
+
+        vk::PipelineVertexInputStateCreateInfo vertexInput{
+            .vertexBindingDescriptionCount = bindingDescs.size(),
+            .pVertexBindingDescriptions = bindingDescs.data(),
+            .vertexAttributeDescriptionCount = attributeDescs.size(),
+            .pVertexAttributeDescriptions = attributeDescs.data()};
+        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
+            .topology = vk::PrimitiveTopology::eTriangleList};
+
+        vk::Viewport viewport{
+            .x = 0.f,
+            .y = 0.f,
+            .width = static_cast<float>(m_SwapchainExtent.width),
+            .height = static_cast<float>(m_SwapchainExtent.height),
+            .minDepth = 0.f,
+            .maxDepth = 1.f};
+        vk::Rect2D scissor{.offset = vk::Offset2D{0, 0},
+                           .extent = m_SwapchainExtent};
+        std::vector<vk::DynamicState> dynamicStates = {
+            vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+        vk::PipelineDynamicStateCreateInfo dynamicState{
             .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
             .pDynamicStates = dynamicStates.data()};
+        vk::PipelineViewportStateCreateInfo viewportState{
+            .viewportCount = 1,
+            .pViewports = &viewport,
+            .scissorCount = 1,
+            .pScissors = &scissor};
 
-        depthStencilState = vk::PipelineDepthStencilStateCreateInfo{
+        // frontFace is counter-clockwise because we are flipping the Y in the
+        // projection matrix
+        vk::PipelineRasterizationStateCreateInfo rasterState{
+            .depthClampEnable = vk::False,
+            .rasterizerDiscardEnable = vk::False,
+            .polygonMode = vk::PolygonMode::eFill,
+            .cullMode = vk::CullModeFlagBits::eNone,
+            .frontFace = vk::FrontFace::eCounterClockwise,
+            .depthBiasEnable = vk::False,
+            .lineWidth = 1.f};
+
+        vk::PipelineMultisampleStateCreateInfo multisampleState{
+            .rasterizationSamples = vk::SampleCountFlagBits::e1,
+            .sampleShadingEnable = vk::False};
+
+        vk::PipelineDepthStencilStateCreateInfo depthStencilState{
             .depthTestEnable = vk::True,
             .depthWriteEnable = vk::False,
             .depthCompareOp = vk::CompareOp::eLess,
             .depthBoundsTestEnable = vk::False,
             .stencilTestEnable = vk::False};
 
-        attachmentState = vk::PipelineColorBlendAttachmentState{
-            .blendEnable = vk::True,
-            .srcColorBlendFactor = vk::BlendFactor::eSrcAlpha,
-            .dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha,
-            .colorBlendOp = vk::BlendOp::eAdd,
-            .srcAlphaBlendFactor = vk::BlendFactor::eOne,
-            .dstAlphaBlendFactor = vk::BlendFactor::eZero,
-            .alphaBlendOp = vk::BlendOp::eAdd,
-            .colorWriteMask = vk::ColorComponentFlagBits::eR |
-                              vk::ColorComponentFlagBits::eG |
-                              vk::ColorComponentFlagBits::eB |
-                              vk::ColorComponentFlagBits::eA};
+        std::array<vk::PipelineColorBlendAttachmentState, 2> attachmentStates{
+            {{.blendEnable = vk::True,
+              .srcColorBlendFactor = vk::BlendFactor::eOne,
+              .dstColorBlendFactor = vk::BlendFactor::eOne,
+              .colorBlendOp = vk::BlendOp::eAdd,
+              .srcAlphaBlendFactor = vk::BlendFactor::eOne,
+              .dstAlphaBlendFactor = vk::BlendFactor::eOne,
+              .alphaBlendOp = vk::BlendOp::eAdd,
+              .colorWriteMask = vk::ColorComponentFlagBits::eR |
+                                vk::ColorComponentFlagBits::eG |
+                                vk::ColorComponentFlagBits::eB |
+                                vk::ColorComponentFlagBits::eA},
+             {.blendEnable = vk::True,
+              .srcColorBlendFactor = vk::BlendFactor::eZero,
+              .dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcColor,
+              .colorWriteMask = vk::ColorComponentFlagBits::eR}}};
+        vk::PipelineColorBlendStateCreateInfo blendState{
+            .logicOpEnable = vk::False,
+            .logicOp = vk::LogicOp::eCopy,
+            .attachmentCount = attachmentStates.size(),
+            .pAttachments = attachmentStates.data()};
+
+        vk::DescriptorSetLayout descriptorSetLayouts[] = {
+            m_GlobalBufferSetLayout,
+            MaterialFactory::Get()->GetDescriptorSetLayout()};
+        vk::PushConstantRange pushConstantRange{
+            .stageFlags = vk::ShaderStageFlagBits::eFragment,
+            .size = sizeof(PBRMaterial::MaterialData)};
+        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
+            .setLayoutCount = 2,
+            .pSetLayouts = descriptorSetLayouts,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pushConstantRange};
+        m_TransparentPipelineLayout =
+            vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
+        SetVkDebugName(m_Device, *m_TransparentPipelineLayout,
+                       vk::ObjectType::ePipelineLayout,
+                       "Transparent Pipeline Layout");
+
+        std::array<vk::Format, 2> attachmentFormats = {m_AccumImageFormat,
+                                                       m_RevealageImageFormat};
+        vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo = {
+            .colorAttachmentCount = attachmentFormats.size(),
+            .pColorAttachmentFormats = attachmentFormats.data(),
+            .depthAttachmentFormat = m_DepthFormat};
+
+        vk::StructureChain<vk::GraphicsPipelineCreateInfo,
+                           vk::PipelineRenderingCreateInfo>
+            pipelineCreateInfoChain = {
+                {.stageCount = static_cast<uint32_t>(shaderStages.size()),
+                 .pStages = shaderStages.data(),
+                 .pVertexInputState = &vertexInput,
+                 .pInputAssemblyState = &inputAssembly,
+                 .pViewportState = &viewportState,
+                 .pRasterizationState = &rasterState,
+                 .pMultisampleState = &multisampleState,
+                 .pDepthStencilState = &depthStencilState,
+                 .pColorBlendState = &blendState,
+                 .pDynamicState = &dynamicState,
+                 .layout = m_TransparentPipelineLayout,
+                 .renderPass = nullptr},
+                pipelineRenderingCreateInfo};
+
         m_TransparentPipeline = vk::raii::Pipeline(
             m_Device, nullptr,
             pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
         SetVkDebugName(m_Device, *m_TransparentPipeline,
                        vk::ObjectType::ePipeline, "Transparent Pipeline");
+    }
+
+    void CreateCompositePipeline()
+    {
+        vk::raii::ShaderModule shaderModule =
+            CreateShaderModule(ReadFile("shaders/composite.spv"));
+        SetVkDebugName(m_Device, *shaderModule, vk::ObjectType::eShaderModule,
+                       "Composite Shader Module");
+
+        vk::PipelineShaderStageCreateInfo vertCreateInfo{
+            .stage = vk::ShaderStageFlagBits::eVertex,
+            .module = shaderModule,
+            .pName = "vertMain"};
+
+        vk::PipelineShaderStageCreateInfo fragCreateInfo{
+            .stage = vk::ShaderStageFlagBits::eFragment,
+            .module = shaderModule,
+            .pName = "fragMain"};
+
+        std::vector<vk::PipelineShaderStageCreateInfo> shaderStages = {
+            vertCreateInfo, fragCreateInfo};
+
+        auto vertexBindingDesc = QuadVertex::GetBindingDescription();
+        auto vertexAttributeDesc = QuadVertex::GetAttributeDescription();
+
+        vk::PipelineVertexInputStateCreateInfo vertexInput{
+            .vertexBindingDescriptionCount = 1u,
+            .pVertexBindingDescriptions = &vertexBindingDesc,
+            .vertexAttributeDescriptionCount = vertexAttributeDesc.size(),
+            .pVertexAttributeDescriptions = vertexAttributeDesc.data()};
+        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
+            .topology = vk::PrimitiveTopology::eTriangleList};
+
+        vk::Viewport viewport{
+            .x = 0.f,
+            .y = 0.f,
+            .width = static_cast<float>(m_SwapchainExtent.width),
+            .height = static_cast<float>(m_SwapchainExtent.height),
+            .minDepth = 0.f,
+            .maxDepth = 1.f};
+        vk::Rect2D scissor{.offset = vk::Offset2D{0, 0},
+                           .extent = m_SwapchainExtent};
+        std::vector<vk::DynamicState> dynamicStates = {
+            vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+        vk::PipelineDynamicStateCreateInfo dynamicState{
+            .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+            .pDynamicStates = dynamicStates.data()};
+        vk::PipelineViewportStateCreateInfo viewportState{
+            .viewportCount = 1,
+            .pViewports = &viewport,
+            .scissorCount = 1,
+            .pScissors = &scissor};
+
+        // frontFace is counter-clockwise because we are flipping the Y in the
+        // projection matrix
+        vk::PipelineRasterizationStateCreateInfo rasterState{
+            .depthClampEnable = vk::False,
+            .rasterizerDiscardEnable = vk::False,
+            .polygonMode = vk::PolygonMode::eFill,
+            .cullMode = vk::CullModeFlagBits::eBack,
+            .frontFace = vk::FrontFace::eCounterClockwise,
+            .depthBiasEnable = vk::False,
+            .lineWidth = 1.f};
+
+        vk::PipelineMultisampleStateCreateInfo multisampleState{
+            .rasterizationSamples = vk::SampleCountFlagBits::e1,
+            .sampleShadingEnable = vk::False};
+
+        vk::PipelineDepthStencilStateCreateInfo depthStencilState{
+            .depthTestEnable = vk::False, .depthWriteEnable = vk::False};
+
+        vk::PipelineColorBlendAttachmentState attachmentState{
+            .blendEnable = vk::False,
+            .colorWriteMask = vk::ColorComponentFlagBits::eR |
+                              vk::ColorComponentFlagBits::eG |
+                              vk::ColorComponentFlagBits::eB |
+                              vk::ColorComponentFlagBits::eA};
+        vk::PipelineColorBlendStateCreateInfo blendState{
+            .logicOpEnable = vk::False,
+            .logicOp = vk::LogicOp::eCopy,
+            .attachmentCount = 1,
+            .pAttachments = &attachmentState};
+
+        std::array<vk::DescriptorSetLayout, 2> descriptorSetLayouts = {
+            m_GlobalBufferSetLayout, m_CompositeSetLayout};
+        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
+            .setLayoutCount = descriptorSetLayouts.size(),
+            .pSetLayouts = descriptorSetLayouts.data()};
+        m_CompositePipelineLayout =
+            vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
+        SetVkDebugName(m_Device, *m_CompositePipelineLayout,
+                       vk::ObjectType::ePipelineLayout,
+                       "Composite Pipeline Layout");
+
+        vk::PipelineRenderingCreateInfo renderingCreateInfo{
+            .colorAttachmentCount = 1u,
+            .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format,
+            .depthAttachmentFormat = vk::Format::eUndefined};
+
+        vk::StructureChain<vk::GraphicsPipelineCreateInfo,
+                           vk::PipelineRenderingCreateInfo>
+            pipelineCreateInfoChain = {
+                {.stageCount = static_cast<uint32_t>(shaderStages.size()),
+                 .pStages = shaderStages.data(),
+                 .pVertexInputState = &vertexInput,
+                 .pInputAssemblyState = &inputAssembly,
+                 .pViewportState = &viewportState,
+                 .pRasterizationState = &rasterState,
+                 .pMultisampleState = &multisampleState,
+                 .pDepthStencilState = &depthStencilState,
+                 .pColorBlendState = &blendState,
+                 .pDynamicState = &dynamicState,
+                 .layout = m_CompositePipelineLayout,
+                 .renderPass = nullptr},
+                renderingCreateInfo};
+
+        m_CompositePipeline = vk::raii::Pipeline(
+            m_Device, nullptr,
+            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+        SetVkDebugName(m_Device, *m_CompositePipeline,
+                       vk::ObjectType::ePipeline, "Composite Pipeline");
+    }
+
+    void CreatePipelines()
+    {
+        CreateOpaquePipeline();
+        CreateTransparentPipeline();
+        CreateCompositePipeline();
     }
 
     void CreateCommandPools()
@@ -1051,6 +1319,13 @@ private:
                 m_Device, *frame.TransparentCommandPool,
                 vk::ObjectType::eCommandPool,
                 std::format("Transparent Command Pool Frame {}", i).c_str());
+
+            frame.CompositeCommandPool =
+                vk::raii::CommandPool(m_Device, createInfo);
+            SetVkDebugName(
+                m_Device, *frame.CompositeCommandPool,
+                vk::ObjectType::eCommandPool,
+                std::format("Composite Command Pool Frame {}", i).c_str());
 
             frame.ImGuiCommandPool =
                 vk::raii::CommandPool(m_Device, createInfo);
@@ -1115,6 +1390,19 @@ private:
                 std::format("Transparent Command Buffer Frame {}", i).c_str());
 
             allocInfo = vk::CommandBufferAllocateInfo{
+                .commandPool = frame.CompositeCommandPool,
+                .level = vk::CommandBufferLevel::ePrimary,
+                .commandBufferCount = 1u};
+            cmd = std::move(
+                vk::raii::CommandBuffers(m_Device, allocInfo).front());
+
+            frame.CompositeCommandBuffer = std::move(cmd);
+            SetVkDebugName(
+                m_Device, *frame.CompositeCommandBuffer,
+                vk::ObjectType::eCommandBuffer,
+                std::format("Composite Command Buffer Frame {}", i).c_str());
+
+            allocInfo = vk::CommandBufferAllocateInfo{
                 .commandPool = frame.ImGuiCommandPool,
                 .level = vk::CommandBufferLevel::ePrimary,
                 .commandBufferCount = 1u};
@@ -1143,11 +1431,11 @@ private:
         }
     }
 
-    void RecordOpaqueCommandBuffer(uint32_t imageIndex)
+    void RecordOpaqueCommandBuffer()
     {
-        m_Frames[m_FrameIndex].OpaqueCommandPool.reset();
-        vk::raii::CommandBuffer& cmd =
-            m_Frames[m_FrameIndex].OpaqueCommandBuffer;
+        FrameData& frame = m_Frames[m_FrameIndex];
+        frame.OpaqueCommandPool.reset();
+        vk::raii::CommandBuffer& cmd = frame.OpaqueCommandBuffer;
 
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
@@ -1156,10 +1444,16 @@ private:
                               vk::ImageLayout::eDepthAttachmentOptimal,
                               vk::ImageAspectFlagBits::eDepth);
 
-        vk::ClearValue clearColor = vk::ClearColorValue(0.4f, 0.8f, 1.f, 1.f);
+        TransitionImageLayout(cmd, frame.OpaqueTexture.GetImage(),
+                              vk::ImageLayout::eUndefined,
+                              vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::ImageAspectFlagBits::eColor);
+
+        vk::ClearValue clearColor =
+            vk::ClearColorValue(SKY_COLOR.r, SKY_COLOR.g, SKY_COLOR.b, 1.f);
         vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.f, 0);
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
-            .imageView = m_SwapImageViews[imageIndex],
+            .imageView = frame.OpaqueTexture.GetImageView(),
             .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eClear,
             .storeOp = vk::AttachmentStoreOp::eStore,
@@ -1187,10 +1481,10 @@ private:
                    static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
         cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                               m_PipelineLayout, 0,
-                               *m_Frames[m_FrameIndex].DescriptorSet, nullptr);
+                               m_OpaquePipelineLayout, 0,
+                               *frame.GlobalBufferDescriptorSet, nullptr);
 
-        cmd.bindVertexBuffers(1, *m_Frames[m_FrameIndex].InstanceBuffer, {0});
+        cmd.bindVertexBuffers(1, *frame.InstanceBuffer, {0});
 
         vk::CullModeFlags cullMode = vk::CullModeFlagBits::eBack;
 
@@ -1212,10 +1506,10 @@ private:
             cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
             cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);
             cmd.bindDescriptorSets(
-                vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
+                vk::PipelineBindPoint::eGraphics, m_OpaquePipelineLayout, 1,
                 batch.pMaterial->GetDescriptorSet(), nullptr);
             cmd.pushConstants<PBRMaterial::MaterialData>(
-                m_PipelineLayout, vk::ShaderStageFlagBits::eFragment, 0u,
+                m_OpaquePipelineLayout, vk::ShaderStageFlagBits::eFragment, 0u,
                 *static_cast<PBRMaterial::MaterialData*>(
                     batch.pMaterial->GetPushConstantData()));
             cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
@@ -1227,32 +1521,123 @@ private:
         cmd.end();
     }
 
-    void RecordTransparentCommandBuffer(uint32_t imageIndex)
+    void RecordTransparentCommandBuffer()
     {
-        m_Frames[m_FrameIndex].TransparentCommandPool.reset();
-        vk::raii::CommandBuffer& cmd =
-            m_Frames[m_FrameIndex].TransparentCommandBuffer;
+        FrameData& frame = m_Frames[m_FrameIndex];
+        frame.TransparentCommandPool.reset();
+        vk::raii::CommandBuffer& cmd = frame.TransparentCommandBuffer;
 
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        TransitionSwapImageLayout(
-            cmd, imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
-            vk::ImageLayout::eColorAttachmentOptimal,
-            vk::AccessFlagBits2::eColorAttachmentRead,
-            vk::AccessFlagBits2::eColorAttachmentWrite,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput);
+        TransitionImageLayout(cmd, frame.AccumTexture.GetImage(),
+                              vk::ImageLayout::eUndefined,
+                              vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::ImageAspectFlagBits::eColor);
+        TransitionImageLayout(cmd, frame.RevealageTexture.GetImage(),
+                              vk::ImageLayout::eUndefined,
+                              vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::ImageAspectFlagBits::eColor);
         TransitionImageLayout(cmd, m_DepthImage,
                               vk::ImageLayout::eDepthAttachmentOptimal,
                               vk::ImageLayout::eDepthReadOnlyOptimal,
                               vk::ImageAspectFlagBits::eDepth);
 
+        vk::ClearValue accumClearColor =
+            vk::ClearColorValue(0.f, 0.f, 0.f, 0.f);
+        vk::ClearValue revealageClearColor =
+            vk::ClearColorValue(1.f, 0.f, 0.f, 0.f);
+        std::array<vk::RenderingAttachmentInfo, 2> colorAttachmentInfos = {
+            {{.imageView = frame.AccumTexture.GetImageView(),
+              .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+              .loadOp = vk::AttachmentLoadOp::eClear,
+              .storeOp = vk::AttachmentStoreOp::eStore,
+              .clearValue = accumClearColor},
+             {.imageView = frame.RevealageTexture.GetImageView(),
+              .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+              .loadOp = vk::AttachmentLoadOp::eClear,
+              .storeOp = vk::AttachmentStoreOp::eStore,
+              .clearValue = revealageClearColor}}};
+        vk::RenderingAttachmentInfo depthAttachmentInfo = {
+            .imageView = m_DepthImageView,
+            .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
+            .storeOp = vk::AttachmentStoreOp::eNone};
+
+        vk::RenderingInfo renderingInfo = {
+            .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
+            .layerCount = 1,
+            .colorAttachmentCount = colorAttachmentInfos.size(),
+            .pColorAttachments = colorAttachmentInfos.data(),
+            .pDepthAttachment = &depthAttachmentInfo};
+
+        cmd.beginRendering(renderingInfo);
+        cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
+                         *m_TransparentPipeline);
+
+        cmd.setViewport(
+            0, vk::Viewport(
+                   0.f, 0.f, static_cast<float>(m_SwapchainExtent.width),
+                   static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
+        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
+        cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                               m_TransparentPipelineLayout, 0,
+                               *frame.GlobalBufferDescriptorSet, nullptr);
+
+        cmd.bindVertexBuffers(1, *frame.InstanceBuffer, {0});
+
+        // per mesh batch
+        const std::vector<MeshBatch>& batches =
+            ModelManager::Get()->GetTransparentBatches();
+        for (const MeshBatch& batch : batches)
+        {
+            cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
+            cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);
+            cmd.bindDescriptorSets(
+                vk::PipelineBindPoint::eGraphics, m_TransparentPipelineLayout,
+                1, batch.pMaterial->GetDescriptorSet(), nullptr);
+            cmd.pushConstants<PBRMaterial::MaterialData>(
+                m_TransparentPipelineLayout, vk::ShaderStageFlagBits::eFragment,
+                0u,
+                *static_cast<PBRMaterial::MaterialData*>(
+                    batch.pMaterial->GetPushConstantData()));
+            cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
+                            batch.FirstIndex, 0, batch.FirstInstance);
+        }
+
+        cmd.endRendering();
+
+        cmd.end();
+    }
+
+    void RecordCompositeCommandBuffer(uint32_t imageIndex)
+    {
+        FrameData& frame = m_Frames[m_FrameIndex];
+        frame.CompositeCommandPool.reset();
+        vk::raii::CommandBuffer& cmd = frame.CompositeCommandBuffer;
+
+        vk::CommandBufferBeginInfo beginInfo{};
+        cmd.begin(beginInfo);
+
+        // TODO: remove this after changing to read only in transparent pass
+        TransitionImageLayout(cmd, m_DepthImage,
+                              vk::ImageLayout::eDepthAttachmentOptimal,
+                              vk::ImageLayout::eDepthReadOnlyOptimal,
+                              vk::ImageAspectFlagBits::eDepth);
+
+        // TODO: remove this after changing to read only in transparent pass
+        TransitionImageLayout(cmd, frame.OpaqueTexture.GetImage(),
+                              vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::ImageLayout::eShaderReadOnlyOptimal,
+                              vk::ImageAspectFlagBits::eColor);
+
+        vk::ClearValue clearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 1.f);
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
             .imageView = m_SwapImageViews[imageIndex],
             .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
-            .loadOp = vk::AttachmentLoadOp::eLoad,
-            .storeOp = vk::AttachmentStoreOp::eStore};
+            .loadOp = vk::AttachmentLoadOp::eClear,
+            .storeOp = vk::AttachmentStoreOp::eStore,
+            .clearValue = clearColor};
         vk::RenderingAttachmentInfo depthAttachmentInfo = {
             .imageView = m_DepthImageView,
             .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
@@ -1268,36 +1653,25 @@ private:
 
         cmd.beginRendering(renderingInfo);
         cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
-                         *m_TransparentPipeline);
+                         *m_CompositePipeline);
 
         cmd.setViewport(
             0, vk::Viewport(
                    0.f, 0.f, static_cast<float>(m_SwapchainExtent.width),
                    static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
         cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
+
+        std::array descriptorSets = {*frame.GlobalBufferDescriptorSet,
+                                     *frame.CompositeDescriptorSet};
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                               m_PipelineLayout, 0,
-                               *m_Frames[m_FrameIndex].DescriptorSet, nullptr);
+                               m_CompositePipelineLayout, 0u, descriptorSets,
+                               nullptr);
 
-        cmd.bindVertexBuffers(1, *m_Frames[m_FrameIndex].InstanceBuffer, {0});
+        cmd.bindVertexBuffers(0u, *m_QuadVertexBuffer, {0});
+        cmd.bindIndexBuffer(m_QuadIndexBuffer, 0u, vk::IndexType::eUint32);
 
-        // per mesh batch
-        const std::vector<MeshBatch>& batches =
-            ModelManager::Get()->GetTransparentBatches();
-        for (const MeshBatch& batch : batches)
-        {
-            cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
-            cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);
-            cmd.bindDescriptorSets(
-                vk::PipelineBindPoint::eGraphics, m_PipelineLayout, 1,
-                batch.pMaterial->GetDescriptorSet(), nullptr);
-            cmd.pushConstants<PBRMaterial::MaterialData>(
-                m_PipelineLayout, vk::ShaderStageFlagBits::eFragment, 0u,
-                *static_cast<PBRMaterial::MaterialData*>(
-                    batch.pMaterial->GetPushConstantData()));
-            cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
-                            batch.FirstIndex, 0, batch.FirstInstance);
-        }
+        constexpr uint32_t QUAD_INDEX_COUNT = 6u;
+        cmd.drawIndexed(QUAD_INDEX_COUNT, 1u, 0u, 0, 0u);
 
         cmd.endRendering();
 
@@ -1435,9 +1809,9 @@ private:
         }
     }
 
-    void RecreateSwapchainAndDepthStencil()
+    void RecreateSwapchainAndRenderImages()
     {
-        std::cout << "Recreating swapchain and depth stencil...\n";
+        std::cout << "Recreating swapchain and render images...\n";
 
         int width, height;
         SDL_GetWindowSizeInPixels(m_pWindow, &width, &height);
@@ -1464,8 +1838,11 @@ private:
         CreateSwapchainImageViews();
 
         CreateDepthResources();
+        CreateRenderTargets();
+        UpdateCompositeDescriptorSet();
+        UpdateDepthDescriptorSet();
 
-        // With dynamic rendering, this it the only change on the ImGui side
+        // With dynamic rendering, this is the only change on the ImGui side
         // that has to be made.
         ImGui_ImplVulkan_SetMinImageCount(m_MinImageCount);
     }
@@ -1473,23 +1850,54 @@ private:
     void CreateDescriptorSetLayouts()
     {
         std::array frameBindings = {vk::DescriptorSetLayoutBinding(
-            0, vk::DescriptorType::eUniformBuffer, 1,
+            0u, vk::DescriptorType::eUniformBuffer, 1u,
             vk::ShaderStageFlagBits::eVertex |
                 vk::ShaderStageFlagBits::eFragment,
             nullptr)};
         vk::DescriptorSetLayoutCreateInfo frameCreateInfo{
             .bindingCount = frameBindings.size(),
             .pBindings = frameBindings.data()};
-        m_FrameSetLayout =
+        m_GlobalBufferSetLayout =
             vk::raii::DescriptorSetLayout(m_Device, frameCreateInfo);
-        SetVkDebugName(m_Device, *m_FrameSetLayout,
+        SetVkDebugName(m_Device, *m_GlobalBufferSetLayout,
                        vk::ObjectType::eDescriptorSetLayout,
-                       "Frame Descriptor Set Layout");
+                       "Frame Uniform Buffer Descriptor Set Layout");
+
+        std::array compositeBindings = {
+            vk::DescriptorSetLayoutBinding(
+                0u, vk::DescriptorType::eSampledImage, 1u,
+                vk::ShaderStageFlagBits::eFragment, nullptr),
+            vk::DescriptorSetLayoutBinding(
+                1u, vk::DescriptorType::eSampledImage, 1u,
+                vk::ShaderStageFlagBits::eFragment, nullptr),
+            vk::DescriptorSetLayoutBinding(
+                2u, vk::DescriptorType::eSampledImage, 1u,
+                vk::ShaderStageFlagBits::eFragment, nullptr)};
+        vk::DescriptorSetLayoutCreateInfo compositeCreateInfo{
+            .bindingCount = compositeBindings.size(),
+            .pBindings = compositeBindings.data()};
+        m_CompositeSetLayout =
+            vk::raii::DescriptorSetLayout(m_Device, compositeCreateInfo);
+        SetVkDebugName(m_Device, *m_CompositeSetLayout,
+                       vk::ObjectType::eDescriptorSetLayout,
+                       "Composite Descriptor Set Layout");
+
+        std::array depthBindings = {vk::DescriptorSetLayoutBinding(
+            0u, vk::DescriptorType::eSampledImage, 1u,
+            vk::ShaderStageFlagBits::eFragment, nullptr)};
+        vk::DescriptorSetLayoutCreateInfo depthCreateInfo{
+            .bindingCount = depthBindings.size(),
+            .pBindings = depthBindings.data()};
+        m_DepthSetLayout =
+            vk::raii::DescriptorSetLayout(m_Device, depthCreateInfo);
+        SetVkDebugName(m_Device, *m_DepthSetLayout,
+                       vk::ObjectType::eDescriptorSetLayout,
+                       "Depth Descriptor Set Layout");
     }
 
-    void CreateUniformBuffers()
+    void CreateGlobalBuffers()
     {
-        vk::DeviceSize size = sizeof(UniformBufferObject);
+        vk::DeviceSize size = sizeof(GlobalBuffer);
         if (size % 16 != 0)
             throw std::runtime_error(std::format(
                 "Buffer must be 16 byte aligned! Size is {}", size));
@@ -1504,18 +1912,18 @@ private:
                              vk::MemoryPropertyFlagBits::eHostCoherent,
                          buffer, bufferMemory);
             SetVkDebugName(m_Device, *buffer, vk::ObjectType::eBuffer,
-                           std::format("Uniform Buffer Frame {}", i).c_str());
+                           std::format("Global Buffer Frame {}", i).c_str());
             SetVkDebugName(
                 m_Device, *bufferMemory, vk::ObjectType::eDeviceMemory,
-                std::format("Uniform Buffer Memory Frame {}", i).c_str());
+                std::format("Global Buffer Memory Frame {}", i).c_str());
 
-            m_Frames[i].UniformBuffer = std::move(buffer);
-            m_Frames[i].UniformBufferMemory = std::move(bufferMemory);
+            m_Frames[i].GlobalBuffer = std::move(buffer);
+            m_Frames[i].GlobalBufferMemory = std::move(bufferMemory);
             // Mapping once like this for the application's whole lifetime
             // is called Persistent Mapping. Increases performance since
             // mapping is not free.
-            m_Frames[i].UniformBufferMapping =
-                m_Frames[i].UniformBufferMemory.mapMemory(0, size);
+            m_Frames[i].GlobalBufferMapping =
+                m_Frames[i].GlobalBufferMemory.mapMemory(0, size);
         }
 
         glm::mat4 colMajProj =
@@ -1526,23 +1934,28 @@ private:
         // GLM was designed for OpenGL, which has its Y coordinate in clip
         // space inverted. Compensate for this by scaling here.
         colMajProj[1][1] *= -1.f;
-        m_UBO.Proj = glm::transpose(colMajProj);
+        m_GlobalBuffer.Proj = glm::transpose(colMajProj);
 
-        m_UBO.Light.Pos = {10.f, 0.f, 0.f};
-        m_UBO.Light.Intensity = 1000.f;
-        m_UBO.Light.Color = {1.f, 1.f, 1.f};
+        m_GlobalBuffer.Light.Pos = {-10.f, 15.f, 0.f};
+        m_GlobalBuffer.Light.Intensity = 1000.f;
+        m_GlobalBuffer.Light.Color = {1.f, 1.f, 1.f};
 
-        m_UBO.Time = 0.f;
+        m_GlobalBuffer.Time = 0.f;
+
+        m_GlobalBuffer.NearPlane = NEAR_PLANE;
+        m_GlobalBuffer.FarPlane = FAR_PLANE;
+
+        m_GlobalBuffer.SkyColor = SKY_COLOR;
     }
 
-    void UpdateUniformBuffer(uint32_t frameIndex)
+    void UpdateGlobalBuffer(uint32_t frameIndex)
     {
-        m_UBO.Time = m_RunTime;
-        m_UBO.CameraPos = m_Camera->GetPosition();
-        m_UBO.View = glm::transpose(m_Camera->GetViewMatrix());
+        m_GlobalBuffer.Time = m_RunTime;
+        m_GlobalBuffer.CameraPos = m_Camera->GetPosition();
+        m_GlobalBuffer.View = glm::transpose(m_Camera->GetViewMatrix());
 
-        memcpy(m_Frames[frameIndex].UniformBufferMapping, &m_UBO,
-               sizeof(m_UBO));
+        memcpy(m_Frames[frameIndex].GlobalBufferMapping, &m_GlobalBuffer,
+               sizeof(m_GlobalBuffer));
     }
 
     void CreateDescriptorPool()
@@ -1561,44 +1974,108 @@ private:
         SetVkDebugName(m_Device, *m_FrameDescriptorPool,
                        vk::ObjectType::eDescriptorPool,
                        "Frame Descriptor Pool");
+
+        std::array compositePoolSize = {vk::DescriptorPoolSize{
+            .type = vk::DescriptorType::eSampledImage,
+            .descriptorCount = MAX_FRAMES_IN_FLIGHT * 3}};
+        vk::DescriptorPoolCreateInfo compCreateInfo{
+            .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+            .maxSets = MAX_FRAMES_IN_FLIGHT,
+            .poolSizeCount = compositePoolSize.size(),
+            .pPoolSizes = compositePoolSize.data()};
+
+        m_CompositeDescriptorPool =
+            vk::raii::DescriptorPool(m_Device, compCreateInfo);
+        SetVkDebugName(m_Device, *m_CompositeDescriptorPool,
+                       vk::ObjectType::eDescriptorPool,
+                       "Composite Descriptor Pool");
+
+        std::array genericPoolSize = {vk::DescriptorPoolSize{
+            .type = vk::DescriptorType::eSampledImage, .descriptorCount = 1}};
+        vk::DescriptorPoolCreateInfo genericCreateInfo{
+            .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+            .maxSets = 1u,
+            .poolSizeCount = genericPoolSize.size(),
+            .pPoolSizes = genericPoolSize.data()};
+
+        m_GenericDescriptorPool =
+            vk::raii::DescriptorPool(m_Device, genericCreateInfo);
+        SetVkDebugName(m_Device, *m_GenericDescriptorPool,
+                       vk::ObjectType::eDescriptorPool,
+                       "Generic Descriptor Pool");
     }
 
     void CreateDescriptorSets()
     {
-        std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT,
-                                                     *m_FrameSetLayout);
-        vk::DescriptorSetAllocateInfo allocInfo{
+        std::vector<vk::DescriptorSetLayout> globalBufferLayouts(
+            MAX_FRAMES_IN_FLIGHT, *m_GlobalBufferSetLayout);
+        vk::DescriptorSetAllocateInfo globalBufferAllocInfo{
             .descriptorPool = *m_FrameDescriptorPool,
-            .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
-            .pSetLayouts = layouts.data()};
+            .descriptorSetCount =
+                static_cast<uint32_t>(globalBufferLayouts.size()),
+            .pSetLayouts = globalBufferLayouts.data()};
+        std::vector<vk::raii::DescriptorSet> uniformDescriptorSets =
+            m_Device.allocateDescriptorSets(globalBufferAllocInfo);
 
-        std::vector<vk::raii::DescriptorSet> descriptorSets =
-            m_Device.allocateDescriptorSets(allocInfo);
+        std::vector<vk::DescriptorSetLayout> compSetLayouts(
+            MAX_FRAMES_IN_FLIGHT, *m_CompositeSetLayout);
+        vk::DescriptorSetAllocateInfo compAllocInfo{
+            .descriptorPool = m_CompositeDescriptorPool,
+            .descriptorSetCount = static_cast<uint32_t>(compSetLayouts.size()),
+            .pSetLayouts = compSetLayouts.data()};
+        std::vector<vk::raii::DescriptorSet> compositeDescriptorSets =
+            m_Device.allocateDescriptorSets(compAllocInfo);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            m_Frames[i].DescriptorSet = std::move(descriptorSets[i]);
+            FrameData& frame = m_Frames[i];
 
+            frame.GlobalBufferDescriptorSet =
+                std::move(uniformDescriptorSets[i]);
             SetVkDebugName(
-                m_Device, *m_Frames[i].DescriptorSet,
+                m_Device, *frame.GlobalBufferDescriptorSet,
                 vk::ObjectType::eDescriptorSet,
                 std::format("Main Descriptor Set Frame {}", i).c_str());
 
-            vk::DescriptorBufferInfo bufferInfo{
-                .buffer = m_Frames[i].UniformBuffer,
-                .offset = 0,
-                .range = sizeof(UniformBufferObject)};
+            vk::DescriptorBufferInfo bufferInfo{.buffer = frame.GlobalBuffer,
+                                                .offset = 0,
+                                                .range = sizeof(GlobalBuffer)};
 
-            std::array descriptorWrites = {vk::WriteDescriptorSet{
-                .dstSet = m_Frames[i].DescriptorSet,
+            std::array globalDescriptorWrites = {vk::WriteDescriptorSet{
+                .dstSet = frame.GlobalBufferDescriptorSet,
                 .dstBinding = 0,
                 .dstArrayElement = 0,
                 .descriptorCount = 1,
                 .descriptorType = vk::DescriptorType::eUniformBuffer,
                 .pBufferInfo = &bufferInfo}};
 
-            m_Device.updateDescriptorSets(descriptorWrites, {});
+            m_Device.updateDescriptorSets(globalDescriptorWrites, {});
+
+            frame.CompositeDescriptorSet =
+                std::move(compositeDescriptorSets[i]);
+            SetVkDebugName(
+                m_Device, *frame.CompositeDescriptorSet,
+                vk::ObjectType::eDescriptorSet,
+                std::format("Composite Descriptor Set Frame {}", i).c_str());
         }
+
+        UpdateCompositeDescriptorSet();
+
+        std::vector<vk::DescriptorSetLayout> depthBufferSetLayouts(
+            1, *m_DepthSetLayout);
+        vk::DescriptorSetAllocateInfo depthAllocInfo{
+            .descriptorPool = m_GenericDescriptorPool,
+            .descriptorSetCount =
+                static_cast<uint32_t>(depthBufferSetLayouts.size()),
+            .pSetLayouts = depthBufferSetLayouts.data()};
+
+        m_DepthBufferDescriptorSet =
+            std::move(m_Device.allocateDescriptorSets(depthAllocInfo).front());
+        SetVkDebugName(m_Device, *m_DepthBufferDescriptorSet,
+                       vk::ObjectType::eDescriptorSet,
+                       "Depth Buffer Descriptor Set");
+
+        UpdateDepthDescriptorSet();
     }
 
     void CreateTextureSampler()
@@ -1632,7 +2109,8 @@ private:
         CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
                     m_SwapchainExtent.height, m_DepthFormat,
                     vk::ImageTiling::eOptimal,
-                    vk::ImageUsageFlagBits::eDepthStencilAttachment,
+                    vk::ImageUsageFlagBits::eDepthStencilAttachment |
+                        vk::ImageUsageFlagBits::eSampled,
                     vk::MemoryPropertyFlagBits::eDeviceLocal, m_DepthImage,
                     m_DepthImageMemory);
         SetVkDebugName(m_Device, *m_DepthImage, vk::ObjectType::eImage,
@@ -1684,8 +2162,8 @@ private:
 
     void CreateInstanceBuffers()
     {
-        // TODO: allocating memory 3 times, can probably allocate once and store
-        // offsets Can do the same with uniform buffer.
+        // TODO: allocating memory 3 times, can probably allocate once and
+        // store offsets Can do the same with uniform buffer.
         vk::DeviceSize size = sizeof(InstanceData) * MAX_INSTANCE_COUNT;
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
@@ -1720,6 +2198,161 @@ private:
                sizeof(InstanceData) * instanceDatas.size());
     }
 
+    void CreateRenderTargets()
+    {
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        {
+            vk::raii::Image opaqueImage({});
+            vk::raii::ImageView opaqueImageView({});
+            vk::raii::DeviceMemory opaqueImageMemory({});
+
+            CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
+                        m_SwapchainExtent.height, m_OpaqueImageFormat,
+                        vk::ImageTiling::eOptimal,
+                        vk::ImageUsageFlagBits::eSampled |
+                            vk::ImageUsageFlagBits::eColorAttachment,
+                        vk::MemoryPropertyFlagBits::eDeviceLocal, opaqueImage,
+                        opaqueImageMemory);
+            opaqueImageView =
+                CreateImageView(m_Device, opaqueImage, m_OpaqueImageFormat,
+                                vk::ImageAspectFlagBits::eColor);
+
+            Texture opaqueTexture(
+                std::move(opaqueImage), std::move(opaqueImageView),
+                std::move(opaqueImageMemory),
+                std::format("Opaque Texture Frame_{}", i).c_str());
+
+            m_Frames[i].OpaqueTexture = std::move(opaqueTexture);
+
+            vk::raii::Image accumImage({});
+            vk::raii::ImageView accumImageView({});
+            vk::raii::DeviceMemory accumImageMemory({});
+
+            CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
+                        m_SwapchainExtent.height, m_AccumImageFormat,
+                        vk::ImageTiling::eOptimal,
+                        vk::ImageUsageFlagBits::eSampled |
+                            vk::ImageUsageFlagBits::eColorAttachment,
+                        vk::MemoryPropertyFlagBits::eDeviceLocal, accumImage,
+                        accumImageMemory);
+            accumImageView =
+                CreateImageView(m_Device, accumImage, m_AccumImageFormat,
+                                vk::ImageAspectFlagBits::eColor);
+
+            Texture accumTexture(
+                std::move(accumImage), std::move(accumImageView),
+                std::move(accumImageMemory),
+                std::format("Accum Texture Frame_{}", i).c_str());
+
+            m_Frames[i].AccumTexture = std::move(accumTexture);
+
+            vk::raii::Image revealageImage({});
+            vk::raii::ImageView revealageImageView({});
+            vk::raii::DeviceMemory revealageImageMemory({});
+
+            CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
+                        m_SwapchainExtent.height, m_RevealageImageFormat,
+                        vk::ImageTiling::eOptimal,
+                        vk::ImageUsageFlagBits::eSampled |
+                            vk::ImageUsageFlagBits::eColorAttachment,
+                        vk::MemoryPropertyFlagBits::eDeviceLocal,
+                        revealageImage, revealageImageMemory);
+            revealageImageView = CreateImageView(
+                m_Device, revealageImage, m_RevealageImageFormat,
+                vk::ImageAspectFlagBits::eColor);
+
+            Texture revealageTexture(
+                std::move(revealageImage), std::move(revealageImageView),
+                std::move(revealageImageMemory),
+                std::format("Revealage Texture Frame_{}", i).c_str());
+
+            m_Frames[i].RevealageTexture = std::move(revealageTexture);
+        }
+    }
+
+    void CreateQuadBuffers()
+    {
+        std::array<QuadVertex, 4> vertices = {
+            {{.Pos = {-1.f, -1.f}, .TexCoord{0.f, 0.f}},
+             {.Pos = {-1.f, 1.f}, .TexCoord{0.f, 1.f}},
+             {.Pos = {1.f, 1.f}, .TexCoord{1.f, 1.f}},
+             {.Pos = {1.f, -1.f}, .TexCoord{1.f, 0.f}}}};
+
+        assert(vertices.size() == 4);
+
+        CreateVertexBuffer(m_Device, m_PhysicalDevice, m_GenericCommandPool,
+                           m_GraphicsQueue, sizeof(vertices[0]),
+                           vertices.size(), vertices.data(), m_QuadVertexBuffer,
+                           m_QuadVertexBufferMemory);
+
+        std::array<uint32_t, 6> indices = {0, 1, 2, 0, 2, 3};
+
+        CreateIndexBuffer(m_Device, m_PhysicalDevice, m_GenericCommandPool,
+                          m_GraphicsQueue, sizeof(indices[0]), indices.size(),
+                          indices.data(), m_QuadIndexBuffer,
+                          m_QuadIndexBufferMemory);
+    }
+
+    void UpdateCompositeDescriptorSet()
+    {
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        {
+
+            FrameData& frame = m_Frames[i];
+            vk::DescriptorImageInfo opaqueImageInfo{
+                .imageView = frame.OpaqueTexture.GetImageView(),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+            vk::DescriptorImageInfo accumImageInfo{
+                .imageView = frame.AccumTexture.GetImageView(),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+            vk::DescriptorImageInfo revealageImageInfo{
+                .imageView = frame.RevealageTexture.GetImageView(),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+
+            std::array compDescriptorWrites = {
+                vk::WriteDescriptorSet{.dstSet = frame.CompositeDescriptorSet,
+                                       .dstBinding = 0u,
+                                       .dstArrayElement = 0u,
+                                       .descriptorCount = 1u,
+                                       .descriptorType =
+                                           vk::DescriptorType::eSampledImage,
+                                       .pImageInfo = &opaqueImageInfo},
+                vk::WriteDescriptorSet{.dstSet = frame.CompositeDescriptorSet,
+                                       .dstBinding = 1u,
+                                       .dstArrayElement = 0u,
+                                       .descriptorCount = 1u,
+                                       .descriptorType =
+                                           vk::DescriptorType::eSampledImage,
+                                       .pImageInfo = &accumImageInfo},
+                vk::WriteDescriptorSet{.dstSet = frame.CompositeDescriptorSet,
+                                       .dstBinding = 2u,
+                                       .dstArrayElement = 0u,
+                                       .descriptorCount = 1u,
+                                       .descriptorType =
+                                           vk::DescriptorType::eSampledImage,
+                                       .pImageInfo = &revealageImageInfo}};
+
+            m_Device.updateDescriptorSets(compDescriptorWrites, {});
+        }
+    }
+
+    void UpdateDepthDescriptorSet()
+    {
+        vk::DescriptorImageInfo imageInfo{
+            .imageView = m_DepthImageView,
+            .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal};
+
+        std::array depthDescriptorWrites = {vk::WriteDescriptorSet{
+            .dstSet = m_DepthBufferDescriptorSet,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eSampledImage,
+            .pImageInfo = &imageInfo}};
+
+        m_Device.updateDescriptorSets(depthDescriptorWrites, {});
+    }
+
 private:
     vk::raii::Context m_Context;
     vk::raii::Instance m_Instance = nullptr;
@@ -1729,19 +2362,36 @@ private:
     vk::raii::Device m_Device = nullptr;
     vk::raii::Queue m_GraphicsQueue = nullptr;
     vk::raii::SwapchainKHR m_Swapchain = nullptr;
-    vk::raii::PipelineLayout m_PipelineLayout = nullptr;
-    vk::raii::DescriptorSetLayout m_FrameSetLayout = nullptr;
+    vk::raii::PipelineLayout m_OpaquePipelineLayout = nullptr;
+    vk::raii::PipelineLayout m_TransparentPipelineLayout = nullptr;
+    vk::raii::PipelineLayout m_CompositePipelineLayout = nullptr;
+    vk::raii::DescriptorSetLayout m_GlobalBufferSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout m_CompositeSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout m_DepthSetLayout = nullptr;
     vk::raii::Pipeline m_OpaquePipeline = nullptr;
     vk::raii::Pipeline m_TransparentPipeline = nullptr;
+    vk::raii::Pipeline m_CompositePipeline = nullptr;
     vk::raii::CommandPool m_GenericCommandPool = nullptr;
-    UniformBufferObject m_UBO = {};
+    GlobalBuffer m_GlobalBuffer = {};
     vk::raii::Sampler m_TextureSampler = nullptr;
     vk::raii::DescriptorPool m_FrameDescriptorPool = nullptr;
+    vk::raii::DescriptorPool m_CompositeDescriptorPool = nullptr;
+    vk::raii::DescriptorPool m_GenericDescriptorPool = nullptr;
     vk::raii::Image m_DepthImage = nullptr;
     vk::raii::DeviceMemory m_DepthImageMemory = nullptr;
     vk::raii::ImageView m_DepthImageView = nullptr;
+    vk::raii::DescriptorSet m_DepthBufferDescriptorSet = nullptr;
     vk::Format m_DepthFormat = vk::Format::eUndefined;
+    static constexpr vk::Format m_OpaqueImageFormat =
+        vk::Format::eR16G16B16A16Sfloat;
+    static constexpr vk::Format m_AccumImageFormat =
+        vk::Format::eR16G16B16A16Sfloat;
+    static constexpr vk::Format m_RevealageImageFormat = vk::Format::eR8Unorm;
     vk::PipelineRenderingCreateInfo m_PipelineRenderingCreateInfo = {};
+    vk::raii::Buffer m_QuadVertexBuffer = nullptr;
+    vk::raii::DeviceMemory m_QuadVertexBufferMemory = nullptr;
+    vk::raii::Buffer m_QuadIndexBuffer = nullptr;
+    vk::raii::DeviceMemory m_QuadIndexBufferMemory = nullptr;
 
     vk::SurfaceFormatKHR m_SwapchainSurfaceFormat;
     vk::Extent2D m_SwapchainExtent;

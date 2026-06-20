@@ -50,6 +50,35 @@ struct Vertex
     }
 };
 
+struct QuadVertex
+{
+    glm::vec2 Pos;
+    glm::vec2 TexCoord;
+
+    static constexpr uint32_t AttributeCount = 2u;
+
+    static constexpr vk::VertexInputBindingDescription GetBindingDescription()
+    {
+        return {.binding = 0,
+                .stride = sizeof(QuadVertex),
+                .inputRate = vk::VertexInputRate::eVertex};
+    }
+
+    static constexpr std::array<vk::VertexInputAttributeDescription,
+                                AttributeCount>
+    GetAttributeDescription()
+    {
+        return {{{.location = 0,
+                  .binding = 0,
+                  .format = vk::Format::eR32G32Sfloat,
+                  .offset = offsetof(QuadVertex, Pos)},
+                 {.location = 1,
+                  .binding = 0,
+                  .format = vk::Format::eR32G32Sfloat,
+                  .offset = offsetof(QuadVertex, TexCoord)}}};
+    }
+};
+
 namespace std
 {
 template <> struct hash<Vertex>

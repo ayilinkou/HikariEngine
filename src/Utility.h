@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vulkan/vulkan.hpp"
 #include <fstream>
 #include <string>
 #include <vector>
@@ -275,9 +276,31 @@ inline void TransitionImageLayout(vk::raii::CommandBuffer& cmd,
             vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
 
         barrier.dstStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-                               vk::PipelineStageFlagBits2::eLateFragmentTests;
+                               vk::PipelineStageFlagBits2::eLateFragmentTests |
+                               vk::PipelineStageFlagBits2::eFragmentShader;
         barrier.dstAccessMask =
-            vk::AccessFlagBits2::eDepthStencilAttachmentRead;
+            vk::AccessFlagBits2::eDepthStencilAttachmentRead |
+            vk::AccessFlagBits2::eShaderRead;
+    }
+    else if (oldLayout == vk::ImageLayout::eUndefined &&
+             newLayout == vk::ImageLayout::eColorAttachmentOptimal)
+    {
+        barrier.srcStageMask = vk::PipelineStageFlagBits2::eTopOfPipe;
+        barrier.srcAccessMask = vk::AccessFlagBits2::eNone;
+
+        barrier.dstStageMask =
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+        barrier.dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+    }
+    else if (oldLayout == vk::ImageLayout::eColorAttachmentOptimal &&
+             newLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
+    {
+        barrier.srcStageMask =
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+        barrier.srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+
+        barrier.dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
+        barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
     }
     else
     {
@@ -301,8 +324,8 @@ inline void CopyBufferToImage(vk::raii::CommandBuffer& cmd,
         .imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
         .imageOffset = {0, 0, 0},
         .imageExtent = {width, height, 1}};
-    cmd.copyBufferToImage(
-        buffer, image, vk::ImageLayout::eTransferDstOptimal, {region});
+    cmd.copyBufferToImage(buffer, image, vk::ImageLayout::eTransferDstOptimal,
+                          {region});
 }
 
 inline void CreateVertexBuffer(vk::raii::Device& device,

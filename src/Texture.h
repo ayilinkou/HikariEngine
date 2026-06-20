@@ -14,7 +14,8 @@ enum TextureBinding : uint8_t
 class Texture
 {
 public:
-    Texture(vk::raii::Image image, vk::raii::ImageView imageView,
+    Texture() = default;
+	Texture(vk::raii::Image image, vk::raii::ImageView imageView,
             vk::raii::DeviceMemory deviceMemory, const std::string& path);
 
     vk::raii::Image& GetImage() { return m_Image; }
