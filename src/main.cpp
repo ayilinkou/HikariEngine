@@ -22,6 +22,7 @@ constexpr uint32_t MAX_INSTANCE_COUNT = 1024u;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 constexpr float NEAR_PLANE = 0.1f;
 constexpr float FAR_PLANE = 10000.f;
+constexpr glm::vec3 SKY_COLOR = {0.4f, 0.8f, 1.f};
 const std::string BOX_MODEL_PATH = "models/pbr_case/scene.gltf";
 const std::string CAR_MODEL_PATH = "models/american_fullsize_73/scene.gltf";
 const std::string SPONZA_MODEL_PATH = "models/sponza/Sponza.gltf";
@@ -46,7 +47,9 @@ struct GlobalBuffer
     float Time;
     float NearPlane;
     float FarPlane;
-    glm::vec2 Padding;
+    glm::vec2 Padding0;
+    glm::vec3 SkyColor;
+    float Padding1;
 };
 
 std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -858,7 +861,7 @@ private:
     void CreateOpaquePipeline()
     {
         vk::raii::ShaderModule shaderModule =
-            CreateShaderModule(ReadFile("shaders/pbr.spv"));
+            CreateShaderModule(ReadFile("shaders/opaque.spv"));
         SetVkDebugName(m_Device, *shaderModule, vk::ObjectType::eShaderModule,
                        "PBR Opaque Shader Module");
 
@@ -1446,7 +1449,8 @@ private:
                               vk::ImageLayout::eColorAttachmentOptimal,
                               vk::ImageAspectFlagBits::eColor);
 
-        vk::ClearValue clearColor = vk::ClearColorValue(0.4f, 0.8f, 1.f, 1.f);
+        vk::ClearValue clearColor =
+            vk::ClearColorValue(SKY_COLOR.r, SKY_COLOR.g, SKY_COLOR.b, 1.f);
         vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.f, 0);
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
             .imageView = frame.OpaqueTexture.GetImageView(),
@@ -1836,7 +1840,7 @@ private:
         CreateDepthResources();
         CreateRenderTargets();
         UpdateCompositeDescriptorSet();
-		UpdateDepthDescriptorSet();
+        UpdateDepthDescriptorSet();
 
         // With dynamic rendering, this is the only change on the ImGui side
         // that has to be made.
@@ -1877,11 +1881,10 @@ private:
         SetVkDebugName(m_Device, *m_CompositeSetLayout,
                        vk::ObjectType::eDescriptorSetLayout,
                        "Composite Descriptor Set Layout");
-    
-		std::array depthBindings = {
-            vk::DescriptorSetLayoutBinding(
-                0u, vk::DescriptorType::eSampledImage, 1u,
-                vk::ShaderStageFlagBits::eFragment, nullptr)};
+
+        std::array depthBindings = {vk::DescriptorSetLayoutBinding(
+            0u, vk::DescriptorType::eSampledImage, 1u,
+            vk::ShaderStageFlagBits::eFragment, nullptr)};
         vk::DescriptorSetLayoutCreateInfo depthCreateInfo{
             .bindingCount = depthBindings.size(),
             .pBindings = depthBindings.data()};
@@ -1890,7 +1893,7 @@ private:
         SetVkDebugName(m_Device, *m_DepthSetLayout,
                        vk::ObjectType::eDescriptorSetLayout,
                        "Depth Descriptor Set Layout");
-	}
+    }
 
     void CreateGlobalBuffers()
     {
@@ -1941,6 +1944,8 @@ private:
 
         m_GlobalBuffer.NearPlane = NEAR_PLANE;
         m_GlobalBuffer.FarPlane = FAR_PLANE;
+
+        m_GlobalBuffer.SkyColor = SKY_COLOR;
     }
 
     void UpdateGlobalBuffer(uint32_t frameIndex)
@@ -1984,10 +1989,9 @@ private:
         SetVkDebugName(m_Device, *m_CompositeDescriptorPool,
                        vk::ObjectType::eDescriptorPool,
                        "Composite Descriptor Pool");
- 
+
         std::array genericPoolSize = {vk::DescriptorPoolSize{
-            .type = vk::DescriptorType::eSampledImage,
-            .descriptorCount = 1}};
+            .type = vk::DescriptorType::eSampledImage, .descriptorCount = 1}};
         vk::DescriptorPoolCreateInfo genericCreateInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
             .maxSets = 1u,
@@ -1998,7 +2002,8 @@ private:
             vk::raii::DescriptorPool(m_Device, genericCreateInfo);
         SetVkDebugName(m_Device, *m_GenericDescriptorPool,
                        vk::ObjectType::eDescriptorPool,
-                       "Generic Descriptor Pool");   }
+                       "Generic Descriptor Pool");
+    }
 
     void CreateDescriptorSets()
     {
@@ -2059,7 +2064,7 @@ private:
         std::vector<vk::DescriptorSetLayout> depthBufferSetLayouts(
             1, *m_DepthSetLayout);
         vk::DescriptorSetAllocateInfo depthAllocInfo{
-          .descriptorPool = m_GenericDescriptorPool,
+            .descriptorPool = m_GenericDescriptorPool,
             .descriptorSetCount =
                 static_cast<uint32_t>(depthBufferSetLayouts.size()),
             .pSetLayouts = depthBufferSetLayouts.data()};

@@ -1,4 +1,8 @@
+// Weighted Blended Order-Independent Transparency
+// based on https://casual-effects.blogspot.com/2015/03/implemented-weighted-blended-order.html
+
 #include "common.slangh"
+#include "pbr.slangh"
 
 struct MaterialPushConstant
 {
@@ -54,8 +58,6 @@ struct VS_Out
 	float4 Tangent : TEXCOORD4;
 };
 
-static const float PI = 3.14159265359f;
-
 [shader("vertex")]
 VS_Out vertMain(VS_In v)
 {
@@ -87,7 +89,6 @@ struct FS_Out
 	float Revealage : SV_Target1;
 };
 
-// based on https://casual-effects.blogspot.com/2015/03/implemented-weighted-blended-order.html
 [shader("fragment")]
 FS_Out fragMain(VS_Out f)
 {
@@ -99,8 +100,71 @@ FS_Out fragMain(VS_Out f)
 	else
 		albedo = pcMatData.Albedo.rgb;
 
-	const float opacity = pcMatData.Opacity;
-	float4 premultipliedReflect = float4(albedo * opacity, opacity);
+	float metallic, roughness;
+	if (pcMatData.bHasMetallicRoughnessTex)
+	{
+		metallic = metallicRoughnessTex.Sample(f.TexCoord).b;
+		roughness = metallicRoughnessTex.Sample(f.TexCoord).g;
+	}
+	else
+	{
+		metallic = pcMatData.Metallic;
+		roughness = pcMatData.Roughness;
+	}
+
+	float3 vertexNormal = normalize(f.Normal);
+
+	float3 N;
+	if (pcMatData.bHasNormalTex)
+	{
+		float3 tangentNormal = normalTex.Sample(f.TexCoord).xyz; // packed tangent space normal
+		tangentNormal = tangentNormal * 2.f - float3(1.f); // unpacked tangent space
+	
+		float3 T = normalize(f.Tangent.xyz);
+		T = normalize(T - vertexNormal * dot(T, vertexNormal)); // re-orthogonalise tangent
+		float3 B = cross(vertexNormal, T) * f.Tangent.w; // w contains the handedness
+
+		float3x3 TBN = float3x3(T, B, vertexNormal);
+		N = normalize(mul(tangentNormal, TBN)); // world space normal
+	}
+	else
+	{
+		N = vertexNormal;
+	}
+
+	float3 camToFrag = normalize(f.WorldPos - globalBuffer.CameraPos);
+	float viewNormalAlignment = dot(camToFrag, vertexNormal); 
+	bool bNormalNeedsFlip = pcMatData.bTwoSided && (viewNormalAlignment > 0.f);
+	N = bNormalNeedsFlip ? -1.f * N : N;
+	
+	float attenuation = CalcAttenuation(f.WorldPos, globalBuffer.Light.Pos);
+	float3 Li = globalBuffer.Light.Color * globalBuffer.Light.Intensity * attenuation; // light radiance
+	float3 V = -1.f * camToFrag; // view vector
+	float3 L = normalize(globalBuffer.Light.Pos - f.WorldPos); // light vector
+	float3 H = normalize(L + V); // halfway vector
+	float NdotL = saturate(dot(N, L));
+	float NdotH = saturate(dot(N, H));
+	
+	// transparent materials have little to no diffuse
+	float3 diffuse, specular;
+	CookTorrenceBRDF(N, V, L, H, albedo, roughness, metallic, diffuse, specular);
+	float3 BRDF = specular;
+
+	float3 Lo = float3(0.f, 0.f, 0.f);
+	Lo += BRDF * Li * NdotL;
+	
+	// opacity should be influenced by fresnel
+	float3 F0 = float3(0.04f);
+	float NdotV = saturate(dot(N, V));
+	float fresnel = SchlickFresnel(F0, NdotV).r;
+	const float opacity = pcMatData.Opacity + (1.f - pcMatData.Opacity) * fresnel;
+
+	// add reflections scaled by fresnel
+	float3 skyColor = globalBuffer.SkyColor; // TODO: replace with environment map
+	float3 ambientReflection = skyColor * fresnel;
+	Lo += ambientReflection;
+
+	float4 premultipliedReflect = float4(Lo * opacity, opacity);
 	const float3 transmit = float3(0.f, 0.f, 0.f);
 	const float ndcZ = f.Pos.z;
 

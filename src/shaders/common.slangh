@@ -15,8 +15,17 @@ struct GlobalBuffer
 	float Time;
 	float NearPlane;
 	float FarPlane;
-	float2 Padding;
+	float2 Padding0;
+	float3 SkyColor;
+	float Padding1;
 };
 
 [[vk::binding(0, 0)]]
 ConstantBuffer<GlobalBuffer> globalBuffer;
+
+// Inverse-square law
+float CalcAttenuation(float3 FragPos, float3 LightPos)
+{
+	float Distance = distance(FragPos, LightPos);
+	return 1.f / (Distance * Distance);
+}
