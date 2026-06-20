@@ -31,5 +31,7 @@ Sampler2D revealageTex;
 [shader("fragment")]
 float4 fragMain(VS_Out f) : SV_Target
 {
-	return float4(opaqueTex.Sample(f.TexCoord).rgb, 1.f);
+	float4 opaque = opaqueTex.Sample(f.TexCoord).rgba;
+	float4 accum = accumTex.Sample(f.TexCoord).rgba;
+	return accum;
 }

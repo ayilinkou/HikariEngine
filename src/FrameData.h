@@ -23,6 +23,8 @@ struct FrameData
     vk::raii::DescriptorSet GlobalBufferDescriptorSet = nullptr;
     vk::raii::DescriptorSet CompositeDescriptorSet = nullptr;
     Texture OpaqueTexture;
+    Texture AccumTexture;
+    Texture RevealageTexture;
     vk::raii::Buffer GlobalBuffer = nullptr;
     vk::raii::DeviceMemory GlobalBufferMemory = nullptr;
     vk::raii::Buffer InstanceBuffer = nullptr;

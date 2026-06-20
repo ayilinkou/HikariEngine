@@ -217,34 +217,33 @@ private:
 
         ThreadPool::Init();
 
-        /*
-                m_GameObjects.push_back(std::make_unique<GameObject>());
-                m_GameObjects.back()->GetTransform().Position +=
-                    glm::vec3(-60.f, -15.f, -5.f);
-                auto boxModelOne = std::make_unique<Model>(BOX_MODEL_PATH);
-                boxModelOne->GetTransform().Scale *= 0.1f;
-                m_GameObjects.back()->AddComponent(std::move(boxModelOne));
+        m_GameObjects.push_back(std::make_unique<GameObject>());
+        m_GameObjects.back()->GetTransform().Position +=
+            glm::vec3(-60.f, -15.f, -5.f);
+        auto boxModelOne = std::make_unique<Model>(BOX_MODEL_PATH);
+        boxModelOne->GetTransform().Scale *= 0.1f;
+        m_GameObjects.back()->AddComponent(std::move(boxModelOne));
 
-                m_GameObjects.push_back(std::make_unique<GameObject>());
-                m_GameObjects.back()->GetTransform().Position +=
-                    glm::vec3(-60.f, 10.f, -5.f);
-                auto boxModelTwo = std::make_unique<Model>(BOX_MODEL_PATH);
-                boxModelTwo->GetTransform().Scale *= 0.1f;
-                m_GameObjects.back()->AddComponent(std::move(boxModelTwo));
+        m_GameObjects.push_back(std::make_unique<GameObject>());
+        m_GameObjects.back()->GetTransform().Position +=
+            glm::vec3(-60.f, 10.f, -5.f);
+        auto boxModelTwo = std::make_unique<Model>(BOX_MODEL_PATH);
+        boxModelTwo->GetTransform().Scale *= 0.1f;
+        m_GameObjects.back()->AddComponent(std::move(boxModelTwo));
 
-                m_GameObjects.push_back(std::make_unique<GameObject>());
-                m_GameObjects.back()->GetTransform().Position +=
-                    glm::vec3(0.f, 0.f, -20.f);
-                auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
-                carModel->GetTransform().Scale *= 10.f;
-                m_GameObjects.back()->AddComponent(std::move(carModel));
-                */
-        for (int i = 0; i < 1; i++)
+        m_GameObjects.push_back(std::make_unique<GameObject>());
+        m_GameObjects.back()->GetTransform().Position +=
+            glm::vec3(0.f, 0.f, -20.f);
+        auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
+        carModel->GetTransform().Scale *= 10.f;
+        m_GameObjects.back()->AddComponent(std::move(carModel));
+
+        /*for (int i = 0; i < 1; i++)
         {
             m_GameObjects.push_back(std::make_unique<GameObject>());
             auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
             m_GameObjects.back()->AddComponent(std::move(sponzaModel));
-        }
+        }*/
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
@@ -458,11 +457,10 @@ private:
                 [&] { RecordSwapImageToDrawLayout(imageIndex); });
             std::future<void> opaqueFuture =
                 threadPool->Submit([&] { RecordOpaqueCommandBuffer(); });
+            std::future<void> transparentFuture =
+                threadPool->Submit([&] { RecordTransparentCommandBuffer(); });
             std::future<void> compositeFuture = threadPool->Submit(
                 [&] { RecordCompositeCommandBuffer(imageIndex); });
-            // std::future<void> transparentFuture = threadPool->Submit(
-            //     [&] { RecordTransparentCommandBuffer(imageIndex); });
-            //  TODO: composite pass
             // std::future<void> imGuiFuture =
             //     threadPool->Submit([&] { RecordImGui(imageIndex); });
             std::future<void> presentLayoutFuture = threadPool->Submit(
@@ -470,7 +468,7 @@ private:
 
             drawLayoutFuture.get();
             opaqueFuture.get();
-            // transparentFuture.get();
+            transparentFuture.get();
             compositeFuture.get();
             // imGuiFuture.get();
             presentLayoutFuture.get();
@@ -479,19 +477,16 @@ private:
             RecordOpaqueCommandBuffer(imageIndex);
             RecordTransparentCommandBuffer(imageIndex);
             RecordCompositeCommandBuffer(imageIndex);
-            RecordImGui(imageIndex);
+            // RecordImGui(imageIndex);
             RecordSwapImageToPresentLayout(imageIndex);
 #endif
         }
 
-        std::array<vk::CommandBuffer, 4> commandBuffers = {
+        std::array<vk::CommandBuffer, 5> commandBuffers = {
             frameData.DrawLayoutCommandBuffer, frameData.OpaqueCommandBuffer,
+            frameData.TransparentCommandBuffer,
             frameData.CompositeCommandBuffer,
             frameData.PresentLayoutCommandBuffer};
-        /*std::array<vk::CommandBuffer, 5> commandBuffers = {
-            frameData.DrawLayoutCommandBuffer, frameData.OpaqueCommandBuffer,
-            frameData.TransparentCommandBuffer, frameData.ImGuiCommandBuffer,
-            frameData.PresentLayoutCommandBuffer};*/
         vk::PipelineStageFlags waitDestinationStageFlags(
             vk::PipelineStageFlagBits::eColorAttachmentOutput);
         vk::SubmitInfo submitInfo{
@@ -682,6 +677,8 @@ private:
         bool bSupportsAllFeatures =
             features.get<vk::PhysicalDeviceFeatures2>()
                 .features.samplerAnisotropy &&
+            features.get<vk::PhysicalDeviceFeatures2>()
+                .features.independentBlend &&
             features.get<vk::PhysicalDeviceVulkan13Features>()
                 .dynamicRendering &&
             features.get<vk::PhysicalDeviceVulkan13Features>()
@@ -753,7 +750,8 @@ private:
                            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
                            vk::PhysicalDeviceDescriptorIndexingFeaturesEXT>
             featureChain = {
-                {.features = {.samplerAnisotropy = true}},
+                {.features = {.independentBlend = true,
+                              .samplerAnisotropy = true}},
                 {.shaderDrawParameters = true},
                 {.synchronization2 = true, .dynamicRendering = true},
                 {.extendedDynamicState = true},
@@ -999,37 +997,157 @@ private:
 
     void CreateTransparentPipeline()
     {
-        // TODO:
-        /*dynamicStates = {vk::DynamicState::eViewport,
-                         vk::DynamicState::eScissor};
-        dynamicState = vk::PipelineDynamicStateCreateInfo{
+        vk::raii::ShaderModule shaderModule =
+            CreateShaderModule(ReadFile("shaders/weightedBlendedOIT.spv"));
+        SetVkDebugName(m_Device, *shaderModule, vk::ObjectType::eShaderModule,
+                       "Order Independent Transparency Shader Module");
+
+        vk::PipelineShaderStageCreateInfo vertCreateInfo{
+            .stage = vk::ShaderStageFlagBits::eVertex,
+            .module = shaderModule,
+            .pName = "vertMain"};
+
+        vk::PipelineShaderStageCreateInfo fragCreateInfo{
+            .stage = vk::ShaderStageFlagBits::eFragment,
+            .module = shaderModule,
+            .pName = "fragMain"};
+
+        std::vector<vk::PipelineShaderStageCreateInfo> shaderStages = {
+            vertCreateInfo, fragCreateInfo};
+
+        auto vertexBindingDesc = Vertex::GetBindingDescription();
+        auto vertexAttributeDesc = Vertex::GetAttributeDescription();
+
+        auto instanceBindingDesc = InstanceData::GetBindingDescription();
+        auto instanceAttributeDesc = InstanceData::GetAttributeDescription();
+
+        std::array<vk::VertexInputBindingDescription, 2> bindingDescs = {
+            vertexBindingDesc, instanceBindingDesc};
+        std::array<vk::VertexInputAttributeDescription,
+                   Vertex::AttributeCount + InstanceData::AttributeCount>
+            attributeDescs;
+        std::ranges::copy(vertexAttributeDesc, attributeDescs.begin());
+        std::ranges::copy(instanceAttributeDesc,
+                          attributeDescs.begin() + Vertex::AttributeCount);
+
+        vk::PipelineVertexInputStateCreateInfo vertexInput{
+            .vertexBindingDescriptionCount = bindingDescs.size(),
+            .pVertexBindingDescriptions = bindingDescs.data(),
+            .vertexAttributeDescriptionCount = attributeDescs.size(),
+            .pVertexAttributeDescriptions = attributeDescs.data()};
+        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
+            .topology = vk::PrimitiveTopology::eTriangleList};
+
+        vk::Viewport viewport{
+            .x = 0.f,
+            .y = 0.f,
+            .width = static_cast<float>(m_SwapchainExtent.width),
+            .height = static_cast<float>(m_SwapchainExtent.height),
+            .minDepth = 0.f,
+            .maxDepth = 1.f};
+        vk::Rect2D scissor{.offset = vk::Offset2D{0, 0},
+                           .extent = m_SwapchainExtent};
+        std::vector<vk::DynamicState> dynamicStates = {
+            vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+        vk::PipelineDynamicStateCreateInfo dynamicState{
             .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
             .pDynamicStates = dynamicStates.data()};
+        vk::PipelineViewportStateCreateInfo viewportState{
+            .viewportCount = 1,
+            .pViewports = &viewport,
+            .scissorCount = 1,
+            .pScissors = &scissor};
 
-        depthStencilState = vk::PipelineDepthStencilStateCreateInfo{
+        // frontFace is counter-clockwise because we are flipping the Y in the
+        // projection matrix
+        vk::PipelineRasterizationStateCreateInfo rasterState{
+            .depthClampEnable = vk::False,
+            .rasterizerDiscardEnable = vk::False,
+            .polygonMode = vk::PolygonMode::eFill,
+            .cullMode = vk::CullModeFlagBits::eNone,
+            .frontFace = vk::FrontFace::eCounterClockwise,
+            .depthBiasEnable = vk::False,
+            .lineWidth = 1.f};
+
+        vk::PipelineMultisampleStateCreateInfo multisampleState{
+            .rasterizationSamples = vk::SampleCountFlagBits::e1,
+            .sampleShadingEnable = vk::False};
+
+        vk::PipelineDepthStencilStateCreateInfo depthStencilState{
             .depthTestEnable = vk::True,
             .depthWriteEnable = vk::False,
             .depthCompareOp = vk::CompareOp::eLess,
             .depthBoundsTestEnable = vk::False,
             .stencilTestEnable = vk::False};
 
-        attachmentState = vk::PipelineColorBlendAttachmentState{
-            .blendEnable = vk::True,
-            .srcColorBlendFactor = vk::BlendFactor::eSrcAlpha,
-            .dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha,
-            .colorBlendOp = vk::BlendOp::eAdd,
-            .srcAlphaBlendFactor = vk::BlendFactor::eOne,
-            .dstAlphaBlendFactor = vk::BlendFactor::eZero,
-            .alphaBlendOp = vk::BlendOp::eAdd,
-            .colorWriteMask = vk::ColorComponentFlagBits::eR |
-                              vk::ColorComponentFlagBits::eG |
-                              vk::ColorComponentFlagBits::eB |
-                              vk::ColorComponentFlagBits::eA};
+        std::array<vk::PipelineColorBlendAttachmentState, 2> attachmentStates{
+            {{.blendEnable = vk::True,
+              .srcColorBlendFactor = vk::BlendFactor::eOne,
+              .dstColorBlendFactor = vk::BlendFactor::eOne,
+              .colorBlendOp = vk::BlendOp::eAdd,
+              .srcAlphaBlendFactor = vk::BlendFactor::eOne,
+              .dstAlphaBlendFactor = vk::BlendFactor::eOne,
+              .alphaBlendOp = vk::BlendOp::eAdd,
+              .colorWriteMask = vk::ColorComponentFlagBits::eR |
+                                vk::ColorComponentFlagBits::eG |
+                                vk::ColorComponentFlagBits::eB |
+                                vk::ColorComponentFlagBits::eA},
+             {.blendEnable = vk::True,
+              .srcColorBlendFactor = vk::BlendFactor::eZero,
+              .dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcColor,
+              .colorWriteMask = vk::ColorComponentFlagBits::eR}}};
+        vk::PipelineColorBlendStateCreateInfo blendState{
+            .logicOpEnable = vk::False,
+            .logicOp = vk::LogicOp::eCopy,
+            .attachmentCount = attachmentStates.size(),
+            .pAttachments = attachmentStates.data()};
+
+        vk::DescriptorSetLayout descriptorSetLayouts[] = {
+            m_GlobalBufferSetLayout,
+            MaterialFactory::Get()->GetDescriptorSetLayout()};
+        vk::PushConstantRange pushConstantRange{
+            .stageFlags = vk::ShaderStageFlagBits::eFragment,
+            .size = sizeof(PBRMaterial::MaterialData)};
+        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
+            .setLayoutCount = 2,
+            .pSetLayouts = descriptorSetLayouts,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pushConstantRange};
+        m_TransparentPipelineLayout =
+            vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
+        SetVkDebugName(m_Device, *m_TransparentPipelineLayout,
+                       vk::ObjectType::ePipelineLayout,
+                       "Transparent Pipeline Layout");
+
+        std::array<vk::Format, 2> attachmentFormats = {m_AccumImageFormat,
+                                                       m_RevealageImageFormat};
+        vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo = {
+            .colorAttachmentCount = attachmentFormats.size(),
+            .pColorAttachmentFormats = attachmentFormats.data(),
+            .depthAttachmentFormat = m_DepthFormat};
+
+        vk::StructureChain<vk::GraphicsPipelineCreateInfo,
+                           vk::PipelineRenderingCreateInfo>
+            pipelineCreateInfoChain = {
+                {.stageCount = static_cast<uint32_t>(shaderStages.size()),
+                 .pStages = shaderStages.data(),
+                 .pVertexInputState = &vertexInput,
+                 .pInputAssemblyState = &inputAssembly,
+                 .pViewportState = &viewportState,
+                 .pRasterizationState = &rasterState,
+                 .pMultisampleState = &multisampleState,
+                 .pDepthStencilState = &depthStencilState,
+                 .pColorBlendState = &blendState,
+                 .pDynamicState = &dynamicState,
+                 .layout = m_TransparentPipelineLayout,
+                 .renderPass = nullptr},
+                pipelineRenderingCreateInfo};
+
         m_TransparentPipeline = vk::raii::Pipeline(
             m_Device, nullptr,
             pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
         SetVkDebugName(m_Device, *m_TransparentPipeline,
-                       vk::ObjectType::ePipeline, "Transparent Pipeline");*/
+                       vk::ObjectType::ePipeline, "Transparent Pipeline");
     }
 
     void CreateCompositePipeline()
@@ -1397,7 +1515,7 @@ private:
         cmd.end();
     }
 
-    void RecordTransparentCommandBuffer(uint32_t imageIndex)
+    void RecordTransparentCommandBuffer()
     {
         FrameData& frame = m_Frames[m_FrameIndex];
         frame.TransparentCommandPool.reset();
@@ -1406,23 +1524,34 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        TransitionSwapImageLayout(
-            cmd, imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
-            vk::ImageLayout::eColorAttachmentOptimal,
-            vk::AccessFlagBits2::eColorAttachmentRead,
-            vk::AccessFlagBits2::eColorAttachmentWrite,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput);
+        TransitionImageLayout(cmd, frame.AccumTexture.GetImage(),
+                              vk::ImageLayout::eUndefined,
+                              vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::ImageAspectFlagBits::eColor);
+        TransitionImageLayout(cmd, frame.RevealageTexture.GetImage(),
+                              vk::ImageLayout::eUndefined,
+                              vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::ImageAspectFlagBits::eColor);
         TransitionImageLayout(cmd, m_DepthImage,
                               vk::ImageLayout::eDepthAttachmentOptimal,
                               vk::ImageLayout::eDepthReadOnlyOptimal,
                               vk::ImageAspectFlagBits::eDepth);
 
-        vk::RenderingAttachmentInfo colorAttachmentInfo = {
-            .imageView = m_SwapImageViews[imageIndex],
-            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
-            .loadOp = vk::AttachmentLoadOp::eLoad,
-            .storeOp = vk::AttachmentStoreOp::eStore};
+        vk::ClearValue accumClearColor =
+            vk::ClearColorValue(0.f, 0.f, 0.f, 0.f);
+        vk::ClearValue revealageClearColor =
+            vk::ClearColorValue(1.f, 0.f, 0.f, 0.f);
+        std::array<vk::RenderingAttachmentInfo, 2> colorAttachmentInfos = {
+            {{.imageView = frame.AccumTexture.GetImageView(),
+              .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+              .loadOp = vk::AttachmentLoadOp::eClear,
+              .storeOp = vk::AttachmentStoreOp::eStore,
+              .clearValue = accumClearColor},
+             {.imageView = frame.RevealageTexture.GetImageView(),
+              .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+              .loadOp = vk::AttachmentLoadOp::eClear,
+              .storeOp = vk::AttachmentStoreOp::eStore,
+              .clearValue = revealageClearColor}}};
         vk::RenderingAttachmentInfo depthAttachmentInfo = {
             .imageView = m_DepthImageView,
             .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
@@ -1432,8 +1561,8 @@ private:
         vk::RenderingInfo renderingInfo = {
             .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
             .layerCount = 1,
-            .colorAttachmentCount = 1,
-            .pColorAttachments = &colorAttachmentInfo,
+            .colorAttachmentCount = colorAttachmentInfos.size(),
+            .pColorAttachments = colorAttachmentInfos.data(),
             .pDepthAttachment = &depthAttachmentInfo};
 
         cmd.beginRendering(renderingInfo);
@@ -2039,6 +2168,50 @@ private:
                 std::format("Opaque Texture Frame_{}", i).c_str());
 
             m_Frames[i].OpaqueTexture = std::move(opaqueTexture);
+
+            vk::raii::Image accumImage({});
+            vk::raii::ImageView accumImageView({});
+            vk::raii::DeviceMemory accumImageMemory({});
+
+            CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
+                        m_SwapchainExtent.height, m_AccumImageFormat,
+                        vk::ImageTiling::eOptimal,
+                        vk::ImageUsageFlagBits::eSampled |
+                            vk::ImageUsageFlagBits::eColorAttachment,
+                        vk::MemoryPropertyFlagBits::eDeviceLocal, accumImage,
+                        accumImageMemory);
+            accumImageView =
+                CreateImageView(m_Device, accumImage, m_AccumImageFormat,
+                                vk::ImageAspectFlagBits::eColor);
+
+            Texture accumTexture(
+                std::move(accumImage), std::move(accumImageView),
+                std::move(accumImageMemory),
+                std::format("Accum Texture Frame_{}", i).c_str());
+
+            m_Frames[i].AccumTexture = std::move(accumTexture);
+
+            vk::raii::Image revealageImage({});
+            vk::raii::ImageView revealageImageView({});
+            vk::raii::DeviceMemory revealageImageMemory({});
+
+            CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
+                        m_SwapchainExtent.height, m_RevealageImageFormat,
+                        vk::ImageTiling::eOptimal,
+                        vk::ImageUsageFlagBits::eSampled |
+                            vk::ImageUsageFlagBits::eColorAttachment,
+                        vk::MemoryPropertyFlagBits::eDeviceLocal,
+                        revealageImage, revealageImageMemory);
+            revealageImageView = CreateImageView(
+                m_Device, revealageImage, m_RevealageImageFormat,
+                vk::ImageAspectFlagBits::eColor);
+
+            Texture revealageTexture(
+                std::move(revealageImage), std::move(revealageImageView),
+                std::move(revealageImageMemory),
+                std::format("Revealage Texture Frame_{}", i).c_str());
+
+            m_Frames[i].RevealageTexture = std::move(revealageTexture);
         }
     }
 
@@ -2075,6 +2248,14 @@ private:
                 .sampler = m_TextureSampler,
                 .imageView = frame.OpaqueTexture.GetImageView(),
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+            vk::DescriptorImageInfo accumImageInfo{
+                .sampler = m_TextureSampler,
+                .imageView = frame.AccumTexture.GetImageView(),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+            vk::DescriptorImageInfo revealageImageInfo{
+                .sampler = m_TextureSampler,
+                .imageView = frame.RevealageTexture.GetImageView(),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
             std::array compDescriptorWrites = {
                 vk::WriteDescriptorSet{
@@ -2084,22 +2265,20 @@ private:
                     .descriptorCount = 1u,
                     .descriptorType = vk::DescriptorType::eCombinedImageSampler,
                     .pImageInfo = &opaqueImageInfo},
-                // TODO: update these 2 descriptors to use the accumulation and
-                // revealage images
                 vk::WriteDescriptorSet{
                     .dstSet = frame.CompositeDescriptorSet,
                     .dstBinding = 1u,
                     .dstArrayElement = 0u,
                     .descriptorCount = 1u,
                     .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo = &opaqueImageInfo},
+                    .pImageInfo = &accumImageInfo},
                 vk::WriteDescriptorSet{
                     .dstSet = frame.CompositeDescriptorSet,
                     .dstBinding = 2u,
                     .dstArrayElement = 0u,
                     .descriptorCount = 1u,
                     .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo = &opaqueImageInfo}};
+                    .pImageInfo = &revealageImageInfo}};
 
             m_Device.updateDescriptorSets(compDescriptorWrites, {});
         }
@@ -2131,9 +2310,12 @@ private:
     vk::raii::DeviceMemory m_DepthImageMemory = nullptr;
     vk::raii::ImageView m_DepthImageView = nullptr;
     vk::Format m_DepthFormat = vk::Format::eUndefined;
-    const vk::Format m_OpaqueImageFormat = vk::Format::eR16G16B16A16Sfloat;
+    static constexpr vk::Format m_OpaqueImageFormat =
+        vk::Format::eR16G16B16A16Sfloat;
+    static constexpr vk::Format m_AccumImageFormat =
+        vk::Format::eR16G16B16A16Sfloat;
+    static constexpr vk::Format m_RevealageImageFormat = vk::Format::eR8Unorm;
     vk::PipelineRenderingCreateInfo m_PipelineRenderingCreateInfo = {};
-
     vk::raii::Buffer m_QuadVertexBuffer = nullptr;
     vk::raii::DeviceMemory m_QuadVertexBufferMemory = nullptr;
     vk::raii::Buffer m_QuadIndexBuffer = nullptr;
