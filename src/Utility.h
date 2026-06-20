@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vulkan/vulkan.hpp"
 #include <fstream>
 #include <string>
 #include <vector>
@@ -275,9 +276,11 @@ inline void TransitionImageLayout(vk::raii::CommandBuffer& cmd,
             vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
 
         barrier.dstStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-                               vk::PipelineStageFlagBits2::eLateFragmentTests;
+                               vk::PipelineStageFlagBits2::eLateFragmentTests |
+                               vk::PipelineStageFlagBits2::eFragmentShader;
         barrier.dstAccessMask =
-            vk::AccessFlagBits2::eDepthStencilAttachmentRead;
+            vk::AccessFlagBits2::eDepthStencilAttachmentRead |
+            vk::AccessFlagBits2::eShaderRead;
     }
     else if (oldLayout == vk::ImageLayout::eUndefined &&
              newLayout == vk::ImageLayout::eColorAttachmentOptimal)

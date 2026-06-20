@@ -61,7 +61,7 @@ VS_Out vertMain(VS_In v)
 {
 	VS_Out o;
 	float4 worldPos = mul(float4(v.Pos, 1.f), v.GetModelMatrix());
-	o.Pos = mul(mul(worldPos, ubo.View), ubo.Proj);
+	o.Pos = mul(mul(worldPos, globalBuffer.View), globalBuffer.Proj);
 	o.WorldPos = worldPos.xyz;
 	o.TexCoord = v.TexCoord;
 	float3x3 normalMatrix = (float3x3)v.GetNormalMatrix();
@@ -77,6 +77,7 @@ Sampler2D albedoTex;
 Sampler2D normalTex;
 [[vk::binding(2, 1)]]
 Sampler2D metallicRoughnessTex;
+
 [[vk::push_constant]]
 MaterialPushConstant pcMatData;
 
@@ -91,17 +92,22 @@ struct FS_Out
 FS_Out fragMain(VS_Out f)
 {
 	FS_Out o;
-	
-	float opacity = pcMatData.Opacity;
-	float3 baseColor = float3(0.8f, 0.8f, 0.8f);
-	float4 premultipliedReflect = float4(baseColor * opacity, opacity);
-	float3 transmit = float3(0.f, 0.f, 0.f);
+
+	float3 albedo;
+	if (pcMatData.bHasAlbedoTex)
+		albedo = albedoTex.Sample(f.TexCoord).rgb;
+	else
+		albedo = pcMatData.Albedo.rgb;
+
+	const float opacity = pcMatData.Opacity;
+	float4 premultipliedReflect = float4(albedo * opacity, opacity);
+	const float3 transmit = float3(0.f, 0.f, 0.f);
+	const float ndcZ = f.Pos.z;
 
     premultipliedReflect.a *= 1.f - clamp((transmit.r + transmit.g + transmit.b) * (1.f / 3.f), 0.f, 1.f);
 
     float a = min(1.f, premultipliedReflect.a) * 8.f + 0.01f;
-    //float b = -gl_FragCoord.z * 0.95f + 1.f;
-    float b = 0.5f * 0.95f + 1.f; // temp
+	float b = -ndcZ * 0.95f + 1.f;
 
     // If your scene has a lot of content very close to the far plane,
     //   then include this line (one rsqrt instruction):

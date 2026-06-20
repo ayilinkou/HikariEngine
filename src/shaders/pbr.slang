@@ -65,7 +65,7 @@ VS_Out vertMain(VS_In v)
 {
 	VS_Out o;
 	float4 worldPos = mul(float4(v.Pos, 1.f), v.GetModelMatrix());
-	o.Pos = mul(mul(worldPos, ubo.View), ubo.Proj);
+	o.Pos = mul(mul(worldPos, globalBuffer.View), globalBuffer.Proj);
 	o.WorldPos = worldPos.xyz;
 	o.TexCoord = v.TexCoord;
 	float3x3 normalMatrix = (float3x3)v.GetNormalMatrix();
@@ -233,15 +233,15 @@ float4 fragMain(VS_Out f) : SV_Target
 		N = vertexNormal;
 	}
 
-	float3 camToFrag = normalize(f.WorldPos - ubo.CameraPos);
+	float3 camToFrag = normalize(f.WorldPos - globalBuffer.CameraPos);
 	float viewNormalAlignment = dot(camToFrag, vertexNormal); 
 	bool bNormalNeedsFlip = pcMatData.bTwoSided && (viewNormalAlignment > 0.f);
 	N = bNormalNeedsFlip ? -1.f * N : N;
 	
-	float attenuation = CalcAttenuation(f.WorldPos, ubo.Light.Pos);
-	float3 Li = ubo.Light.Color * ubo.Light.Intensity * attenuation; // light radiance
+	float attenuation = CalcAttenuation(f.WorldPos, globalBuffer.Light.Pos);
+	float3 Li = globalBuffer.Light.Color * globalBuffer.Light.Intensity * attenuation; // light radiance
 	float3 V = -1.f * camToFrag; // view vector
-	float3 L = normalize(ubo.Light.Pos - f.WorldPos); // light vector
+	float3 L = normalize(globalBuffer.Light.Pos - f.WorldPos); // light vector
 	float3 H = normalize(L + V); // halfway vector
 	float NdotL = saturate(dot(N, L));
 	float NdotH = saturate(dot(N, H));

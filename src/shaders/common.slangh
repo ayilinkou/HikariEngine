@@ -6,14 +6,17 @@ struct PointLight
 	float Padding;
 };
 
-struct UniformBuffer
+struct GlobalBuffer
 {
 	float4x4 View;
 	float4x4 Proj;
 	PointLight Light;
 	float3 CameraPos;
 	float Time;
+	float NearPlane;
+	float FarPlane;
+	float2 Padding;
 };
 
 [[vk::binding(0, 0)]]
-ConstantBuffer<UniformBuffer> ubo;
+ConstantBuffer<GlobalBuffer> globalBuffer;

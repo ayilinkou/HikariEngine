@@ -44,6 +44,9 @@ struct GlobalBuffer
     PointLight Light;
     glm::vec3 CameraPos;
     float Time;
+    float NearPlane;
+    float FarPlane;
+    glm::vec2 Padding;
 };
 
 std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -307,7 +310,7 @@ private:
 
         CreatePipelines();
         CreateCommandBuffers();
-        CreateUniformBuffers();
+        CreateGlobalBuffers();
         CreateInstanceBuffers();
         CreateRenderTargets();
         CreateDescriptorPool();
@@ -446,7 +449,7 @@ private:
 
         m_Device.resetFences(*frameData.DrawFence);
 
-        UpdateUniformBuffer(m_FrameIndex);
+        UpdateGlobalBuffer(m_FrameIndex);
         UpdateInstanceBuffer(m_FrameIndex);
 
         {
@@ -1833,6 +1836,7 @@ private:
         CreateDepthResources();
         CreateRenderTargets();
         UpdateCompositeDescriptorSet();
+		UpdateDepthDescriptorSet();
 
         // With dynamic rendering, this is the only change on the ImGui side
         // that has to be made.
@@ -1873,9 +1877,22 @@ private:
         SetVkDebugName(m_Device, *m_CompositeSetLayout,
                        vk::ObjectType::eDescriptorSetLayout,
                        "Composite Descriptor Set Layout");
-    }
+    
+		std::array depthBindings = {
+            vk::DescriptorSetLayoutBinding(
+                0u, vk::DescriptorType::eSampledImage, 1u,
+                vk::ShaderStageFlagBits::eFragment, nullptr)};
+        vk::DescriptorSetLayoutCreateInfo depthCreateInfo{
+            .bindingCount = depthBindings.size(),
+            .pBindings = depthBindings.data()};
+        m_DepthSetLayout =
+            vk::raii::DescriptorSetLayout(m_Device, depthCreateInfo);
+        SetVkDebugName(m_Device, *m_DepthSetLayout,
+                       vk::ObjectType::eDescriptorSetLayout,
+                       "Depth Descriptor Set Layout");
+	}
 
-    void CreateUniformBuffers()
+    void CreateGlobalBuffers()
     {
         vk::DeviceSize size = sizeof(GlobalBuffer);
         if (size % 16 != 0)
@@ -1916,14 +1933,17 @@ private:
         colMajProj[1][1] *= -1.f;
         m_GlobalBuffer.Proj = glm::transpose(colMajProj);
 
-        m_GlobalBuffer.Light.Pos = {10.f, 0.f, 0.f};
+        m_GlobalBuffer.Light.Pos = {-10.f, 15.f, 0.f};
         m_GlobalBuffer.Light.Intensity = 1000.f;
         m_GlobalBuffer.Light.Color = {1.f, 1.f, 1.f};
 
         m_GlobalBuffer.Time = 0.f;
+
+        m_GlobalBuffer.NearPlane = NEAR_PLANE;
+        m_GlobalBuffer.FarPlane = FAR_PLANE;
     }
 
-    void UpdateUniformBuffer(uint32_t frameIndex)
+    void UpdateGlobalBuffer(uint32_t frameIndex)
     {
         m_GlobalBuffer.Time = m_RunTime;
         m_GlobalBuffer.CameraPos = m_Camera->GetPosition();
@@ -1964,7 +1984,21 @@ private:
         SetVkDebugName(m_Device, *m_CompositeDescriptorPool,
                        vk::ObjectType::eDescriptorPool,
                        "Composite Descriptor Pool");
-    }
+ 
+        std::array genericPoolSize = {vk::DescriptorPoolSize{
+            .type = vk::DescriptorType::eSampledImage,
+            .descriptorCount = 1}};
+        vk::DescriptorPoolCreateInfo genericCreateInfo{
+            .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+            .maxSets = 1u,
+            .poolSizeCount = genericPoolSize.size(),
+            .pPoolSizes = genericPoolSize.data()};
+
+        m_GenericDescriptorPool =
+            vk::raii::DescriptorPool(m_Device, genericCreateInfo);
+        SetVkDebugName(m_Device, *m_GenericDescriptorPool,
+                       vk::ObjectType::eDescriptorPool,
+                       "Generic Descriptor Pool");   }
 
     void CreateDescriptorSets()
     {
@@ -2021,6 +2055,22 @@ private:
         }
 
         UpdateCompositeDescriptorSet();
+
+        std::vector<vk::DescriptorSetLayout> depthBufferSetLayouts(
+            1, *m_DepthSetLayout);
+        vk::DescriptorSetAllocateInfo depthAllocInfo{
+          .descriptorPool = m_GenericDescriptorPool,
+            .descriptorSetCount =
+                static_cast<uint32_t>(depthBufferSetLayouts.size()),
+            .pSetLayouts = depthBufferSetLayouts.data()};
+
+        m_DepthBufferDescriptorSet =
+            std::move(m_Device.allocateDescriptorSets(depthAllocInfo).front());
+        SetVkDebugName(m_Device, *m_DepthBufferDescriptorSet,
+                       vk::ObjectType::eDescriptorSet,
+                       "Depth Buffer Descriptor Set");
+
+        UpdateDepthDescriptorSet();
     }
 
     void CreateTextureSampler()
@@ -2054,7 +2104,8 @@ private:
         CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
                     m_SwapchainExtent.height, m_DepthFormat,
                     vk::ImageTiling::eOptimal,
-                    vk::ImageUsageFlagBits::eDepthStencilAttachment,
+                    vk::ImageUsageFlagBits::eDepthStencilAttachment |
+                        vk::ImageUsageFlagBits::eSampled,
                     vk::MemoryPropertyFlagBits::eDeviceLocal, m_DepthImage,
                     m_DepthImageMemory);
         SetVkDebugName(m_Device, *m_DepthImage, vk::ObjectType::eImage,
@@ -2280,6 +2331,23 @@ private:
         }
     }
 
+    void UpdateDepthDescriptorSet()
+    {
+        vk::DescriptorImageInfo imageInfo{
+            .imageView = m_DepthImageView,
+            .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal};
+
+        std::array depthDescriptorWrites = {vk::WriteDescriptorSet{
+            .dstSet = m_DepthBufferDescriptorSet,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eSampledImage,
+            .pImageInfo = &imageInfo}};
+
+        m_Device.updateDescriptorSets(depthDescriptorWrites, {});
+    }
+
 private:
     vk::raii::Context m_Context;
     vk::raii::Instance m_Instance = nullptr;
@@ -2294,6 +2362,7 @@ private:
     vk::raii::PipelineLayout m_CompositePipelineLayout = nullptr;
     vk::raii::DescriptorSetLayout m_GlobalBufferSetLayout = nullptr;
     vk::raii::DescriptorSetLayout m_CompositeSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout m_DepthSetLayout = nullptr;
     vk::raii::Pipeline m_OpaquePipeline = nullptr;
     vk::raii::Pipeline m_TransparentPipeline = nullptr;
     vk::raii::Pipeline m_CompositePipeline = nullptr;
@@ -2302,9 +2371,11 @@ private:
     vk::raii::Sampler m_TextureSampler = nullptr;
     vk::raii::DescriptorPool m_FrameDescriptorPool = nullptr;
     vk::raii::DescriptorPool m_CompositeDescriptorPool = nullptr;
+    vk::raii::DescriptorPool m_GenericDescriptorPool = nullptr;
     vk::raii::Image m_DepthImage = nullptr;
     vk::raii::DeviceMemory m_DepthImageMemory = nullptr;
     vk::raii::ImageView m_DepthImageView = nullptr;
+    vk::raii::DescriptorSet m_DepthBufferDescriptorSet = nullptr;
     vk::Format m_DepthFormat = vk::Format::eUndefined;
     static constexpr vk::Format m_OpaqueImageFormat =
         vk::Format::eR16G16B16A16Sfloat;
