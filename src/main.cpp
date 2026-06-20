@@ -1219,7 +1219,6 @@ private:
         vk::PipelineDepthStencilStateCreateInfo depthStencilState{
             .depthTestEnable = vk::False, .depthWriteEnable = vk::False};
 
-        // TODO: enable blending
         vk::PipelineColorBlendAttachmentState attachmentState{
             .blendEnable = vk::False,
             .colorWriteMask = vk::ColorComponentFlagBits::eR |
@@ -1858,13 +1857,13 @@ private:
 
         std::array compositeBindings = {
             vk::DescriptorSetLayoutBinding(
-                0u, vk::DescriptorType::eCombinedImageSampler, 1u,
+                0u, vk::DescriptorType::eSampledImage, 1u,
                 vk::ShaderStageFlagBits::eFragment, nullptr),
             vk::DescriptorSetLayoutBinding(
-                1u, vk::DescriptorType::eCombinedImageSampler, 1u,
+                1u, vk::DescriptorType::eSampledImage, 1u,
                 vk::ShaderStageFlagBits::eFragment, nullptr),
             vk::DescriptorSetLayoutBinding(
-                2u, vk::DescriptorType::eCombinedImageSampler, 1u,
+                2u, vk::DescriptorType::eSampledImage, 1u,
                 vk::ShaderStageFlagBits::eFragment, nullptr)};
         vk::DescriptorSetLayoutCreateInfo compositeCreateInfo{
             .bindingCount = compositeBindings.size(),
@@ -1918,7 +1917,7 @@ private:
         m_GlobalBuffer.Proj = glm::transpose(colMajProj);
 
         m_GlobalBuffer.Light.Pos = {10.f, 0.f, 0.f};
-        m_GlobalBuffer.Light.Intensity = 10.f;
+        m_GlobalBuffer.Light.Intensity = 1000.f;
         m_GlobalBuffer.Light.Color = {1.f, 1.f, 1.f};
 
         m_GlobalBuffer.Time = 0.f;
@@ -1952,7 +1951,7 @@ private:
                        "Frame Descriptor Pool");
 
         std::array compositePoolSize = {vk::DescriptorPoolSize{
-            .type = vk::DescriptorType::eCombinedImageSampler,
+            .type = vk::DescriptorType::eSampledImage,
             .descriptorCount = MAX_FRAMES_IN_FLIGHT * 3}};
         vk::DescriptorPoolCreateInfo compCreateInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
@@ -2245,40 +2244,37 @@ private:
 
             FrameData& frame = m_Frames[i];
             vk::DescriptorImageInfo opaqueImageInfo{
-                .sampler = m_TextureSampler,
                 .imageView = frame.OpaqueTexture.GetImageView(),
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
             vk::DescriptorImageInfo accumImageInfo{
-                .sampler = m_TextureSampler,
                 .imageView = frame.AccumTexture.GetImageView(),
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
             vk::DescriptorImageInfo revealageImageInfo{
-                .sampler = m_TextureSampler,
                 .imageView = frame.RevealageTexture.GetImageView(),
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
             std::array compDescriptorWrites = {
-                vk::WriteDescriptorSet{
-                    .dstSet = frame.CompositeDescriptorSet,
-                    .dstBinding = 0u,
-                    .dstArrayElement = 0u,
-                    .descriptorCount = 1u,
-                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo = &opaqueImageInfo},
-                vk::WriteDescriptorSet{
-                    .dstSet = frame.CompositeDescriptorSet,
-                    .dstBinding = 1u,
-                    .dstArrayElement = 0u,
-                    .descriptorCount = 1u,
-                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo = &accumImageInfo},
-                vk::WriteDescriptorSet{
-                    .dstSet = frame.CompositeDescriptorSet,
-                    .dstBinding = 2u,
-                    .dstArrayElement = 0u,
-                    .descriptorCount = 1u,
-                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                    .pImageInfo = &revealageImageInfo}};
+                vk::WriteDescriptorSet{.dstSet = frame.CompositeDescriptorSet,
+                                       .dstBinding = 0u,
+                                       .dstArrayElement = 0u,
+                                       .descriptorCount = 1u,
+                                       .descriptorType =
+                                           vk::DescriptorType::eSampledImage,
+                                       .pImageInfo = &opaqueImageInfo},
+                vk::WriteDescriptorSet{.dstSet = frame.CompositeDescriptorSet,
+                                       .dstBinding = 1u,
+                                       .dstArrayElement = 0u,
+                                       .descriptorCount = 1u,
+                                       .descriptorType =
+                                           vk::DescriptorType::eSampledImage,
+                                       .pImageInfo = &accumImageInfo},
+                vk::WriteDescriptorSet{.dstSet = frame.CompositeDescriptorSet,
+                                       .dstBinding = 2u,
+                                       .dstArrayElement = 0u,
+                                       .descriptorCount = 1u,
+                                       .descriptorType =
+                                           vk::DescriptorType::eSampledImage,
+                                       .pImageInfo = &revealageImageInfo}};
 
             m_Device.updateDescriptorSets(compDescriptorWrites, {});
         }

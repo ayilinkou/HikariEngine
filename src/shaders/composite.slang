@@ -22,16 +22,31 @@ VS_Out vertMain(VS_In v)
 }
 
 [[vk::binding(0, 1)]]
-Sampler2D opaqueTex;
+Texture2D<float4> opaqueTex;
 [[vk::binding(1, 1)]]
-Sampler2D accumTex;
+Texture2D<float4> accumTex;
 [[vk::binding(2, 1)]]
-Sampler2D revealageTex;
+Texture2D<float> revealageTex;
 
 [shader("fragment")]
 float4 fragMain(VS_Out f) : SV_Target
 {
-	float4 opaque = opaqueTex.Sample(f.TexCoord).rgba;
-	float4 accum = accumTex.Sample(f.TexCoord).rgba;
-	return accum;
+	int3 texel = int3((int2)f.Pos.xy, 0);
+	float3 opaque = opaqueTex.Load(texel).rgb;
+	float revealage = revealageTex.Load(texel);
+	if (revealage == 1.f)
+		return float4(opaque, 1.f);
+
+	float4 accum = accumTex.Load(texel);
+	float4 accumAbs = abs(accum);
+	float maxComponent = max(max(accumAbs.r, accumAbs.g), accumAbs.b);
+
+	if (isinf(maxComponent))
+		accum.rgb = float3(accum.a);
+
+	float epsilon = 0.00001f;
+	float3 averageColor = accum.rgb / max(accum.a, epsilon);
+
+	float3 composite = averageColor * (1.f - revealage) + opaque * revealage;
+	return float4(composite, 1.f);
 }
