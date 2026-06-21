@@ -21,7 +21,9 @@ inline void SetCurrentThreadName(const std::string& name)
 
 ThreadPool::ThreadPool(uint32_t threadCount)
 {
-    for (uint32_t i = 0u; i < threadCount; i++)
+	std::cout << "Initialising ThreadPool with " << threadCount << " threads...\n";
+
+	for (uint32_t i = 0u; i < threadCount; i++)
     {
         m_Workers.emplace_back(
             [this, i]
@@ -72,8 +74,12 @@ void ThreadPool::Init()
         throw std::runtime_error("Attempting to initialise ThreadPool instance "
                                  "when instance is already initialised!");
 
-    // number of physical cores minus one (main thread)
-    s_Instance = new ThreadPool(std::thread::hardware_concurrency() - 1);
+    // number of logical cores minus one (main thread)
+    uint32_t threadCount = std::thread::hardware_concurrency();
+	uint32_t poolThreadCount = threadCount - 1u;
+	std::cout << "CPU thread count: " << threadCount << "\n";
+	
+	s_Instance = new ThreadPool(poolThreadCount);
 }
 
 void ThreadPool::Shutdown()
