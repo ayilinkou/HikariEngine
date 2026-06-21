@@ -460,7 +460,7 @@ private:
         UpdateInstanceBuffer(m_FrameIndex);
 
         {
-            Timer recordTimer("Command buffer recording");
+            // Timer recordTimer("Command buffer recording");
 #if MULTITHREADED_COMMAND_RECORDING
             ThreadPool* threadPool = ThreadPool::Get();
             std::future<void> opaqueFuture =
@@ -468,8 +468,8 @@ private:
             std::future<void> transparentFuture =
                 threadPool->Submit([&] { RecordTransparentCommandBuffer(); });
 
-            // these command buffers are very small and so likely faster to record
-            // on main thread
+            // these command buffers are very small and so likely faster to
+            // record on main thread
             RecordSwapImageToDrawLayout(imageIndex);
             RecordCompositeCommandBuffer(imageIndex);
             RecordImGui(imageIndex);
@@ -1625,6 +1625,14 @@ private:
                               vk::ImageLayout::eColorAttachmentOptimal,
                               vk::ImageLayout::eShaderReadOnlyOptimal,
                               vk::ImageAspectFlagBits::eColor);
+        TransitionImageLayout(cmd, frame.AccumTexture.GetImage(),
+                              vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::ImageLayout::eShaderReadOnlyOptimal,
+                              vk::ImageAspectFlagBits::eColor);
+        TransitionImageLayout(cmd, frame.RevealageTexture.GetImage(),
+                              vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::ImageLayout::eShaderReadOnlyOptimal,
+                              vk::ImageAspectFlagBits::eColor);
 
         vk::ClearValue clearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 1.f);
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
@@ -1633,18 +1641,12 @@ private:
             .loadOp = vk::AttachmentLoadOp::eClear,
             .storeOp = vk::AttachmentStoreOp::eStore,
             .clearValue = clearColor};
-        vk::RenderingAttachmentInfo depthAttachmentInfo = {
-            .imageView = m_DepthImageView,
-            .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
-            .loadOp = vk::AttachmentLoadOp::eLoad,
-            .storeOp = vk::AttachmentStoreOp::eNone};
 
         vk::RenderingInfo renderingInfo = {
             .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
             .layerCount = 1,
             .colorAttachmentCount = 1,
-            .pColorAttachments = &colorAttachmentInfo,
-            .pDepthAttachment = &depthAttachmentInfo};
+            .pColorAttachments = &colorAttachmentInfo};
 
         cmd.beginRendering(renderingInfo);
         cmd.bindPipeline(vk::PipelineBindPoint::eGraphics,
