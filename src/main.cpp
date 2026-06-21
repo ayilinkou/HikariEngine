@@ -463,29 +463,24 @@ private:
             Timer recordTimer("Command buffer recording");
 #if MULTITHREADED_COMMAND_RECORDING
             ThreadPool* threadPool = ThreadPool::Get();
-            std::future<void> drawLayoutFuture = threadPool->Submit(
-                [&] { RecordSwapImageToDrawLayout(imageIndex); });
             std::future<void> opaqueFuture =
                 threadPool->Submit([&] { RecordOpaqueCommandBuffer(); });
             std::future<void> transparentFuture =
                 threadPool->Submit([&] { RecordTransparentCommandBuffer(); });
-            std::future<void> compositeFuture = threadPool->Submit(
-                [&] { RecordCompositeCommandBuffer(imageIndex); });
-            std::future<void> imGuiFuture =
-                threadPool->Submit([&] { RecordImGui(imageIndex); });
-            std::future<void> presentLayoutFuture = threadPool->Submit(
-                [&] { RecordSwapImageToPresentLayout(imageIndex); });
 
-            drawLayoutFuture.get();
+            // these command buffers are very small and so likely faster to record
+            // on main thread
+            RecordSwapImageToDrawLayout(imageIndex);
+            RecordCompositeCommandBuffer(imageIndex);
+            RecordImGui(imageIndex);
+            RecordSwapImageToPresentLayout(imageIndex);
+
             opaqueFuture.get();
             transparentFuture.get();
-            compositeFuture.get();
-            imGuiFuture.get();
-            presentLayoutFuture.get();
 #else
             RecordSwapImageToDrawLayout(imageIndex);
-            RecordOpaqueCommandBuffer(imageIndex);
-            RecordTransparentCommandBuffer(imageIndex);
+            RecordOpaqueCommandBuffer();
+            RecordTransparentCommandBuffer();
             RecordCompositeCommandBuffer(imageIndex);
             RecordImGui(imageIndex);
             RecordSwapImageToPresentLayout(imageIndex);
