@@ -13,6 +13,8 @@
 #include "Utility.h"
 #include "Vertex.h"
 #include "vulkan/vulkan.hpp"
+#include <imgui_impl_vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 #define MULTITHREADED_COMMAND_RECORDING 1
 
@@ -267,7 +269,9 @@ private:
 
         ImGui::StyleColorsDark();
 
-        ImGui_ImplSDL3_InitForVulkan(m_pWindow);
+        vk::PipelineRenderingCreateInfo pipelineRenderingInfo = {
+            .colorAttachmentCount = 1u,
+            .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format};
 
         ImGui_ImplVulkan_InitInfo initInfo = {};
         initInfo.ApiVersion = m_APIVersion;
@@ -277,19 +281,19 @@ private:
         initInfo.QueueFamily = m_QueueIndex;
         initInfo.Queue = *m_GraphicsQueue;
         initInfo.DescriptorPool = VK_NULL_HANDLE;
-        initInfo.DescriptorPoolSize = 1000;
+        initInfo.DescriptorPoolSize =
+            IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
         initInfo.MinImageCount = m_MinImageCount;
         initInfo.ImageCount = static_cast<uint32_t>(m_SwapImages.size());
         initInfo.UseDynamicRendering = true;
         initInfo.PipelineCache = VK_NULL_HANDLE;
-        initInfo.PipelineInfoMain = {.RenderPass = VK_NULL_HANDLE,
-                                     .Subpass = 0,
-                                     .MSAASamples = VK_SAMPLE_COUNT_1_BIT,
-                                     .ExtraDynamicStates = {},
-                                     .PipelineRenderingCreateInfo =
-                                         m_PipelineRenderingCreateInfo};
+        initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        initInfo.PipelineInfoMain.PipelineRenderingCreateInfo =
+            pipelineRenderingInfo;
         initInfo.Allocator = nullptr;
         initInfo.CheckVkResultFn = nullptr;
+
+        ImGui_ImplSDL3_InitForVulkan(m_pWindow);
         ImGui_ImplVulkan_Init(&initInfo);
     }
 
@@ -467,8 +471,8 @@ private:
                 threadPool->Submit([&] { RecordTransparentCommandBuffer(); });
             std::future<void> compositeFuture = threadPool->Submit(
                 [&] { RecordCompositeCommandBuffer(imageIndex); });
-            // std::future<void> imGuiFuture =
-            //     threadPool->Submit([&] { RecordImGui(imageIndex); });
+            std::future<void> imGuiFuture =
+                threadPool->Submit([&] { RecordImGui(imageIndex); });
             std::future<void> presentLayoutFuture = threadPool->Submit(
                 [&] { RecordSwapImageToPresentLayout(imageIndex); });
 
@@ -476,22 +480,25 @@ private:
             opaqueFuture.get();
             transparentFuture.get();
             compositeFuture.get();
-            // imGuiFuture.get();
+            imGuiFuture.get();
             presentLayoutFuture.get();
 #else
             RecordSwapImageToDrawLayout(imageIndex);
             RecordOpaqueCommandBuffer(imageIndex);
             RecordTransparentCommandBuffer(imageIndex);
             RecordCompositeCommandBuffer(imageIndex);
-            // RecordImGui(imageIndex);
+            RecordImGui(imageIndex);
             RecordSwapImageToPresentLayout(imageIndex);
 #endif
         }
 
-        std::array<vk::CommandBuffer, 5> commandBuffers = {
-            frameData.DrawLayoutCommandBuffer, frameData.OpaqueCommandBuffer,
+        // TODO: even when ImGui is not showing, it's being submitted
+        std::array<vk::CommandBuffer, 6> commandBuffers = {
+            frameData.DrawLayoutCommandBuffer,
+            frameData.OpaqueCommandBuffer,
             frameData.TransparentCommandBuffer,
             frameData.CompositeCommandBuffer,
+            frameData.ImGuiCommandBuffer,
             frameData.PresentLayoutCommandBuffer};
         vk::PipelineStageFlags waitDestinationStageFlags(
             vk::PipelineStageFlagBits::eColorAttachmentOutput);
@@ -973,7 +980,7 @@ private:
                        vk::ObjectType::ePipelineLayout,
                        "Opaque Pipeline Layout");
 
-        m_PipelineRenderingCreateInfo = {
+        vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo = {
             .colorAttachmentCount = 1,
             .pColorAttachmentFormats = &m_OpaqueImageFormat,
             .depthAttachmentFormat = m_DepthFormat};
@@ -992,7 +999,7 @@ private:
                  .pDynamicState = &dynamicState,
                  .layout = m_OpaquePipelineLayout,
                  .renderPass = nullptr},
-                m_PipelineRenderingCreateInfo};
+                pipelineRenderingCreateInfo};
 
         m_OpaquePipeline = vk::raii::Pipeline(
             m_Device, nullptr,
@@ -1619,13 +1626,6 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        // TODO: remove this after changing to read only in transparent pass
-        TransitionImageLayout(cmd, m_DepthImage,
-                              vk::ImageLayout::eDepthAttachmentOptimal,
-                              vk::ImageLayout::eDepthReadOnlyOptimal,
-                              vk::ImageAspectFlagBits::eDepth);
-
-        // TODO: remove this after changing to read only in transparent pass
         TransitionImageLayout(cmd, frame.OpaqueTexture.GetImage(),
                               vk::ImageLayout::eColorAttachmentOptimal,
                               vk::ImageLayout::eShaderReadOnlyOptimal,
@@ -1691,18 +1691,12 @@ private:
             .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eLoad,
             .storeOp = vk::AttachmentStoreOp::eStore};
-        vk::RenderingAttachmentInfo depthAttachmentInfo = {
-            .imageView = m_DepthImageView,
-            .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
-            .loadOp = vk::AttachmentLoadOp::eLoad,
-            .storeOp = vk::AttachmentStoreOp::eNone};
 
         vk::RenderingInfo renderingInfo = {
             .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
             .layerCount = 1,
             .colorAttachmentCount = 1,
-            .pColorAttachments = &colorAttachmentInfo,
-            .pDepthAttachment = &depthAttachmentInfo};
+            .pColorAttachments = &colorAttachmentInfo};
 
         cmd.beginRendering(renderingInfo);
 
@@ -1842,9 +1836,13 @@ private:
         UpdateCompositeDescriptorSet();
         UpdateDepthDescriptorSet();
 
-        // With dynamic rendering, this is the only change on the ImGui side
-        // that has to be made.
-        ImGui_ImplVulkan_SetMinImageCount(m_MinImageCount);
+        vk::PipelineRenderingCreateInfo pipelineRenderingInfo{
+            .colorAttachmentCount = 1u,
+            .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format};
+        ImGui_ImplVulkan_PipelineInfo pipelineInfo{};
+        pipelineInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        pipelineInfo.PipelineRenderingCreateInfo = pipelineRenderingInfo;
+        ImGui_ImplVulkan_CreateMainPipeline(&pipelineInfo);
     }
 
     void CreateDescriptorSetLayouts()
@@ -2387,7 +2385,6 @@ private:
     static constexpr vk::Format m_AccumImageFormat =
         vk::Format::eR16G16B16A16Sfloat;
     static constexpr vk::Format m_RevealageImageFormat = vk::Format::eR8Unorm;
-    vk::PipelineRenderingCreateInfo m_PipelineRenderingCreateInfo = {};
     vk::raii::Buffer m_QuadVertexBuffer = nullptr;
     vk::raii::DeviceMemory m_QuadVertexBufferMemory = nullptr;
     vk::raii::Buffer m_QuadIndexBuffer = nullptr;
