@@ -1,4 +1,5 @@
 #include "TextureLoader.h"
+#include "vulkan/vulkan.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
@@ -69,11 +70,11 @@ Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
 
     vk::raii::Image image({});
     vk::raii::DeviceMemory imageMemory({});
-    CreateImage(m_Device, m_PhysicalDevice, width, height, format,
-                vk::ImageTiling::eOptimal,
-                vk::ImageUsageFlagBits::eTransferDst |
-                    vk::ImageUsageFlagBits::eSampled,
-                vk::MemoryPropertyFlagBits::eDeviceLocal, image, imageMemory);
+    CreateImage(
+        m_Device, m_PhysicalDevice, width, height, format,
+        vk::ImageTiling::eOptimal,
+        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, image, imageMemory, 1u);
     SetVkDebugName(m_Device, *image, vk::ObjectType::eImage,
                    std::format("{} Image", path).c_str());
     SetVkDebugName(m_Device, *imageMemory, vk::ObjectType::eDeviceMemory,
@@ -90,8 +91,9 @@ Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
                           vk::ImageAspectFlagBits::eColor);
     EndSingleTimeCommand(cmd, m_TransferQueue);
 
-    vk::raii::ImageView imageView = CreateImageView(
-        m_Device, image, format, vk::ImageAspectFlagBits::eColor);
+    vk::raii::ImageView imageView =
+        CreateImageView(m_Device, image, vk::ImageViewType::e2D, format,
+                        vk::ImageAspectFlagBits::eColor, 1u);
     SetVkDebugName(m_Device, *imageView, vk::ObjectType::eImageView,
                    std::format("{} Image View", path).c_str());
 

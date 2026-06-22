@@ -184,29 +184,35 @@ inline void CopyBuffer(vk::raii::Device& device,
 
 [[nodiscard]] inline vk::raii::ImageView
 CreateImageView(vk::raii::Device& device, const vk::Image& image,
-                vk::Format format, vk::ImageAspectFlags aspectFlags)
+                vk::ImageViewType imageViewType, vk::Format format,
+                vk::ImageAspectFlags aspectFlags, uint32_t layerCount)
 {
     vk::ImageViewCreateInfo createInfo{
         .image = image,
-        .viewType = vk::ImageViewType::e2D,
+        .viewType = imageViewType,
         .format = format,
-        .subresourceRange = {aspectFlags, 0, 1, 0, 1}};
+        .subresourceRange = {.aspectMask = aspectFlags,
+                             .baseMipLevel = 0u,
+                             .levelCount = 1u,
+                             .baseArrayLayer = 0u,
+                             .layerCount = layerCount}};
     return vk::raii::ImageView(device, createInfo);
 }
 
-inline void CreateImage(vk::raii::Device& device,
-                        vk::raii::PhysicalDevice& physicalDevice,
-                        uint32_t width, uint32_t height, vk::Format format,
-                        vk::ImageTiling tiling, vk::ImageUsageFlags usage,
-                        vk::MemoryPropertyFlags properties,
-                        vk::raii::Image& image,
-                        vk::raii::DeviceMemory& imageMemory)
+inline void
+CreateImage(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
+            uint32_t width, uint32_t height, vk::Format format,
+            vk::ImageTiling tiling, vk::ImageUsageFlags usage,
+            vk::MemoryPropertyFlags properties, vk::raii::Image& image,
+            vk::raii::DeviceMemory& imageMemory, uint32_t arrayLayers,
+            vk::ImageCreateFlagBits flags = {})
 {
-    vk::ImageCreateInfo createInfo{.imageType = vk::ImageType::e2D,
+    vk::ImageCreateInfo createInfo{.flags = flags,
+                                   .imageType = vk::ImageType::e2D,
                                    .format = format,
                                    .extent = {width, height, 1},
                                    .mipLevels = 1,
-                                   .arrayLayers = 1,
+                                   .arrayLayers = arrayLayers,
                                    .samples = vk::SampleCountFlagBits::e1,
                                    .tiling = tiling,
                                    .usage = usage,

@@ -25,12 +25,14 @@ set(SOURCES
     src/Model.cpp
     src/ModelData.cpp
     src/Texture.cpp
+    src/Cubemap.cpp
     src/Camera.cpp
     src/Material.cpp
     src/PBRMaterial.cpp
     src/MaterialFactory.cpp
     src/ResourceManager.cpp
     src/TextureLoader.cpp
+	src/CubemapLoader.cpp
     src/ModelLoader.cpp
     src/ModelManager.cpp
     src/GameObject.cpp
