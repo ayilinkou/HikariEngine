@@ -13,8 +13,6 @@
 #include "Utility.h"
 #include "Vertex.h"
 #include "vulkan/vulkan.hpp"
-#include <imgui_impl_vulkan.h>
-#include <vulkan/vulkan_core.h>
 
 #define MULTITHREADED_COMMAND_RECORDING 1
 
@@ -841,8 +839,9 @@ private:
         for (size_t i = 0; i < m_SwapImages.size(); i++)
         {
             m_SwapImageViews.push_back(CreateImageView(
-                m_Device, m_SwapImages[i], m_SwapchainSurfaceFormat.format,
-                vk::ImageAspectFlagBits::eColor));
+                m_Device, m_SwapImages[i], vk::ImageViewType::e2D,
+                m_SwapchainSurfaceFormat.format,
+                vk::ImageAspectFlagBits::eColor, 1u));
             SetVkDebugName(m_Device, *m_SwapImageViews.back(),
                            vk::ObjectType::eImageView,
                            std::format("Swapchain Image View_{}", i).c_str());
@@ -2107,15 +2106,15 @@ private:
                     vk::ImageUsageFlagBits::eDepthStencilAttachment |
                         vk::ImageUsageFlagBits::eSampled,
                     vk::MemoryPropertyFlagBits::eDeviceLocal, m_DepthImage,
-                    m_DepthImageMemory);
+                    m_DepthImageMemory, 1u);
         SetVkDebugName(m_Device, *m_DepthImage, vk::ObjectType::eImage,
                        "Depth Image");
         SetVkDebugName(m_Device, *m_DepthImageMemory,
                        vk::ObjectType::eDeviceMemory, "Depth Image Memory");
 
         m_DepthImageView =
-            CreateImageView(m_Device, m_DepthImage, m_DepthFormat,
-                            vk::ImageAspectFlagBits::eDepth);
+            CreateImageView(m_Device, m_DepthImage, vk::ImageViewType::e2D,
+                            m_DepthFormat, vk::ImageAspectFlagBits::eDepth, 1u);
         SetVkDebugName(m_Device, *m_DepthImageView, vk::ObjectType::eImageView,
                        "Depth Image View");
     }
@@ -2207,10 +2206,10 @@ private:
                         vk::ImageUsageFlagBits::eSampled |
                             vk::ImageUsageFlagBits::eColorAttachment,
                         vk::MemoryPropertyFlagBits::eDeviceLocal, opaqueImage,
-                        opaqueImageMemory);
-            opaqueImageView =
-                CreateImageView(m_Device, opaqueImage, m_OpaqueImageFormat,
-                                vk::ImageAspectFlagBits::eColor);
+                        opaqueImageMemory, 1u);
+            opaqueImageView = CreateImageView(
+                m_Device, opaqueImage, vk::ImageViewType::e2D,
+                m_OpaqueImageFormat, vk::ImageAspectFlagBits::eColor, 1u);
 
             Texture opaqueTexture(
                 std::move(opaqueImage), std::move(opaqueImageView),
@@ -2229,10 +2228,10 @@ private:
                         vk::ImageUsageFlagBits::eSampled |
                             vk::ImageUsageFlagBits::eColorAttachment,
                         vk::MemoryPropertyFlagBits::eDeviceLocal, accumImage,
-                        accumImageMemory);
-            accumImageView =
-                CreateImageView(m_Device, accumImage, m_AccumImageFormat,
-                                vk::ImageAspectFlagBits::eColor);
+                        accumImageMemory, 1u);
+            accumImageView = CreateImageView(
+                m_Device, accumImage, vk::ImageViewType::e2D,
+                m_AccumImageFormat, vk::ImageAspectFlagBits::eColor, 1u);
 
             Texture accumTexture(
                 std::move(accumImage), std::move(accumImageView),
@@ -2251,10 +2250,10 @@ private:
                         vk::ImageUsageFlagBits::eSampled |
                             vk::ImageUsageFlagBits::eColorAttachment,
                         vk::MemoryPropertyFlagBits::eDeviceLocal,
-                        revealageImage, revealageImageMemory);
+                        revealageImage, revealageImageMemory, 1u);
             revealageImageView = CreateImageView(
-                m_Device, revealageImage, m_RevealageImageFormat,
-                vk::ImageAspectFlagBits::eColor);
+                m_Device, revealageImage, vk::ImageViewType::e2D,
+                m_RevealageImageFormat, vk::ImageAspectFlagBits::eColor, 1u);
 
             Texture revealageTexture(
                 std::move(revealageImage), std::move(revealageImageView),

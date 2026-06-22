@@ -22,7 +22,7 @@ public:
     vk::raii::DeviceMemory& GetImageMemory() { return m_ImageMemory; }
     vk::raii::ImageView& GetImageView() { return m_ImageView; }
 	
-	const std::string& GetPath() { return m_Path; }
+	const std::string& GetPath() const { return m_Path; }
 
 private:
     vk::raii::Image m_Image = nullptr;
