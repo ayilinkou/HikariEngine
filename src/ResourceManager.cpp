@@ -1,5 +1,7 @@
 #include "ResourceManager.h"
 
+#include "Cubemap.h"
+#include "CubemapLoader.h"
 #include "ModelData.h"
 #include "ModelLoader.h"
 #include "ModelManager.h"
@@ -18,6 +20,7 @@ void ResourceManager::Init(vk::raii::Device& device,
 
     s_Instance = new ResourceManager();
     TextureLoader::Init(device, physicalDevice, commandPool, transferQueue);
+    CubemapLoader::Init(device, physicalDevice, commandPool, transferQueue);
     ModelLoader::Init(device, physicalDevice, commandPool, transferQueue);
     ModelManager::Init();
 }
@@ -30,9 +33,11 @@ void ResourceManager::Shutdown()
 
     ModelManager::Shutdown();
     ModelLoader::Shutdown();
+    CubemapLoader::Shutdown();
     TextureLoader::Shutdown();
 
-    if (!s_Instance->m_TexturesMap.empty() || !s_Instance->m_ModelsMap.empty())
+    if (!s_Instance->m_TexturesMap.empty() ||
+        !s_Instance->m_ModelsMap.empty() || !s_Instance->m_CubemapsMap.empty())
     {
         DEBUG_BREAK(); // Attempting to shutdown when resources are still
                        // loaded!
@@ -40,6 +45,8 @@ void ResourceManager::Shutdown()
 
     s_Instance->m_ModelsMap.clear();
     s_Instance->m_TexturesMap.clear();
+    s_Instance->m_CubemapsMap.clear();
+
     delete s_Instance;
     s_Instance = nullptr;
 }
@@ -59,6 +66,23 @@ Texture* ResourceManager::LoadTexture(const std::string& filepath,
         return nullptr;
 
     m_TexturesMap[filepath] = std::make_unique<Resource>(pData);
+    return pData;
+}
+
+Cubemap* ResourceManager::LoadCubemap(const CubemapCreateInfo& createInfo)
+{
+    auto it = m_CubemapsMap.find(createInfo.RightPath);
+    if (it != m_CubemapsMap.end() && it->second.get())
+    {
+        it->second->AddRef();
+        return static_cast<Cubemap*>(it->second->m_pData);
+    }
+
+    Cubemap* pData = CubemapLoader::Get()->Load(createInfo);
+    if (!pData)
+        return nullptr;
+
+    m_CubemapsMap[createInfo.RightPath] = std::make_unique<Resource>(pData);
     return pData;
 }
 
@@ -98,6 +122,25 @@ uint32_t ResourceManager::UnloadTexture(const std::string& filepath)
     return 0u;
 }
 
+uint32_t ResourceManager::UnloadCubemap(const CubemapCreateInfo& createInfo)
+{
+    Resource* resourceToUnload = m_CubemapsMap[createInfo.RightPath].get();
+    if (!resourceToUnload)
+    {
+        m_TexturesMap.erase(createInfo.RightPath);
+        return 0u;
+    }
+
+    resourceToUnload->RemoveRef();
+    if (resourceToUnload->m_RefCount > 0u)
+    {
+        return resourceToUnload->m_RefCount;
+    }
+
+    Internal_UnloadCubemap(createInfo);
+    return 0u;
+}
+
 uint32_t ResourceManager::UnloadModel(const std::string& filepath)
 {
     Resource* ResourceToUnload = m_ModelsMap[filepath].get();
@@ -122,6 +165,14 @@ void ResourceManager::Internal_UnloadTexture(const std::string filepath)
     Texture* pTexture = static_cast<Texture*>(m_TexturesMap[filepath]->m_pData);
     delete pTexture;
     m_TexturesMap.erase(filepath);
+}
+
+void ResourceManager::Internal_UnloadCubemap(const CubemapCreateInfo createInfo)
+{
+    Cubemap* pCubemap =
+        static_cast<Cubemap*>(m_CubemapsMap[createInfo.RightPath]->m_pData);
+    delete pCubemap;
+    m_TexturesMap.erase(createInfo.RightPath);
 }
 
 void ResourceManager::Internal_UnloadModel(const std::string filepath)
