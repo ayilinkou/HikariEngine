@@ -12,7 +12,7 @@
 #include "Timer.h"
 #include "Utility.h"
 #include "Vertex.h"
-#include "vulkan/vulkan.hpp"
+#include "Cubemap.h"
 
 #define MULTITHREADED_COMMAND_RECORDING 1
 
@@ -251,6 +251,19 @@ private:
             m_GameObjects.back()->AddComponent(std::move(sponzaModel));
         }*/
 
+		CubemapCreateInfo createInfo{};
+		createInfo.Name = "Skybox";
+		createInfo.Format = vk::Format::eR8G8B8A8Srgb;
+		
+		const std::string skyboxRoot = "textures/skybox/";
+		createInfo.RightPath = skyboxRoot + "right.jpg";
+		createInfo.LeftPath = skyboxRoot + "left.jpg";
+		createInfo.TopPath = skyboxRoot + "top.jpg";
+		createInfo.BottomPath = skyboxRoot + "bottom.jpg";
+		createInfo.FrontPath = skyboxRoot + "front.jpg";
+		createInfo.BackPath = skyboxRoot + "back.jpg";
+		m_pSkybox = ResourceManager::Get()->LoadCubemap(createInfo);
+
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
 
@@ -326,7 +339,10 @@ private:
 
     void Shutdown()
     {
-        m_GameObjects.clear();
+		ResourceManager::Get()->UnloadCubemap(m_pSkybox->GetCreateInfo());
+		m_pSkybox = nullptr;
+
+		m_GameObjects.clear();
         ThreadPool::Shutdown();
         ShutdownImGui();
         MaterialFactory::Shutdown();
@@ -2398,6 +2414,7 @@ private:
 
     std::unique_ptr<Camera> m_Camera = nullptr;
     std::vector<std::unique_ptr<GameObject>> m_GameObjects;
+	Cubemap* m_pSkybox = nullptr;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
