@@ -39,8 +39,10 @@ void ResourceManager::Shutdown()
     if (!s_Instance->m_TexturesMap.empty() ||
         !s_Instance->m_ModelsMap.empty() || !s_Instance->m_CubemapsMap.empty())
     {
-        DEBUG_BREAK(); // Attempting to shutdown when resources are still
-                       // loaded!
+        std::cerr << "Attempting to shutdown ResourceManager when resources "
+                     "are still loaded!"
+                  << std::endl;
+        DEBUG_BREAK();
     }
 
     s_Instance->m_ModelsMap.clear();
@@ -172,7 +174,7 @@ void ResourceManager::Internal_UnloadCubemap(const CubemapCreateInfo createInfo)
     Cubemap* pCubemap =
         static_cast<Cubemap*>(m_CubemapsMap[createInfo.RightPath]->m_pData);
     delete pCubemap;
-    m_TexturesMap.erase(createInfo.RightPath);
+    m_CubemapsMap.erase(createInfo.RightPath);
 }
 
 void ResourceManager::Internal_UnloadModel(const std::string filepath)
