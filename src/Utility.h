@@ -228,6 +228,8 @@ CreateImage(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
     image.bindMemory(imageMemory, 0);
 }
 
+// This is starting to not really make sense anymore. It'll be better to do this
+// inline whenever it's needed rather than creating so many else ifs.
 inline void TransitionImageLayout(vk::raii::CommandBuffer& cmd,
                                   const vk::raii::Image& image,
                                   vk::ImageLayout oldLayout,

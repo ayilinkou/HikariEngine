@@ -32,7 +32,7 @@ set(SOURCES
     src/MaterialFactory.cpp
     src/ResourceManager.cpp
     src/TextureLoader.cpp
-	src/CubemapLoader.cpp
+    src/CubemapLoader.cpp
     src/ModelLoader.cpp
     src/ModelManager.cpp
     src/GameObject.cpp
@@ -40,7 +40,8 @@ set(SOURCES
     src/Transform.cpp
     src/Node.cpp
     src/Mesh.cpp
-    src/ThreadPool.cpp)
+    src/ThreadPool.cpp
+    src/CloudSystem.cpp)
 
 find_package(Vulkan REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
@@ -119,7 +120,6 @@ function(add_slang_shader_target target)
 
   set(shaders_dir ${CMAKE_CURRENT_LIST_DIR}/shaders)
   set(shaders_source_dir ${CMAKE_CURRENT_LIST_DIR}/src/shaders)
-  set(entry_points -entry vertMain -entry fragMain)
 
   set(outputs)
 
@@ -134,6 +134,12 @@ function(add_slang_shader_target target)
     get_filename_component(output_dir ${output_file} DIRECTORY)
 
     list(APPEND outputs ${output_file})
+
+    if(shader MATCHES "\\.comp\\.slang$")
+      set(entry_points -entry main)
+    else()
+      set(entry_points -entry vertMain -entry fragMain)
+    endif()
 
     add_custom_command(
       OUTPUT ${output_file}

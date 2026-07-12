@@ -63,7 +63,7 @@ VS_Out vertMain(VS_In v)
 {
 	VS_Out o;
 	float4 worldPos = mul(float4(v.Pos, 1.f), v.GetModelMatrix());
-	o.Pos = mul(mul(worldPos, globalBuffer.View), globalBuffer.Proj);
+	o.Pos = mul(mul(worldPos, globalBuffer.Camera.View), globalBuffer.Camera.Proj);
 	o.WorldPos = worldPos.xyz;
 	o.TexCoord = v.TexCoord;
 	float3x3 normalMatrix = (float3x3)v.GetNormalMatrix();
@@ -132,27 +132,37 @@ FS_Out fragMain(VS_Out f)
 		N = vertexNormal;
 	}
 
-	float3 camToFrag = normalize(f.WorldPos - globalBuffer.CameraPos);
+	float3 camToFrag = normalize(f.WorldPos - globalBuffer.Camera.Pos);
 	float viewNormalAlignment = dot(camToFrag, vertexNormal); 
 	bool bNormalNeedsFlip = pcMatData.bTwoSided && (viewNormalAlignment > 0.f);
 	N = bNormalNeedsFlip ? -1.f * N : N;
 	
-	float attenuation = CalcAttenuation(f.WorldPos, globalBuffer.Light.Pos);
-	float3 Li = globalBuffer.Light.Color * globalBuffer.Light.Intensity * attenuation; // light radiance
 	float3 V = -1.f * camToFrag; // view vector
-	float3 L = normalize(globalBuffer.Light.Pos - f.WorldPos); // light vector
-	float3 H = normalize(L + V); // halfway vector
-	float NdotL = saturate(dot(N, L));
-	float NdotH = saturate(dot(N, H));
-	
-	// transparent materials have little to no diffuse
-	float3 diffuse, specular;
-	CookTorrenceBRDF(N, V, L, H, albedo, roughness, metallic, diffuse, specular);
-	float3 BRDF = specular;
-
 	float3 Lo = float3(0.f, 0.f, 0.f);
-	Lo += BRDF * Li * NdotL;
-	
+
+	for (uint i = 0u; i < globalBuffer.Lights.PointLightCount; i++)
+	{
+		if (globalBuffer.Lights.PointLights[i].Intensity == 0.f)
+			continue;
+
+		float attenuation = CalcAttenuation(f.WorldPos, globalBuffer.Lights.PointLights[i].Pos);
+		float3 Li = globalBuffer.Lights.PointLights[i].Color * globalBuffer.Lights.PointLights[i].Intensity * attenuation; // light radiance
+		float3 L = normalize(globalBuffer.Lights.PointLights[i].Pos - f.WorldPos); // light vector
+
+		Lo += CalcLight(N, V, L, Li, albedo.rgb, roughness, metallic);
+	}
+
+	for (uint i = 0u; i < globalBuffer.Lights.DirLightCount; i++)
+	{
+		if (globalBuffer.Lights.DirLights[i].Intensity == 0.f)
+			continue;
+
+		float3 Li = globalBuffer.Lights.DirLights[i].Color * globalBuffer.Lights.DirLights[i].Intensity; // light radiance
+		float3 L = normalize(-globalBuffer.Lights.DirLights[i].Dir); // light vector
+
+		Lo += CalcLight(N, V, L, Li, albedo.rgb, roughness, metallic);
+	}
+
 	// opacity should be influenced by fresnel
 	float3 F0 = float3(0.04f);
 	float NdotV = saturate(dot(N, V));

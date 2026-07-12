@@ -1,4 +1,7 @@
 #include "Camera.h"
+#include "CloudSystem.h"
+#include "Common.h"
+#include "Cubemap.h"
 #include "FrameData.h"
 #include "GameObject.h"
 #include "InstanceData.h"
@@ -12,7 +15,6 @@
 #include "Timer.h"
 #include "Utility.h"
 #include "Vertex.h"
-#include "Cubemap.h"
 
 #define MULTITHREADED_COMMAND_RECORDING 1
 
@@ -35,21 +37,35 @@ void HandleSIGINT(int)
     std::cout << "\n";
 }
 
+struct LightData
+{
+    uint32_t PointLightCount;
+    uint32_t DirLightCount;
+    glm::vec2 Padding;
+    PointLight::Data PointLights[MAX_POINT_LIGHTS];
+    DirectionalLight::Data DirLights[MAX_DIR_LIGHTS];
+};
+
+struct CameraData
+{
+    glm::mat4 View;
+    glm::mat4 Proj;
+    glm::mat4 InvViewProj;
+    glm::vec3 Pos;
+    float NearPlane;
+    glm::vec3 Padding;
+    float FarPlane;
+};
+
 // Each member must start at an offset that is a multiple of its base alignment.
 // Eg. a float can start on offset 0, 4, 8 or 12.
 // glm::vec3 is 12 bytes wide by default but is 16 byte aligned.
 struct GlobalBuffer
 {
-    glm::mat4 View;
-    glm::mat4 Proj;
-    PointLight Light;
-    glm::vec3 CameraPos;
-    float Time;
-    float NearPlane;
-    float FarPlane;
-    glm::vec2 Padding0;
+    LightData Lights;
+    CameraData CamData;
     glm::vec3 SkyColor;
-    float Padding1;
+    float Time;
 };
 
 std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -222,6 +238,11 @@ private:
         InitImGui();
 
         ThreadPool::Init();
+        m_PointLight = PointLight({-10.f, 15.f, 0.f});
+        m_PointLight.SetIntensity(1000.f);
+
+        m_DirLight = DirectionalLight({0.5f, -1.f, 0.5f});
+        m_DirLight.SetIntensity(5.f);
 
         m_GameObjects.push_back(std::make_unique<GameObject>());
         m_GameObjects.back()->GetTransform().Position +=
@@ -251,18 +272,18 @@ private:
             m_GameObjects.back()->AddComponent(std::move(sponzaModel));
         }*/
 
-		CubemapCreateInfo createInfo{};
-		createInfo.Name = "Skybox";
-		createInfo.Format = vk::Format::eR8G8B8A8Srgb;
-		
-		const std::string skyboxRoot = "textures/skybox/";
-		createInfo.RightPath = skyboxRoot + "right.jpg";
-		createInfo.LeftPath = skyboxRoot + "left.jpg";
-		createInfo.TopPath = skyboxRoot + "top.jpg";
-		createInfo.BottomPath = skyboxRoot + "bottom.jpg";
-		createInfo.FrontPath = skyboxRoot + "front.jpg";
-		createInfo.BackPath = skyboxRoot + "back.jpg";
-		m_pSkybox = ResourceManager::Get()->LoadCubemap(createInfo);
+        CubemapCreateInfo createInfo{};
+        createInfo.Name = "Skybox";
+        createInfo.Format = vk::Format::eR8G8B8A8Srgb;
+
+        const std::string skyboxRoot = "textures/skybox/";
+        createInfo.RightPath = skyboxRoot + "right.jpg";
+        createInfo.LeftPath = skyboxRoot + "left.jpg";
+        createInfo.TopPath = skyboxRoot + "top.jpg";
+        createInfo.BottomPath = skyboxRoot + "bottom.jpg";
+        createInfo.FrontPath = skyboxRoot + "front.jpg";
+        createInfo.BackPath = skyboxRoot + "back.jpg";
+        m_pSkybox = ResourceManager::Get()->LoadCubemap(createInfo);
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
@@ -332,6 +353,17 @@ private:
         CreateInstanceBuffers();
         CreateRenderTargets();
         CreateDescriptorPool();
+
+        CloudSystemCreateInfo cloudCreateInfo{
+            .Device = m_Device,
+            .PhysicalDevice = m_PhysicalDevice,
+            .GlobalSetLayout = m_GlobalBufferSetLayout,
+            .DepthSetLayout = m_DepthSetLayout,
+            .SwapchainWidth = m_SwapchainExtent.width,
+            .SwapchainHeight = m_SwapchainExtent.height,
+            .FramesInFlight = MAX_FRAMES_IN_FLIGHT};
+        m_CloudSystem = std::make_unique<CloudSystem>(cloudCreateInfo);
+
         CreateDescriptorSets();
         CreateSyncObjects();
         CreateQuadBuffers();
@@ -339,10 +371,10 @@ private:
 
     void Shutdown()
     {
-		ResourceManager::Get()->UnloadCubemap(m_pSkybox->GetCreateInfo());
-		m_pSkybox = nullptr;
+        ResourceManager::Get()->UnloadCubemap(m_pSkybox->GetCreateInfo());
+        m_pSkybox = nullptr;
 
-		m_GameObjects.clear();
+        m_GameObjects.clear();
         ThreadPool::Shutdown();
         ShutdownImGui();
         MaterialFactory::Shutdown();
@@ -485,6 +517,7 @@ private:
             // these command buffers are very small and so likely faster to
             // record on main thread
             RecordSwapImageToDrawLayout(imageIndex);
+            RecordCloudsCommandBuffer();
             RecordCompositeCommandBuffer(imageIndex);
             RecordImGui(imageIndex);
             RecordSwapImageToPresentLayout(imageIndex);
@@ -495,6 +528,7 @@ private:
             RecordSwapImageToDrawLayout(imageIndex);
             RecordOpaqueCommandBuffer();
             RecordTransparentCommandBuffer();
+            RecordCloudsCommandBuffer();
             RecordCompositeCommandBuffer(imageIndex);
             RecordImGui(imageIndex);
             RecordSwapImageToPresentLayout(imageIndex);
@@ -502,12 +536,10 @@ private:
         }
 
         // TODO: even when ImGui is not showing, it's being submitted
-        std::array<vk::CommandBuffer, 6> commandBuffers = {
-            frameData.DrawLayoutCommandBuffer,
-            frameData.OpaqueCommandBuffer,
-            frameData.TransparentCommandBuffer,
-            frameData.CompositeCommandBuffer,
-            frameData.ImGuiCommandBuffer,
+        std::array<vk::CommandBuffer, 7> commandBuffers = {
+            frameData.DrawLayoutCommandBuffer,   frameData.OpaqueCommandBuffer,
+            frameData.TransparentCommandBuffer,  frameData.CloudCommandBuffer,
+            frameData.CompositeCommandBuffer,    frameData.ImGuiCommandBuffer,
             frameData.PresentLayoutCommandBuffer};
         vk::PipelineStageFlags waitDestinationStageFlags(
             vk::PipelineStageFlagBits::eColorAttachmentOutput);
@@ -550,13 +582,26 @@ private:
 
         if (ImGui::Begin("Menu"))
         {
-            ImGui::Text("Light");
-            ImGui::DragFloat3("Position", &m_GlobalBuffer.Light.Pos.x, 0.5f);
-            ImGui::ColorEdit3("Color##Light", &m_GlobalBuffer.Light.Color.r);
-            ImGui::SliderFloat("Intensity", &m_GlobalBuffer.Light.Intensity,
-                               0.f, 1000.f);
+            ImGui::Text("Point Light");
+            ImGui::DragFloat3("Position", &m_PointLight.GetPosition().x, 0.5f);
+            ImGui::ColorEdit3("Color##PointLight", &m_PointLight.GetColor().r);
+            ImGui::SliderFloat("Intensity##PointLight", &m_PointLight.GetIntensity(), 0.f,
+                               1000.f);
+
+            ImGui::Dummy(ImVec2(0.f, 5.f));
+
+            ImGui::Text("Directional Light");
+			glm::vec3 dir = m_DirLight.GetDirection();
+            ImGui::DragFloat3("Direction", &dir.x, 0.5f);
+			if (dir != m_DirLight.GetDirection())
+				m_DirLight.SetDirection(dir);
+
+            ImGui::ColorEdit3("Color##DirLight", &m_DirLight.GetColor().r);
+            ImGui::SliderFloat("Intensity##DirLight", &m_DirLight.GetIntensity(), 0.f,
+                               10.f);
 
             ImGui::Dummy(ImVec2(0.f, 20.f));
+
             ImGui::Text("Frame time: %.4fms", m_DisplayFrameTime);
             ImGui::Text("FPS: %.1f", m_DisplayFPS);
         }
@@ -1330,6 +1375,12 @@ private:
                 vk::ObjectType::eCommandPool,
                 std::format("Opaque Command Pool Frame {}", i).c_str());
 
+            frame.CloudCommandPool =
+                vk::raii::CommandPool(m_Device, createInfo);
+            SetVkDebugName(
+                m_Device, *frame.CloudCommandPool, vk::ObjectType::eCommandPool,
+                std::format("Cloud Command Pool Frame {}", i).c_str());
+
             frame.TransparentCommandPool =
                 vk::raii::CommandPool(m_Device, createInfo);
             SetVkDebugName(
@@ -1392,6 +1443,19 @@ private:
                 m_Device, *frame.OpaqueCommandBuffer,
                 vk::ObjectType::eCommandBuffer,
                 std::format("Opaque Command Buffer Frame {}", i).c_str());
+
+            allocInfo = vk::CommandBufferAllocateInfo{
+                .commandPool = frame.CloudCommandPool,
+                .level = vk::CommandBufferLevel::ePrimary,
+                .commandBufferCount = 1u};
+            cmd = std::move(
+                vk::raii::CommandBuffers(m_Device, allocInfo).front());
+
+            frame.CloudCommandBuffer = std::move(cmd);
+            SetVkDebugName(
+                m_Device, *frame.CloudCommandBuffer,
+                vk::ObjectType::eCommandBuffer,
+                std::format("Cloud Command Buffer Frame {}", i).c_str());
 
             allocInfo = vk::CommandBufferAllocateInfo{
                 .commandPool = frame.TransparentCommandPool,
@@ -1536,6 +1600,16 @@ private:
         cmd.endRendering();
 
         cmd.end();
+    }
+
+    void RecordCloudsCommandBuffer()
+    {
+        FrameData& frame = m_Frames[m_FrameIndex];
+        frame.CloudCommandPool.reset();
+
+        m_CloudSystem->RecordDispatch(frame.CloudCommandBuffer, m_FrameIndex,
+                                      frame.GlobalBufferDescriptorSet,
+                                      m_DepthBufferDescriptorSet);
     }
 
     void RecordTransparentCommandBuffer()
@@ -1845,8 +1919,11 @@ private:
 
         CreateDepthResources();
         CreateRenderTargets();
-        UpdateCompositeDescriptorSet();
+
+        m_CloudSystem->Resize(m_SwapchainExtent.width,
+                              m_SwapchainExtent.height);
         UpdateDepthDescriptorSet();
+        UpdateCompositeDescriptorSet();
 
         vk::PipelineRenderingCreateInfo pipelineRenderingInfo{
             .colorAttachmentCount = 1u,
@@ -1862,7 +1939,8 @@ private:
         std::array frameBindings = {vk::DescriptorSetLayoutBinding(
             0u, vk::DescriptorType::eUniformBuffer, 1u,
             vk::ShaderStageFlagBits::eVertex |
-                vk::ShaderStageFlagBits::eFragment,
+                vk::ShaderStageFlagBits::eFragment |
+                vk::ShaderStageFlagBits::eCompute,
             nullptr)};
         vk::DescriptorSetLayoutCreateInfo frameCreateInfo{
             .bindingCount = frameBindings.size(),
@@ -1882,6 +1960,9 @@ private:
                 vk::ShaderStageFlagBits::eFragment, nullptr),
             vk::DescriptorSetLayoutBinding(
                 2u, vk::DescriptorType::eSampledImage, 1u,
+                vk::ShaderStageFlagBits::eFragment, nullptr),
+            vk::DescriptorSetLayoutBinding(
+                3u, vk::DescriptorType::eCombinedImageSampler, 1u,
                 vk::ShaderStageFlagBits::eFragment, nullptr)};
         vk::DescriptorSetLayoutCreateInfo compositeCreateInfo{
             .bindingCount = compositeBindings.size(),
@@ -1894,7 +1975,9 @@ private:
 
         std::array depthBindings = {vk::DescriptorSetLayoutBinding(
             0u, vk::DescriptorType::eSampledImage, 1u,
-            vk::ShaderStageFlagBits::eFragment, nullptr)};
+            vk::ShaderStageFlagBits::eFragment |
+                vk::ShaderStageFlagBits::eCompute,
+            nullptr)};
         vk::DescriptorSetLayoutCreateInfo depthCreateInfo{
             .bindingCount = depthBindings.size(),
             .pBindings = depthBindings.data()};
@@ -1944,16 +2027,12 @@ private:
         // GLM was designed for OpenGL, which has its Y coordinate in clip
         // space inverted. Compensate for this by scaling here.
         colMajProj[1][1] *= -1.f;
-        m_GlobalBuffer.Proj = glm::transpose(colMajProj);
-
-        m_GlobalBuffer.Light.Pos = {-10.f, 15.f, 0.f};
-        m_GlobalBuffer.Light.Intensity = 1000.f;
-        m_GlobalBuffer.Light.Color = {1.f, 1.f, 1.f};
+        m_GlobalBuffer.CamData.Proj = glm::transpose(colMajProj);
 
         m_GlobalBuffer.Time = 0.f;
 
-        m_GlobalBuffer.NearPlane = NEAR_PLANE;
-        m_GlobalBuffer.FarPlane = FAR_PLANE;
+        m_GlobalBuffer.CamData.NearPlane = NEAR_PLANE;
+        m_GlobalBuffer.CamData.FarPlane = FAR_PLANE;
 
         m_GlobalBuffer.SkyColor = SKY_COLOR;
     }
@@ -1961,8 +2040,18 @@ private:
     void UpdateGlobalBuffer(uint32_t frameIndex)
     {
         m_GlobalBuffer.Time = m_RunTime;
-        m_GlobalBuffer.CameraPos = m_Camera->GetPosition();
-        m_GlobalBuffer.View = glm::transpose(m_Camera->GetViewMatrix());
+        m_GlobalBuffer.CamData.Pos = m_Camera->GetPosition();
+        glm::mat4 view = m_Camera->GetViewMatrix();
+        m_GlobalBuffer.CamData.View = glm::transpose(view);
+
+        m_GlobalBuffer.CamData.InvViewProj =
+            glm::inverse(glm::transpose(m_GlobalBuffer.CamData.Proj) * view);
+
+        m_GlobalBuffer.Lights.PointLightCount = 1u;
+        m_GlobalBuffer.Lights.PointLights[0] = m_PointLight.GetData();
+
+        m_GlobalBuffer.Lights.DirLightCount = 1u;
+        m_GlobalBuffer.Lights.DirLights[0] = m_DirLight.GetData();
 
         memcpy(m_Frames[frameIndex].GlobalBufferMapping, &m_GlobalBuffer,
                sizeof(m_GlobalBuffer));
@@ -1985,9 +2074,12 @@ private:
                        vk::ObjectType::eDescriptorPool,
                        "Frame Descriptor Pool");
 
-        std::array compositePoolSize = {vk::DescriptorPoolSize{
-            .type = vk::DescriptorType::eSampledImage,
-            .descriptorCount = MAX_FRAMES_IN_FLIGHT * 3}};
+        std::array compositePoolSize = {
+            vk::DescriptorPoolSize{.type = vk::DescriptorType::eSampledImage,
+                                   .descriptorCount = MAX_FRAMES_IN_FLIGHT * 3},
+            vk::DescriptorPoolSize{
+                .type = vk::DescriptorType::eCombinedImageSampler,
+                .descriptorCount = MAX_FRAMES_IN_FLIGHT * 1}};
         vk::DescriptorPoolCreateInfo compCreateInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
             .maxSets = MAX_FRAMES_IN_FLIGHT,
@@ -2318,6 +2410,10 @@ private:
             vk::DescriptorImageInfo revealageImageInfo{
                 .imageView = frame.RevealageTexture.GetImageView(),
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+            vk::DescriptorImageInfo cloudsImageInfo{
+                .sampler = m_TextureSampler,
+                .imageView = m_CloudSystem->GetImageView(i),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
             std::array compDescriptorWrites = {
                 vk::WriteDescriptorSet{.dstSet = frame.CompositeDescriptorSet,
@@ -2340,7 +2436,14 @@ private:
                                        .descriptorCount = 1u,
                                        .descriptorType =
                                            vk::DescriptorType::eSampledImage,
-                                       .pImageInfo = &revealageImageInfo}};
+                                       .pImageInfo = &revealageImageInfo},
+                vk::WriteDescriptorSet{
+                    .dstSet = frame.CompositeDescriptorSet,
+                    .dstBinding = 3u,
+                    .dstArrayElement = 0u,
+                    .descriptorCount = 1u,
+                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                    .pImageInfo = &cloudsImageInfo}};
 
             m_Device.updateDescriptorSets(compDescriptorWrites, {});
         }
@@ -2414,7 +2517,10 @@ private:
 
     std::unique_ptr<Camera> m_Camera = nullptr;
     std::vector<std::unique_ptr<GameObject>> m_GameObjects;
-	Cubemap* m_pSkybox = nullptr;
+    Cubemap* m_pSkybox = nullptr;
+    std::unique_ptr<CloudSystem> m_CloudSystem = nullptr;
+    PointLight m_PointLight;
+    DirectionalLight m_DirLight;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;

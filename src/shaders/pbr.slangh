@@ -66,6 +66,20 @@ void CookTorrenceBRDF(float3 N, float3 V, float3 L, float3 H, float3 albedo, flo
 	outSpecular = (D * F * G) / max(4.f * NdotV * NdotL, 0.001f); // protect against dividing by 0
 }
 
+float3 CalcLight(float3 N, float3 V, float3 L, float3 Li, float3 albedo, float roughness, float metallic)
+{	
+	float3 H = normalize(L + V); // halfway vector
+	float NdotL = saturate(dot(N, L));
+	float NdotH = saturate(dot(N, H));
+	
+	float3 diffuse, specular;
+	CookTorrenceBRDF(N, V, L, H, albedo.rgb, roughness, metallic, diffuse, specular);
+	float3 BRDF = diffuse + specular;
+
+	float3 Lo = BRDF * Li * NdotL;
+	return Lo;
+}
+
 static const float3x3 ACESInputMat =
 {
 	{ 0.59719, 0.35458, 0.04823 },
@@ -94,4 +108,11 @@ float3 HillACES(float3 color)
 	result = mul(ACESOutputMat, result);
 
 	return saturate(result);
+}
+
+float HenyeyGreenstein(float cosTheta, float g)
+{
+    float g2 = g * g;
+    float denom = 1.f + g2 - 2.f * g * cosTheta;
+    return (1.f - g2) / (4.f * PI * pow(max(denom, 0.0001f), 1.5f));
 }

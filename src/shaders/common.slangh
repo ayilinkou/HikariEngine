@@ -1,23 +1,47 @@
+#include "../Common.h"
+
 struct PointLight
 {
-	float3 Pos;
-	float Intensity;
 	float3 Color;
+	float Intensity;
+	float3 Pos;
 	float Padding;
+};
+
+struct DirLight
+{
+	float3 Color;
+	float Intensity;
+	float3 Dir;
+	float Padding;
+};
+
+struct LightData
+{
+	uint PointLightCount;
+	uint DirLightCount;
+	float2 Padding;
+	PointLight PointLights[MAX_POINT_LIGHTS];
+	DirLight DirLights[MAX_DIR_LIGHTS];
+};
+
+struct CameraData
+{
+	float4x4 View;
+    float4x4 Proj;
+	float4x4 InvViewProj;
+    float3 Pos;
+    float NearPlane;
+	float3 Padding;
+    float FarPlane;
 };
 
 struct GlobalBuffer
 {
-	float4x4 View;
-	float4x4 Proj;
-	PointLight Light;
-	float3 CameraPos;
-	float Time;
-	float NearPlane;
-	float FarPlane;
-	float2 Padding0;
+	LightData Lights;
+	CameraData Camera;
 	float3 SkyColor;
-	float Padding1;
+	float Time;
 };
 
 [[vk::binding(0, 0)]]
