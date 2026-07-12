@@ -37,8 +37,11 @@ void CloudSystem::CreateOutputImages(uint32_t width, uint32_t height)
 
     m_Width = width;
     m_Height = height;
-    m_OutputWidth = std::max(1u, width / 4u);
-    m_OutputHeight = std::max(1u, height / 4u);
+
+	const uint32_t resFactor = 4u;
+
+    m_OutputWidth = std::max(1u, width / resFactor);
+    m_OutputHeight = std::max(1u, height / resFactor);
 
     for (uint32_t i = 0; i < m_FramesInFlight; ++i)
     {

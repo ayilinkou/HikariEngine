@@ -20,7 +20,9 @@ private:
         float MinHeight = 1500.f;
         float MaxHeight = 4000.f;
         float Coverage = 0.5f;
-        uint32_t StepCount = 64u;
+		float Anisotropy = 0.3f;
+        uint32_t ViewStepCount = 64u;
+        uint32_t SunStepCount = 6u;
     };
 
 public:

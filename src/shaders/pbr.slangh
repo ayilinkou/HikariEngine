@@ -109,3 +109,10 @@ float3 HillACES(float3 color)
 
 	return saturate(result);
 }
+
+float HenyeyGreenstein(float cosTheta, float g)
+{
+    float g2 = g * g;
+    float denom = 1.f + g2 - 2.f * g * cosTheta;
+    return (1.f - g2) / (4.f * PI * pow(max(denom, 0.0001f), 1.5f));
+}
