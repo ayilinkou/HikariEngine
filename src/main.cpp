@@ -1,5 +1,6 @@
 #include "Camera.h"
 #include "CloudSystem.h"
+#include "Common.h"
 #include "Cubemap.h"
 #include "FrameData.h"
 #include "GameObject.h"
@@ -36,22 +37,35 @@ void HandleSIGINT(int)
     std::cout << "\n";
 }
 
+struct LightData
+{
+    uint32_t PointLightCount;
+    uint32_t DirLightCount;
+    glm::vec2 Padding;
+    PointLight::Data PointLights[MAX_POINT_LIGHTS];
+    DirectionalLight::Data DirLights[MAX_DIR_LIGHTS];
+};
+
+struct CameraData
+{
+    glm::mat4 View;
+    glm::mat4 Proj;
+    glm::mat4 InvViewProj;
+    glm::vec3 Pos;
+    float NearPlane;
+    glm::vec3 Padding;
+    float FarPlane;
+};
+
 // Each member must start at an offset that is a multiple of its base alignment.
 // Eg. a float can start on offset 0, 4, 8 or 12.
 // glm::vec3 is 12 bytes wide by default but is 16 byte aligned.
 struct GlobalBuffer
 {
-    glm::mat4 View;
-    glm::mat4 Proj;
-    PointLight Light;
-    glm::vec3 CameraPos;
-    float Time;
-    float NearPlane;
-    float FarPlane;
-    glm::vec2 Padding0;
+    LightData Lights;
+    CameraData CamData;
     glm::vec3 SkyColor;
-    float Padding1;
-    glm::mat4 InvViewProj;
+    float Time;
 };
 
 std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -223,7 +237,12 @@ private:
         InitVulkan();
         InitImGui();
 
-        ThreadPool::Init(); 
+        ThreadPool::Init();
+        m_PointLight = PointLight({-10.f, 15.f, 0.f});
+        m_PointLight.SetIntensity(1000.f);
+
+        m_DirLight = DirectionalLight({0.5f, -1.f, 0.5f});
+        m_DirLight.SetIntensity(5.f);
 
         m_GameObjects.push_back(std::make_unique<GameObject>());
         m_GameObjects.back()->GetTransform().Position +=
@@ -335,7 +354,7 @@ private:
         CreateRenderTargets();
         CreateDescriptorPool();
 
-		CloudSystemCreateInfo cloudCreateInfo{
+        CloudSystemCreateInfo cloudCreateInfo{
             .Device = m_Device,
             .PhysicalDevice = m_PhysicalDevice,
             .GlobalSetLayout = m_GlobalBufferSetLayout,
@@ -345,7 +364,7 @@ private:
             .FramesInFlight = MAX_FRAMES_IN_FLIGHT};
         m_CloudSystem = std::make_unique<CloudSystem>(cloudCreateInfo);
 
-		CreateDescriptorSets();
+        CreateDescriptorSets();
         CreateSyncObjects();
         CreateQuadBuffers();
     }
@@ -509,7 +528,7 @@ private:
             RecordSwapImageToDrawLayout(imageIndex);
             RecordOpaqueCommandBuffer();
             RecordTransparentCommandBuffer();
-			RecordCloudsCommandBuffer();
+            RecordCloudsCommandBuffer();
             RecordCompositeCommandBuffer(imageIndex);
             RecordImGui(imageIndex);
             RecordSwapImageToPresentLayout(imageIndex);
@@ -518,12 +537,9 @@ private:
 
         // TODO: even when ImGui is not showing, it's being submitted
         std::array<vk::CommandBuffer, 7> commandBuffers = {
-            frameData.DrawLayoutCommandBuffer,
-            frameData.OpaqueCommandBuffer,
-			frameData.TransparentCommandBuffer,
-            frameData.CloudCommandBuffer,
-            frameData.CompositeCommandBuffer,
-            frameData.ImGuiCommandBuffer,
+            frameData.DrawLayoutCommandBuffer,   frameData.OpaqueCommandBuffer,
+            frameData.TransparentCommandBuffer,  frameData.CloudCommandBuffer,
+            frameData.CompositeCommandBuffer,    frameData.ImGuiCommandBuffer,
             frameData.PresentLayoutCommandBuffer};
         vk::PipelineStageFlags waitDestinationStageFlags(
             vk::PipelineStageFlagBits::eColorAttachmentOutput);
@@ -566,13 +582,26 @@ private:
 
         if (ImGui::Begin("Menu"))
         {
-            ImGui::Text("Light");
-            ImGui::DragFloat3("Position", &m_GlobalBuffer.Light.Pos.x, 0.5f);
-            ImGui::ColorEdit3("Color##Light", &m_GlobalBuffer.Light.Color.r);
-            ImGui::SliderFloat("Intensity", &m_GlobalBuffer.Light.Intensity,
-                               0.f, 1000.f);
+            ImGui::Text("Point Light");
+            ImGui::DragFloat3("Position", &m_PointLight.GetPosition().x, 0.5f);
+            ImGui::ColorEdit3("Color##PointLight", &m_PointLight.GetColor().r);
+            ImGui::SliderFloat("Intensity##PointLight", &m_PointLight.GetIntensity(), 0.f,
+                               1000.f);
+
+            ImGui::Dummy(ImVec2(0.f, 5.f));
+
+            ImGui::Text("Directional Light");
+			glm::vec3 dir = m_DirLight.GetDirection();
+            ImGui::DragFloat3("Direction", &dir.x, 0.5f);
+			if (dir != m_DirLight.GetDirection())
+				m_DirLight.SetDirection(dir);
+
+            ImGui::ColorEdit3("Color##DirLight", &m_DirLight.GetColor().r);
+            ImGui::SliderFloat("Intensity##DirLight", &m_DirLight.GetIntensity(), 0.f,
+                               10.f);
 
             ImGui::Dummy(ImVec2(0.f, 20.f));
+
             ImGui::Text("Frame time: %.4fms", m_DisplayFrameTime);
             ImGui::Text("FPS: %.1f", m_DisplayFPS);
         }
@@ -1893,8 +1922,8 @@ private:
 
         m_CloudSystem->Resize(m_SwapchainExtent.width,
                               m_SwapchainExtent.height);
-		UpdateDepthDescriptorSet();
-		UpdateCompositeDescriptorSet();
+        UpdateDepthDescriptorSet();
+        UpdateCompositeDescriptorSet();
 
         vk::PipelineRenderingCreateInfo pipelineRenderingInfo{
             .colorAttachmentCount = 1u,
@@ -1998,16 +2027,12 @@ private:
         // GLM was designed for OpenGL, which has its Y coordinate in clip
         // space inverted. Compensate for this by scaling here.
         colMajProj[1][1] *= -1.f;
-        m_GlobalBuffer.Proj = glm::transpose(colMajProj);
-
-        m_GlobalBuffer.Light.Pos = {-10.f, 15.f, 0.f};
-        m_GlobalBuffer.Light.Intensity = 1000.f;
-        m_GlobalBuffer.Light.Color = {1.f, 1.f, 1.f};
+        m_GlobalBuffer.CamData.Proj = glm::transpose(colMajProj);
 
         m_GlobalBuffer.Time = 0.f;
 
-        m_GlobalBuffer.NearPlane = NEAR_PLANE;
-        m_GlobalBuffer.FarPlane = FAR_PLANE;
+        m_GlobalBuffer.CamData.NearPlane = NEAR_PLANE;
+        m_GlobalBuffer.CamData.FarPlane = FAR_PLANE;
 
         m_GlobalBuffer.SkyColor = SKY_COLOR;
     }
@@ -2015,12 +2040,18 @@ private:
     void UpdateGlobalBuffer(uint32_t frameIndex)
     {
         m_GlobalBuffer.Time = m_RunTime;
-        m_GlobalBuffer.CameraPos = m_Camera->GetPosition();
+        m_GlobalBuffer.CamData.Pos = m_Camera->GetPosition();
         glm::mat4 view = m_Camera->GetViewMatrix();
-        m_GlobalBuffer.View = glm::transpose(view);
+        m_GlobalBuffer.CamData.View = glm::transpose(view);
 
-        m_GlobalBuffer.InvViewProj =
-            glm::inverse(glm::transpose(m_GlobalBuffer.Proj) * view);
+        m_GlobalBuffer.CamData.InvViewProj =
+            glm::inverse(glm::transpose(m_GlobalBuffer.CamData.Proj) * view);
+
+        m_GlobalBuffer.Lights.PointLightCount = 1u;
+        m_GlobalBuffer.Lights.PointLights[0] = m_PointLight.GetData();
+
+        m_GlobalBuffer.Lights.DirLightCount = 1u;
+        m_GlobalBuffer.Lights.DirLights[0] = m_DirLight.GetData();
 
         memcpy(m_Frames[frameIndex].GlobalBufferMapping, &m_GlobalBuffer,
                sizeof(m_GlobalBuffer));
@@ -2488,6 +2519,8 @@ private:
     std::vector<std::unique_ptr<GameObject>> m_GameObjects;
     Cubemap* m_pSkybox = nullptr;
     std::unique_ptr<CloudSystem> m_CloudSystem = nullptr;
+    PointLight m_PointLight;
+    DirectionalLight m_DirLight;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;

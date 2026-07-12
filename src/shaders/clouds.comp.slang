@@ -20,6 +20,7 @@ float hash(float3 p)
     return frac(p.x * p.y * p.z * (p.x + p.y + p.z));
 }
 
+// TODO: swap to perlin-worley noise texture
 float noise(float3 p)
 {
     float3 i = floor(p);
@@ -33,12 +34,16 @@ float noise(float3 p)
         f.z);
 }
 
+static float minn = 10.0;
+static float maxx = 1000.0;
+
 float sampleDensity(float3 pos)
 {
     float3 samplePos = pos * 0.001 + pc.windVelocity * globalBuffer.Time;
     float n = noise(samplePos) * 0.5 + noise(samplePos * 2.0) * 0.25 + noise(samplePos * 4.0) * 0.25;
 
-    float h = saturate((pos.y - pc.minHeight) / (pc.maxHeight - pc.minHeight));
+    //float h = saturate((pos.y - pc.minHeight) / (pc.maxHeight - pc.minHeight)); 
+	float h = saturate((pos.y - minn) / (maxx - minn));
     float heightGradient = smoothstep(0.0, 0.1, h) * smoothstep(1.0, 0.8, h);
 
     return saturate(n - pc.coverage) * heightGradient;
@@ -54,14 +59,13 @@ void main(uint3 dispatchId : SV_DispatchThreadID) {
 
     float2 uv = (float2(pixel) + 0.5) / float2(outSize);
     float2 ndc = uv * 2.0 - 1.0;
-    //ndc.y = -ndc.y;
 
-    float4 nearPoint = mul(globalBuffer.InvViewProj, float4(ndc, 0.0, 1.0));
-    float4 farPoint  = mul(globalBuffer.InvViewProj, float4(ndc, 1.0, 1.0));
+    float4 nearPoint = mul(globalBuffer.Camera.InvViewProj, float4(ndc, 0.0, 1.0));
+    float4 farPoint  = mul(globalBuffer.Camera.InvViewProj, float4(ndc, 1.0, 1.0));
     nearPoint /= nearPoint.w;
     farPoint  /= farPoint.w;
 
-    float3 rayOrigin = globalBuffer.CameraPos;
+    float3 rayOrigin = globalBuffer.Camera.Pos;
     float3 rayDir = normalize(farPoint.xyz - nearPoint.xyz);
 
 	uint2 depthSize;
@@ -74,14 +78,16 @@ void main(uint3 dispatchId : SV_DispatchThreadID) {
     if (rawDepth >= 1.0) {
         sceneDist = 1e9; // sky, no occlusion
     } else {
-        float4 worldPos = mul(globalBuffer.InvViewProj, float4(ndc, rawDepth, 1.0));
+        float4 worldPos = mul(globalBuffer.Camera.InvViewProj, float4(ndc, rawDepth, 1.0));
         worldPos /= worldPos.w;
         sceneDist = length(worldPos.xyz - rayOrigin);
     }
 
     // Ray-slab intersection
-    float tMinPlane = (pc.minHeight - rayOrigin.y) / rayDir.y;
-    float tMaxPlane = (pc.maxHeight - rayOrigin.y) / rayDir.y;
+    float tMinPlane = (minn - rayOrigin.y) / rayDir.y;
+    //float tMinPlane = (pc.minHeight - rayOrigin.y) / rayDir.y;
+    float tMaxPlane = (maxx - rayOrigin.y) / rayDir.y;
+    //float tMaxPlane = (pc.maxHeight - rayOrigin.y) / rayDir.y;
     float tNear = min(tMinPlane, tMaxPlane);
     float tFar  = max(tMinPlane, tMaxPlane);
 

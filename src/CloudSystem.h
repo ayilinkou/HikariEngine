@@ -16,7 +16,7 @@ class CloudSystem
 private:
     struct CloudPushConstants
     {
-        glm::vec3 WindVelocity = {0.02f, 0.f, 0.01f};
+        glm::vec3 WindVelocity = {0.05f, 0.f, 0.03f};
         float MinHeight = 1500.f;
         float MaxHeight = 4000.f;
         float Coverage = 0.5f;
