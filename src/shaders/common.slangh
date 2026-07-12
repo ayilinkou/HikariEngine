@@ -18,6 +18,7 @@ struct GlobalBuffer
 	float2 Padding0;
 	float3 SkyColor;
 	float Padding1;
+	float4x4 InvViewProj;
 };
 
 [[vk::binding(0, 0)]]
