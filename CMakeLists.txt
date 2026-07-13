@@ -79,15 +79,6 @@ target_link_libraries(
 
 target_include_directories(VulkanApp PRIVATE src ${Stb_INCLUDE_DIR})
 
-# SDL3 is linked both explicitly here and transitively via assimp::assimp,
-# so the same static archive appears twice on the link line. That is
-# harmless (the linker dedupes), but it emits a noisy warning. Silence
-# it per-platform (the flag spelling differs between Apple and GNU ld).
-target_link_options(
-  VulkanApp PRIVATE
-  $<$<PLATFORM_ID:Darwin>:-Wl,-no_warn_duplicate_libraries>
-  $<$<PLATFORM_ID:Linux>:-Wl,--no-warn-duplicate-libraries>)
-
 target_compile_definitions(
   VulkanApp
   PRIVATE VULKAN_HPP_NO_STRUCT_CONSTRUCTORS GLM_FORCE_DEPTH_ZERO_TO_ONE
