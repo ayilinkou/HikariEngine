@@ -43,16 +43,20 @@ set(SOURCES
     src/ThreadPool.cpp
     src/CloudSystem.cpp)
 
-# On macOS the Vulkan validation layer only ships with the Vulkan SDK
-# (vcpkg ships none) and is selected at runtime via VK_LAYER_PATH.
-# vcpkg's own libvulkan loader is frequently a DIFFERENT version than
-# the SDK's layer; that mismatch makes the loader recurse inside
-# vkGetDeviceProcAddr (segfault during ImGui init). To keep the linked
-# loader version in lock-step with the SDK validation layer, point
-# find_package(Vulkan) at the SDK when VULKAN_SDK is set.
+# On macOS the Vulkan validation layer only ships with the Vulkan SDK (vcpkg
+# ships none) and is selected at runtime via VK_LAYER_PATH. vcpkg's own
+# libvulkan loader is frequently a DIFFERENT version than the SDK's layer; that
+# mismatch makes the loader recurse inside vkGetDeviceProcAddr (segfault during
+# ImGui init). To keep the linked loader version in lock-step with the SDK
+# validation layer, point find_package(Vulkan) at the SDK when VULKAN_SDK is
+# set.
 if(APPLE AND DEFINED ENV{VULKAN_SDK})
-  set(Vulkan_LIBRARY     "$ENV{VULKAN_SDK}/lib/libvulkan.dylib" CACHE FILEPATH "" FORCE)
-  set(Vulkan_INCLUDE_DIR "$ENV{VULKAN_SDK}/include"            CACHE PATH    "" FORCE)
+  set(Vulkan_LIBRARY
+      "$ENV{VULKAN_SDK}/lib/libvulkan.dylib"
+      CACHE FILEPATH "" FORCE)
+  set(Vulkan_INCLUDE_DIR
+      "$ENV{VULKAN_SDK}/include"
+      CACHE PATH "" FORCE)
 endif()
 
 find_package(Vulkan REQUIRED)
@@ -124,7 +128,7 @@ else()
             >)
 endif()
 
-file(GLOB_RECURSE shader_slang_sources CONFIGURE_DEPENDS
+file(GLOB_RECURSE shader_slang_sources
      ${CMAKE_CURRENT_LIST_DIR}/src/shaders/*.slang)
 
 function(add_slang_shader_target target)
