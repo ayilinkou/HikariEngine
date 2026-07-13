@@ -1,3 +1,21 @@
 #!/bin/bash
-cmake --workflow --preset ninja-debug-linux && \
-ln -sf build/ninja-debug-linux/compile_commands.json compile_commands.json
+set -e
+
+# Pick the CMake workflow preset from the host OS.
+# An optional first argument can force a preset (e.g. ./build.sh linux).
+OS="$(uname -s)"
+case "${1:-$OS}" in
+  Darwin|macos|mac)
+    PRESET="ninja-debug-macos"
+    ;;
+  Linux|linux)
+    PRESET="ninja-debug-linux"
+    ;;
+  *)
+    echo "Unsupported OS: ${1:-$OS}" >&2
+    exit 1
+    ;;
+esac
+
+cmake --workflow --preset "$PRESET"
+ln -sf "build/${PRESET}/compile_commands.json" compile_commands.json

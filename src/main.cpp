@@ -231,12 +231,14 @@ public:
 private:
     void Init()
     {
+        std::cout << "[Init] Start\n";
+        
         m_StartTime = std::chrono::high_resolution_clock::now();
         m_LastTime = m_StartTime;
 
         InitVulkan();
         InitImGui();
-
+        
         ThreadPool::Init();
         m_PointLight = PointLight({-10.f, 15.f, 0.f});
         m_PointLight.SetIntensity(1000.f);
@@ -283,6 +285,7 @@ private:
         createInfo.BottomPath = skyboxRoot + "bottom.jpg";
         createInfo.FrontPath = skyboxRoot + "front.jpg";
         createInfo.BackPath = skyboxRoot + "back.jpg";
+
         m_pSkybox = ResourceManager::Get()->LoadCubemap(createInfo);
 
         m_Camera = std::make_unique<Camera>();
@@ -293,6 +296,7 @@ private:
 
     void InitImGui()
     {
+        std::cout << "[InitImGui] Start\n";
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
 
@@ -325,35 +329,58 @@ private:
         initInfo.Allocator = nullptr;
         initInfo.CheckVkResultFn = nullptr;
 
+        std::cout << "[InitImGui] -> ImGui_ImplSDL3_InitForVulkan()\n";
         ImGui_ImplSDL3_InitForVulkan(m_pWindow);
+        std::cout << "[InitImGui] -> ImGui_ImplVulkan_Init()\n";
         ImGui_ImplVulkan_Init(&initInfo);
     }
 
     void InitVulkan()
     {
+        std::cout << "[InitVulkan] Start\n";
+        std::cout << "[InitVulkan] -> CreateInstance()\n";
         CreateInstance();
+        std::cout << "[InitVulkan] -> SetupDebugMessenger()\n";
         SetupDebugMessenger();
+        std::cout << "[InitVulkan] -> CreateSurface()\n";
         CreateSurface();
+        std::cout << "[InitVulkan] -> PickPhysicalDevice()\n";
         PickPhysicalDevice();
+        std::cout << "[InitVulkan] -> CreateLogicalDevice()\n";
         CreateLogicalDevice();
+        std::cout << "[InitVulkan] -> CreateSwapchain()\n";
         CreateSwapchain();
+        std::cout << "[InitVulkan] -> CreateSwapchainImageViews()\n";
         CreateSwapchainImageViews();
+        std::cout << "[InitVulkan] -> CreateDepthResources()\n";
         CreateDepthResources();
+        std::cout << "[InitVulkan] -> CreateDescriptorSetLayouts()\n";
         CreateDescriptorSetLayouts();
+        std::cout << "[InitVulkan] -> CreateCommandPools()\n";
         CreateCommandPools();
+        std::cout << "[InitVulkan] -> CreateTextureSampler()\n";
         CreateTextureSampler();
 
+        std::cout << "[InitVulkan] -> ResourceManager::Init()\n";
         ResourceManager::Init(m_Device, m_PhysicalDevice, m_GenericCommandPool,
                               m_GraphicsQueue);
+        std::cout << "[InitVulkan] -> MaterialFactory::Init()\n";
         MaterialFactory::Init(m_Device, m_TextureSampler);
 
+        std::cout << "[InitVulkan] -> CreatePipelines()\n";
         CreatePipelines();
+        std::cout << "[InitVulkan] -> CreateCommandBuffers()\n";
         CreateCommandBuffers();
+        std::cout << "[InitVulkan] -> CreateGlobalBuffers()\n";
         CreateGlobalBuffers();
+        std::cout << "[InitVulkan] -> CreateInstanceBuffers()\n";
         CreateInstanceBuffers();
+        std::cout << "[InitVulkan] -> CreateRenderTargets()\n";
         CreateRenderTargets();
+        std::cout << "[InitVulkan] -> CreateDescriptorPool()\n";
         CreateDescriptorPool();
 
+        std::cout << "[InitVulkan] -> Create CloudSystem\n";
         CloudSystemCreateInfo cloudCreateInfo{
             .Device = m_Device,
             .PhysicalDevice = m_PhysicalDevice,
@@ -364,8 +391,11 @@ private:
             .FramesInFlight = MAX_FRAMES_IN_FLIGHT};
         m_CloudSystem = std::make_unique<CloudSystem>(cloudCreateInfo);
 
+        std::cout << "[InitVulkan] -> CreateDescriptorSets()\n";
         CreateDescriptorSets();
+        std::cout << "[InitVulkan] -> CreateSyncObjects()\n";
         CreateSyncObjects();
+        std::cout << "[InitVulkan] -> CreateQuadBuffers()\n";
         CreateQuadBuffers();
     }
 
@@ -632,6 +662,17 @@ private:
                countInstanceExtensions * sizeof(const char*));
         requiredExtensions.push_back(vk::EXTDebugUtilsExtensionName);
 
+#if defined(__APPLE__)
+        // MoltenVK is a portability driver. On macOS the Vulkan loader
+        // requires the app to explicitly opt into enumerating portability
+        // drivers, otherwise vkCreateInstance fails with
+        // VK_ERROR_INCOMPATIBLE_DRIVER.
+        requiredExtensions.push_back(vk::KHRPortabilityEnumerationExtensionName);
+        // Required so we can build the swapchain surface via
+        // VK_EXT_metal_surface (SDL_Vulkan_CreateSurface is unreliable on macOS).
+        requiredExtensions.push_back(vk::EXTMetalSurfaceExtensionName);
+#endif
+
         auto extensionProperties =
             m_Context.enumerateInstanceExtensionProperties();
 
@@ -680,6 +721,9 @@ private:
                                      std::string(*unsupportedLayerIt));
 
         vk::InstanceCreateInfo createInfo{
+#if defined(__APPLE__)
+            .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,
+#endif
             .pApplicationInfo = &appInfo,
             .enabledLayerCount = (uint32_t)requiredLayers.size(),
             .ppEnabledLayerNames = requiredLayers.data(),
@@ -761,12 +805,27 @@ private:
 
     void CreateSurface()
     {
+#if defined(__APPLE__)
+        // SDL_Vulkan_CreateSurface can crash on macOS because SDL resolves the
+        // surface-creation function pointer through its own Vulkan loader, which
+        // may differ from the one this app linked (and the instance belongs to).
+        // Create the Metal surface directly via our Vulkan loader instead.
+        SDL_MetalView metalView = SDL_Metal_CreateView(m_pWindow);
+        if (!metalView)
+            throw SDLException("Failed to create Metal view!");
+
+        void* metalLayer = SDL_Metal_GetLayer(metalView);
+        vk::MetalSurfaceCreateInfoEXT createInfo{.pLayer = metalLayer};
+
+        m_Surface = m_Instance.createMetalSurfaceEXT(createInfo);
+#else
         VkSurfaceKHR rawSurface;
         if (!SDL_Vulkan_CreateSurface(m_pWindow, *m_Instance, nullptr,
                                       &rawSurface))
             throw SDLException("Failed to create Vulkan surface!");
 
         m_Surface = vk::raii::SurfaceKHR(m_Instance, rawSurface);
+#endif
     }
 
     void PickPhysicalDevice()
@@ -826,6 +885,14 @@ private:
 
         std::vector<const char*> requiredDeviceExtensions = {
             vk::KHRSwapchainExtensionName};
+
+#if defined(__APPLE__)
+        // MoltenVK exposes VK_KHR_portability_subset and requires it to be
+        // enabled on the logical device; otherwise device creation has undefined
+        // behaviour and can crash.
+        requiredDeviceExtensions.push_back(
+            vk::KHRPortabilitySubsetExtensionName);
+#endif
 
         vk::DeviceCreateInfo deviceCreateInfo{
             .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),

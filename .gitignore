@@ -3,3 +3,4 @@ build/
 *.spv
 imgui.ini
 models/sponza/**
+.cache/

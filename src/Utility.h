@@ -6,8 +6,10 @@
 #include <vector>
 
 template <typename T>
-inline void SetVkDebugName(vk::raii::Device& device, T handle,
-                           vk::ObjectType objectType, const char* name)
+inline void SetVkDebugName([[maybe_unused]] vk::raii::Device& device,
+                           [[maybe_unused]] T handle,
+                           [[maybe_unused]] vk::ObjectType objectType,
+                           [[maybe_unused]] const char* name)
 {
 #ifdef DEBUG
     // convert vk:: C++ types into C types

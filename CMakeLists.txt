@@ -43,6 +43,18 @@ set(SOURCES
     src/ThreadPool.cpp
     src/CloudSystem.cpp)
 
+# On macOS the Vulkan validation layer only ships with the Vulkan SDK
+# (vcpkg ships none) and is selected at runtime via VK_LAYER_PATH.
+# vcpkg's own libvulkan loader is frequently a DIFFERENT version than
+# the SDK's layer; that mismatch makes the loader recurse inside
+# vkGetDeviceProcAddr (segfault during ImGui init). To keep the linked
+# loader version in lock-step with the SDK validation layer, point
+# find_package(Vulkan) at the SDK when VULKAN_SDK is set.
+if(APPLE AND DEFINED ENV{VULKAN_SDK})
+  set(Vulkan_LIBRARY     "$ENV{VULKAN_SDK}/lib/libvulkan.dylib" CACHE FILEPATH "" FORCE)
+  set(Vulkan_INCLUDE_DIR "$ENV{VULKAN_SDK}/include"            CACHE PATH    "" FORCE)
+endif()
+
 find_package(Vulkan REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
@@ -66,6 +78,15 @@ target_link_libraries(
                     assimp::assimp imgui::imgui)
 
 target_include_directories(VulkanApp PRIVATE src ${Stb_INCLUDE_DIR})
+
+# SDL3 is linked both explicitly here and transitively via assimp::assimp,
+# so the same static archive appears twice on the link line. That is
+# harmless (the linker dedupes), but it emits a noisy warning. Silence
+# it per-platform (the flag spelling differs between Apple and GNU ld).
+target_link_options(
+  VulkanApp PRIVATE
+  $<$<PLATFORM_ID:Darwin>:-Wl,-no_warn_duplicate_libraries>
+  $<$<PLATFORM_ID:Linux>:-Wl,--no-warn-duplicate-libraries>)
 
 target_compile_definitions(
   VulkanApp
