@@ -577,7 +577,7 @@ private:
             .waitSemaphoreCount = 1u,
             .pWaitSemaphores = &*frameData.PresentCompleteSemaphore,
             .pWaitDstStageMask = &waitDestinationStageFlags,
-            .commandBufferCount = commandBuffers.size(),
+            .commandBufferCount = static_cast<uint32_t>(commandBuffers.size()),
             .pCommandBuffers = commandBuffers.data(),
             .signalSemaphoreCount = 1u,
             .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
@@ -1023,9 +1023,9 @@ private:
                           attributeDescs.begin() + Vertex::AttributeCount);
 
         vk::PipelineVertexInputStateCreateInfo vertexInput{
-            .vertexBindingDescriptionCount = bindingDescs.size(),
+            .vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescs.size()),
             .pVertexBindingDescriptions = bindingDescs.data(),
-            .vertexAttributeDescriptionCount = attributeDescs.size(),
+            .vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescs.size()),
             .pVertexAttributeDescriptions = attributeDescs.data()};
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
             .topology = vk::PrimitiveTopology::eTriangleList};
@@ -1166,9 +1166,9 @@ private:
                           attributeDescs.begin() + Vertex::AttributeCount);
 
         vk::PipelineVertexInputStateCreateInfo vertexInput{
-            .vertexBindingDescriptionCount = bindingDescs.size(),
+            .vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescs.size()),
             .pVertexBindingDescriptions = bindingDescs.data(),
-            .vertexAttributeDescriptionCount = attributeDescs.size(),
+            .vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescs.size()),
             .pVertexAttributeDescriptions = attributeDescs.data()};
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
             .topology = vk::PrimitiveTopology::eTriangleList};
@@ -1234,7 +1234,7 @@ private:
         vk::PipelineColorBlendStateCreateInfo blendState{
             .logicOpEnable = vk::False,
             .logicOp = vk::LogicOp::eCopy,
-            .attachmentCount = attachmentStates.size(),
+            .attachmentCount = static_cast<uint32_t>(attachmentStates.size()),
             .pAttachments = attachmentStates.data()};
 
         vk::DescriptorSetLayout descriptorSetLayouts[] = {
@@ -1257,7 +1257,7 @@ private:
         std::array<vk::Format, 2> attachmentFormats = {m_AccumImageFormat,
                                                        m_RevealageImageFormat};
         vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo = {
-            .colorAttachmentCount = attachmentFormats.size(),
+            .colorAttachmentCount = static_cast<uint32_t>(attachmentFormats.size()),
             .pColorAttachmentFormats = attachmentFormats.data(),
             .depthAttachmentFormat = m_DepthFormat};
 
@@ -1311,7 +1311,7 @@ private:
         vk::PipelineVertexInputStateCreateInfo vertexInput{
             .vertexBindingDescriptionCount = 1u,
             .pVertexBindingDescriptions = &vertexBindingDesc,
-            .vertexAttributeDescriptionCount = vertexAttributeDesc.size(),
+            .vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexAttributeDesc.size()),
             .pVertexAttributeDescriptions = vertexAttributeDesc.data()};
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
             .topology = vk::PrimitiveTopology::eTriangleList};
@@ -1369,7 +1369,7 @@ private:
         std::array<vk::DescriptorSetLayout, 2> descriptorSetLayouts = {
             m_GlobalBufferSetLayout, m_CompositeSetLayout};
         vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
-            .setLayoutCount = descriptorSetLayouts.size(),
+            .setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size()),
             .pSetLayouts = descriptorSetLayouts.data()};
         m_CompositePipelineLayout =
             vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
@@ -1725,7 +1725,7 @@ private:
         vk::RenderingInfo renderingInfo = {
             .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
             .layerCount = 1,
-            .colorAttachmentCount = colorAttachmentInfos.size(),
+            .colorAttachmentCount = static_cast<uint32_t>(colorAttachmentInfos.size()),
             .pColorAttachments = colorAttachmentInfos.data(),
             .pDepthAttachment = &depthAttachmentInfo};
 
@@ -2010,7 +2010,7 @@ private:
                 vk::ShaderStageFlagBits::eCompute,
             nullptr)};
         vk::DescriptorSetLayoutCreateInfo frameCreateInfo{
-            .bindingCount = frameBindings.size(),
+            .bindingCount = static_cast<uint32_t>(frameBindings.size()),
             .pBindings = frameBindings.data()};
         m_GlobalBufferSetLayout =
             vk::raii::DescriptorSetLayout(m_Device, frameCreateInfo);
@@ -2032,7 +2032,7 @@ private:
                 3u, vk::DescriptorType::eCombinedImageSampler, 1u,
                 vk::ShaderStageFlagBits::eFragment, nullptr)};
         vk::DescriptorSetLayoutCreateInfo compositeCreateInfo{
-            .bindingCount = compositeBindings.size(),
+            .bindingCount = static_cast<uint32_t>(compositeBindings.size()),
             .pBindings = compositeBindings.data()};
         m_CompositeSetLayout =
             vk::raii::DescriptorSetLayout(m_Device, compositeCreateInfo);
@@ -2046,7 +2046,7 @@ private:
                 vk::ShaderStageFlagBits::eCompute,
             nullptr)};
         vk::DescriptorSetLayoutCreateInfo depthCreateInfo{
-            .bindingCount = depthBindings.size(),
+            .bindingCount = static_cast<uint32_t>(depthBindings.size()),
             .pBindings = depthBindings.data()};
         m_DepthSetLayout =
             vk::raii::DescriptorSetLayout(m_Device, depthCreateInfo);
@@ -2132,7 +2132,7 @@ private:
         vk::DescriptorPoolCreateInfo frameCreateInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
             .maxSets = MAX_FRAMES_IN_FLIGHT,
-            .poolSizeCount = framePoolSize.size(),
+            .poolSizeCount = static_cast<uint32_t>(framePoolSize.size()),
             .pPoolSizes = framePoolSize.data()};
 
         m_FrameDescriptorPool =
@@ -2150,7 +2150,7 @@ private:
         vk::DescriptorPoolCreateInfo compCreateInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
             .maxSets = MAX_FRAMES_IN_FLIGHT,
-            .poolSizeCount = compositePoolSize.size(),
+            .poolSizeCount = static_cast<uint32_t>(compositePoolSize.size()),
             .pPoolSizes = compositePoolSize.data()};
 
         m_CompositeDescriptorPool =
@@ -2164,7 +2164,7 @@ private:
         vk::DescriptorPoolCreateInfo genericCreateInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
             .maxSets = 1u,
-            .poolSizeCount = genericPoolSize.size(),
+            .poolSizeCount = static_cast<uint32_t>(genericPoolSize.size()),
             .pPoolSizes = genericPoolSize.data()};
 
         m_GenericDescriptorPool =
@@ -2466,7 +2466,6 @@ private:
     {
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-
             FrameData& frame = m_Frames[i];
             vk::DescriptorImageInfo opaqueImageInfo{
                 .imageView = frame.OpaqueTexture.GetImageView(),
@@ -2479,7 +2478,7 @@ private:
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
             vk::DescriptorImageInfo cloudsImageInfo{
                 .sampler = m_TextureSampler,
-                .imageView = m_CloudSystem->GetImageView(i),
+                .imageView = m_CloudSystem->GetImageView(static_cast<uint8_t>(i)),
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
             std::array compDescriptorWrites = {

@@ -6,7 +6,8 @@
 #include <pthread.h>
 #include <TargetConditionals.h>
 #elif defined(_WIN32)
-#include <processthreadsapi.h>
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #endif
 

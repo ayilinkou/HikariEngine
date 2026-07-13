@@ -39,7 +39,7 @@ void ModelManager::GenerateBatches()
     // when sorted
     // iterate and build batches and instance transforms
     size_t size = m_Drawables.size();
-    size_t i = 0;
+    uint32_t i = 0u;
     while (i < size)
     {
         Mesh* pMesh = m_Drawables[i].pMesh;

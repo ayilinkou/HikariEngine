@@ -41,7 +41,7 @@ void MaterialFactory::CreateDescriptorPool()
     vk::DescriptorPoolCreateInfo matCreateInfo{
         .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
         .maxSets = s_MAX_MATERIAL_SET_COUNT,
-        .poolSizeCount = materialPoolSize.size(),
+        .poolSizeCount = static_cast<uint32_t>(materialPoolSize.size()),
         .pPoolSizes = materialPoolSize.data()};
 
     m_DescriptorPool = vk::raii::DescriptorPool(m_Device, matCreateInfo);
@@ -69,12 +69,12 @@ void MaterialFactory::CreateDescriptorSetLayout()
         vk::DescriptorBindingFlagBits::ePartiallyBound};
 
     vk::DescriptorSetLayoutBindingFlagsCreateInfo flagsInfo{
-        .bindingCount = bindingFlags.size(),
+        .bindingCount = static_cast<uint32_t>(bindingFlags.size()),
         .pBindingFlags = bindingFlags.data()};
 
     vk::DescriptorSetLayoutCreateInfo matCreateInfo{
         .pNext = &flagsInfo,
-        .bindingCount = matBindings.size(),
+        .bindingCount = static_cast<uint32_t>(matBindings.size()),
         .pBindings = matBindings.data()};
 
     m_SetLayout = vk::raii::DescriptorSetLayout(m_Device, matCreateInfo);
