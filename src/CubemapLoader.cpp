@@ -3,7 +3,10 @@
 #include "stb_image.h"
 
 #include "Cubemap.h"
+#include "Log.h"
 #include "Utility.h"
+
+constexpr LogCategory LogCubemapLoader("Cubemap Loader");
 
 CubemapLoader::CubemapLoader(vk::raii::Device& device,
                              vk::raii::PhysicalDevice& physicalDevice,
@@ -74,8 +77,8 @@ Cubemap* CubemapLoader::Load(const CubemapCreateInfo& createInfo)
             throw std::runtime_error("Cubemap has only 6 faces!");
         }
 
-        std::cout << std::format("Loading texture: {}", facePath->c_str())
-                  << "\n";
+        LogMsg(LogSeverity::Info, LogCubemapLoader, "Loading texture: {}",
+               facePath->c_str());
 
         faceData.Pixels[i] =
             stbi_load(facePath->c_str(), &faceData.Width, &faceData.Height,
@@ -98,15 +101,15 @@ Cubemap* CubemapLoader::Load(const CubemapCreateInfo& createInfo)
 
     // Vulkan ensures that these CPU writes are visible to the GPU before
     // the command buffer starts executing.
-	void* data = stagingMemory.mapMemory(0, totalSize);
-	uint8_t* dst = static_cast<uint8_t*>(data);
-	for (size_t i = 0; i < 6; i++)
-	{
-		memcpy(dst + i * faceSize, faceData.Pixels[i], faceSize);
+    void* data = stagingMemory.mapMemory(0, totalSize);
+    uint8_t* dst = static_cast<uint8_t*>(data);
+    for (size_t i = 0; i < 6; i++)
+    {
+        memcpy(dst + i * faceSize, faceData.Pixels[i], faceSize);
         stbi_image_free(faceData.Pixels[i]);
         faceData.Pixels[i] = nullptr;
     }
-	stagingMemory.unmapMemory();
+    stagingMemory.unmapMemory();
 
     vk::raii::Image image({});
     vk::raii::DeviceMemory imageMemory({});

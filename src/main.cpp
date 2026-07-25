@@ -6,6 +6,7 @@
 #include "GameObject.h"
 #include "InstanceData.h"
 #include "Lights.h"
+#include "Log.h"
 #include "MaterialFactory.h"
 #include "Model.h"
 #include "ModelManager.h"
@@ -28,6 +29,12 @@ constexpr glm::vec3 SKY_COLOR = {0.4f, 0.8f, 1.f};
 const std::string BOX_MODEL_PATH = "models/pbr_case/scene.gltf";
 const std::string CAR_MODEL_PATH = "models/american_fullsize_73/scene.gltf";
 const std::string SPONZA_MODEL_PATH = "models/sponza/Sponza.gltf";
+
+constexpr LogCategory LogValidationLayer("Validation Layer");
+constexpr LogCategory LogSDL("SDL");
+constexpr LogCategory LogWindow("Window");
+constexpr LogCategory LogMain("main");
+constexpr LogCategory LogInitVulkan("InitVulkan");
 
 std::atomic<bool> g_bShouldClose = false;
 
@@ -88,8 +95,8 @@ DebugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
     if (severity < validationSeverityThreshold)
         return vk::False;
 
-    std::cerr << "Validation layer: type " << to_string(type)
-              << " msg: " << pCallbackData->pMessage << std::endl;
+    LogMsg(LogSeverity::Error, LogValidationLayer, "Type {}. Msg: {}",
+           to_string(type).c_str(), pCallbackData->pMessage);
 
     if (pUserData)
     {
@@ -112,7 +119,8 @@ void InitSDL()
     if (!SDL_Init(SDL_INIT_VIDEO))
         throw SDLException("Failed to initialise SDL!");
 
-    std::cout << "SDL video driver: " << SDL_GetCurrentVideoDriver() << "\n";
+    LogMsg(LogSeverity::Info, LogSDL, "SDL video driver: {}",
+           SDL_GetCurrentVideoDriver());
 
     if (!SDL_Vulkan_LoadLibrary(nullptr))
         throw SDLException("Failed to load Vulkan library!");
@@ -201,11 +209,11 @@ public:
                     break;
                 case SDL_EVENT_WINDOW_FOCUS_GAINED:
                     m_bIsFocused = true;
-                    std::cout << "Focus gained.\n";
+                    LogMsg(LogSeverity::Info, LogWindow, "Focus gained");
                     break;
                 case SDL_EVENT_WINDOW_FOCUS_LOST:
                     m_bIsFocused = false;
-                    std::cout << "Focus lost.\n";
+                    LogMsg(LogSeverity::Info, LogWindow, "Focus lost");
                     break;
                 case SDL_EVENT_KEY_DOWN:
                     if (m_bIsFocused)
@@ -231,14 +239,14 @@ public:
 private:
     void Init()
     {
-        std::cout << "[Init] Start\n";
-        
+        LogMsg(LogSeverity::Info, LogMain, "Init()");
+
         m_StartTime = std::chrono::high_resolution_clock::now();
         m_LastTime = m_StartTime;
 
         InitVulkan();
         InitImGui();
-        
+
         ThreadPool::Init();
         m_PointLight = PointLight({-10.f, 15.f, 0.f});
         m_PointLight.SetIntensity(1000.f);
@@ -291,12 +299,14 @@ private:
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
 
-        std::cout << "Init() succeeded.\n";
+        LogMsg(LogSeverity::Info, LogMain, "Init() succeeded");
     }
 
     void InitImGui()
     {
-        std::cout << "[InitImGui] Start\n";
+        constexpr LogCategory LogInitImGui("InitImGui");
+        LogMsg(LogSeverity::Info, LogInitImGui, "Start");
+
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
 
@@ -329,58 +339,37 @@ private:
         initInfo.Allocator = nullptr;
         initInfo.CheckVkResultFn = nullptr;
 
-        std::cout << "[InitImGui] -> ImGui_ImplSDL3_InitForVulkan()\n";
         ImGui_ImplSDL3_InitForVulkan(m_pWindow);
-        std::cout << "[InitImGui] -> ImGui_ImplVulkan_Init()\n";
         ImGui_ImplVulkan_Init(&initInfo);
     }
 
     void InitVulkan()
     {
-        std::cout << "[InitVulkan] Start\n";
-        std::cout << "[InitVulkan] -> CreateInstance()\n";
+        LogMsg(LogSeverity::Info, LogInitVulkan, "Start");
+
         CreateInstance();
-        std::cout << "[InitVulkan] -> SetupDebugMessenger()\n";
         SetupDebugMessenger();
-        std::cout << "[InitVulkan] -> CreateSurface()\n";
         CreateSurface();
-        std::cout << "[InitVulkan] -> PickPhysicalDevice()\n";
         PickPhysicalDevice();
-        std::cout << "[InitVulkan] -> CreateLogicalDevice()\n";
         CreateLogicalDevice();
-        std::cout << "[InitVulkan] -> CreateSwapchain()\n";
         CreateSwapchain();
-        std::cout << "[InitVulkan] -> CreateSwapchainImageViews()\n";
         CreateSwapchainImageViews();
-        std::cout << "[InitVulkan] -> CreateDepthResources()\n";
         CreateDepthResources();
-        std::cout << "[InitVulkan] -> CreateDescriptorSetLayouts()\n";
         CreateDescriptorSetLayouts();
-        std::cout << "[InitVulkan] -> CreateCommandPools()\n";
         CreateCommandPools();
-        std::cout << "[InitVulkan] -> CreateTextureSampler()\n";
         CreateTextureSampler();
 
-        std::cout << "[InitVulkan] -> ResourceManager::Init()\n";
         ResourceManager::Init(m_Device, m_PhysicalDevice, m_GenericCommandPool,
                               m_GraphicsQueue);
-        std::cout << "[InitVulkan] -> MaterialFactory::Init()\n";
         MaterialFactory::Init(m_Device, m_TextureSampler);
 
-        std::cout << "[InitVulkan] -> CreatePipelines()\n";
         CreatePipelines();
-        std::cout << "[InitVulkan] -> CreateCommandBuffers()\n";
         CreateCommandBuffers();
-        std::cout << "[InitVulkan] -> CreateGlobalBuffers()\n";
         CreateGlobalBuffers();
-        std::cout << "[InitVulkan] -> CreateInstanceBuffers()\n";
         CreateInstanceBuffers();
-        std::cout << "[InitVulkan] -> CreateRenderTargets()\n";
         CreateRenderTargets();
-        std::cout << "[InitVulkan] -> CreateDescriptorPool()\n";
         CreateDescriptorPool();
 
-        std::cout << "[InitVulkan] -> Create CloudSystem\n";
         CloudSystemCreateInfo cloudCreateInfo{
             .Device = m_Device,
             .PhysicalDevice = m_PhysicalDevice,
@@ -391,16 +380,15 @@ private:
             .FramesInFlight = MAX_FRAMES_IN_FLIGHT};
         m_CloudSystem = std::make_unique<CloudSystem>(cloudCreateInfo);
 
-        std::cout << "[InitVulkan] -> CreateDescriptorSets()\n";
         CreateDescriptorSets();
-        std::cout << "[InitVulkan] -> CreateSyncObjects()\n";
         CreateSyncObjects();
-        std::cout << "[InitVulkan] -> CreateQuadBuffers()\n";
         CreateQuadBuffers();
     }
 
     void Shutdown()
     {
+        LogMsg(LogSeverity::Info, LogMain, "Shutdown()");
+
         ResourceManager::Get()->UnloadCubemap(m_pSkybox->GetCreateInfo());
         m_pSkybox = nullptr;
 
@@ -642,6 +630,8 @@ private:
 
     void CreateInstance()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateInstance()");
+
         constexpr vk::ApplicationInfo appInfo{
             .pApplicationName = "Vulkan App",
             .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
@@ -735,6 +725,8 @@ private:
 
     void SetupDebugMessenger()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "SetupDebugMessenger()");
+
         if (!bEnableValidationLayers)
             return;
 
@@ -805,6 +797,8 @@ private:
 
     void CreateSurface()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateSurface()");
+
 #if defined(__APPLE__)
         // SDL_Vulkan_CreateSurface can crash on macOS because SDL resolves the
         // surface-creation function pointer through its own Vulkan loader, which
@@ -830,6 +824,8 @@ private:
 
     void PickPhysicalDevice()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "PickPhysicalDevice()");
+
         auto devices = m_Instance.enumeratePhysicalDevices();
         const auto deviceIt =
             std::ranges::find_if(devices, [&](const auto& device)
@@ -843,6 +839,8 @@ private:
 
     void CreateLogicalDevice()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateLogicalDevice()");
+
         std::vector<vk::QueueFamilyProperties> qfProperties =
             m_PhysicalDevice.getQueueFamilyProperties();
 
@@ -919,6 +917,8 @@ private:
 
     void CreateSwapchain()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateSwapchain()");
+
         vk::SurfaceCapabilitiesKHR capabilities =
             m_PhysicalDevice.getSurfaceCapabilitiesKHR(*m_Surface);
         const std::vector<vk::SurfaceFormatKHR> formats =
@@ -928,8 +928,8 @@ private:
             m_PhysicalDevice.getSurfacePresentModesKHR(*m_Surface);
         m_SwapchainExtent = ChooseSwapchainExtent(capabilities, m_pWindow);
 
-        std::cout << "Swapchain Extent: " << m_SwapchainExtent.width << "x"
-                  << m_SwapchainExtent.height << "\n";
+        LogMsg(LogSeverity::Info, LogInitVulkan, "Swapchain Extent: {}x{}",
+               m_SwapchainExtent.width, m_SwapchainExtent.height);
 
         m_MinImageCount = ChooseSwapMinImageCount(capabilities);
         vk::SwapchainCreateInfoKHR createInfo{
@@ -958,11 +958,14 @@ private:
                            std::format("Swapchain Image_{}", i).c_str());
         }
 
-        std::cout << "Swapchain image count: " << m_SwapImages.size() << "\n";
+        LogMsg(LogSeverity::Info, LogInitVulkan, "Swapchain image count: {}",
+               m_SwapImages.size());
     }
 
     void CreateSwapchainImageViews()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateSwapchainImageViews()");
+
         assert(m_SwapImageViews.empty());
         for (size_t i = 0; i < m_SwapImages.size(); i++)
         {
@@ -1408,6 +1411,8 @@ private:
 
     void CreatePipelines()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreatePipelines()");
+
         CreateOpaquePipeline();
         CreateTransparentPipeline();
         CreateCompositePipeline();
@@ -1415,6 +1420,8 @@ private:
 
     void CreateCommandPools()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateCommandPools()");
+
         vk::CommandPoolCreateInfo createInfo{
             .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
             .queueFamilyIndex = m_QueueIndex};
@@ -1479,6 +1486,8 @@ private:
 
     void CreateCommandBuffers()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateCommandBuffers()");
+
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
             FrameData& frame = m_Frames[i];
@@ -1929,6 +1938,8 @@ private:
 
     void CreateSyncObjects()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateSyncObjects()");
+
         for (size_t i = 0; i < m_SwapImages.size(); i++)
         {
             m_RenderCompleteSemaphores.emplace_back(
@@ -1958,7 +1969,8 @@ private:
 
     void RecreateSwapchainAndRenderImages()
     {
-        std::cout << "Recreating swapchain and render images...\n";
+        LogMsg(LogSeverity::Info, LogCategory("Invalid Swapchain"),
+               "Recreating swapchain and render images...");
 
         int width, height;
         SDL_GetWindowSizeInPixels(m_pWindow, &width, &height);
@@ -2003,6 +2015,9 @@ private:
 
     void CreateDescriptorSetLayouts()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan,
+               "CreateDescriptorSetLayouts()");
+
         std::array frameBindings = {vk::DescriptorSetLayoutBinding(
             0u, vk::DescriptorType::eUniformBuffer, 1u,
             vk::ShaderStageFlagBits::eVertex |
@@ -2057,6 +2072,8 @@ private:
 
     void CreateGlobalBuffers()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateGlobalBuffers()");
+
         vk::DeviceSize size = sizeof(GlobalBuffer);
         if (size % 16 != 0)
             throw std::runtime_error(std::format(
@@ -2126,6 +2143,8 @@ private:
 
     void CreateDescriptorPool()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateDescriptorPool()");
+
         std::array framePoolSize = {
             vk::DescriptorPoolSize{.type = vk::DescriptorType::eUniformBuffer,
                                    .descriptorCount = MAX_FRAMES_IN_FLIGHT}};
@@ -2176,6 +2195,8 @@ private:
 
     void CreateDescriptorSets()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateDescriptorSets()");
+
         std::vector<vk::DescriptorSetLayout> globalBufferLayouts(
             MAX_FRAMES_IN_FLIGHT, *m_GlobalBufferSetLayout);
         vk::DescriptorSetAllocateInfo globalBufferAllocInfo{
@@ -2249,6 +2270,8 @@ private:
 
     void CreateTextureSampler()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateTextureSampler()");
+
         float maxAnisotropy =
             m_PhysicalDevice.getProperties().limits.maxSamplerAnisotropy;
         vk::SamplerCreateInfo createInfo{
@@ -2274,6 +2297,8 @@ private:
 
     void CreateDepthResources()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateDepthResources()");
+
         m_DepthFormat = FindDepthFormat();
         CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
                     m_SwapchainExtent.height, m_DepthFormat,
@@ -2331,6 +2356,8 @@ private:
 
     void CreateInstanceBuffers()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateInstanceBuffers()");
+
         // TODO: allocating memory 3 times, can probably allocate once and
         // store offsets Can do the same with uniform buffer.
         vk::DeviceSize size = sizeof(InstanceData) * MAX_INSTANCE_COUNT;
@@ -2369,6 +2396,8 @@ private:
 
     void CreateRenderTargets()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateRenderTargets()");
+
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
             vk::raii::Image opaqueImage({});
@@ -2441,6 +2470,8 @@ private:
 
     void CreateQuadBuffers()
     {
+        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateQuadBuffers()");
+
         std::array<QuadVertex, 4> vertices = {
             {{.Pos = {-1.f, -1.f}, .TexCoord{0.f, 0.f}},
              {.Pos = {-1.f, 1.f}, .TexCoord{0.f, 1.f}},
@@ -2605,6 +2636,8 @@ int main()
 {
     std::signal(SIGINT, HandleSIGINT);
 
+	Log::g_MinSeverity = LogSeverity::Warning;
+
     // will be destroyed in reverse order of declaration
     std::unique_ptr<SDL_Window, decltype(&ShutdownSDL)> pWindow(nullptr,
                                                                 &ShutdownSDL);
@@ -2623,22 +2656,23 @@ int main()
         SDL_LogError(SDL_LOG_CATEGORY_ERROR, "SDL error: %s", e.what());
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "SDL Error", e.what(),
                                  nullptr);
+        LogMsg(LogSeverity::Error, LogSDL, "{}", e.what());
         return EXIT_FAILURE;
     }
     catch (const vk::SystemError& e)
     {
-        std::cerr << "Vulkan error: " << e.what() << std::endl;
+        LogMsg(LogSeverity::Error, LogMain, "Vulkan error: {}", e.what());
         return EXIT_FAILURE;
     }
     catch (const std::exception& e)
     {
-        std::cerr << "Error: " << e.what() << std::endl;
+        LogMsg(LogSeverity::Error, LogMain, "Error: {}", e.what());
         return EXIT_FAILURE;
     }
 
     pApp.reset();
     pWindow.reset();
 
-    std::cout << "Exiting gracefully..." << std::endl;
+    LogMsg(LogSeverity::Info, LogMain, "Exiting gracefully...");
     return EXIT_SUCCESS;
 }

@@ -10,6 +10,9 @@
 #define NOMINMAX
 #include <windows.h>
 #endif
+#include "Log.h"
+
+constexpr LogCategory LogThreadPool("Thread Pool");
 
 // Self-naming, call from inside the thread's own lambda
 inline void SetCurrentThreadName(const std::string& name)
@@ -26,9 +29,10 @@ inline void SetCurrentThreadName(const std::string& name)
 
 ThreadPool::ThreadPool(uint32_t threadCount)
 {
-	std::cout << "Initialising ThreadPool with " << threadCount << " threads...\n";
+    LogMsg(LogSeverity::Info, LogThreadPool,
+           "Initialising ThreadPool with {} threads...", threadCount);
 
-	for (uint32_t i = 0u; i < threadCount; i++)
+    for (uint32_t i = 0u; i < threadCount; i++)
     {
         m_Workers.emplace_back(
             [this, i]
@@ -49,8 +53,8 @@ ThreadPool::ThreadPool(uint32_t threadCount)
                             return;
 
                         job = std::move(m_Jobs.front());
-						m_Jobs.pop();
-						}
+                        m_Jobs.pop();
+                    }
                     job();
                 }
             });
@@ -81,10 +85,11 @@ void ThreadPool::Init()
 
     // number of logical cores minus one (main thread)
     uint32_t threadCount = std::thread::hardware_concurrency();
-	uint32_t poolThreadCount = threadCount - 1u;
-	std::cout << "CPU thread count: " << threadCount << "\n";
-	
-	s_Instance = new ThreadPool(poolThreadCount);
+    uint32_t poolThreadCount = threadCount - 1u;
+    LogMsg(LogSeverity::Info, LogThreadPool, "CPU thread count: {}",
+           threadCount);
+
+    s_Instance = new ThreadPool(poolThreadCount);
 }
 
 void ThreadPool::Shutdown()

@@ -1,6 +1,9 @@
 #include "MaterialFactory.h"
 
 #include "Utility.h"
+#include "Log.h"
+
+constexpr LogCategory LogMaterialFactory("Material Factory");
 
 MaterialFactory* MaterialFactory::s_Instance = nullptr;
 const uint8_t MaterialFactory::s_MAX_TEXTURE_COUNT_PER_MAT = 3u;
@@ -16,7 +19,9 @@ MaterialFactory::MaterialFactory(vk::raii::Device& device,
 
 void MaterialFactory::Init(vk::raii::Device& device, vk::raii::Sampler& sampler)
 {
-    if (s_Instance)
+    LogMsg(LogSeverity::Info, LogMaterialFactory, "Init()");
+    
+	if (s_Instance)
         throw std::runtime_error(
             "MaterialFactory singleton is already initialised!");
     s_Instance = new MaterialFactory(device, sampler);
@@ -24,7 +29,9 @@ void MaterialFactory::Init(vk::raii::Device& device, vk::raii::Sampler& sampler)
 
 void MaterialFactory::Shutdown()
 {
-    if (!s_Instance)
+    LogMsg(LogSeverity::Info, LogMaterialFactory, "Shutdown()");
+    
+	if (!s_Instance)
         throw std::runtime_error(
             "Attempting to shutdown MaterialFactory when it is already null!");
 

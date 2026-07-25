@@ -2,6 +2,7 @@
 
 #include "Cubemap.h"
 #include "CubemapLoader.h"
+#include "Log.h"
 #include "ModelData.h"
 #include "ModelLoader.h"
 #include "ModelManager.h"
@@ -9,11 +10,15 @@
 #include "Texture.h"
 #include "TextureLoader.h"
 
+inline constexpr LogCategory LogResourceManager{"Resource Manager"};
+
 void ResourceManager::Init(vk::raii::Device& device,
                            vk::raii::PhysicalDevice& physicalDevice,
                            vk::raii::CommandPool& commandPool,
                            vk::raii::Queue& transferQueue)
 {
+    LogMsg(LogSeverity::Info, LogResourceManager, "Init()");
+
     if (s_Instance)
         throw std::runtime_error(
             "ResourceManager singleton has already been initialised!");
@@ -27,7 +32,9 @@ void ResourceManager::Init(vk::raii::Device& device,
 
 void ResourceManager::Shutdown()
 {
-    if (!s_Instance)
+    LogMsg(LogSeverity::Info, LogResourceManager, "Shutdown()");
+    
+	if (!s_Instance)
         throw std::runtime_error(
             "Attempting to shutdown ResourceManager when it is already null!");
 
@@ -39,9 +46,9 @@ void ResourceManager::Shutdown()
     if (!s_Instance->m_TexturesMap.empty() ||
         !s_Instance->m_ModelsMap.empty() || !s_Instance->m_CubemapsMap.empty())
     {
-        std::cerr << "Attempting to shutdown ResourceManager when resources "
-                     "are still loaded!"
-                  << std::endl;
+        LogMsg(LogSeverity::Warning, LogResourceManager,
+               "Attempting to shutdown ResourceManager when resources are "
+               "still loaded!");
         DEBUG_BREAK();
     }
 

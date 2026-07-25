@@ -1,11 +1,13 @@
 #include "TextureLoader.h"
-#include "vulkan/vulkan.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include "Log.h"
 #include "Texture.h"
 #include "Utility.h"
+
+constexpr LogCategory LogTextureLoader("Texture Loader");
 
 TextureLoader::TextureLoader(vk::raii::Device& device,
                              vk::raii::PhysicalDevice& physicalDevice,
@@ -41,7 +43,8 @@ void TextureLoader::Shutdown()
 
 Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
 {
-    std::cout << std::format("Loading texture: {}", path.c_str()) << "\n";
+    LogMsg(LogSeverity::Info, LogTextureLoader, "Loading texture: {}",
+           path.c_str());
 
     int width, height, channels;
     stbi_uc* pixels =

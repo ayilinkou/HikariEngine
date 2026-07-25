@@ -1,6 +1,9 @@
 #include "CloudSystem.h"
+#include "Log.h"
 #include "Utility.h"
-#include "vulkan/vulkan.hpp"
+#include "Log.h"
+
+inline constexpr LogCategory LogCloudSystem{"Cloud System"};
 
 CloudSystem::CloudSystem(CloudSystemCreateInfo createInfo)
     : m_Device(createInfo.Device), m_PhysicalDevice(createInfo.PhysicalDevice),
@@ -15,6 +18,8 @@ void CloudSystem::Init(uint32_t width, uint32_t height,
                        vk::raii::DescriptorSetLayout& depthSetLayout)
 {
     CreateOutputImages(width, height);
+    LogMsg(LogSeverity::Info, LogCloudSystem, "Init()");
+
     CreateDescriptorPool();
     CreateDescriptorSetLayout();
     CreatePipelineLayout(globalSetLayout, depthSetLayout);
