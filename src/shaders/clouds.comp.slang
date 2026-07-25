@@ -3,6 +3,7 @@
 
 [[vk::binding(0, 1)]] Texture2D<float> depthTexture;
 [[vk::binding(0, 2)]] RWTexture2D<float4> outputImage;
+[[vk::binding(1, 2)]] Texture3D<float> perlinWorley;
 
 struct PushConstants
 {

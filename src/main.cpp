@@ -375,6 +375,9 @@ private:
             .PhysicalDevice = m_PhysicalDevice,
             .GlobalSetLayout = m_GlobalBufferSetLayout,
             .DepthSetLayout = m_DepthSetLayout,
+            .CommandPool = m_GenericCommandPool,
+            .ComputeQueue = m_GraphicsQueue, // TODO: find and store a dedicated
+                                             // compute queue
             .SwapchainWidth = m_SwapchainExtent.width,
             .SwapchainHeight = m_SwapchainExtent.height,
             .FramesInFlight = MAX_FRAMES_IN_FLIGHT};
@@ -603,20 +606,20 @@ private:
             ImGui::Text("Point Light");
             ImGui::DragFloat3("Position", &m_PointLight.GetPosition().x, 0.5f);
             ImGui::ColorEdit3("Color##PointLight", &m_PointLight.GetColor().r);
-            ImGui::SliderFloat("Intensity##PointLight", &m_PointLight.GetIntensity(), 0.f,
-                               1000.f);
+            ImGui::SliderFloat("Intensity##PointLight",
+                               &m_PointLight.GetIntensity(), 0.f, 1000.f);
 
             ImGui::Dummy(ImVec2(0.f, 5.f));
 
             ImGui::Text("Directional Light");
-			glm::vec3 dir = m_DirLight.GetDirection();
+            glm::vec3 dir = m_DirLight.GetDirection();
             ImGui::DragFloat3("Direction", &dir.x, 0.5f);
-			if (dir != m_DirLight.GetDirection())
-				m_DirLight.SetDirection(dir);
+            if (dir != m_DirLight.GetDirection())
+                m_DirLight.SetDirection(dir);
 
             ImGui::ColorEdit3("Color##DirLight", &m_DirLight.GetColor().r);
-            ImGui::SliderFloat("Intensity##DirLight", &m_DirLight.GetIntensity(), 0.f,
-                               10.f);
+            ImGui::SliderFloat("Intensity##DirLight",
+                               &m_DirLight.GetIntensity(), 0.f, 10.f);
 
             ImGui::Dummy(ImVec2(0.f, 20.f));
 
@@ -657,9 +660,11 @@ private:
         // requires the app to explicitly opt into enumerating portability
         // drivers, otherwise vkCreateInstance fails with
         // VK_ERROR_INCOMPATIBLE_DRIVER.
-        requiredExtensions.push_back(vk::KHRPortabilityEnumerationExtensionName);
+        requiredExtensions.push_back(
+            vk::KHRPortabilityEnumerationExtensionName);
         // Required so we can build the swapchain surface via
-        // VK_EXT_metal_surface (SDL_Vulkan_CreateSurface is unreliable on macOS).
+        // VK_EXT_metal_surface (SDL_Vulkan_CreateSurface is unreliable on
+        // macOS).
         requiredExtensions.push_back(vk::EXTMetalSurfaceExtensionName);
 #endif
 
@@ -801,9 +806,10 @@ private:
 
 #if defined(__APPLE__)
         // SDL_Vulkan_CreateSurface can crash on macOS because SDL resolves the
-        // surface-creation function pointer through its own Vulkan loader, which
-        // may differ from the one this app linked (and the instance belongs to).
-        // Create the Metal surface directly via our Vulkan loader instead.
+        // surface-creation function pointer through its own Vulkan loader,
+        // which may differ from the one this app linked (and the instance
+        // belongs to). Create the Metal surface directly via our Vulkan loader
+        // instead.
         SDL_MetalView metalView = SDL_Metal_CreateView(m_pWindow);
         if (!metalView)
             throw SDLException("Failed to create Metal view!");
@@ -886,8 +892,8 @@ private:
 
 #if defined(__APPLE__)
         // MoltenVK exposes VK_KHR_portability_subset and requires it to be
-        // enabled on the logical device; otherwise device creation has undefined
-        // behaviour and can crash.
+        // enabled on the logical device; otherwise device creation has
+        // undefined behaviour and can crash.
         requiredDeviceExtensions.push_back(
             vk::KHRPortabilitySubsetExtensionName);
 #endif
@@ -1026,9 +1032,11 @@ private:
                           attributeDescs.begin() + Vertex::AttributeCount);
 
         vk::PipelineVertexInputStateCreateInfo vertexInput{
-            .vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescs.size()),
+            .vertexBindingDescriptionCount =
+                static_cast<uint32_t>(bindingDescs.size()),
             .pVertexBindingDescriptions = bindingDescs.data(),
-            .vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescs.size()),
+            .vertexAttributeDescriptionCount =
+                static_cast<uint32_t>(attributeDescs.size()),
             .pVertexAttributeDescriptions = attributeDescs.data()};
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
             .topology = vk::PrimitiveTopology::eTriangleList};
@@ -1169,9 +1177,11 @@ private:
                           attributeDescs.begin() + Vertex::AttributeCount);
 
         vk::PipelineVertexInputStateCreateInfo vertexInput{
-            .vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescs.size()),
+            .vertexBindingDescriptionCount =
+                static_cast<uint32_t>(bindingDescs.size()),
             .pVertexBindingDescriptions = bindingDescs.data(),
-            .vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescs.size()),
+            .vertexAttributeDescriptionCount =
+                static_cast<uint32_t>(attributeDescs.size()),
             .pVertexAttributeDescriptions = attributeDescs.data()};
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
             .topology = vk::PrimitiveTopology::eTriangleList};
@@ -1260,7 +1270,8 @@ private:
         std::array<vk::Format, 2> attachmentFormats = {m_AccumImageFormat,
                                                        m_RevealageImageFormat};
         vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo = {
-            .colorAttachmentCount = static_cast<uint32_t>(attachmentFormats.size()),
+            .colorAttachmentCount =
+                static_cast<uint32_t>(attachmentFormats.size()),
             .pColorAttachmentFormats = attachmentFormats.data(),
             .depthAttachmentFormat = m_DepthFormat};
 
@@ -1314,7 +1325,8 @@ private:
         vk::PipelineVertexInputStateCreateInfo vertexInput{
             .vertexBindingDescriptionCount = 1u,
             .pVertexBindingDescriptions = &vertexBindingDesc,
-            .vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexAttributeDesc.size()),
+            .vertexAttributeDescriptionCount =
+                static_cast<uint32_t>(vertexAttributeDesc.size()),
             .pVertexAttributeDescriptions = vertexAttributeDesc.data()};
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
             .topology = vk::PrimitiveTopology::eTriangleList};
@@ -1372,7 +1384,8 @@ private:
         std::array<vk::DescriptorSetLayout, 2> descriptorSetLayouts = {
             m_GlobalBufferSetLayout, m_CompositeSetLayout};
         vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
-            .setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size()),
+            .setLayoutCount =
+                static_cast<uint32_t>(descriptorSetLayouts.size()),
             .pSetLayouts = descriptorSetLayouts.data()};
         m_CompositePipelineLayout =
             vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
@@ -1734,7 +1747,8 @@ private:
         vk::RenderingInfo renderingInfo = {
             .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
             .layerCount = 1,
-            .colorAttachmentCount = static_cast<uint32_t>(colorAttachmentInfos.size()),
+            .colorAttachmentCount =
+                static_cast<uint32_t>(colorAttachmentInfos.size()),
             .pColorAttachments = colorAttachmentInfos.data(),
             .pDepthAttachment = &depthAttachmentInfo};
 
@@ -2509,7 +2523,8 @@ private:
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
             vk::DescriptorImageInfo cloudsImageInfo{
                 .sampler = m_TextureSampler,
-                .imageView = m_CloudSystem->GetImageView(static_cast<uint8_t>(i)),
+                .imageView =
+                    m_CloudSystem->GetImageView(static_cast<uint8_t>(i)),
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
             std::array compDescriptorWrites = {
