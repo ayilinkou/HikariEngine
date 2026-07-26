@@ -21,8 +21,9 @@ private:
         glm::vec3 WindVelocity = {0.05f, 0.f, 0.03f};
         float MinHeight = 1500.f;
         float MaxHeight = 4000.f;
-        float Coverage = 0.5f;
+        float Coverage = 0.2f;
         float Anisotropy = 0.3f;
+		float BoundaryDisplacement = 300.f;
         uint32_t ViewStepCount = 64u;
         uint32_t SunStepCount = 6u;
     };
@@ -65,6 +66,7 @@ private:
     void WriteDescriptorSets();
     void BakeNoiseTexture(vk::raii::CommandPool& commandPool,
                           vk::raii::Queue& computeQueue);
+	void CreateTextureSampler();
 
 private:
     static const uint32_t s_NOISE_RES;
@@ -82,6 +84,7 @@ private:
     vk::raii::Pipeline m_BakePipeline = nullptr;
     std::vector<vk::raii::DescriptorSet> m_DescriptorSets;
     vk::raii::DescriptorSet m_BakeDescriptorSet = nullptr;
+	vk::raii::Sampler m_TextureSampler = nullptr;
 
     std::vector<vk::raii::Image> m_OutputImages;
     std::vector<vk::raii::DeviceMemory> m_OutputImageMemory;

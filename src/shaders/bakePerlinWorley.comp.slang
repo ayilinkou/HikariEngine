@@ -104,7 +104,8 @@ void main(uint3 dispatchId : SV_DispatchThreadID)
 
     // classic Perlin-Worley remap (Schneider, "Real-Time Volumetric Cloudscapes"):
     // use inverted worley FBM as a floor, so perlin only shows through where worley carves cavities
-    float perlinWorley = saturate((perlin - (1.f - worley)) / max(worley, 0.0001f));
+    //float perlinWorley = saturate((perlin - (1.f - worley)) / max(worley, 0.0001f));
+	float perlinWorley = saturate(perlin - (1.f - worley) * 0.5f); // erosion strength halved
 
     outputNoise[dispatchId] = perlinWorley;
 }

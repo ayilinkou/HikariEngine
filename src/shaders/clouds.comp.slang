@@ -3,7 +3,7 @@
 
 [[vk::binding(0, 1)]] Texture2D<float> depthTexture;
 [[vk::binding(0, 2)]] RWTexture2D<float4> outputImage;
-[[vk::binding(1, 2)]] Texture3D<float> perlinWorley;
+[[vk::binding(1, 2)]] Sampler3D perlinWorley;
 
 struct PushConstants
 {
@@ -12,39 +12,38 @@ struct PushConstants
     float maxHeight;
     float coverage;
 	float anisotropy;
+	float boundaryDisplacement;
     uint viewStepCount;
 	uint sunStepCount;
 };
 [[vk::push_constant]] PushConstants pc;
 
-float hash(float3 p)
+void IntersectHeightSlab(float3 origin, float3 dir, float minH, float maxH, float margin,
+                          out float tNear, out float tFar)
 {
-    p = frac(p * 0.3183099f + 0.1f);
-    p *= 17.f;
-    return frac(p.x * p.y * p.z * (p.x + p.y + p.z));
-}
-
-// TODO: swap to perlin-worley noise texture
-float noise(float3 p)
-{
-    float3 i = floor(p);
-    float3 f = frac(p);
-    f = f * f * (3.f - 2.f * f);
-    return lerp(
-        lerp(lerp(hash(i + float3(0.f,0.f,0.f)), hash(i + float3(1.f,0.f,0.f)), f.x),
-             lerp(hash(i + float3(0.f,1.f,0.f)), hash(i + float3(1.f,1.f,0.f)), f.x), f.y),
-        lerp(lerp(hash(i + float3(0.f,0.f,1.f)), hash(i + float3(1.f,0.f,1.f)), f.x),
-             lerp(hash(i + float3(0.f,1.f,1.f)), hash(i + float3(1.f,1.f,1.f)), f.x), f.y),
-        f.z);
+    float tMinPlane = ((minH - margin) - origin.y) / dir.y;
+    float tMaxPlane = ((maxH + margin) - origin.y) / dir.y;
+    tNear = min(tMinPlane, tMaxPlane);
+    tFar  = max(tMinPlane, tMaxPlane);
 }
 
 float SampleDensity(float3 pos)
 {
-    float3 samplePos = pos * 0.001f + pc.windVelocity * globalBuffer.Time;
-    float n = noise(samplePos) * 0.5f + noise(samplePos * 2.f) * 0.25f + noise(samplePos * 4.f) * 0.25f;
+	const float windSpeed = 0.1f;
 
-    float h = saturate((pos.y - pc.minHeight) / (pc.maxHeight - pc.minHeight)); 
-    float heightGradient = smoothstep(0.f, 0.1f, h) * smoothstep(1.f, 0.8f, h);
+	float3 samplePos = pos * 0.00001f + pc.windVelocity * windSpeed * globalBuffer.Time;
+    float n = perlinWorley.SampleLevel(samplePos, 0).r;
+
+    // low-frequency 2D perturbation of the layer bounds, so the boundary isn't a flat plane
+    float2 boundaryNoiseCoord = pos.xz * 0.0003f + pc.windVelocity.xz * globalBuffer.Time * 0.5f;
+    float boundaryNoise = perlinWorley.SampleLevel(float3(boundaryNoiseCoord, 0.f), 0).r;
+    float heightOffset = (boundaryNoise - 0.5f) * 2.f * pc.boundaryDisplacement;
+
+    float localMin = pc.minHeight + heightOffset;
+    float localMax = pc.maxHeight + heightOffset;
+
+    float h = saturate((pos.y - localMin) / (localMax - localMin));
+    float heightGradient = smoothstep(0.f, 0.3f, h) * smoothstep(1.f, 0.6f, h);
 
     return saturate(n - pc.coverage) * heightGradient;
 }
@@ -88,10 +87,8 @@ void main(uint3 dispatchId : SV_DispatchThreadID)
     }
 
     // Ray-slab intersection
-    float tMinPlane = (pc.minHeight - rayOrigin.y) / rayDir.y;
-    float tMaxPlane = (pc.maxHeight - rayOrigin.y) / rayDir.y;
-    float tNear = min(tMinPlane, tMaxPlane);
-    float tFar  = max(tMinPlane, tMaxPlane);
+	float tNear, tFar;
+	IntersectHeightSlab(rayOrigin, rayDir, pc.minHeight, pc.maxHeight, pc.boundaryDisplacement, tNear, tFar);
 
     tNear = max(tNear, 0.f);
     tFar = min(tFar, sceneDist);
@@ -120,10 +117,8 @@ void main(uint3 dispatchId : SV_DispatchThreadID)
         float density = SampleDensity(samplePos);
 
 		float sunTNear, sunTFar;
-		float sunTMinPlane = (pc.minHeight - samplePos.y) / sunDir.y;
-		float sunTMaxPlane = (pc.maxHeight - samplePos.y) / sunDir.y;
-		sunTNear = max(min(sunTMinPlane, sunTMaxPlane), 0.f);
-		sunTFar = max(sunTMinPlane, sunTMaxPlane);
+		IntersectHeightSlab(samplePos, sunDir, pc.minHeight, pc.maxHeight, pc.boundaryDisplacement, sunTNear, sunTFar);
+		sunTNear = max(sunTNear, 0.f);
 
 		float sunStepSize = (sunTFar - sunTNear) / float(pc.sunStepCount);
 		float sunT = sunTNear;

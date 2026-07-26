@@ -1,7 +1,6 @@
 #include "CloudSystem.h"
 #include "Log.h"
 #include "Utility.h"
-#include "Log.h"
 
 inline constexpr LogCategory LogCloudSystem{"Cloud System"};
 
@@ -18,7 +17,8 @@ void CloudSystem::Init(const CloudSystemCreateInfo& createInfo)
 {
     LogMsg(LogSeverity::Info, LogCloudSystem, "Init()");
 
-	CreateOutputImages(createInfo.SwapchainWidth, createInfo.SwapchainHeight);
+	CreateTextureSampler();
+    CreateOutputImages(createInfo.SwapchainWidth, createInfo.SwapchainHeight);
     CreateNoiseTexture();
     CreateDescriptorPool();
     CreateDescriptorSetLayout();
@@ -100,7 +100,7 @@ void CloudSystem::CreateDescriptorSetLayout()
     std::array<vk::DescriptorSetLayoutBinding, 2> bindings{
         {{0, vk::DescriptorType::eStorageImage, 1,
           vk::ShaderStageFlagBits::eCompute},
-         {1, vk::DescriptorType::eSampledImage, 1,
+         {1, vk::DescriptorType::eCombinedImageSampler, 1,
           vk::ShaderStageFlagBits::eCompute}}};
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo{
@@ -217,7 +217,7 @@ void CloudSystem::CreateDescriptorPool()
 {
     std::array<vk::DescriptorPoolSize, 2> poolSizes{
         {{vk::DescriptorType::eStorageImage, m_FramesInFlight},
-         {vk::DescriptorType::eSampledImage, m_FramesInFlight}}};
+         {vk::DescriptorType::eCombinedImageSampler, m_FramesInFlight}}};
 
     vk::DescriptorPoolCreateInfo poolInfo{
         .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
@@ -290,8 +290,9 @@ void CloudSystem::WriteDescriptorSets()
             .imageLayout = vk::ImageLayout::eGeneral,
         };
         vk::DescriptorImageInfo perlinWorleyImageInfo{
+            .sampler = *m_TextureSampler,
             .imageView = *m_PerlinWorleyView,
-            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+			.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
         };
 
         std::array<vk::WriteDescriptorSet, 2> writeDescSet{
@@ -307,7 +308,7 @@ void CloudSystem::WriteDescriptorSets()
                 .dstBinding = 1,
                 .dstArrayElement = 0,
                 .descriptorCount = 1,
-                .descriptorType = vk::DescriptorType::eSampledImage,
+                .descriptorType = vk::DescriptorType::eCombinedImageSampler,
                 .pImageInfo = &perlinWorleyImageInfo,
             }};
 
@@ -415,8 +416,8 @@ void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
                                    vk::raii::Queue& computeQueue)
 {
     LogMsg(LogSeverity::Info, LogCloudSystem,
-           "Baking perlin worley texture ({}x{}x{})",
-           s_NOISE_RES, s_NOISE_RES, s_NOISE_RES);
+           "Baking perlin worley texture ({}x{}x{})", s_NOISE_RES, s_NOISE_RES,
+           s_NOISE_RES);
 
     vk::raii::CommandBuffer cmd = BeginSingleTimeCommand(m_Device, commandPool);
 
@@ -465,4 +466,26 @@ void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
 
     // TODO: move to a read only image
     EndSingleTimeCommand(cmd, computeQueue);
+}
+
+void CloudSystem::CreateTextureSampler()
+{
+    LogMsg(LogSeverity::Info, LogCloudSystem, "CreateTextureSampler()");
+
+    vk::SamplerCreateInfo createInfo{
+        .magFilter = vk::Filter::eLinear,
+        .minFilter = vk::Filter::eLinear,
+        .mipmapMode = vk::SamplerMipmapMode::eLinear,
+        .addressModeU = vk::SamplerAddressMode::eRepeat,
+        .addressModeV = vk::SamplerAddressMode::eRepeat,
+        .addressModeW = vk::SamplerAddressMode::eRepeat,
+        .anisotropyEnable = vk::False,
+        .compareEnable = vk::False,
+        .minLod = 0.f,
+        .maxLod = 0.f,
+        .borderColor = vk::BorderColor::eIntOpaqueBlack,
+        .unnormalizedCoordinates = vk::False};
+    m_TextureSampler = vk::raii::Sampler(m_Device, createInfo);
+    SetVkDebugName(m_Device, *m_TextureSampler, vk::ObjectType::eSampler,
+                   "Cloud System Texture Sampler");
 }
