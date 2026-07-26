@@ -164,7 +164,7 @@ function(add_slang_shader_target target)
       COMMAND
         ${SLANGC_EXECUTABLE} ${shader} -target spirv -profile spirv_1_4
         -emit-spirv-directly -fvk-use-entrypoint-name ${entry_points} -o
-        ${output_file}
+        ${output_file} $<IF:$<CONFIG:Debug>,-g2,-O3> $<$<CONFIG:Debug>:-O0>
       DEPENDS ${shader}
       VERBATIM)
   endforeach()
