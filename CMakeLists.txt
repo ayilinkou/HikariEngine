@@ -148,7 +148,7 @@ function(add_slang_shader_target target)
   set(shaders_dir ${CMAKE_CURRENT_LIST_DIR}/shaders)
   set(shaders_source_dir ${CMAKE_CURRENT_LIST_DIR}/src/shaders)
 
-  set(outputs)
+  add_custom_target(${target} ALL)
 
   foreach(shader ${SHADER_SOURCES})
     message(STATUS "Found shader: ${shader}")
@@ -160,8 +160,6 @@ function(add_slang_shader_target target)
 
     get_filename_component(output_dir ${output_file} DIRECTORY)
 
-    list(APPEND outputs ${output_file})
-
     if(shader MATCHES "\\.comp\\.slang$")
       set(entry_points -entry main)
     else()
@@ -169,18 +167,16 @@ function(add_slang_shader_target target)
     endif()
 
     add_custom_command(
-      OUTPUT ${output_file}
+      TARGET ${target}
+      POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${rel_path}"
       COMMAND ${CMAKE_COMMAND} -E make_directory ${output_dir}
       COMMAND
         ${SLANGC_EXECUTABLE} ${shader} -target spirv -profile spirv_1_4
         -emit-spirv-directly -fvk-use-entrypoint-name ${entry_points} -o
-        ${output_file} $<IF:$<CONFIG:Debug>,-g2,-O3> $<$<CONFIG:Debug>:-O0>
-      DEPENDS ${shader}
+        ${output_file} $<IF:$<CONFIG:Debug>,-g1,-O3> $<$<CONFIG:Debug>:-O0>
       VERBATIM)
   endforeach()
-
-  add_custom_target(${target} DEPENDS ${outputs})
 endfunction()
 
 add_slang_shader_target(CompileShadersTarget SOURCES ${shader_slang_sources})
