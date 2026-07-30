@@ -18,4 +18,3 @@ case "${1:-$OS}" in
 esac
 
 cmake --workflow --preset "$PRESET"
-ln -sf "build/${PRESET}/compile_commands.json" compile_commands.json
