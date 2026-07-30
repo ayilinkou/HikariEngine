@@ -2651,7 +2651,7 @@ int main()
 {
     std::signal(SIGINT, HandleSIGINT);
 
-	Log::g_MinSeverity = LogSeverity::Warning;
+	Log::g_MinSeverity = LogSeverity::Info;
 
     // will be destroyed in reverse order of declaration
     std::unique_ptr<SDL_Window, decltype(&ShutdownSDL)> pWindow(nullptr,
