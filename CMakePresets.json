@@ -58,13 +58,36 @@
 		    "architecture": "x64"
 		},
 		{
+		    "name": "windows-ninja-base",
+			"inherits": "windows-base",
+			"hidden": true,
+			"generator": "Ninja",
+			"cacheVariables": {
+				"CMAKE_CXX_COMPILER": "cl",
+				"VCPKG_INSTALLED_DIR": "${sourceDir}/build/vcpkg_installed"
+			}
+		},
+		{
+			"name": "ninja-debug-windows",
+			"inherits": "windows-ninja-base",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Debug"
+			}
+		},
+		{
+			"name": "ninja-release-windows",
+			"inherits": "windows-ninja-base",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Release"
+			}
+		},
+		{
 			"name": "macos-base",
 			"inherits": "base",
 			"hidden": true,
 			"cacheVariables": {
 				"VCPKG_TARGET_TRIPLET": "arm64-osx",
 				"CMAKE_MAKE_PROGRAM": "/opt/homebrew/bin/ninja",
-				"CMAKE_C_COMPILER": "/usr/bin/clang",
 				"CMAKE_CXX_COMPILER": "/usr/bin/clang++"
 			}
 		},
@@ -98,6 +121,14 @@
 		{
 			"name": "ninja-release-linux",
 			"configurePreset": "ninja-release-linux"
+		},
+		{
+			"name": "ninja-debug-windows",
+			"configurePreset": "ninja-debug-windows"
+		},
+		{
+			"name": "ninja-release-windows",
+			"configurePreset": "ninja-release-windows"
 		},
 		{
 			"name": "ninja-debug-macos",
@@ -146,6 +177,32 @@
 				{
 					"type": "build",
 					"name": "ninja-release-linux"
+				}
+			]
+		},
+		{
+			"name": "ninja-debug-windows",
+			"steps": [
+				{
+					"type": "configure",
+					"name": "ninja-debug-windows"
+				},
+				{
+					"type": "build",
+					"name": "ninja-debug-windows"
+				}
+			]
+		},
+		{
+			"name": "ninja-release-windows",
+			"steps": [
+				{
+					"type": "configure",
+					"name": "ninja-release-windows"
+				},
+				{
+					"type": "build",
+					"name": "ninja-release-windows"
 				}
 			]
 		},

@@ -10,6 +10,17 @@ set(CMAKE_CONFIGURATION_TYPES
     "Debug;Release"
     CACHE STRING "" FORCE)
 
+if(CMAKE_EXPORT_COMPILE_COMMANDS AND CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
+  file(
+    CREATE_LINK "${CMAKE_BINARY_DIR}/compile_commands.json"
+                "${CMAKE_SOURCE_DIR}/compile_commands.json"
+    RESULT compile_commands_link
+    SYMBOLIC)
+  if(NOT compile_commands_link STREQUAL "0")
+    message(STATUS "compile_commands.json link skipped: ${compile_commands_link}")
+  endif()
+endif()
+
 option(ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
 
 if(ENABLE_SANITIZERS)
@@ -18,7 +29,7 @@ if(ENABLE_SANITIZERS)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
-project(VulkanApp VERSION 1.0)
+project(VulkanApp VERSION 1.0 LANGUAGES CXX)
 
 set(SOURCES
     src/main.cpp
@@ -89,28 +100,28 @@ target_compile_definitions(
           GLM_ENABLE_EXPERIMENTAL $<$<CONFIG:Debug>:DEBUG>)
 
 if(MSVC)
+  if(CMAKE_GENERATOR MATCHES "Visual Studio")
+    # MSBuild batches TUs into one cl invocation, so /MP is what parallelises.
+    target_compile_options(VulkanApp PRIVATE /MP)
+  else()
+	# Ninja parallelises itself; /Z7 embeds debug info in each .obj and avoids
+    # serialising all TUs through mspdbsrv writing a shared PDB.
+    set_target_properties(VulkanApp PROPERTIES
+      MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug>:Embedded>")
+  endif()
+  
   target_compile_options(
     VulkanApp
     PRIVATE /W3 # Warning level
-            /MP # Multi-processor compilation
             /WX # Warnings as errors
-            $<$<CONFIG:Debug>:
-            /Od # No optimisation
-            /Zi # Debug info (PDB)
-            >
-            $<$<CONFIG:Release>:
-            /O2 # Full optimisation
-            >)
+            $<$<CONFIG:Debug>:/Od>
+            $<$<CONFIG:Release>:/O2>)
 
   target_link_options(
     VulkanApp
     PRIVATE
-    $<$<CONFIG:Debug>:
-    /DEBUG
-    >
-    # optional but useful for crash reports
-    $<$<CONFIG:Release>:
-    /DEBUG
+    $<$<CONFIG:Debug>:/DEBUG> # optional but useful for crash reports
+    $<$<CONFIG:Release>:/DEBUG
     >)
 else()
   target_compile_options(
