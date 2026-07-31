@@ -17,6 +17,7 @@
 				"vulkan-binding",
 				"sdl3-binding"
 			]
-		}
+		},
+		"pugixml"
 	]
 }

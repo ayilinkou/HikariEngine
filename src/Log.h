@@ -45,13 +45,13 @@ constexpr std::string_view SeverityTag(LogSeverity severity)
     switch (severity)
     {
     case LogSeverity::Info:
-        return "INFO";
+        return "";
     case LogSeverity::Warning:
-        return "WARNING";
+        return "[WARNING]";
     case LogSeverity::Error:
-        return "ERROR";
+        return "[ERROR]";
     }
-    return "?";
+    return "[?]";
 }
 
 inline LogSeverity g_MinSeverity{LogSeverity::Info};
@@ -74,7 +74,7 @@ void LogMsg(LogSeverity severity, const LogCategory& cat,
             ? stderr
             : stdout;
 
-    std::fprintf(stream, "%.*s[%.*s]%.*s [%.*s] ",
+    std::fprintf(stream, "%.*s%.*s%.*s [%.*s] ",
                  static_cast<int>(color.size()), color.data(),
                  static_cast<int>(tag.size()), tag.data(),
                  static_cast<int>(Log::Reset.size()), Log::Reset.data(),

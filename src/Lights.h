@@ -1,5 +1,11 @@
 #pragma once
 
+enum class LightType : uint8_t
+{
+	Point,
+	Directional
+};
+
 class Light
 {
 protected:
@@ -21,8 +27,10 @@ class PointLight : public Light
 public:
     PointLight() : m_Pos({0.f, 0.f, 0.f}) {}
     PointLight(glm::vec3 pos) : m_Pos(pos) {}
-
+	
 	glm::vec3& GetPosition() { return m_Pos; }
+
+	void SetPosition(glm::vec3 pos) { m_Pos = pos; }
 
     struct Data
     {

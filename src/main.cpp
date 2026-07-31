@@ -16,6 +16,7 @@
 #include "Timer.h"
 #include "Utility.h"
 #include "Vertex.h"
+#include "XmlParser.h"
 
 #define MULTITHREADED_COMMAND_RECORDING 1
 
@@ -35,6 +36,7 @@ constexpr LogCategory LogSDL("SDL");
 constexpr LogCategory LogWindow("Window");
 constexpr LogCategory LogMain("main");
 constexpr LogCategory LogInitVulkan("InitVulkan");
+constexpr LogCategory LogRenderer("Renderer");
 
 std::atomic<bool> g_bShouldClose = false;
 
@@ -248,11 +250,15 @@ private:
         InitImGui();
 
         ThreadPool::Init();
-        m_PointLight = PointLight({-10.f, 15.f, 0.f});
-        m_PointLight.SetIntensity(1000.f);
 
-        m_DirLight = DirectionalLight({0.5f, -1.f, 0.5f});
-        m_DirLight.SetIntensity(5.f);
+		SceneGraph scene = XmlParser::LoadScene("scenes/scene1.xml");
+
+		// TODO: add support for multiple point lights
+		m_PointLight = std::move(scene.PointLights[0]);
+		scene.PointLights.erase(scene.PointLights.begin());
+		
+		m_DirLight = std::move(scene.DirLights[0]);
+		scene.DirLights.erase(scene.DirLights.begin());
 
         m_GameObjects.push_back(std::make_unique<GameObject>());
         m_GameObjects.back()->GetTransform().Position +=
@@ -1983,7 +1989,7 @@ private:
 
     void RecreateSwapchainAndRenderImages()
     {
-        LogMsg(LogSeverity::Info, LogCategory("Invalid Swapchain"),
+        LogMsg(LogSeverity::Info, LogRenderer,
                "Recreating swapchain and render images...");
 
         int width, height;

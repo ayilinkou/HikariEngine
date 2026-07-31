@@ -1,0 +1,4 @@
+<scene>
+	<light type="1" intensity="5" direction="0.5 -1 0.5"/>
+	<light type="0" intensity="1000" position="-10 15 0"/>
+</scene>

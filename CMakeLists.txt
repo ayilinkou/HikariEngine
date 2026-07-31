@@ -52,7 +52,8 @@ set(SOURCES
     src/Node.cpp
     src/Mesh.cpp
     src/ThreadPool.cpp
-    src/CloudSystem.cpp)
+    src/CloudSystem.cpp
+	src/XmlParser.cpp)
 
 # On macOS the Vulkan validation layer only ships with the Vulkan SDK (vcpkg
 # ships none) and is selected at runtime via VK_LAYER_PATH. vcpkg's own
@@ -76,6 +77,7 @@ find_package(glm CONFIG REQUIRED)
 find_package(Stb REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
+find_package(pugixml CONFIG REQUIRED)
 
 find_program(SLANGC_EXECUTABLE slangc)
 if(NOT SLANGC_EXECUTABLE)
@@ -90,7 +92,7 @@ target_sources(VulkanApp PRIVATE ${SOURCES})
 
 target_link_libraries(
   VulkanApp PRIVATE SDL3::SDL3 Vulkan::Vulkan glm::glm-header-only
-                    assimp::assimp imgui::imgui)
+                    assimp::assimp imgui::imgui pugixml::pugixml)
 
 target_include_directories(VulkanApp PRIVATE src ${Stb_INCLUDE_DIR})
 
