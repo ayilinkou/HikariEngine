@@ -1,6 +1,6 @@
 #pragma once
 
-class GameObject;
+class Entity;
 
 class Component
 {
@@ -8,10 +8,10 @@ public:
     Component() = default;
     virtual ~Component() = default;
 
-    void SetOwner(GameObject* pOwner) { m_pOwner = pOwner; }
-    GameObject* GetOwner() const { return m_pOwner; }
+    void SetOwner(Entity* pOwner) { m_pOwner = pOwner; }
+    Entity* GetOwner() const { return m_pOwner; }
 	
 
 protected:
-    GameObject* m_pOwner = nullptr;
+    Entity* m_pOwner = nullptr;
 };

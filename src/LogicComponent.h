@@ -7,5 +7,5 @@
 class LogicComponent : public Component
 {
 public:
-    LogicComponent(GameObject* pOwner) { SetOwner(pOwner); }
+    LogicComponent(Entity* pOwner) { SetOwner(pOwner); }
 };

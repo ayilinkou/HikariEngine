@@ -46,7 +46,7 @@ set(SOURCES
     src/CubemapLoader.cpp
     src/ModelLoader.cpp
     src/ModelManager.cpp
-    src/GameObject.cpp
+	src/Entity.cpp
     src/SceneComponent.cpp
     src/Transform.cpp
     src/Node.cpp

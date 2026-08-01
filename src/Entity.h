@@ -1,18 +1,15 @@
 #pragma once
 
 #include <concepts>
-#include <cstdint>
-#include <memory>
 
-#include "Component.h"
 #include "LogicComponent.h"
 #include "SceneComponent.h"
 
-class GameObject
+class Entity
 {
 public:
-    GameObject();
-    virtual ~GameObject() = default;
+    Entity();
+    virtual ~Entity() = default;
 
     void AddComponent(std::unique_ptr<SceneComponent> comp);
     void AddComponent(std::unique_ptr<LogicComponent> comp);

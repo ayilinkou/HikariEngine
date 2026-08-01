@@ -3,7 +3,7 @@
 #include "Common.h"
 #include "Cubemap.h"
 #include "FrameData.h"
-#include "GameObject.h"
+#include "Entity.h"
 #include "InstanceData.h"
 #include "Lights.h"
 #include "Log.h"
@@ -260,32 +260,32 @@ private:
 		m_DirLight = std::move(scene.DirLights[0]);
 		scene.DirLights.erase(scene.DirLights.begin());
 
-        m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Position +=
+        m_Entities.push_back(std::make_unique<Entity>());
+        m_Entities.back()->GetTransform().Position +=
             glm::vec3(-60.f, -15.f, -5.f);
         auto boxModelOne = std::make_unique<Model>(BOX_MODEL_PATH);
         boxModelOne->GetTransform().Scale *= 0.1f;
-        m_GameObjects.back()->AddComponent(std::move(boxModelOne));
+        m_Entities.back()->AddComponent(std::move(boxModelOne));
 
-        m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Position +=
+        m_Entities.push_back(std::make_unique<Entity>());
+        m_Entities.back()->GetTransform().Position +=
             glm::vec3(-60.f, 10.f, -5.f);
         auto boxModelTwo = std::make_unique<Model>(BOX_MODEL_PATH);
         boxModelTwo->GetTransform().Scale *= 0.1f;
-        m_GameObjects.back()->AddComponent(std::move(boxModelTwo));
+        m_Entities.back()->AddComponent(std::move(boxModelTwo));
 
-        m_GameObjects.push_back(std::make_unique<GameObject>());
-        m_GameObjects.back()->GetTransform().Position +=
+        m_Entities.push_back(std::make_unique<Entity>());
+        m_Entities.back()->GetTransform().Position +=
             glm::vec3(0.f, 0.f, -20.f);
         auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
         carModel->GetTransform().Scale *= 10.f;
-        m_GameObjects.back()->AddComponent(std::move(carModel));
+        m_Entities.back()->AddComponent(std::move(carModel));
 
         /*for (int i = 0; i < 1; i++)
         {
-            m_GameObjects.push_back(std::make_unique<GameObject>());
+            m_Entities.push_back(std::make_unique<Entity>());
             auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
-            m_GameObjects.back()->AddComponent(std::move(sponzaModel));
+            m_Entities.back()->AddComponent(std::move(sponzaModel));
         }*/
 
         CubemapCreateInfo createInfo{};
@@ -401,7 +401,7 @@ private:
         ResourceManager::Get()->UnloadCubemap(m_pSkybox->GetCreateInfo());
         m_pSkybox = nullptr;
 
-        m_GameObjects.clear();
+        m_Entities.clear();
         ThreadPool::Shutdown();
         ShutdownImGui();
         MaterialFactory::Shutdown();
@@ -2634,7 +2634,7 @@ private:
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
 
     std::unique_ptr<Camera> m_Camera = nullptr;
-    std::vector<std::unique_ptr<GameObject>> m_GameObjects;
+    std::vector<std::unique_ptr<Entity>> m_Entities;
     Cubemap* m_pSkybox = nullptr;
     std::unique_ptr<CloudSystem> m_CloudSystem = nullptr;
     PointLight m_PointLight;
