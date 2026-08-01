@@ -21,10 +21,4 @@
 			<transform position="0 0 0" rotation="0 0 0" scale="10 10 10" />
 		</model>
 	</entity>
-	<!--<entity
-	name="Sponza">
-		<model path="models/sponza/Sponza.gltf">
-			<transform position="0 0 50" rotation="0 0 0" scale="1 1 1" />
-		</model>
-	</entity>-->
 </scene>
