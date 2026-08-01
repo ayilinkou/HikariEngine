@@ -43,7 +43,9 @@ void CloudSystem::Resize(uint32_t width, uint32_t height)
 
 void CloudSystem::CreateOutputImages(uint32_t width, uint32_t height)
 {
-    m_OutputImages.clear();
+    LogMsg(LogSeverity::Info, LogCloudSystem, "CreateOutputImages()");
+    
+	m_OutputImages.clear();
     m_OutputImageMemory.clear();
     m_OutputViews.clear();
 
@@ -283,7 +285,9 @@ void CloudSystem::AllocateAndWriteBakeDescriptorSet()
 
 void CloudSystem::WriteDescriptorSets()
 {
-    for (uint32_t i = 0u; i < m_FramesInFlight; i++)
+    LogMsg(LogSeverity::Info, LogCloudSystem, "WriteDescriptorSets()");
+    
+	for (uint32_t i = 0u; i < m_FramesInFlight; i++)
     {
         vk::DescriptorImageInfo storageImageInfo{
             .imageView = *m_OutputViews[i],

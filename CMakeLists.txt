@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 4.0)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
 
 # Only generate Debug and Release configurations
 set(CMAKE_CONFIGURATION_TYPES
@@ -13,11 +12,12 @@ set(CMAKE_CONFIGURATION_TYPES
 if(CMAKE_EXPORT_COMPILE_COMMANDS AND CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
   file(
     CREATE_LINK "${CMAKE_BINARY_DIR}/compile_commands.json"
-                "${CMAKE_SOURCE_DIR}/compile_commands.json"
+    "${CMAKE_SOURCE_DIR}/compile_commands.json"
     RESULT compile_commands_link
     SYMBOLIC)
   if(NOT compile_commands_link STREQUAL "0")
-    message(STATUS "compile_commands.json link skipped: ${compile_commands_link}")
+    message(
+      STATUS "compile_commands.json link skipped: ${compile_commands_link}")
   endif()
 endif()
 
@@ -29,7 +29,10 @@ if(ENABLE_SANITIZERS)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
-project(VulkanApp VERSION 1.0 LANGUAGES CXX)
+project(
+  VulkanApp
+  VERSION 1.0
+  LANGUAGES CXX)
 
 set(SOURCES
     src/main.cpp
@@ -46,14 +49,14 @@ set(SOURCES
     src/CubemapLoader.cpp
     src/ModelLoader.cpp
     src/ModelManager.cpp
-	src/Entity.cpp
+    src/Entity.cpp
     src/SceneComponent.cpp
     src/Transform.cpp
     src/Node.cpp
     src/Mesh.cpp
     src/ThreadPool.cpp
     src/CloudSystem.cpp
-	src/XmlParser.cpp)
+    src/XmlParser.cpp)
 
 # On macOS the Vulkan validation layer only ships with the Vulkan SDK (vcpkg
 # ships none) and is selected at runtime via VK_LAYER_PATH. vcpkg's own
@@ -79,6 +82,16 @@ find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(pugixml CONFIG REQUIRED)
 
+include(FetchContent)
+FetchContent_Declare(
+  ImGuiFileDialog
+  GIT_REPOSITORY https://github.com/aiekick/ImGuiFileDialog.git
+  GIT_TAG v0.6.7)
+FetchContent_MakeAvailable(ImGuiFileDialog)
+target_link_libraries(ImGuiFileDialog PRIVATE imgui::imgui)
+set_target_properties(ImGuiFileDialog PROPERTIES CMAKE_COMPILE_WARNING_AS_ERROR
+                                                 OFF)
+
 find_program(SLANGC_EXECUTABLE slangc)
 if(NOT SLANGC_EXECUTABLE)
   message(FATAL_ERROR "slangc not found!")
@@ -86,13 +99,21 @@ endif()
 
 add_executable(VulkanApp)
 
+set_target_properties(VulkanApp PROPERTIES CMAKE_COMPILE_WARNING_AS_ERROR ON)
+
 target_precompile_headers(VulkanApp PRIVATE src/pch.h)
 
 target_sources(VulkanApp PRIVATE ${SOURCES})
 
 target_link_libraries(
-  VulkanApp PRIVATE SDL3::SDL3 Vulkan::Vulkan glm::glm-header-only
-                    assimp::assimp imgui::imgui pugixml::pugixml)
+  VulkanApp
+  PRIVATE SDL3::SDL3
+          Vulkan::Vulkan
+          glm::glm-header-only
+          assimp::assimp
+          imgui::imgui
+          pugixml::pugixml
+          ImGuiFileDialog)
 
 target_include_directories(VulkanApp PRIVATE src ${Stb_INCLUDE_DIR})
 
@@ -106,25 +127,22 @@ if(MSVC)
     # MSBuild batches TUs into one cl invocation, so /MP is what parallelises.
     target_compile_options(VulkanApp PRIVATE /MP)
   else()
-	# Ninja parallelises itself; /Z7 embeds debug info in each .obj and avoids
+    # Ninja parallelises itself; /Z7 embeds debug info in each .obj and avoids
     # serialising all TUs through mspdbsrv writing a shared PDB.
-    set_target_properties(VulkanApp PROPERTIES
-      MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug>:Embedded>")
+    set_target_properties(VulkanApp PROPERTIES MSVC_DEBUG_INFORMATION_FORMAT
+                                               "$<$<CONFIG:Debug>:Embedded>")
   endif()
-  
+
   target_compile_options(
     VulkanApp
     PRIVATE /W3 # Warning level
             /WX # Warnings as errors
-            $<$<CONFIG:Debug>:/Od>
-            $<$<CONFIG:Release>:/O2>)
+            $<$<CONFIG:Debug>:/Od> $<$<CONFIG:Release>:/O2>)
 
   target_link_options(
-    VulkanApp
-    PRIVATE
-    $<$<CONFIG:Debug>:/DEBUG> # optional but useful for crash reports
-    $<$<CONFIG:Release>:/DEBUG
-    >)
+    VulkanApp PRIVATE $<$<CONFIG:Debug>:/DEBUG> # optional but useful for crash
+                                                # reports
+    $<$<CONFIG:Release>:/DEBUG >)
 else()
   target_compile_options(
     VulkanApp

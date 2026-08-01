@@ -5,8 +5,8 @@
 
 struct SceneGraph
 {
-	std::vector<DirectionalLight> DirLights;
-	std::vector<PointLight> PointLights;
+	std::vector<std::unique_ptr<DirectionalLight>> DirLights;
+	std::vector<std::unique_ptr<PointLight>> PointLights;
 	std::vector<std::unique_ptr<Entity>> Entities;
 };
 

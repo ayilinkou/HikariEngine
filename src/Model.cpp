@@ -5,7 +5,7 @@
 #include "ResourceManager.h"
 
 Model::Model(const std::string& path)
-    : m_pModelData(ResourceManager::Get()->LoadModel(path))
+    : m_pModelData(ResourceManager::Get()->LoadModel(path)), m_Path(path)
 {
     ModelManager::Get()->RegisterModel(this);
 }

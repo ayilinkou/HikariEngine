@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<scene>
+	<entity name="Sponza">
+		<model path="models/sponza/Sponza.gltf" />
+	</entity>
+	<light type="1" intensity="1" direction="0.408248 -0.816497 0.408248" color="1 1 1" />
+	<light type="0" intensity="20" position="0 1 0" color="1 0 0" />
+</scene>

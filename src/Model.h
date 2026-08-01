@@ -1,9 +1,7 @@
 #pragma once
 
-#include <string>
-
-#include "SceneComponent.h"
 #include "Drawable.h"
+#include "SceneComponent.h"
 
 class ModelData;
 class Material;
@@ -15,8 +13,12 @@ public:
     Model(const std::string& path);
     ~Model();
 
-	std::vector<Drawable> GetDrawables() const;
+    std::vector<Drawable> GetDrawables() const;
+    const std::string& GetPath() const { return m_Path; }
+
+    static constexpr Transform GetDefaultTransform() { return Transform{}; }
 
 private:
     ModelData* m_pModelData;
+    std::string m_Path;
 };

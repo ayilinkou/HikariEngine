@@ -18,6 +18,8 @@
 #include "Vertex.h"
 #include "XmlParser.h"
 
+#include "ImGuiFileDialog.h"
+
 #define MULTITHREADED_COMMAND_RECORDING 1
 
 constexpr uint32_t WIDTH = 1920u;
@@ -33,8 +35,8 @@ constexpr LogCategory LogValidationLayer("Validation Layer");
 constexpr LogCategory LogSDL("SDL");
 constexpr LogCategory LogWindow("Window");
 constexpr LogCategory LogMain("main");
-constexpr LogCategory LogInitVulkan("InitVulkan");
 constexpr LogCategory LogRenderer("Renderer");
+constexpr LogCategory LogImGui("InitImGui");
 
 std::atomic<bool> g_bShouldClose = false;
 
@@ -164,7 +166,6 @@ public:
         Init();
 
         SDL_ShowWindow(m_pWindow);
-        HideCursor();
 
         while (!g_bShouldClose)
         {
@@ -224,11 +225,11 @@ public:
 
             m_Camera->Tick();
             HandleMovement();
-            ModelManager::Get()->GenerateBatches();
 
             if (m_bCursorVisible)
                 DrawImGuiFrame();
 
+            ModelManager::Get()->GenerateBatches();
             DrawFrame();
         }
 
@@ -249,17 +250,9 @@ private:
 
         ThreadPool::Init();
 
-        SceneGraph scene = XmlParser::LoadScene("scenes/scene1.xml");
+		m_SceneGraph = std::make_unique<SceneGraph>();
 
-        // TODO: add support for multiple point and dir lights
-        m_PointLight = std::move(scene.PointLights[0]);
-        scene.PointLights.erase(scene.PointLights.begin());
-
-        m_DirLight = std::move(scene.DirLights[0]);
-        scene.DirLights.erase(scene.DirLights.begin());
-
-        m_Entities = std::move(scene.Entities);
-
+        // TODO: read from scene
         CubemapCreateInfo createInfo{};
         createInfo.Name = "Skybox";
         createInfo.Format = vk::Format::eR8G8B8A8Srgb;
@@ -282,8 +275,7 @@ private:
 
     void InitImGui()
     {
-        constexpr LogCategory LogInitImGui("InitImGui");
-        LogMsg(LogSeverity::Info, LogInitImGui, "Start");
+        LogMsg(LogSeverity::Info, LogImGui, "InitImGui()");
 
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
@@ -323,7 +315,7 @@ private:
 
     void InitVulkan()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "Start");
+        LogMsg(LogSeverity::Info, LogRenderer, "InitVulkan()");
 
         CreateInstance();
         SetupDebugMessenger();
@@ -348,6 +340,7 @@ private:
         CreateRenderTargets();
         CreateDescriptorPool();
 
+        // TODO: read from scene
         CloudSystemCreateInfo cloudCreateInfo{
             .Device = m_Device,
             .PhysicalDevice = m_PhysicalDevice,
@@ -373,7 +366,7 @@ private:
         ResourceManager::Get()->UnloadCubemap(m_pSkybox->GetCreateInfo());
         m_pSkybox = nullptr;
 
-        m_Entities.clear();
+        m_SceneGraph.reset();
         ThreadPool::Shutdown();
         ShutdownImGui();
         MaterialFactory::Shutdown();
@@ -414,9 +407,6 @@ private:
         switch (key)
         {
         case SDLK_ESCAPE:
-            g_bShouldClose = true;
-            break;
-        case SDLK_M:
             if (m_bCursorVisible)
                 HideCursor();
             else
@@ -429,6 +419,9 @@ private:
     // delay.
     void HandleMovement()
     {
+        if (m_bCursorVisible)
+            return;
+
         glm::vec3 camOffset = {0.f, 0.f, 0.f};
         const bool* state = SDL_GetKeyboardState(nullptr);
         if (state[SDL_SCANCODE_A])
@@ -581,25 +574,98 @@ private:
 
         if (ImGui::Begin("Menu"))
         {
-            ImGui::Text("Point Light");
-            ImGui::DragFloat3("Position", &m_PointLight.GetPosition().x, 0.5f);
-            ImGui::ColorEdit3("Color##PointLight", &m_PointLight.GetColor().r);
-            ImGui::SliderFloat("Intensity##PointLight",
-                               &m_PointLight.GetIntensity(), 0.f, 1000.f);
+            for (size_t i = 0; i < m_SceneGraph->PointLights.size(); i++)
+            {
+                std::unique_ptr<PointLight>& pointLight =
+                    m_SceneGraph->PointLights[i];
+                ImGui::PushID(i);
 
-            ImGui::Dummy(ImVec2(0.f, 5.f));
+                ImGui::Text("Point Light");
+                ImGui::DragFloat3("Position", &pointLight->GetPosition().x,
+                                  0.5f);
+                ImGui::ColorEdit3("Color##PointLight",
+                                  &pointLight->GetColor().r);
+                ImGui::SliderFloat("Intensity##PointLight",
+                                   &pointLight->GetIntensity(), 0.f, 1000.f);
+                ImGui::PopID();
 
-            ImGui::Text("Directional Light");
-            glm::vec3 dir = m_DirLight.GetDirection();
-            ImGui::DragFloat3("Direction", &dir.x, 0.5f);
-            if (dir != m_DirLight.GetDirection())
-                m_DirLight.SetDirection(dir);
+                ImGui::Dummy(ImVec2(0.f, 5.f));
+            }
 
-            ImGui::ColorEdit3("Color##DirLight", &m_DirLight.GetColor().r);
-            ImGui::SliderFloat("Intensity##DirLight",
-                               &m_DirLight.GetIntensity(), 0.f, 10.f);
+            for (size_t i = 0; i < m_SceneGraph->DirLights.size(); i++)
+            {
+                std::unique_ptr<DirectionalLight>& dirLight =
+                    m_SceneGraph->DirLights[i];
+                ImGui::PushID(i);
+
+                ImGui::Text("Directional Light");
+                glm::vec3 dir = dirLight->GetDirection();
+                ImGui::DragFloat3("Direction", &dir.x, 0.5f);
+                if (dir != dirLight->GetDirection())
+                    dirLight->SetDirection(dir);
+
+                ImGui::ColorEdit3("Color##DirLight", &dirLight->GetColor().r);
+                ImGui::SliderFloat("Intensity##DirLight",
+                                   &dirLight->GetIntensity(), 0.f, 10.f);
+
+                ImGui::PopID();
+            }
 
             ImGui::Dummy(ImVec2(0.f, 20.f));
+
+            ImVec2 minFileDialogSize = ImVec2(600, 400);
+            if (ImGui::Button("Load Scene"))
+            {
+                IGFD::FileDialogConfig config;
+                config.path = "scenes/";
+                ImGuiFileDialog::Instance()->OpenDialog(
+                    "LoadSceneDlg", "Choose Scene to Load", ".xml", config);
+            }
+
+            if (ImGuiFileDialog::Instance()->Display(
+                    "LoadSceneDlg", ImGuiWindowFlags_NoCollapse,
+                    minFileDialogSize))
+            {
+                if (ImGuiFileDialog::Instance()->IsOk())
+                {
+                    std::string path =
+                        ImGuiFileDialog::Instance()->GetFilePathName();
+
+                    m_Device.waitIdle();
+
+                    m_SceneGraph.reset();
+                    m_SceneGraph = XmlParser::LoadScene(path);
+                }
+                ImGuiFileDialog::Instance()->Close();
+            }
+
+            if (ImGui::Button("Save Scene"))
+            {
+                IGFD::FileDialogConfig config;
+                config.path = "scenes/";
+                config.fileName = "new_scene.xml";
+                ImGuiFileDialog::Instance()->OpenDialog(
+                    "SaveSceneDlg", "Save Scene As", ".xml", config);
+            }
+
+            if (ImGuiFileDialog::Instance()->Display(
+                    "SaveSceneDlg", ImGuiWindowFlags_NoCollapse,
+                    minFileDialogSize))
+            {
+                if (ImGuiFileDialog::Instance()->IsOk())
+                {
+                    std::string path =
+                        ImGuiFileDialog::Instance()->GetFilePathName();
+
+                    XmlParser::SaveScene(m_SceneGraph, path);
+                }
+                ImGuiFileDialog::Instance()->Close();
+            }
+
+            if (ImGui::Button("Quit"))
+            {
+                g_bShouldClose = true;
+            }
 
             ImGui::Text("Frame time: %.4fms", m_DisplayFrameTime);
             ImGui::Text("FPS: %.1f", m_DisplayFPS);
@@ -611,7 +677,7 @@ private:
 
     void CreateInstance()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateInstance()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateInstance()");
 
         constexpr vk::ApplicationInfo appInfo{
             .pApplicationName = "Vulkan App",
@@ -708,7 +774,7 @@ private:
 
     void SetupDebugMessenger()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "SetupDebugMessenger()");
+        LogMsg(LogSeverity::Info, LogRenderer, "SetupDebugMessenger()");
 
         if (!bEnableValidationLayers)
             return;
@@ -780,7 +846,7 @@ private:
 
     void CreateSurface()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateSurface()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateSurface()");
 
 #if defined(__APPLE__)
         // SDL_Vulkan_CreateSurface can crash on macOS because SDL resolves the
@@ -808,7 +874,7 @@ private:
 
     void PickPhysicalDevice()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "PickPhysicalDevice()");
+        LogMsg(LogSeverity::Info, LogRenderer, "PickPhysicalDevice()");
 
         auto devices = m_Instance.enumeratePhysicalDevices();
         const auto deviceIt =
@@ -823,7 +889,7 @@ private:
 
     void CreateLogicalDevice()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateLogicalDevice()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateLogicalDevice()");
 
         std::vector<vk::QueueFamilyProperties> qfProperties =
             m_PhysicalDevice.getQueueFamilyProperties();
@@ -901,7 +967,7 @@ private:
 
     void CreateSwapchain()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateSwapchain()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateSwapchain()");
 
         vk::SurfaceCapabilitiesKHR capabilities =
             m_PhysicalDevice.getSurfaceCapabilitiesKHR(*m_Surface);
@@ -912,7 +978,7 @@ private:
             m_PhysicalDevice.getSurfacePresentModesKHR(*m_Surface);
         m_SwapchainExtent = ChooseSwapchainExtent(capabilities, m_pWindow);
 
-        LogMsg(LogSeverity::Info, LogInitVulkan, "Swapchain Extent: {}x{}",
+        LogMsg(LogSeverity::Info, LogRenderer, "Swapchain Extent: {}x{}",
                m_SwapchainExtent.width, m_SwapchainExtent.height);
 
         m_MinImageCount = ChooseSwapMinImageCount(capabilities);
@@ -942,13 +1008,13 @@ private:
                            std::format("Swapchain Image_{}", i).c_str());
         }
 
-        LogMsg(LogSeverity::Info, LogInitVulkan, "Swapchain image count: {}",
+        LogMsg(LogSeverity::Info, LogRenderer, "Swapchain image count: {}",
                m_SwapImages.size());
     }
 
     void CreateSwapchainImageViews()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateSwapchainImageViews()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateSwapchainImageViews()");
 
         assert(m_SwapImageViews.empty());
         for (size_t i = 0; i < m_SwapImages.size(); i++)
@@ -1402,7 +1468,7 @@ private:
 
     void CreatePipelines()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreatePipelines()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreatePipelines()");
 
         CreateOpaquePipeline();
         CreateTransparentPipeline();
@@ -1411,7 +1477,7 @@ private:
 
     void CreateCommandPools()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateCommandPools()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateCommandPools()");
 
         vk::CommandPoolCreateInfo createInfo{
             .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
@@ -1477,7 +1543,7 @@ private:
 
     void CreateCommandBuffers()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateCommandBuffers()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateCommandBuffers()");
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
@@ -1930,7 +1996,7 @@ private:
 
     void CreateSyncObjects()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateSyncObjects()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateSyncObjects()");
 
         for (size_t i = 0; i < m_SwapImages.size(); i++)
         {
@@ -2007,8 +2073,7 @@ private:
 
     void CreateDescriptorSetLayouts()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan,
-               "CreateDescriptorSetLayouts()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateDescriptorSetLayouts()");
 
         std::array frameBindings = {vk::DescriptorSetLayoutBinding(
             0u, vk::DescriptorType::eUniformBuffer, 1u,
@@ -2064,7 +2129,7 @@ private:
 
     void CreateGlobalBuffers()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateGlobalBuffers()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateGlobalBuffers()");
 
         vk::DeviceSize size = sizeof(GlobalBuffer);
         if (size % 16 != 0)
@@ -2123,11 +2188,27 @@ private:
         m_GlobalBuffer.CamData.InvViewProj =
             glm::inverse(glm::transpose(m_GlobalBuffer.CamData.Proj) * view);
 
-        m_GlobalBuffer.Lights.PointLightCount = 1u;
-        m_GlobalBuffer.Lights.PointLights[0] = m_PointLight.GetData();
+        uint32_t& pointLightCount = m_GlobalBuffer.Lights.PointLightCount;
+        for (pointLightCount = 0u;
+             pointLightCount <
+             std::min(static_cast<uint32_t>(m_SceneGraph->PointLights.size()),
+                      static_cast<uint32_t>(MAX_POINT_LIGHTS));
+             pointLightCount++)
+        {
+            m_GlobalBuffer.Lights.PointLights[pointLightCount] =
+                m_SceneGraph->PointLights[pointLightCount]->GetData();
+        }
 
-        m_GlobalBuffer.Lights.DirLightCount = 1u;
-        m_GlobalBuffer.Lights.DirLights[0] = m_DirLight.GetData();
+        uint32_t& dirLightCount = m_GlobalBuffer.Lights.DirLightCount;
+        for (dirLightCount = 0u;
+             dirLightCount <
+             std::min(static_cast<uint32_t>(m_SceneGraph->DirLights.size()),
+                      static_cast<uint32_t>(MAX_DIR_LIGHTS));
+             dirLightCount++)
+        {
+            m_GlobalBuffer.Lights.DirLights[dirLightCount] =
+                m_SceneGraph->DirLights[dirLightCount]->GetData();
+        }
 
         memcpy(m_Frames[frameIndex].GlobalBufferMapping, &m_GlobalBuffer,
                sizeof(m_GlobalBuffer));
@@ -2135,7 +2216,7 @@ private:
 
     void CreateDescriptorPool()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateDescriptorPool()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateDescriptorPool()");
 
         std::array framePoolSize = {
             vk::DescriptorPoolSize{.type = vk::DescriptorType::eUniformBuffer,
@@ -2187,7 +2268,7 @@ private:
 
     void CreateDescriptorSets()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateDescriptorSets()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateDescriptorSets()");
 
         std::vector<vk::DescriptorSetLayout> globalBufferLayouts(
             MAX_FRAMES_IN_FLIGHT, *m_GlobalBufferSetLayout);
@@ -2262,7 +2343,7 @@ private:
 
     void CreateTextureSampler()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateTextureSampler()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateTextureSampler()");
 
         float maxAnisotropy =
             m_PhysicalDevice.getProperties().limits.maxSamplerAnisotropy;
@@ -2289,7 +2370,7 @@ private:
 
     void CreateDepthResources()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateDepthResources()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateDepthResources()");
 
         m_DepthFormat = FindDepthFormat();
         CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
@@ -2348,7 +2429,7 @@ private:
 
     void CreateInstanceBuffers()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateInstanceBuffers()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateInstanceBuffers()");
 
         // TODO: allocating memory 3 times, can probably allocate once and
         // store offsets Can do the same with uniform buffer.
@@ -2388,7 +2469,7 @@ private:
 
     void CreateRenderTargets()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateRenderTargets()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateRenderTargets()");
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
@@ -2462,7 +2543,7 @@ private:
 
     void CreateQuadBuffers()
     {
-        LogMsg(LogSeverity::Info, LogInitVulkan, "CreateQuadBuffers()");
+        LogMsg(LogSeverity::Info, LogRenderer, "CreateQuadBuffers()");
 
         std::array<QuadVertex, 4> vertices = {
             {{.Pos = {-1.f, -1.f}, .TexCoord{0.f, 0.f}},
@@ -2487,7 +2568,9 @@ private:
 
     void UpdateCompositeDescriptorSet()
     {
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        LogMsg(LogSeverity::Info, LogRenderer, "UpdateCompositeDescriptorSet()");
+        
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
             FrameData& frame = m_Frames[i];
             vk::DescriptorImageInfo opaqueImageInfo{
@@ -2541,7 +2624,9 @@ private:
 
     void UpdateDepthDescriptorSet()
     {
-        vk::DescriptorImageInfo imageInfo{
+        LogMsg(LogSeverity::Info, LogRenderer, "UpdateDepthDescriptorSet()");
+
+		vk::DescriptorImageInfo imageInfo{
             .imageView = m_DepthImageView,
             .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal};
 
@@ -2605,18 +2690,17 @@ private:
     std::array<FrameData, MAX_FRAMES_IN_FLIGHT> m_Frames;
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
 
+    std::unique_ptr<SceneGraph> m_SceneGraph = nullptr;
+
     std::unique_ptr<Camera> m_Camera = nullptr;
-    std::vector<std::unique_ptr<Entity>> m_Entities;
     Cubemap* m_pSkybox = nullptr;
     std::unique_ptr<CloudSystem> m_CloudSystem = nullptr;
-    PointLight m_PointLight;
-    DirectionalLight m_DirLight;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
     SDL_Window* m_pWindow = nullptr;
     bool m_bIsFocused = true;
-    bool m_bCursorVisible = false;
+    bool m_bCursorVisible = true;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_LastTime;
     float m_RunTime = 0.f;
