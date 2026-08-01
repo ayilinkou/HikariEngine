@@ -1,6 +1,6 @@
 #include "Entity.h"
 
-Entity::Entity() : m_ID(s_NextID++)
+Entity::Entity() : m_Name(""), m_ID(s_NextID++)
 {
 	m_RootComponent.SetOwner(this);
 }

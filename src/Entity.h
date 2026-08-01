@@ -10,6 +10,10 @@ class Entity
 public:
     Entity();
     virtual ~Entity() = default;
+    Entity(Entity&&) = default;
+    Entity& operator=(Entity&&) = default;
+    Entity(const Entity&) = delete;
+    Entity& operator=(const Entity&) = delete;
 
     void AddComponent(std::unique_ptr<SceneComponent> comp);
     void AddComponent(std::unique_ptr<LogicComponent> comp);
@@ -41,11 +45,14 @@ public:
     SceneComponent* GetRootComponent() { return &m_RootComponent; }
     Transform& GetTransform() { return m_RootComponent.GetTransform(); }
 
+    void SetName(const std::string& newName) { m_Name = newName; }
+
 private:
     SceneComponent m_RootComponent{};
     std::vector<std::unique_ptr<SceneComponent>> m_SceneComponents;
     std::vector<std::unique_ptr<LogicComponent>> m_LogicComponents;
 
+    std::string m_Name;
     uint32_t m_ID;
     inline static uint32_t s_NextID = 0u;
 };

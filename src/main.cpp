@@ -2,8 +2,8 @@
 #include "CloudSystem.h"
 #include "Common.h"
 #include "Cubemap.h"
-#include "FrameData.h"
 #include "Entity.h"
+#include "FrameData.h"
 #include "InstanceData.h"
 #include "Lights.h"
 #include "Log.h"
@@ -27,8 +27,6 @@ constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 constexpr float NEAR_PLANE = 0.1f;
 constexpr float FAR_PLANE = 10000.f;
 constexpr glm::vec3 SKY_COLOR = {0.4f, 0.8f, 1.f};
-const std::string BOX_MODEL_PATH = "models/pbr_case/scene.gltf";
-const std::string CAR_MODEL_PATH = "models/american_fullsize_73/scene.gltf";
 const std::string SPONZA_MODEL_PATH = "models/sponza/Sponza.gltf";
 
 constexpr LogCategory LogValidationLayer("Validation Layer");
@@ -251,42 +249,16 @@ private:
 
         ThreadPool::Init();
 
-		SceneGraph scene = XmlParser::LoadScene("scenes/scene1.xml");
+        SceneGraph scene = XmlParser::LoadScene("scenes/scene1.xml");
 
-		// TODO: add support for multiple point lights
-		m_PointLight = std::move(scene.PointLights[0]);
-		scene.PointLights.erase(scene.PointLights.begin());
-		
-		m_DirLight = std::move(scene.DirLights[0]);
-		scene.DirLights.erase(scene.DirLights.begin());
+        // TODO: add support for multiple point and dir lights
+        m_PointLight = std::move(scene.PointLights[0]);
+        scene.PointLights.erase(scene.PointLights.begin());
 
-        m_Entities.push_back(std::make_unique<Entity>());
-        m_Entities.back()->GetTransform().Position +=
-            glm::vec3(-60.f, -15.f, -5.f);
-        auto boxModelOne = std::make_unique<Model>(BOX_MODEL_PATH);
-        boxModelOne->GetTransform().Scale *= 0.1f;
-        m_Entities.back()->AddComponent(std::move(boxModelOne));
+        m_DirLight = std::move(scene.DirLights[0]);
+        scene.DirLights.erase(scene.DirLights.begin());
 
-        m_Entities.push_back(std::make_unique<Entity>());
-        m_Entities.back()->GetTransform().Position +=
-            glm::vec3(-60.f, 10.f, -5.f);
-        auto boxModelTwo = std::make_unique<Model>(BOX_MODEL_PATH);
-        boxModelTwo->GetTransform().Scale *= 0.1f;
-        m_Entities.back()->AddComponent(std::move(boxModelTwo));
-
-        m_Entities.push_back(std::make_unique<Entity>());
-        m_Entities.back()->GetTransform().Position +=
-            glm::vec3(0.f, 0.f, -20.f);
-        auto carModel = std::make_unique<Model>(CAR_MODEL_PATH);
-        carModel->GetTransform().Scale *= 10.f;
-        m_Entities.back()->AddComponent(std::move(carModel));
-
-        /*for (int i = 0; i < 1; i++)
-        {
-            m_Entities.push_back(std::make_unique<Entity>());
-            auto sponzaModel = std::make_unique<Model>(SPONZA_MODEL_PATH);
-            m_Entities.back()->AddComponent(std::move(sponzaModel));
-        }*/
+        m_Entities = std::move(scene.Entities);
 
         CubemapCreateInfo createInfo{};
         createInfo.Name = "Skybox";
@@ -2657,7 +2629,7 @@ int main()
 {
     std::signal(SIGINT, HandleSIGINT);
 
-	Log::g_MinSeverity = LogSeverity::Info;
+    Log::g_MinSeverity = LogSeverity::Info;
 
     // will be destroyed in reverse order of declaration
     std::unique_ptr<SDL_Window, decltype(&ShutdownSDL)> pWindow(nullptr,

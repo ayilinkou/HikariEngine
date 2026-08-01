@@ -1,7 +1,5 @@
 #pragma once
 
-#include "glm/glm.hpp"
-
 #include "Component.h"
 #include "Transform.h"
 

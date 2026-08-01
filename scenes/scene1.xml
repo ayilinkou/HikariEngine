@@ -1,4 +1,28 @@
 <scene>
-	<light type="1" intensity="5" direction="0.5 -1 0.5"/>
-	<light type="0" intensity="1000" position="-10 15 0"/>
+	<light type="1" intensity="5" direction="0.5 -1 0.5" />
+	<light type="0" intensity="1000" position="-10 15 0" />
+	<entity name="Crate_1">
+		<transform position="-60 -15 -5" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/pbr_case/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="0.1 0.1 0.1" />
+		</model>
+	</entity>
+	<entity name="Crate_2">
+		<transform position="-60 10 -5" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/pbr_case/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="0.1 0.1 0.1" />
+		</model>
+	</entity>
+	<entity name="Car">
+		<transform position="0 0 -20" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="10 10 10" />
+		</model>
+	</entity>
+	<!--<entity
+	name="Sponza">
+		<model path="models/sponza/Sponza.gltf">
+			<transform position="0 0 50" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>-->
 </scene>

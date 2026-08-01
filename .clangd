@@ -1,0 +1,10 @@
+CompileFlags:
+  Remove:
+    - -fdeps-format=p1689r5
+    - -fmodule-output*
+    - -fmodule-mapper*
+    - -fmodules-ts
+    - -fmodules*
+  Remove:
+    - -fdeps-format=p1689r5
+    - -fmodules-*
