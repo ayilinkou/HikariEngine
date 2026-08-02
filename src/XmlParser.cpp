@@ -42,10 +42,11 @@ Transform XmlParser::ParseTransform(const pugi::xml_node& node)
 
     if (!posAtt || !rotAtt || !scaleAtt)
     {
-        LogMsg(
-            LogSeverity::Warning, LogXmlParser,
+        const std::string msg =
             "Found transform without all position, rotation and scale values "
-            "when parsing scene! Falling back to default transform...");
+            "when parsing scene! Falling back to default transform...";
+        ShowMessageBox("Missing members!", msg.c_str(), LogSeverity::Warning,
+                       LogXmlParser);
         return Transform{};
     }
 
@@ -66,9 +67,11 @@ std::unique_ptr<Model> XmlParser::ParseModel(const pugi::xml_node& node,
     auto pathAtt = node.attribute(XML::Path);
     if (!pathAtt)
     {
-        LogMsg(LogSeverity::Error, LogXmlParser,
-               "Found model with no \"path\" value when parsing scene {}",
-               scenePath);
+        const std::string msg = std::format(
+            "Found model with no \"path\" value when parsing scene {}",
+            scenePath);
+        ShowMessageBox("Missing path!", msg.c_str(), LogSeverity::Error,
+                       LogXmlParser);
         return nullptr;
     }
 
@@ -133,8 +136,10 @@ std::unique_ptr<Light> XmlParser::ParseLight(const pugi::xml_node& node,
         return std::unique_ptr<Light>(pPointLight);
     }
     default:
-        LogMsg(LogSeverity::Error, LogXmlParser,
-               "Failed to load light type in scene: {}", scenePath.c_str());
+        const std::string msg = std::format(
+            "Failed to load light type in scene: {}", scenePath.c_str());
+        ShowMessageBox("Invalid light type!", msg.c_str(), LogSeverity::Error,
+                       LogXmlParser);
     }
 
     return nullptr;
@@ -161,8 +166,10 @@ std::unique_ptr<SceneGraph> XmlParser::LoadScene(const std::string& path)
     pugi::xml_document doc;
     if (!doc.load_file(path.c_str()))
     {
-        LogMsg(LogSeverity::Error, LogXmlParser,
-               "Failed to load xml document for scene: {}", path.c_str());
+        const std::string msg = std::format(
+            "Failed to load xml document for scene: {}", path.c_str());
+        ShowMessageBox("Failed to load scene!", msg.c_str(), LogSeverity::Error,
+                       LogXmlParser);
         return nullptr;
     }
 
@@ -214,19 +221,23 @@ std::unique_ptr<SceneGraph> XmlParser::LoadScene(const std::string& path)
                     continue;
                 }
                 default:
-                    LogMsg(LogSeverity::Error, LogXmlParser,
-                           "Unexpected component node \"{}\" found when "
-                           "parsing scene: {}. Skipping...",
-                           comp.name(), path.c_str());
+                    const std::string msg = std::format(
+                        "Unexpected component node \"{}\" found when "
+                        "parsing scene: {}. Skipping...",
+                        comp.name(), path.c_str());
+                    ShowMessageBox("Unexpected node!", msg.c_str(),
+                                   LogSeverity::Error, LogXmlParser);
                 }
             }
         }
         else
         {
-            LogMsg(LogSeverity::Error, LogXmlParser,
-                   "Unexpected node \"{}\" found when parsing scene: {}. "
-                   "Skipping...",
-                   node.name(), path.c_str());
+            const std::string msg = std::format(
+                "Unexpected node \"{}\" found when parsing scene: {}. "
+                "Skipping...",
+                node.name(), path.c_str());
+            ShowMessageBox("Unexpected node!", msg.c_str(), LogSeverity::Error,
+                           LogXmlParser);
         }
     }
     return scene;
@@ -319,8 +330,9 @@ void XmlParser::SaveScene(const std::unique_ptr<SceneGraph>& sceneGraph,
 
     if (!doc.save_file(path.c_str(), "\t"))
     {
-        // TODO: should also show something on screen
-        LogMsg(LogSeverity::Error, LogXmlParser, "Failed to save scene: {}",
-               path.c_str());
+        const std::string msg =
+            std::format("Failed to save scene: {}", path.c_str());
+        ShowMessageBox("Failed to save scene!", msg.c_str(), LogSeverity::Error,
+                       LogXmlParser);
     }
 }
