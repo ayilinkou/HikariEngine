@@ -639,8 +639,11 @@ private:
                     // becomes a problem.
                     std::unique_ptr<SceneGraph> tempSceneGraph =
                         XmlParser::LoadScene(path);
-                    m_SceneGraph.reset();
-                    m_SceneGraph = std::move(tempSceneGraph);
+                    if (tempSceneGraph.get())
+                    {
+                        m_SceneGraph.reset();
+                        m_SceneGraph = std::move(tempSceneGraph);
+                    }
                 }
                 ImGuiFileDialog::Instance()->Close();
             }

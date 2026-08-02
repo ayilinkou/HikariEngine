@@ -42,9 +42,11 @@ Transform XmlParser::ParseTransform(const pugi::xml_node& node)
 
     if (!posAtt || !rotAtt || !scaleAtt)
     {
-        throw std::runtime_error(
+        LogMsg(
+            LogSeverity::Warning, LogXmlParser,
             "Found transform without all position, rotation and scale values "
-            "when parsing scene!");
+            "when parsing scene! Falling back to default transform...");
+        return Transform{};
     }
 
     Transform t;
@@ -64,9 +66,10 @@ std::unique_ptr<Model> XmlParser::ParseModel(const pugi::xml_node& node,
     auto pathAtt = node.attribute(XML::Path);
     if (!pathAtt)
     {
-        throw std::runtime_error(
-            "Found model with no \"path\" value when parsing scene {}" +
-            scenePath);
+        LogMsg(LogSeverity::Error, LogXmlParser,
+               "Found model with no \"path\" value when parsing scene {}",
+               scenePath);
+        return nullptr;
     }
 
     const char* path = pathAtt.as_string();
@@ -130,8 +133,8 @@ std::unique_ptr<Light> XmlParser::ParseLight(const pugi::xml_node& node,
         return std::unique_ptr<Light>(pPointLight);
     }
     default:
-        throw std::runtime_error("Failed to load light type in scene " +
-                                 scenePath);
+        LogMsg(LogSeverity::Error, LogXmlParser,
+               "Failed to load light type in scene: {}", scenePath.c_str());
     }
 
     return nullptr;
@@ -148,6 +151,7 @@ NodeType XmlParser::TagToNodeType(std::string_view tag)
     return NodeType::Unknown;
 }
 
+// Returns a nullptr if failed to load a scene.
 std::unique_ptr<SceneGraph> XmlParser::LoadScene(const std::string& path)
 {
     LogMsg(LogSeverity::Info, LogXmlParser, "Loading scene: {}", path.c_str());
@@ -156,52 +160,73 @@ std::unique_ptr<SceneGraph> XmlParser::LoadScene(const std::string& path)
 
     pugi::xml_document doc;
     if (!doc.load_file(path.c_str()))
-        throw std::runtime_error("Failed to load scene: " + path);
-
-    for (pugi::xml_node node : doc.child(XML::Scene).children(XML::Entity))
     {
-        scene->Entities.push_back(std::make_unique<Entity>());
-        Entity& entity = *scene->Entities.back();
-        entity.SetName(node.attribute(XML::Name).as_string());
+        LogMsg(LogSeverity::Error, LogXmlParser,
+               "Failed to load xml document for scene: {}", path.c_str());
+        return nullptr;
+    }
 
-        for (pugi::xml_node comp : node.children())
+    for (pugi::xml_node node : doc.child(XML::Scene).children())
+    {
+        if (strcmp(XML::Entity, node.name()) == 0)
         {
-            switch (TagToNodeType(comp.name()))
-            {
-            case NodeType::Transform:
-            {
-                Transform transform = ParseTransform(comp);
-                entity.GetTransform() = transform;
-                continue;
-            }
-            case NodeType::Light:
-            {
-                std::unique_ptr<Light> light = ParseLight(comp, path);
-				Light* pLight = light.get();
-				entity.AddComponent(std::move(light));
 
-                if (PointLight* pPointLight =
-                        dynamic_cast<PointLight*>(pLight))
-                {
-                    scene->PointLights.push_back(pPointLight);
-                }
-                else if (DirectionalLight* pDirLight =
-                             dynamic_cast<DirectionalLight*>(pLight))
-                {
-                    scene->DirLights.push_back(pDirLight);
-                }
-                continue;
-            }
-            case NodeType::Model:
+            scene->Entities.push_back(std::make_unique<Entity>());
+            Entity& entity = *scene->Entities.back();
+            entity.SetName(node.attribute(XML::Name).as_string());
+
+            for (pugi::xml_node comp : node.children())
             {
-                std::unique_ptr<Model> model = ParseModel(comp, path);
-                entity.AddComponent(std::move(model));
-                continue;
+                switch (TagToNodeType(comp.name()))
+                {
+                case NodeType::Transform:
+                {
+                    Transform transform = ParseTransform(comp);
+                    entity.GetTransform() = transform;
+                    continue;
+                }
+                case NodeType::Light:
+                {
+                    std::unique_ptr<Light> light = ParseLight(comp, path);
+                    Light* pLight = light.get();
+                    if (!pLight)
+                        continue;
+
+                    entity.AddComponent(std::move(light));
+
+                    if (PointLight* pPointLight =
+                            dynamic_cast<PointLight*>(pLight))
+                    {
+                        scene->PointLights.push_back(pPointLight);
+                    }
+                    else if (DirectionalLight* pDirLight =
+                                 dynamic_cast<DirectionalLight*>(pLight))
+                    {
+                        scene->DirLights.push_back(pDirLight);
+                    }
+                    continue;
+                }
+                case NodeType::Model:
+                {
+                    std::unique_ptr<Model> model = ParseModel(comp, path);
+                    if (model.get())
+                        entity.AddComponent(std::move(model));
+                    continue;
+                }
+                default:
+                    LogMsg(LogSeverity::Error, LogXmlParser,
+                           "Unexpected component node \"{}\" found when "
+                           "parsing scene: {}. Skipping...",
+                           comp.name(), path.c_str());
+                }
             }
-            default:
-                throw std::runtime_error("Unable to parse xml node " +
-                                         std::string(comp.name()));
-            }
+        }
+        else
+        {
+            LogMsg(LogSeverity::Error, LogXmlParser,
+                   "Unexpected node \"{}\" found when parsing scene: {}. "
+                   "Skipping...",
+                   node.name(), path.c_str());
         }
     }
     return scene;
@@ -293,5 +318,9 @@ void XmlParser::SaveScene(const std::unique_ptr<SceneGraph>& sceneGraph,
     }
 
     if (!doc.save_file(path.c_str(), "\t"))
-        throw std::runtime_error("Failed to save scene: " + path);
+    {
+        // TODO: should also show something on screen
+        LogMsg(LogSeverity::Error, LogXmlParser, "Failed to save scene: {}",
+               path.c_str());
+    }
 }
