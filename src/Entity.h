@@ -19,7 +19,7 @@ public:
     void AddComponent(std::unique_ptr<LogicComponent> comp);
 
     // Gets the first instance of a Component of the templated type.
-    template <std::derived_from<SceneComponent> T> T* GetComponent() const
+    template <std::derived_from<SceneComponent> T> T* GetFirstComponent() const
     {
         for (const std::unique_ptr<SceneComponent>& comp : m_SceneComponents)
         {
@@ -31,7 +31,7 @@ public:
     }
 
     // Gets the first instance of a Component of the templated type.
-    template <std::derived_from<LogicComponent> T> T* GetComponent() const
+    template <std::derived_from<LogicComponent> T> T* GetFirstComponent() const
     {
         for (const std::unique_ptr<LogicComponent>& comp : m_LogicComponents)
         {
@@ -40,6 +40,34 @@ public:
                 return ptr;
         }
         return nullptr;
+    }
+
+    // Gets all instances of a Component of the templated type.
+    template <std::derived_from<SceneComponent> T>
+    std::vector<T*> GetComponents() const
+    {
+        std::vector<T*> ptrs;
+        for (const std::unique_ptr<SceneComponent>& comp : m_SceneComponents)
+        {
+            T* ptr = dynamic_cast<T*>(comp.get());
+            if (ptr)
+                ptrs.push_back(ptr);
+        }
+        return ptrs;
+    }
+
+    // Gets all instances of a Component of the templated type.
+    template <std::derived_from<LogicComponent> T>
+    std::vector<T*> GetComponents() const
+    {
+        std::vector<T*> ptrs;
+        for (const std::unique_ptr<LogicComponent>& comp : m_LogicComponents)
+        {
+            T* ptr = dynamic_cast<T*>(comp.get());
+            if (ptr)
+                ptrs.push_back(ptr);
+        }
+        return ptrs;
     }
 
     SceneComponent* GetRootComponent() { return &m_RootComponent; }

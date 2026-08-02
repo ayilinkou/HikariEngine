@@ -1,7 +1,8 @@
 #include "Entity.h"
 
-Entity::Entity() : m_Name(""), m_ID(s_NextID++)
+Entity::Entity() : m_ID(s_NextID++)
 {
+	m_Name = std::string("Entity_") + std::to_string(m_ID);
 	m_RootComponent.SetOwner(this);
 }
 

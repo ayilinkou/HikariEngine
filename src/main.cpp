@@ -250,7 +250,7 @@ private:
 
         ThreadPool::Init();
 
-		m_SceneGraph = std::make_unique<SceneGraph>();
+        m_SceneGraph = std::make_unique<SceneGraph>();
 
         // TODO: read from scene
         CubemapCreateInfo createInfo{};
@@ -576,17 +576,16 @@ private:
         {
             for (size_t i = 0; i < m_SceneGraph->PointLights.size(); i++)
             {
-                std::unique_ptr<PointLight>& pointLight =
-                    m_SceneGraph->PointLights[i];
+                PointLight* pPointLight = m_SceneGraph->PointLights[i];
                 ImGui::PushID(i);
 
                 ImGui::Text("Point Light");
-                ImGui::DragFloat3("Position", &pointLight->GetPosition().x,
+                ImGui::DragFloat3("Position", &pPointLight->GetPosition().x,
                                   0.5f);
                 ImGui::ColorEdit3("Color##PointLight",
-                                  &pointLight->GetColor().r);
+                                  &pPointLight->GetColor().r);
                 ImGui::SliderFloat("Intensity##PointLight",
-                                   &pointLight->GetIntensity(), 0.f, 1000.f);
+                                   &pPointLight->GetIntensity(), 0.f, 1000.f);
                 ImGui::PopID();
 
                 ImGui::Dummy(ImVec2(0.f, 5.f));
@@ -594,19 +593,18 @@ private:
 
             for (size_t i = 0; i < m_SceneGraph->DirLights.size(); i++)
             {
-                std::unique_ptr<DirectionalLight>& dirLight =
-                    m_SceneGraph->DirLights[i];
+                DirectionalLight* pDirLight = m_SceneGraph->DirLights[i];
                 ImGui::PushID(i);
 
                 ImGui::Text("Directional Light");
-                glm::vec3 dir = dirLight->GetDirection();
+                glm::vec3 dir = pDirLight->GetDirection();
                 ImGui::DragFloat3("Direction", &dir.x, 0.5f);
-                if (dir != dirLight->GetDirection())
-                    dirLight->SetDirection(dir);
+                if (dir != pDirLight->GetDirection())
+                    pDirLight->SetDirection(dir);
 
-                ImGui::ColorEdit3("Color##DirLight", &dirLight->GetColor().r);
+                ImGui::ColorEdit3("Color##DirLight", &pDirLight->GetColor().r);
                 ImGui::SliderFloat("Intensity##DirLight",
-                                   &dirLight->GetIntensity(), 0.f, 10.f);
+                                   &pDirLight->GetIntensity(), 0.f, 10.f);
 
                 ImGui::PopID();
             }
@@ -633,8 +631,16 @@ private:
 
                     m_Device.waitIdle();
 
+                    // Loading the new scene before unloading current scene.
+                    // Speeds up load times by not unloading resources which are
+                    // used in both scenes. This does mean that you have to
+                    // temporarily store both scenes in memory until the load if
+                    // finished though. Can look into this in the future if it
+                    // becomes a problem.
+                    std::unique_ptr<SceneGraph> tempSceneGraph =
+                        XmlParser::LoadScene(path);
                     m_SceneGraph.reset();
-                    m_SceneGraph = XmlParser::LoadScene(path);
+                    m_SceneGraph = std::move(tempSceneGraph);
                 }
                 ImGuiFileDialog::Instance()->Close();
             }
@@ -2568,9 +2574,10 @@ private:
 
     void UpdateCompositeDescriptorSet()
     {
-        LogMsg(LogSeverity::Info, LogRenderer, "UpdateCompositeDescriptorSet()");
-        
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        LogMsg(LogSeverity::Info, LogRenderer,
+               "UpdateCompositeDescriptorSet()");
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
             FrameData& frame = m_Frames[i];
             vk::DescriptorImageInfo opaqueImageInfo{
@@ -2626,7 +2633,7 @@ private:
     {
         LogMsg(LogSeverity::Info, LogRenderer, "UpdateDepthDescriptorSet()");
 
-		vk::DescriptorImageInfo imageInfo{
+        vk::DescriptorImageInfo imageInfo{
             .imageView = m_DepthImageView,
             .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal};
 

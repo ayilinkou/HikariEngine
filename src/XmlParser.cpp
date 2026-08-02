@@ -1,5 +1,4 @@
 #include "XmlParser.h"
-#include "Lights.h"
 #include "Log.h"
 
 #include <sstream>
@@ -59,13 +58,15 @@ Transform XmlParser::ParseTransform(const pugi::xml_node& node)
     return t;
 }
 
-std::unique_ptr<Model> XmlParser::ParseModel(const pugi::xml_node& node)
+std::unique_ptr<Model> XmlParser::ParseModel(const pugi::xml_node& node,
+                                             const std::string& scenePath)
 {
     auto pathAtt = node.attribute(XML::Path);
     if (!pathAtt)
     {
         throw std::runtime_error(
-            "Found model with no \"path\" value when parsing scene!");
+            "Found model with no \"path\" value when parsing scene {}" +
+            scenePath);
     }
 
     const char* path = pathAtt.as_string();
@@ -78,6 +79,62 @@ std::unique_ptr<Model> XmlParser::ParseModel(const pugi::xml_node& node)
     }
 
     return model;
+};
+
+std::unique_ptr<Light> XmlParser::ParseLight(const pugi::xml_node& node,
+                                             const std::string& scenePath)
+{
+    std::unique_ptr<Light> light = nullptr;
+    LightType type = static_cast<LightType>(node.attribute(XML::Type).as_int());
+
+    switch (type)
+    {
+    case LightType::Directional:
+    {
+        DirectionalLight* pDirLight = new DirectionalLight();
+        if (auto dirAtt = node.attribute(XML::Direction))
+        {
+            glm::vec3 dir = ParseVec3(dirAtt.as_string());
+            pDirLight->SetDirection(dir);
+        }
+        if (auto intensityAtt = node.attribute(XML::Intensity))
+        {
+            float intensity = intensityAtt.as_float();
+            pDirLight->SetIntensity(intensity);
+        }
+        if (auto colorAtt = node.attribute(XML::Color))
+        {
+            glm::vec3 color = ParseVec3(colorAtt.as_string());
+            pDirLight->SetColor(color);
+        }
+        return std::unique_ptr<Light>(pDirLight);
+    }
+    case LightType::Point:
+    {
+        PointLight* pPointLight = new PointLight();
+        if (auto posAtt = node.attribute(XML::Position))
+        {
+            glm::vec3 pos = ParseVec3(posAtt.as_string());
+            pPointLight->SetPosition(pos);
+        }
+        if (auto intensityAtt = node.attribute(XML::Intensity))
+        {
+            float intensity = intensityAtt.as_float();
+            pPointLight->SetIntensity(intensity);
+        }
+        if (auto colorAtt = node.attribute(XML::Color))
+        {
+            glm::vec3 color = ParseVec3(colorAtt.as_string());
+            pPointLight->SetColor(color);
+        }
+        return std::unique_ptr<Light>(pPointLight);
+    }
+    default:
+        throw std::runtime_error("Failed to load light type in scene " +
+                                 scenePath);
+    }
+
+    return nullptr;
 };
 
 NodeType XmlParser::TagToNodeType(std::string_view tag)
@@ -95,7 +152,7 @@ std::unique_ptr<SceneGraph> XmlParser::LoadScene(const std::string& path)
 {
     LogMsg(LogSeverity::Info, LogXmlParser, "Loading scene: {}", path.c_str());
 
-	std::unique_ptr<SceneGraph> scene = std::make_unique<SceneGraph>();
+    std::unique_ptr<SceneGraph> scene = std::make_unique<SceneGraph>();
 
     pugi::xml_document doc;
     if (!doc.load_file(path.c_str()))
@@ -119,12 +176,25 @@ std::unique_ptr<SceneGraph> XmlParser::LoadScene(const std::string& path)
             }
             case NodeType::Light:
             {
-                // TODO: move lights into here
+                std::unique_ptr<Light> light = ParseLight(comp, path);
+				Light* pLight = light.get();
+				entity.AddComponent(std::move(light));
+
+                if (PointLight* pPointLight =
+                        dynamic_cast<PointLight*>(pLight))
+                {
+                    scene->PointLights.push_back(pPointLight);
+                }
+                else if (DirectionalLight* pDirLight =
+                             dynamic_cast<DirectionalLight*>(pLight))
+                {
+                    scene->DirLights.push_back(pDirLight);
+                }
                 continue;
             }
             case NodeType::Model:
             {
-                std::unique_ptr<Model> model = ParseModel(comp);
+                std::unique_ptr<Model> model = ParseModel(comp, path);
                 entity.AddComponent(std::move(model));
                 continue;
             }
@@ -134,62 +204,6 @@ std::unique_ptr<SceneGraph> XmlParser::LoadScene(const std::string& path)
             }
         }
     }
-
-    for (pugi::xml_node node : doc.child(XML::Scene).children(XML::Light))
-    {
-        LightType type =
-            static_cast<LightType>(node.attribute(XML::Type).as_int());
-
-        switch (type)
-        {
-        case LightType::Directional:
-        {
-            scene->DirLights.push_back(std::make_unique<DirectionalLight>());
-            DirectionalLight& dirLight = *scene->DirLights.back().get();
-            if (auto dirAtt = node.attribute(XML::Direction))
-            {
-                glm::vec3 dir = ParseVec3(dirAtt.as_string());
-                dirLight.SetDirection(dir);
-            }
-            if (auto intensityAtt = node.attribute(XML::Intensity))
-            {
-                float intensity = intensityAtt.as_float();
-                dirLight.SetIntensity(intensity);
-            }
-            if (auto colorAtt = node.attribute(XML::Color))
-            {
-                glm::vec3 color = ParseVec3(colorAtt.as_string());
-                dirLight.SetColor(color);
-            }
-            break;
-        }
-        case LightType::Point:
-        {
-            scene->PointLights.push_back(std::make_unique<PointLight>());
-            PointLight& pointLight = *scene->PointLights.back().get();
-            if (auto posAtt = node.attribute(XML::Position))
-            {
-                glm::vec3 pos = ParseVec3(posAtt.as_string());
-                pointLight.SetPosition(pos);
-            }
-            if (auto intensityAtt = node.attribute(XML::Intensity))
-            {
-                float intensity = intensityAtt.as_float();
-                pointLight.SetIntensity(intensity);
-            }
-            if (auto colorAtt = node.attribute(XML::Color))
-            {
-                glm::vec3 color = ParseVec3(colorAtt.as_string());
-                pointLight.SetColor(color);
-            }
-            break;
-        }
-        default:
-            throw std::runtime_error("Failed to load light type in scene " +
-                                     path);
-        }
-    }
-
     return scene;
 }
 
@@ -200,12 +214,8 @@ std::string XmlParser::Vec3ToString(glm::vec3 v)
     return oss.str();
 }
 
-void XmlParser::WriteTransform(pugi::xml_node& parent, const Transform& t,
-                               const Transform& defaultTransform)
+void XmlParser::WriteTransform(pugi::xml_node& parent, const Transform& t)
 {
-    if (t == defaultTransform)
-        return;
-
     pugi::xml_node transformNode = parent.append_child(XML::Transform);
 
     transformNode.append_attribute(XML::Position) =
@@ -215,7 +225,41 @@ void XmlParser::WriteTransform(pugi::xml_node& parent, const Transform& t,
     transformNode.append_attribute(XML::Scale) = Vec3ToString(t.Scale).c_str();
 }
 
-void XmlParser::SaveScene(const std::unique_ptr<SceneGraph>& sceneGraph, const std::string& path)
+void XmlParser::WriteModel(pugi::xml_node& parent, Model* pModel)
+{
+    pugi::xml_node modelNode = parent.append_child(XML::Model);
+    modelNode.append_attribute(XML::Path) = pModel->GetPath().c_str();
+    WriteTransform(modelNode, pModel->GetTransform());
+}
+
+void XmlParser::WriteLight(pugi::xml_node& parent, Light* pLight)
+{
+    pugi::xml_node lightNode = parent.append_child(XML::Light);
+
+    if (PointLight* pPointLight = dynamic_cast<PointLight*>(pLight))
+    {
+        PointLight::Data data = pPointLight->GetData();
+        lightNode.append_attribute(XML::Type) =
+            static_cast<int>(LightType::Point);
+        lightNode.append_attribute(XML::Intensity) = data.Intensity;
+        lightNode.append_attribute(XML::Position) = Vec3ToString(data.Pos);
+        lightNode.append_attribute(XML::Color) = Vec3ToString(data.Color);
+        return;
+    }
+    if (DirectionalLight* pDirLight = dynamic_cast<DirectionalLight*>(pLight))
+    {
+        DirectionalLight::Data data = pDirLight->GetData();
+        lightNode.append_attribute(XML::Type) =
+            static_cast<int>(LightType::Directional);
+        lightNode.append_attribute(XML::Intensity) = data.Intensity;
+        lightNode.append_attribute(XML::Direction) = Vec3ToString(data.Dir);
+        lightNode.append_attribute(XML::Color) = Vec3ToString(data.Color);
+        return;
+    }
+}
+
+void XmlParser::SaveScene(const std::unique_ptr<SceneGraph>& sceneGraph,
+                          const std::string& path)
 {
     LogMsg(LogSeverity::Info, LogXmlParser, "Saving scene: {}", path.c_str());
 
@@ -227,40 +271,25 @@ void XmlParser::SaveScene(const std::unique_ptr<SceneGraph>& sceneGraph, const s
         const Entity& entity = *entityPtr.get();
         pugi::xml_node entityNode = sceneNode.append_child(XML::Entity);
         entityNode.append_attribute(XML::Name) = entity.GetName().c_str();
+        WriteTransform(entityNode, entityPtr->GetTransform());
 
-        WriteTransform(entityNode, entityPtr->GetTransform(),
-                       entity.GetDefaultTransform());
-
-        if (Model* pModel = entity.GetComponent<Model>())
+        if (const std::vector<Model*> models = entity.GetComponents<Model>();
+            !models.empty())
         {
-            pugi::xml_node modelNode = entityNode.append_child(XML::Model);
-            modelNode.append_attribute(XML::Path) = pModel->GetPath().c_str();
-            WriteTransform(modelNode, pModel->GetTransform(),
-                           pModel->GetDefaultTransform());
+            for (Model* pModel : models)
+            {
+                WriteModel(entityNode, pModel);
+            }
         }
-    }
 
-    for (const std::unique_ptr<DirectionalLight>& dirLight :
-         sceneGraph->DirLights)
-    {
-        pugi::xml_node lightNode = sceneNode.append_child(XML::Light);
-        DirectionalLight::Data data = dirLight->GetData();
-        lightNode.append_attribute(XML::Type) =
-            static_cast<int>(LightType::Directional);
-        lightNode.append_attribute(XML::Intensity) = data.Intensity;
-        lightNode.append_attribute(XML::Direction) = Vec3ToString(data.Dir);
-        lightNode.append_attribute(XML::Color) = Vec3ToString(data.Color);
-    }
-
-    for (const std::unique_ptr<PointLight>& pointLight : sceneGraph->PointLights)
-    {
-        pugi::xml_node lightNode = sceneNode.append_child(XML::Light);
-        PointLight::Data data = pointLight->GetData();
-        lightNode.append_attribute(XML::Type) =
-            static_cast<int>(LightType::Point);
-        lightNode.append_attribute(XML::Intensity) = data.Intensity;
-        lightNode.append_attribute(XML::Position) = Vec3ToString(data.Pos);
-        lightNode.append_attribute(XML::Color) = Vec3ToString(data.Color);
+        if (const std::vector<Light*> lights = entity.GetComponents<Light>();
+            !lights.empty())
+        {
+            for (Light* pLight : lights)
+            {
+                WriteLight(entityNode, pLight);
+            }
+        }
     }
 
     if (!doc.save_file(path.c_str(), "\t"))
