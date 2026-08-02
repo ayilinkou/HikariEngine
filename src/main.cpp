@@ -617,7 +617,7 @@ private:
                 IGFD::FileDialogConfig config;
                 config.path = "scenes/";
                 ImGuiFileDialog::Instance()->OpenDialog(
-                    "LoadSceneDlg", "Choose Scene to Load", ".xml", config);
+                    "LoadSceneDlg", "Choose Scene to Load", ".map", config);
             }
 
             if (ImGuiFileDialog::Instance()->Display(
@@ -649,9 +649,9 @@ private:
             {
                 IGFD::FileDialogConfig config;
                 config.path = "scenes/";
-                config.fileName = "new_scene.xml";
+                config.fileName = "new_scene.map";
                 ImGuiFileDialog::Instance()->OpenDialog(
-                    "SaveSceneDlg", "Save Scene As", ".xml", config);
+                    "SaveSceneDlg", "Save Scene As", ".map", config);
             }
 
             if (ImGuiFileDialog::Instance()->Display(
