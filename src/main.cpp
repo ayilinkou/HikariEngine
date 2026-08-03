@@ -577,7 +577,7 @@ private:
             for (size_t i = 0; i < m_SceneGraph->PointLights.size(); i++)
             {
                 PointLight* pPointLight = m_SceneGraph->PointLights[i];
-                ImGui::PushID(i);
+                ImGui::PushID(static_cast<int>(i));
 
                 ImGui::Text("Point Light");
                 ImGui::DragFloat3("Position", &pPointLight->GetPosition().x,
@@ -594,7 +594,7 @@ private:
             for (size_t i = 0; i < m_SceneGraph->DirLights.size(); i++)
             {
                 DirectionalLight* pDirLight = m_SceneGraph->DirLights[i];
-                ImGui::PushID(i);
+                ImGui::PushID(static_cast<int>(i));
 
                 ImGui::Text("Directional Light");
                 glm::vec3 dir = pDirLight->GetDirection();
