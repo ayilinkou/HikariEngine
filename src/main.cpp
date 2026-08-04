@@ -19,6 +19,8 @@
 #include "XmlParser.h"
 
 #include "ImGuiFileDialog.h"
+#include "vulkan/vulkan.hpp"
+#include <vulkan/vulkan.hpp>
 
 #define MULTITHREADED_COMMAND_RECORDING 1
 
@@ -86,7 +88,7 @@ constexpr bool bEnableValidationLayers = true;
 #endif
 
 vk::DebugUtilsMessageSeverityFlagBitsEXT validationSeverityThreshold =
-    vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning;
+    vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo;
 
 static VKAPI_ATTR vk::Bool32 VKAPI_CALL
 DebugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -97,7 +99,22 @@ DebugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
     if (severity < validationSeverityThreshold)
         return vk::False;
 
-    LogMsg(LogSeverity::Error, LogValidationLayer, "Type {}. Msg: {}",
+    LogSeverity logSeverity;
+    switch (severity)
+    {
+    case vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose:
+    case vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo:
+        logSeverity = LogSeverity::Info;
+        break;
+    case vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning:
+        logSeverity = LogSeverity::Warning;
+        break;
+    case vk::DebugUtilsMessageSeverityFlagBitsEXT::eError:
+        logSeverity = LogSeverity::Error;
+        break;
+    }
+
+    LogMsg(logSeverity, LogValidationLayer, "Type {}. Msg: {}",
            to_string(type).c_str(), pCallbackData->pMessage);
 
     if (pUserData)
@@ -707,6 +724,7 @@ private:
         memcpy(requiredExtensions.data(), instanceExtensions,
                countInstanceExtensions * sizeof(const char*));
         requiredExtensions.push_back(vk::EXTDebugUtilsExtensionName);
+        requiredExtensions.push_back(vk::EXTLayerSettingsExtensionName);
 
 #if defined(__APPLE__)
         // MoltenVK is a portability driver. On macOS the Vulkan loader
@@ -768,7 +786,28 @@ private:
             throw std::runtime_error("Required layer not supported: " +
                                      std::string(*unsupportedLayerIt));
 
+        const vk::Bool32 bSyncValEnabled = VK_TRUE;
+        const vk::Bool32 bBestPracticesValEnabled = VK_TRUE;
+
+        std::array<vk::LayerSettingEXT, 2> settings = {
+            vk::LayerSettingEXT{.pLayerName = "VK_LAYER_KHRONOS_validation",
+                                .pSettingName = "validate_sync",
+                                .type = vk::LayerSettingTypeEXT::eBool32,
+                                .valueCount = 1,
+                                .pValues = &bSyncValEnabled},
+            vk::LayerSettingEXT{.pLayerName = "VK_LAYER_KHRONOS_validation",
+                                .pSettingName = "validate_best_practices",
+                                .type = vk::LayerSettingTypeEXT::eBool32,
+                                .valueCount = 1,
+                                .pValues = &bBestPracticesValEnabled},
+        };
+
+        vk::LayerSettingsCreateInfoEXT layerSettingsInfo{
+            .settingCount = static_cast<uint32_t>(settings.size()),
+            .pSettings = settings.data()};
+
         vk::InstanceCreateInfo createInfo{
+            .pNext = &layerSettingsInfo,
 #if defined(__APPLE__)
             .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,
 #endif
@@ -1914,6 +1953,14 @@ private:
             m_Frames[m_FrameIndex].ImGuiCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
+
+        TransitionSwapImageLayout(
+            cmd, imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
+            vk::ImageLayout::eColorAttachmentOptimal,
+            vk::AccessFlagBits2::eColorAttachmentWrite,
+            vk::AccessFlagBits2::eColorAttachmentRead,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput);
 
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
             .imageView = m_SwapImageViews[imageIndex],

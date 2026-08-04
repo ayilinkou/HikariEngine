@@ -33,8 +33,8 @@ void ResourceManager::Init(vk::raii::Device& device,
 void ResourceManager::Shutdown()
 {
     LogMsg(LogSeverity::Info, LogResourceManager, "Shutdown()");
-    
-	if (!s_Instance)
+
+    if (!s_Instance)
         throw std::runtime_error(
             "Attempting to shutdown ResourceManager when it is already null!");
 
@@ -114,13 +114,14 @@ ModelData* ResourceManager::LoadModel(const std::string& modelPath)
 
 uint32_t ResourceManager::UnloadTexture(const std::string& filepath)
 {
-    Resource* resourceToUnload = m_TexturesMap[filepath].get();
-    if (!resourceToUnload)
+    const auto it = m_TexturesMap.find(filepath);
+    if (it == m_TexturesMap.end() || !it->second)
     {
         m_TexturesMap.erase(filepath);
         return 0u;
     }
 
+    Resource* resourceToUnload = it->second.get();
     resourceToUnload->RemoveRef();
     if (resourceToUnload->m_RefCount > 0u)
     {
@@ -133,13 +134,14 @@ uint32_t ResourceManager::UnloadTexture(const std::string& filepath)
 
 uint32_t ResourceManager::UnloadCubemap(const CubemapCreateInfo& createInfo)
 {
-    Resource* resourceToUnload = m_CubemapsMap[createInfo.RightPath].get();
-    if (!resourceToUnload)
+    const auto it = m_CubemapsMap.find(createInfo.RightPath);
+    if (it == m_CubemapsMap.end() || !it->second)
     {
-        m_TexturesMap.erase(createInfo.RightPath);
+        m_CubemapsMap.erase(createInfo.RightPath);
         return 0u;
     }
 
+    Resource* resourceToUnload = it->second.get();
     resourceToUnload->RemoveRef();
     if (resourceToUnload->m_RefCount > 0u)
     {
@@ -152,17 +154,18 @@ uint32_t ResourceManager::UnloadCubemap(const CubemapCreateInfo& createInfo)
 
 uint32_t ResourceManager::UnloadModel(const std::string& filepath)
 {
-    Resource* ResourceToUnload = m_ModelsMap[filepath].get();
-    if (!ResourceToUnload)
+    const auto it = m_ModelsMap.find(filepath);
+    if (it == m_ModelsMap.end() || !it->second)
     {
         m_ModelsMap.erase(filepath);
         return 0u;
     }
 
-    ResourceToUnload->RemoveRef();
-    if (ResourceToUnload->m_RefCount > 0u)
+    Resource* resourceToUnload = it->second.get();
+    resourceToUnload->RemoveRef();
+    if (resourceToUnload->m_RefCount > 0u)
     {
-        return ResourceToUnload->m_RefCount;
+        return resourceToUnload->m_RefCount;
     }
 
     Internal_UnloadModel(filepath);
@@ -171,7 +174,8 @@ uint32_t ResourceManager::UnloadModel(const std::string& filepath)
 
 void ResourceManager::Internal_UnloadTexture(const std::string filepath)
 {
-    Texture* pTexture = static_cast<Texture*>(m_TexturesMap[filepath]->m_pData);
+    Texture* pTexture =
+        static_cast<Texture*>(m_TexturesMap.at(filepath)->m_pData);
     delete pTexture;
     m_TexturesMap.erase(filepath);
 }
@@ -179,7 +183,7 @@ void ResourceManager::Internal_UnloadTexture(const std::string filepath)
 void ResourceManager::Internal_UnloadCubemap(const CubemapCreateInfo createInfo)
 {
     Cubemap* pCubemap =
-        static_cast<Cubemap*>(m_CubemapsMap[createInfo.RightPath]->m_pData);
+        static_cast<Cubemap*>(m_CubemapsMap.at(createInfo.RightPath)->m_pData);
     delete pCubemap;
     m_CubemapsMap.erase(createInfo.RightPath);
 }
@@ -187,7 +191,7 @@ void ResourceManager::Internal_UnloadCubemap(const CubemapCreateInfo createInfo)
 void ResourceManager::Internal_UnloadModel(const std::string filepath)
 {
     ModelData* pModelData =
-        static_cast<ModelData*>(m_ModelsMap[filepath]->m_pData);
+        static_cast<ModelData*>(m_ModelsMap.at(filepath)->m_pData);
     delete pModelData;
     m_ModelsMap.erase(filepath);
 }

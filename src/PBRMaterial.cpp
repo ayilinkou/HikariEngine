@@ -34,10 +34,10 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
     aiString texturePath;
 
     mat->Get(AI_MATKEY_TWOSIDED, m_bTwoSided);
-	m_MatData.bTwoSided = m_bTwoSided;
+    m_MatData.bTwoSided = m_bTwoSided;
 
-	mat->Get(AI_MATKEY_OPACITY, m_Opacity);
-	m_MatData.Opacity = m_Opacity;
+    mat->Get(AI_MATKEY_OPACITY, m_Opacity);
+    m_MatData.Opacity = m_Opacity;
 
     // use BASE_COLOR if available, DIFFUSE as fallback
     // prefer texture, get value if texture not available
@@ -51,7 +51,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
         std::string path = texturesParentFolder + texturePath.C_Str();
         m_Albedo = ResourceManager::Get()->LoadTexture(
             path, vk::Format::eR8G8B8A8Srgb);
-        m_MatData.bHasAlbedoTex = true;
+        m_MatData.bHasAlbedoTex = (m_Albedo != nullptr);
     }
     else if (mat->Get(AI_MATKEY_BASE_COLOR, baseColor) == AI_SUCCESS)
     {
@@ -68,7 +68,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
         std::string path = texturesParentFolder + texturePath.C_Str();
         m_Normal = ResourceManager::Get()->LoadTexture(
             path, vk::Format::eR8G8B8A8Unorm);
-        m_MatData.bHasNormalTex = true;
+        m_MatData.bHasNormalTex = (m_Normal != nullptr);
     }
 
     if (mat->GetTexture(aiTextureType::aiTextureType_GLTF_METALLIC_ROUGHNESS, 0,
@@ -77,7 +77,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
         std::string path = texturesParentFolder + texturePath.C_Str();
         m_MetallicRoughness = ResourceManager::Get()->LoadTexture(
             path, vk::Format::eR8G8B8A8Unorm);
-        m_MatData.bHasMetallicRoughnessTex = true;
+        m_MatData.bHasMetallicRoughnessTex = (m_MetallicRoughness != nullptr);
     }
 
     mat->Get(AI_MATKEY_METALLIC_FACTOR, m_MatData.Metallic);

@@ -51,6 +51,7 @@ Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
         stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
     vk::DeviceSize imageSize = width * height * 4;
 
+	// TODO: instead of throwing, give it a 1x1 fallback texture
     if (!pixels)
         throw std::runtime_error(
             std::format("Failed to load texture: {}", path.c_str()));

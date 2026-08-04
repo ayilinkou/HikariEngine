@@ -52,7 +52,7 @@ ChooseSwapchainFormat(const std::vector<vk::SurfaceFormatKHR>& formats)
         formats,
         [](const auto& format)
         {
-            return format.format == vk::Format::eB8G8R8A8Srgb &&
+            return format.format == vk::Format::eB8G8R8A8Unorm &&
                    format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
         });
 
@@ -353,7 +353,7 @@ inline void CreateVertexBuffer(vk::raii::Device& device,
     CreateBuffer(device, physicalDevice, bufferSize,
                  vk::BufferUsageFlagBits::eTransferSrc,
                  vk::MemoryPropertyFlagBits::eHostCoherent |
-                     vk::MemoryPropertyFlagBits::eHostCoherent,
+                     vk::MemoryPropertyFlagBits::eHostVisible,
                  stagingBuffer, stagingBufferMemory);
 
     void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
@@ -385,7 +385,7 @@ inline void CreateIndexBuffer(vk::raii::Device& device,
     CreateBuffer(device, physicalDevice, bufferSize,
                  vk::BufferUsageFlagBits::eTransferSrc,
                  vk::MemoryPropertyFlagBits::eHostCoherent |
-                     vk::MemoryPropertyFlagBits::eHostCoherent,
+                     vk::MemoryPropertyFlagBits::eHostVisible,
                  stagingBuffer, stagingBufferMemory);
 
     void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);

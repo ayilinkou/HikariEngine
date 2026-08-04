@@ -32,7 +32,7 @@ protected:
     const std::string m_Name;
 
 	const BlendMode m_BlendMode;
-	bool m_bTwoSided = false;
+	bool m_bTwoSided = true;
 	float m_Opacity = 1.f;
 };
 
