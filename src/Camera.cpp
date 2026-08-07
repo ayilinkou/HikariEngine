@@ -3,6 +3,9 @@
 Camera::Camera()
 {
     m_View = glm::mat4(1.f);
+	m_NearPlane = 0.1f;
+	m_FarPlane = 10000.f;
+    m_Proj = glm::perspective(glm::radians(90.f), 16.f / 9.f, m_NearPlane, m_FarPlane);
     m_RotationMatrix = glm::mat4(1.f);
 
     m_ForwardVector = {0.f, 0.f, -1.f};
@@ -40,4 +43,11 @@ void Camera::Rotate(float dx, float dy)
         m_Transform.Rotation.y -= 360.f;
     if (m_Transform.Rotation.y < 0.f)
         m_Transform.Rotation.y += 360.f;
+}
+
+void Camera::SetProjection(float fov, float aspect, float near, float far)
+{
+    m_Proj = glm::perspective(fov, aspect, near, far);
+    m_NearPlane = near;
+    m_FarPlane = far;
 }

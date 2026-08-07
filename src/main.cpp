@@ -20,17 +20,13 @@
 
 #include "ImGuiFileDialog.h"
 
-
 #define MULTITHREADED_COMMAND_RECORDING 1
 
 constexpr uint32_t WIDTH = 1920u;
 constexpr uint32_t HEIGHT = 1080u;
 constexpr uint32_t MAX_INSTANCE_COUNT = 1024u;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-constexpr float NEAR_PLANE = 0.1f;
-constexpr float FAR_PLANE = 10000.f;
 constexpr glm::vec3 SKY_COLOR = {0.4f, 0.8f, 1.f};
-const std::string SPONZA_MODEL_PATH = "models/sponza/Sponza.gltf";
 
 constexpr LogCategory LogValidationLayer("Validation Layer");
 constexpr LogCategory LogSDL("SDL");
@@ -741,7 +737,8 @@ private:
             m_Context.enumerateInstanceExtensionProperties();
 
         const bool bLayerSettingsExtSupported = std::ranges::any_of(
-            extensionProperties, [](auto const& extensionProperty)
+            extensionProperties,
+            [](auto const& extensionProperty)
             {
                 return strcmp(extensionProperty.extensionName,
                               vk::EXTLayerSettingsExtensionName) == 0;
@@ -2229,21 +2226,6 @@ private:
                 m_Frames[i].GlobalBufferMemory.mapMemory(0, size);
         }
 
-        glm::mat4 colMajProj =
-            glm::perspective(glm::radians(90.f),
-                             static_cast<float>(m_SwapchainExtent.width) /
-                                 static_cast<float>(m_SwapchainExtent.height),
-                             NEAR_PLANE, FAR_PLANE);
-        // GLM was designed for OpenGL, which has its Y coordinate in clip
-        // space inverted. Compensate for this by scaling here.
-        colMajProj[1][1] *= -1.f;
-        m_GlobalBuffer.CamData.Proj = glm::transpose(colMajProj);
-
-        m_GlobalBuffer.Time = 0.f;
-
-        m_GlobalBuffer.CamData.NearPlane = NEAR_PLANE;
-        m_GlobalBuffer.CamData.FarPlane = FAR_PLANE;
-
         m_GlobalBuffer.SkyColor = SKY_COLOR;
     }
 
@@ -2253,6 +2235,13 @@ private:
         m_GlobalBuffer.CamData.Pos = m_Camera->GetPosition();
         glm::mat4 view = m_Camera->GetViewMatrix();
         m_GlobalBuffer.CamData.View = glm::transpose(view);
+        glm::mat4 proj = m_Camera->GetProjMatrix();
+        // GLM was designed for OpenGL, which has its Y coordinate in clip
+        // space inverted. Compensate for this by scaling here.
+        proj[1][1] *= -1.f;
+        m_GlobalBuffer.CamData.Proj = glm::transpose(proj);
+        m_GlobalBuffer.CamData.NearPlane = m_Camera->GetNearPlane();
+        m_GlobalBuffer.CamData.FarPlane = m_Camera->GetFarPlane();
 
         m_GlobalBuffer.CamData.InvViewProj =
             glm::inverse(glm::transpose(m_GlobalBuffer.CamData.Proj) * view);
