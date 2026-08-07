@@ -9,4 +9,3 @@ if not defined VSPATH (
 
 call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || (pause & exit /b 1)
 cmake --workflow --preset ninja-debug-windows
-pause

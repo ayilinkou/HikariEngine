@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 4.0)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
 
 # Only generate Debug and Release configurations
 set(CMAKE_CONFIGURATION_TYPES
@@ -89,7 +90,7 @@ FetchContent_Declare(
   GIT_TAG v0.6.7)
 FetchContent_MakeAvailable(ImGuiFileDialog)
 target_link_libraries(ImGuiFileDialog PRIVATE imgui::imgui)
-set_target_properties(ImGuiFileDialog PROPERTIES CMAKE_COMPILE_WARNING_AS_ERROR
+set_target_properties(ImGuiFileDialog PROPERTIES COMPILE_WARNING_AS_ERROR
                                                  OFF)
 
 find_program(SLANGC_EXECUTABLE slangc)
@@ -98,8 +99,6 @@ if(NOT SLANGC_EXECUTABLE)
 endif()
 
 add_executable(VulkanApp)
-
-set_target_properties(VulkanApp PROPERTIES CMAKE_COMPILE_WARNING_AS_ERROR ON)
 
 target_precompile_headers(VulkanApp PRIVATE src/pch.h)
 
@@ -136,13 +135,12 @@ if(MSVC)
   target_compile_options(
     VulkanApp
     PRIVATE /W3 # Warning level
-            /WX # Warnings as errors
             $<$<CONFIG:Debug>:/Od> $<$<CONFIG:Release>:/O2>)
 
   target_link_options(
     VulkanApp PRIVATE $<$<CONFIG:Debug>:/DEBUG> # optional but useful for crash
                                                 # reports
-    $<$<CONFIG:Release>:/DEBUG >)
+    $<$<CONFIG:Release>:/DEBUG>)
 else()
   target_compile_options(
     VulkanApp
