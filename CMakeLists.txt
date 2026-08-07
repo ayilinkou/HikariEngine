@@ -90,8 +90,13 @@ FetchContent_Declare(
   GIT_TAG v0.6.7)
 FetchContent_MakeAvailable(ImGuiFileDialog)
 target_link_libraries(ImGuiFileDialog PRIVATE imgui::imgui)
-set_target_properties(ImGuiFileDialog PROPERTIES COMPILE_WARNING_AS_ERROR
-                                                 OFF)
+set_target_properties(ImGuiFileDialog PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
+
+if(MSVC)
+  target_compile_options(ImGuiFileDialog PRIVATE /w)
+else()
+  target_compile_options(ImGuiFileDialog PRIVATE -w)
+endif()
 
 find_program(SLANGC_EXECUTABLE slangc)
 if(NOT SLANGC_EXECUTABLE)
@@ -133,9 +138,8 @@ if(MSVC)
   endif()
 
   target_compile_options(
-    VulkanApp
-    PRIVATE /W3 # Warning level
-            $<$<CONFIG:Debug>:/Od> $<$<CONFIG:Release>:/O2>)
+    VulkanApp PRIVATE /W3 # Warning level
+                      $<$<CONFIG:Debug>:/Od> $<$<CONFIG:Release>:/O2>)
 
   target_link_options(
     VulkanApp PRIVATE $<$<CONFIG:Debug>:/DEBUG> # optional but useful for crash
@@ -157,25 +161,21 @@ else()
             >)
 endif()
 
-file(GLOB_RECURSE shader_slang_sources
-     ${CMAKE_CURRENT_LIST_DIR}/src/shaders/*.slang)
-
+# TODO: make shaders only depend on headers that they actually include
 function(add_slang_shader_target target)
   cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
 
-  set(shaders_dir ${CMAKE_CURRENT_LIST_DIR}/shaders)
   set(shaders_source_dir ${CMAKE_CURRENT_LIST_DIR}/src/shaders)
+  set(shaders_out_dir ${CMAKE_CURRENT_LIST_DIR}/shaders)
 
-  add_custom_target(${target} ALL)
+  file(GLOB_RECURSE shader_headers CONFIGURE_DEPENDS
+       ${shaders_source_dir}/*.slangh)
 
+  set(spv_outputs "")
   foreach(shader ${SHADER_SOURCES})
-    message(STATUS "Found shader: ${shader}")
-
     file(RELATIVE_PATH rel_path ${shaders_source_dir} ${shader})
-
-    set(output_file ${shaders_dir}/${rel_path})
+    set(output_file ${shaders_out_dir}/${rel_path})
     string(REPLACE ".slang" ".spv" output_file ${output_file})
-
     get_filename_component(output_dir ${output_file} DIRECTORY)
 
     if(shader MATCHES "\\.comp\\.slang$")
@@ -185,17 +185,25 @@ function(add_slang_shader_target target)
     endif()
 
     add_custom_command(
-      TARGET ${target}
-      POST_BUILD
+      OUTPUT ${output_file}
       COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${rel_path}"
       COMMAND ${CMAKE_COMMAND} -E make_directory ${output_dir}
       COMMAND
         ${SLANGC_EXECUTABLE} ${shader} -target spirv -profile spirv_1_4
         -emit-spirv-directly -fvk-use-entrypoint-name ${entry_points} -o
         ${output_file} $<IF:$<CONFIG:Debug>,-g1,-O3> $<$<CONFIG:Debug>:-O0>
+      DEPENDS ${shader} ${shader_headers}
+      COMMENT "Compiling shader ${rel_path}"
       VERBATIM)
+
+    list(APPEND spv_outputs ${output_file})
   endforeach()
+
+  add_custom_target(${target} ALL DEPENDS ${spv_outputs})
 endfunction()
+
+file(GLOB_RECURSE shader_slang_sources CONFIGURE_DEPENDS
+     ${CMAKE_CURRENT_LIST_DIR}/src/shaders/*.slang)
 
 add_slang_shader_target(CompileShadersTarget SOURCES ${shader_slang_sources})
 add_dependencies(VulkanApp CompileShadersTarget)
