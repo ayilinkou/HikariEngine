@@ -19,8 +19,7 @@
 #include "XmlParser.h"
 
 #include "ImGuiFileDialog.h"
-#include "vulkan/vulkan.hpp"
-#include <vulkan/vulkan.hpp>
+
 
 #define MULTITHREADED_COMMAND_RECORDING 1
 
@@ -724,7 +723,6 @@ private:
         memcpy(requiredExtensions.data(), instanceExtensions,
                countInstanceExtensions * sizeof(const char*));
         requiredExtensions.push_back(vk::EXTDebugUtilsExtensionName);
-        requiredExtensions.push_back(vk::EXTLayerSettingsExtensionName);
 
 #if defined(__APPLE__)
         // MoltenVK is a portability driver. On macOS the Vulkan loader
@@ -741,6 +739,21 @@ private:
 
         auto extensionProperties =
             m_Context.enumerateInstanceExtensionProperties();
+
+        const bool bLayerSettingsExtSupported = std::ranges::any_of(
+            extensionProperties, [](auto const& extensionProperty)
+            {
+                return strcmp(extensionProperty.extensionName,
+                              vk::EXTLayerSettingsExtensionName) == 0;
+            });
+
+        if (bLayerSettingsExtSupported)
+            requiredExtensions.push_back(vk::EXTLayerSettingsExtensionName);
+        else
+            LogMsg(LogSeverity::Warning, LogRenderer,
+                   "VK_EXT_layer_settings not supported; skipping "
+                   "programmatic validation layer settings "
+                   "(validate_sync/validate_best_practices).");
 
         auto unsupportedExtensionIt = std::ranges::find_if(
             requiredExtensions,
@@ -807,7 +820,7 @@ private:
             .pSettings = settings.data()};
 
         vk::InstanceCreateInfo createInfo{
-            .pNext = &layerSettingsInfo,
+            .pNext = bLayerSettingsExtSupported ? &layerSettingsInfo : nullptr,
 #if defined(__APPLE__)
             .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,
 #endif
