@@ -2128,6 +2128,12 @@ private:
         UpdateDepthDescriptorSet();
         UpdateCompositeDescriptorSet();
 
+        m_Camera->SetProjection(
+            m_Camera->GetFOV(),
+            static_cast<float>(m_SwapchainExtent.width) /
+                static_cast<float>(m_SwapchainExtent.height),
+            m_Camera->GetNearPlane(), m_Camera->GetFarPlane());
+
         vk::PipelineRenderingCreateInfo pipelineRenderingInfo{
             .colorAttachmentCount = 1u,
             .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format};
