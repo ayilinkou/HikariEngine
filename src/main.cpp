@@ -20,6 +20,28 @@
 
 #include "ImGuiFileDialog.h"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
+inline void EnableAnsiColors()
+{
+    for (DWORD stdHandle : {STD_OUTPUT_HANDLE, STD_ERROR_HANDLE})
+    {
+        HANDLE handle = GetStdHandle(stdHandle);
+        if (handle == INVALID_HANDLE_VALUE)
+            continue;
+
+        DWORD mode = 0;
+        if (!GetConsoleMode(handle, &mode))
+            continue;
+
+        SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
+}
+#endif
+
 #define MULTITHREADED_COMMAND_RECORDING 1
 
 constexpr uint32_t WIDTH = 1920u;
@@ -748,7 +770,7 @@ private:
             requiredExtensions.push_back(vk::EXTLayerSettingsExtensionName);
         else
             LogMsg(LogSeverity::Warning, LogRenderer,
-                   "VK_EXT_layer_settings not supported; skipping "
+                   "VK_EXT_layer_settings not supported. Skipping "
                    "programmatic validation layer settings "
                    "(validate_sync/validate_best_practices).");
 
@@ -2776,6 +2798,9 @@ private:
 
 int main()
 {
+#ifdef _WIN32
+    EnableAnsiColors();
+#endif
     std::signal(SIGINT, HandleSIGINT);
 
     Log::g_MinSeverity = LogSeverity::Info;

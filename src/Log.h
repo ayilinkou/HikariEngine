@@ -32,7 +32,7 @@ constexpr std::string_view SeverityColor(LogSeverity severity)
     switch (severity)
     {
     case LogSeverity::Info:
-        return White;
+        return Reset;
     case LogSeverity::Warning:
         return Yellow;
     case LogSeverity::Error:
@@ -75,14 +75,21 @@ void LogMsg(LogSeverity severity, const LogCategory& cat,
             ? stderr
             : stdout;
 
-    std::fprintf(stream, "%.*s%.*s%.*s [%.*s] ", static_cast<int>(color.size()),
-                 color.data(), static_cast<int>(tag.size()), tag.data(),
-                 static_cast<int>(Log::Reset.size()), Log::Reset.data(),
-                 static_cast<int>(cat.Name.size()), cat.Name.data());
+    // color
+    std::fprintf(stream, "%.*s", static_cast<int>(color.size()), color.data());
 
+    // only print the tag if it's non-empty (removes leading space)
+    if (!tag.empty())
+        std::fprintf(stream, "%.*s ", static_cast<int>(tag.size()), tag.data());
+
+    std::fprintf(stream, "[%.*s] ", static_cast<int>(cat.Name.size()),
+                 cat.Name.data());
     std::fputs(std::vformat(fmt.get(), std::make_format_args(args...)).c_str(),
                stream);
-    std::fputc('\n', stream);
+
+    // reset color at the very end of the line
+    std::fprintf(stream, "%.*s\n", static_cast<int>(Log::Reset.size()),
+                 Log::Reset.data());
 }
 
 // Also prints a log message if a LogCategory is given
