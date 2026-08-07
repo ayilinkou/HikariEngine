@@ -91,7 +91,7 @@ void ThreadPool::Init()
             "thread count! Thread pool will be initialised with 1 thread.");
     }
 
-    const uint32_t poolThreadCount = hwThreadCount > 1u ? hwThreadCount : 1u;
+    const uint32_t poolThreadCount = hwThreadCount > 1u ? hwThreadCount - 1u : 1u;
     
     LogMsg(LogSeverity::Info, LogThreadPool, "CPU thread count: {}",
            hwThreadCount);
