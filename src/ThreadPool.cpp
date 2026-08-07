@@ -84,10 +84,17 @@ void ThreadPool::Init()
                                  "when instance is already initialised!");
 
     // number of logical cores minus one (main thread)
-    uint32_t threadCount = std::thread::hardware_concurrency();
-    uint32_t poolThreadCount = threadCount - 1u;
+    const uint32_t hwThreadCount = std::thread::hardware_concurrency();
+    if (hwThreadCount == 0u)
+    {
+        LogMsg(LogSeverity::Warning, LogThreadPool, "Failed to determine hardware "
+            "thread count! Thread pool will be initialised with 1 thread.");
+    }
+
+    const uint32_t poolThreadCount = hwThreadCount > 1u ? hwThreadCount : 1u;
+    
     LogMsg(LogSeverity::Info, LogThreadPool, "CPU thread count: {}",
-           threadCount);
+           hwThreadCount);
 
     s_Instance = new ThreadPool(poolThreadCount);
 }
