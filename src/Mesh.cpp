@@ -26,11 +26,24 @@ void Mesh::Init(ModelData* pModelData, aiMesh* mesh,
             v.TexCoord = {mesh->mTextureCoords[0][i].x,
                           1.f - mesh->mTextureCoords[0][i].y};
         }
+
+        if (!mesh->HasNormals())
+        {
+            throw std::runtime_error(
+                std::format("Mesh {} does not have normals!",
+                            pModelData->GetFilepath().c_str()));
+        }
+
         v.Normal = {mesh->mNormals[i].x, mesh->mNormals[i].y,
                     mesh->mNormals[i].z};
 
-        assert(mesh->HasTangentsAndBitangents() &&
-               "Mesh does not have tangents and bitangents!");
+        if (!mesh->HasTangentsAndBitangents())
+        {
+            throw std::runtime_error(
+                std::format("Mesh {} has no tangent basis!",
+                            pModelData->GetFilepath().c_str()));
+        }
+
         glm::vec3 tangent = {mesh->mTangents[i].x, mesh->mTangents[i].y,
                              mesh->mTangents[i].z};
         glm::vec3 bitangent = {mesh->mBitangents[i].x, mesh->mBitangents[i].y,
