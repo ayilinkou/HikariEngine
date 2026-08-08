@@ -10,8 +10,8 @@ class Entity
 public:
     Entity();
     virtual ~Entity() = default;
-    Entity(Entity&&) = default;
-    Entity& operator=(Entity&&) = default;
+    Entity(Entity&&) = delete;
+    Entity& operator=(Entity&&) = delete;
     Entity(const Entity&) = delete;
     Entity& operator=(const Entity&) = delete;
 

@@ -134,7 +134,7 @@ DebugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
         break;
     }
 
-    LogMsg(logSeverity, LogValidationLayer, "Type {}. Msg: {}",
+    LogMsg(logSeverity, LogValidationLayer, "Type: {}. Msg: {}",
            to_string(type).c_str(), pCallbackData->pMessage);
 
     if (pUserData)
@@ -196,7 +196,14 @@ class App
 public:
     App() {}
     App(SDL_Window* pWindow) : m_pWindow(pWindow) {}
-    ~App() {}
+    ~App()
+	{
+		if (!m_bShutdown && *m_Device)
+		{
+			m_Device.waitIdle();
+			Shutdown();
+		}
+	}
 
     void Run()
     {
@@ -290,7 +297,7 @@ private:
         m_SceneGraph = std::make_unique<SceneGraph>();
 
         // TODO: read from scene
-        CubemapCreateInfo createInfo{};
+        /*CubemapCreateInfo createInfo{};
         createInfo.Name = "Skybox";
         createInfo.Format = vk::Format::eR8G8B8A8Srgb;
 
@@ -302,7 +309,7 @@ private:
         createInfo.FrontPath = skyboxRoot + "front.jpg";
         createInfo.BackPath = skyboxRoot + "back.jpg";
 
-        m_pSkybox = ResourceManager::Get()->LoadCubemap(createInfo);
+        m_pSkybox = ResourceManager::Get()->LoadCubemap(createInfo);*/
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
@@ -416,7 +423,9 @@ private:
         ShutdownImGui();
         MaterialFactory::Shutdown();
         ResourceManager::Shutdown();
-    }
+    
+		m_bShutdown = true;
+	}
 
     void ShutdownImGui()
     {
@@ -2740,6 +2749,7 @@ private:
     float m_DeltaTime = 0.f;
     float m_DisplayFrameTime = 0.f;
     float m_DisplayFPS = 0.f;
+	bool m_bShutdown = false;
 };
 
 int main()

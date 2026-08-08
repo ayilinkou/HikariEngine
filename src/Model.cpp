@@ -13,7 +13,8 @@ Model::Model(const std::string& path)
 Model::~Model()
 {
     ModelManager::Get()->UnregisterModel(this);
-    ResourceManager::Get()->UnloadModel(m_pModelData->GetFilepath());
+    if (m_pModelData)
+        ResourceManager::Get()->UnloadModel(m_pModelData->GetFilepath());
 }
 
 std::vector<Drawable> Model::GetDrawables() const

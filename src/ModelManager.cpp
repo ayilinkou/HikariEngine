@@ -12,7 +12,11 @@ void ModelManager::Init()
     s_Instance = new ModelManager();
 }
 
-void ModelManager::Shutdown() { delete s_Instance; }
+void ModelManager::Shutdown()
+{
+    delete s_Instance;
+    s_Instance = nullptr;
+}
 
 void ModelManager::RegisterModel(Model* pModel) { m_Models.Pushback(pModel); }
 
