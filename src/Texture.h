@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vulkan/vulkan_raii.hpp"
+#include "AllocatedImage.h"
 
 enum TextureBinding : uint8_t
 {
@@ -15,18 +15,16 @@ class Texture
 {
 public:
     Texture() = default;
-	Texture(vk::raii::Image image, vk::raii::ImageView imageView,
-            vk::raii::DeviceMemory deviceMemory, const std::string& path);
+    Texture(AllocatedImage image, vk::raii::ImageView imageView,
+            const std::string& path);
 
-    vk::raii::Image& GetImage() { return m_Image; }
-    vk::raii::DeviceMemory& GetImageMemory() { return m_ImageMemory; }
-    vk::raii::ImageView& GetImageView() { return m_ImageView; }
-	
-	const std::string& GetPath() const { return m_Path; }
+    vk::Image GetImage() { return m_Image.Image; }
+    vk::ImageView GetImageView() { return *m_ImageView; }
+
+    const std::string& GetPath() const { return m_Path; }
 
 private:
-    vk::raii::Image m_Image = nullptr;
-    vk::raii::DeviceMemory m_ImageMemory = nullptr;
+    AllocatedImage m_Image;
     vk::raii::ImageView m_ImageView = nullptr;
 
     std::string m_Name = "Name";

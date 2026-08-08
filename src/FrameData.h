@@ -1,14 +1,13 @@
 #pragma once
 
-#include "vulkan/vulkan_raii.hpp"
-
+#include "AllocatedBuffer.h"
 #include "Texture.h"
 
 struct FrameData
 {
     vk::raii::CommandPool DrawLayoutCommandPool = nullptr;
     vk::raii::CommandPool OpaqueCommandPool = nullptr;
-	vk::raii::CommandPool CloudCommandPool = nullptr;
+    vk::raii::CommandPool CloudCommandPool = nullptr;
     vk::raii::CommandPool TransparentCommandPool = nullptr;
     vk::raii::CommandPool CompositeCommandPool = nullptr;
     vk::raii::CommandPool ImGuiCommandPool = nullptr;
@@ -27,10 +26,6 @@ struct FrameData
     Texture OpaqueTexture;
     Texture AccumTexture;
     Texture RevealageTexture;
-    vk::raii::Buffer GlobalBuffer = nullptr;
-    vk::raii::DeviceMemory GlobalBufferMemory = nullptr;
-    vk::raii::Buffer InstanceBuffer = nullptr;
-    vk::raii::DeviceMemory InstanceBufferMemory = nullptr;
-    void* GlobalBufferMapping = nullptr;
-    void* InstanceBufferMapping = nullptr;
+    AllocatedBuffer GlobalBuffer;
+    AllocatedBuffer InstanceBuffer;
 };

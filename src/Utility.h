@@ -1,9 +1,11 @@
 #pragma once
 
-#include "vulkan/vulkan.hpp"
 #include <fstream>
-#include <string>
-#include <vector>
+
+#include "AllocatedBuffer.h"
+#include "AllocatedImage.h"
+#include "Texture.h"
+#include "vulkan/vulkan.hpp"
 
 template <typename T>
 inline void SetVkDebugName([[maybe_unused]] vk::raii::Device& device,
@@ -106,6 +108,7 @@ ChooseSwapMinImageCount(const vk::SurfaceCapabilitiesKHR& capabilities)
     return minCount;
 }
 
+// Shouldn't need to use this anymore since I am now using VMA.
 inline uint32_t FindMemoryType(vk::PhysicalDevice physicalDevice,
                                uint32_t typeFilter,
                                vk::MemoryPropertyFlags properties)
@@ -122,29 +125,37 @@ inline uint32_t FindMemoryType(vk::PhysicalDevice physicalDevice,
     throw std::runtime_error("Failed to find a suitable memory type!");
 }
 
-inline void CreateBuffer(vk::raii::Device& device,
-                         vk::raii::PhysicalDevice& physicalDevice,
-                         vk::DeviceSize size, vk::BufferUsageFlags usage,
-                         vk::MemoryPropertyFlags properties,
-                         vk::raii::Buffer& buffer,
-                         vk::raii::DeviceMemory& bufferMemory)
+[[nodiscard]] inline AllocatedBuffer
+CreateBuffer(VmaAllocator allocator, vk::DeviceSize size,
+             vk::BufferUsageFlags bufferUsage, VmaMemoryUsage memoryUsage,
+             VmaAllocationCreateFlags allocFlags = 0)
 {
-    vk::BufferCreateInfo bufferInfo{.size = size,
-                                    .usage = usage,
-                                    .sharingMode = vk::SharingMode::eExclusive};
-    buffer = vk::raii::Buffer(device, bufferInfo);
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = static_cast<VkDeviceSize>(size);
+    bufferInfo.usage = static_cast<VkBufferUsageFlags>(bufferUsage);
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
-    vk::MemoryAllocateInfo allocInfo = {
-        .allocationSize = memRequirements.size,
-        .memoryTypeIndex = FindMemoryType(
-            physicalDevice, memRequirements.memoryTypeBits, properties)};
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = memoryUsage;
+    allocInfo.flags = allocFlags;
 
-    bufferMemory = vk::raii::DeviceMemory(device, allocInfo);
-    buffer.bindMemory(*bufferMemory, 0);
+    VkBuffer rawBuffer;
+    VmaAllocation allocation;
+    VmaAllocationInfo allocationInfo;
+
+    vk::Result result = static_cast<vk::Result>(
+        vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &rawBuffer,
+                        &allocation, &allocationInfo));
+
+    if (result != vk::Result::eSuccess)
+        throw std::runtime_error("Failed to create buffer via VMA!");
+
+    return AllocatedBuffer(allocator, vk::Buffer(rawBuffer), allocation,
+                           allocationInfo);
 }
 
-inline vk::raii::CommandBuffer
+[[nodiscard]] inline vk::raii::CommandBuffer
 BeginSingleTimeCommand(vk::raii::Device& device, vk::CommandPool commandPool)
 {
     vk::CommandBufferAllocateInfo allocInfo{
@@ -173,9 +184,8 @@ inline void EndSingleTimeCommand(vk::CommandBuffer commandBuffer,
 
 inline void CopyBuffer(vk::raii::Device& device,
                        vk::raii::CommandPool& commandPool,
-                       vk::raii::Queue& transferQueue,
-                       vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer,
-                       vk::DeviceSize size)
+                       vk::raii::Queue& transferQueue, vk::Buffer srcBuffer,
+                       vk::Buffer dstBuffer, vk::DeviceSize size)
 {
     vk::raii::CommandBuffer commandCopyBuffer =
         BeginSingleTimeCommand(device, commandPool);
@@ -201,42 +211,33 @@ CreateImageView(vk::raii::Device& device, const vk::Image& image,
     return vk::raii::ImageView(device, createInfo);
 }
 
-inline void
-CreateImage(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
-            uint32_t width, uint32_t height, vk::Format format,
-            vk::ImageTiling tiling, vk::ImageUsageFlags usage,
-            vk::MemoryPropertyFlags properties, vk::raii::Image& image,
-            vk::raii::DeviceMemory& imageMemory, uint32_t arrayLayers,
-            vk::ImageCreateFlagBits flags = {})
+[[nodiscard]] inline AllocatedImage CreateImage(VmaAllocator allocator,
+                                                vk::ImageCreateInfo imageInfo)
 {
-    vk::ImageCreateInfo createInfo{.flags = flags,
-                                   .imageType = vk::ImageType::e2D,
-                                   .format = format,
-                                   .extent = {width, height, 1},
-                                   .mipLevels = 1,
-                                   .arrayLayers = arrayLayers,
-                                   .samples = vk::SampleCountFlagBits::e1,
-                                   .tiling = tiling,
-                                   .usage = usage,
-                                   .sharingMode = vk::SharingMode::eExclusive};
-    image = vk::raii::Image(device, createInfo);
+    VkImageCreateInfo cImageInfo = static_cast<VkImageCreateInfo>(imageInfo);
 
-    vk::MemoryRequirements memRequirements = image.getMemoryRequirements();
-    vk::MemoryAllocateInfo allocInfo{
-        .allocationSize = memRequirements.size,
-        .memoryTypeIndex = FindMemoryType(
-            physicalDevice, memRequirements.memoryTypeBits, properties)};
-    imageMemory = vk::raii::DeviceMemory(device, allocInfo);
-    image.bindMemory(imageMemory, 0);
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+
+    VkImage rawImage;
+    VmaAllocation allocation;
+
+    vk::Result result = static_cast<vk::Result>(vmaCreateImage(
+        allocator, &cImageInfo, &allocInfo, &rawImage, &allocation, nullptr));
+
+    if (result != vk::Result::eSuccess)
+        throw std::runtime_error("Failed to create image via VMA!");
+
+    return AllocatedImage(allocator, vk::Image(rawImage), allocation);
 }
 
 // This is starting to not really make sense anymore. It'll be better to do this
 // inline whenever it's needed rather than creating so many else ifs.
-inline void TransitionImageLayout(vk::raii::CommandBuffer& cmd,
-                                  const vk::raii::Image& image,
+inline void TransitionImageLayout(vk::raii::CommandBuffer& cmd, vk::Image image,
                                   vk::ImageLayout oldLayout,
                                   vk::ImageLayout newLayout,
-                                  vk::ImageAspectFlags aspectFlags)
+                                  vk::ImageAspectFlags aspectFlags,
+                                  uint32_t layerCount = 1u)
 {
     vk::ImageMemoryBarrier2 barrier{
         .oldLayout = oldLayout,
@@ -244,7 +245,7 @@ inline void TransitionImageLayout(vk::raii::CommandBuffer& cmd,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = image,
-        .subresourceRange = {aspectFlags, 0, 1, 0, 1}};
+        .subresourceRange = {aspectFlags, 0, 1, 0, layerCount}};
 
     if (oldLayout == vk::ImageLayout::eUndefined &&
         newLayout == vk::ImageLayout::eTransferDstOptimal)
@@ -322,82 +323,74 @@ inline void TransitionImageLayout(vk::raii::CommandBuffer& cmd,
     cmd.pipelineBarrier2(dependencyInfo);
 }
 
-inline void CopyBufferToImage(vk::raii::CommandBuffer& cmd,
-                              const vk::raii::Buffer& buffer,
-                              vk::raii::Image& image, uint32_t width,
-                              uint32_t height)
+inline void CopyBufferToImage(vk::raii::CommandBuffer& cmd, vk::Buffer buffer,
+                              vk::Image image, uint32_t width, uint32_t height,
+                              uint32_t layerCount = 1u)
 {
     vk::BufferImageCopy region{
         .bufferOffset = 0,
         .bufferRowLength = 0,
         .bufferImageHeight = 0,
-        .imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+        .imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, layerCount},
         .imageOffset = {0, 0, 0},
         .imageExtent = {width, height, 1}};
     cmd.copyBufferToImage(buffer, image, vk::ImageLayout::eTransferDstOptimal,
                           {region});
 }
 
-inline void CreateVertexBuffer(vk::raii::Device& device,
-                               vk::raii::PhysicalDevice& physicalDevice,
-                               vk::raii::CommandPool& commandPool,
-                               vk::raii::Queue& transferQueue,
-                               size_t elementSize, size_t vertexCount,
-                               void* pData, vk::raii::Buffer& vertexBuffer,
-                               vk::raii::DeviceMemory& bufferMemory)
+[[nodiscard]] inline AllocatedBuffer
+CreateStagedBuffer(VmaAllocator allocator, vk::raii::Device& device,
+                   vk::raii::CommandPool& commandPool,
+                   vk::raii::Queue& transferQueue, vk::DeviceSize bufferSize,
+                   vk::BufferUsageFlags usage, void* pData)
 {
-    vk::DeviceSize bufferSize = elementSize * vertexCount;
+    AllocatedBuffer stagingBuffer = CreateBuffer(
+        allocator, bufferSize, vk::BufferUsageFlagBits::eTransferSrc,
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+            VMA_ALLOCATION_CREATE_MAPPED_BIT);
 
-    vk::raii::Buffer stagingBuffer({});
-    vk::raii::DeviceMemory stagingBufferMemory({});
-    CreateBuffer(device, physicalDevice, bufferSize,
-                 vk::BufferUsageFlagBits::eTransferSrc,
-                 vk::MemoryPropertyFlagBits::eHostCoherent |
-                     vk::MemoryPropertyFlagBits::eHostVisible,
-                 stagingBuffer, stagingBufferMemory);
+    memcpy(stagingBuffer.AllocationInfo.pMappedData, pData,
+           static_cast<size_t>(bufferSize));
 
-    void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-    memcpy(dataStaging, pData, static_cast<size_t>(bufferSize));
-    stagingBufferMemory.unmapMemory();
+    AllocatedBuffer gpuBuffer = CreateBuffer(
+        allocator, bufferSize, usage | vk::BufferUsageFlagBits::eTransferDst,
+        VMA_MEMORY_USAGE_AUTO);
 
-    CreateBuffer(device, physicalDevice, bufferSize,
-                 vk::BufferUsageFlagBits::eVertexBuffer |
-                     vk::BufferUsageFlagBits::eTransferDst,
-                 vk::MemoryPropertyFlagBits::eDeviceLocal, vertexBuffer,
-                 bufferMemory);
-
-    CopyBuffer(device, commandPool, transferQueue, stagingBuffer, vertexBuffer,
+    CopyBuffer(device, commandPool, transferQueue,
+               vk::Buffer(stagingBuffer.Buffer), vk::Buffer(gpuBuffer.Buffer),
                bufferSize);
+
+    return gpuBuffer;
 }
 
-inline void CreateIndexBuffer(vk::raii::Device& device,
-                              vk::raii::PhysicalDevice& physicalDevice,
-                              vk::raii::CommandPool& commandPool,
-                              vk::raii::Queue& transferQueue,
-                              size_t elementSize, size_t indexCount,
-                              void* pData, vk::raii::Buffer& indexBuffer,
-                              vk::raii::DeviceMemory& bufferMemory)
+[[nodiscard]] inline Texture
+CreateRenderTexture(VmaAllocator allocator, vk::raii::Device& device,
+                    uint32_t width, uint32_t height, vk::Format format,
+                    vk::ImageUsageFlags usage, vk::ImageAspectFlags aspect,
+                    const std::string& name)
 {
-    vk::DeviceSize bufferSize = elementSize * indexCount;
+    vk::ImageCreateInfo imageInfo{};
+    imageInfo.imageType = vk::ImageType::e2D;
+    imageInfo.extent = vk::Extent3D{width, height, 1};
+    imageInfo.mipLevels = 1u;
+    imageInfo.arrayLayers = 1u;
+    imageInfo.format = format;
+    imageInfo.tiling = vk::ImageTiling::eOptimal;
+    imageInfo.initialLayout = vk::ImageLayout::eUndefined;
+    imageInfo.usage = usage;
+    imageInfo.samples = vk::SampleCountFlagBits::e1;
+    imageInfo.sharingMode = vk::SharingMode::eExclusive;
 
-    vk::raii::Buffer stagingBuffer({});
-    vk::raii::DeviceMemory stagingBufferMemory({});
-    CreateBuffer(device, physicalDevice, bufferSize,
-                 vk::BufferUsageFlagBits::eTransferSrc,
-                 vk::MemoryPropertyFlagBits::eHostCoherent |
-                     vk::MemoryPropertyFlagBits::eHostVisible,
-                 stagingBuffer, stagingBufferMemory);
+    AllocatedImage image = CreateImage(allocator, imageInfo);
+    vk::raii::ImageView imageView = CreateImageView(
+        device, image.Image, vk::ImageViewType::e2D, format, aspect, 1u);
 
-    void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-    memcpy(dataStaging, pData, static_cast<size_t>(bufferSize));
-    stagingBufferMemory.unmapMemory();
-
-    CreateBuffer(device, physicalDevice, bufferSize,
-                 vk::BufferUsageFlagBits::eIndexBuffer |
-                     vk::BufferUsageFlagBits::eTransferDst,
-                 vk::MemoryPropertyFlagBits::eDeviceLocal, indexBuffer,
-                 bufferMemory);
-
-    CopyBuffer(device, commandPool, transferQueue, stagingBuffer, indexBuffer,
-               bufferSize);
+    SetVkDebugName(device, image.Image, vk::ObjectType::eImage, name.c_str());
+    SetVkDebugName(device, *imageView, vk::ObjectType::eImageView,
+                   (name + " View").c_str());
+    vmaSetAllocationName(allocator, image.Allocation,
+                         (name + " allocation").c_str());
+    Texture tex(std::move(image), std::move(imageView), name.c_str());
+    return tex;
 }

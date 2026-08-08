@@ -1,6 +1,7 @@
 #include "CloudSystem.h"
 #include "Log.h"
 #include "Utility.h"
+#include "vulkan/vulkan.hpp"
 
 inline constexpr LogCategory LogCloudSystem{"Cloud System"};
 
@@ -8,7 +9,8 @@ const uint32_t CloudSystem::s_NOISE_RES = 128u;
 
 CloudSystem::CloudSystem(CloudSystemCreateInfo createInfo)
     : m_Device(createInfo.Device), m_PhysicalDevice(createInfo.PhysicalDevice),
-      m_FramesInFlight(createInfo.FramesInFlight)
+      m_FramesInFlight(createInfo.FramesInFlight),
+      m_Allocator(createInfo.Allocator)
 {
     Init(createInfo);
 }
@@ -17,8 +19,8 @@ void CloudSystem::Init(const CloudSystemCreateInfo& createInfo)
 {
     LogMsg(LogSeverity::Info, LogCloudSystem, "Init()");
 
-	CreateTextureSampler();
-    CreateOutputImages(createInfo.SwapchainWidth, createInfo.SwapchainHeight);
+    CreateTextureSampler();
+    CreateOutputTextures(createInfo.SwapchainWidth, createInfo.SwapchainHeight);
     CreateNoiseTexture();
     CreateDescriptorPool();
     CreateDescriptorSetLayout();
@@ -37,63 +39,32 @@ void CloudSystem::Init(const CloudSystemCreateInfo& createInfo)
 
 void CloudSystem::Resize(uint32_t width, uint32_t height)
 {
-    CreateOutputImages(width, height);
+    CreateOutputTextures(width, height);
     WriteDescriptorSets();
 }
 
-void CloudSystem::CreateOutputImages(uint32_t width, uint32_t height)
+void CloudSystem::CreateOutputTextures(uint32_t width, uint32_t height)
 {
     LogMsg(LogSeverity::Info, LogCloudSystem, "CreateOutputImages()");
-    
-	m_OutputImages.clear();
-    m_OutputImageMemory.clear();
-    m_OutputViews.clear();
+
+    m_OutputTextures.clear();
 
     m_Width = width;
     m_Height = height;
 
     const uint32_t resFactor = 4u;
-
     m_OutputWidth = std::max(1u, width / resFactor);
     m_OutputHeight = std::max(1u, height / resFactor);
 
     for (uint32_t i = 0; i < m_FramesInFlight; ++i)
     {
-        vk::ImageCreateInfo imageInfo{
-            .imageType = vk::ImageType::e2D,
-            .format = vk::Format::eR16G16B16A16Sfloat,
-            .extent = {m_OutputWidth, m_OutputHeight, 1},
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .samples = vk::SampleCountFlagBits::e1,
-            .tiling = vk::ImageTiling::eOptimal,
-            .usage = vk::ImageUsageFlagBits::eStorage |
-                     vk::ImageUsageFlagBits::eSampled,
-            .sharingMode = vk::SharingMode::eExclusive,
-            .initialLayout = vk::ImageLayout::eUndefined,
-        };
-        m_OutputImages.emplace_back(m_Device, imageInfo);
-
-        vk::MemoryRequirements memReq =
-            m_OutputImages.back().getMemoryRequirements();
-        uint32_t memTypeIndex =
-            FindMemoryType(m_PhysicalDevice, memReq.memoryTypeBits,
-                           vk::MemoryPropertyFlagBits::eDeviceLocal);
-
-        vk::MemoryAllocateInfo allocInfo{
-            .allocationSize = memReq.size,
-            .memoryTypeIndex = memTypeIndex,
-        };
-        m_OutputImageMemory.emplace_back(m_Device, allocInfo);
-        m_OutputImages.back().bindMemory(*m_OutputImageMemory.back(), 0);
-
-        vk::ImageViewCreateInfo viewInfo{
-            .image = *m_OutputImages.back(),
-            .viewType = vk::ImageViewType::e2D,
-            .format = vk::Format::eR16G16B16A16Sfloat,
-            .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-        };
-        m_OutputViews.emplace_back(m_Device, viewInfo);
+        Texture tex = CreateRenderTexture(
+            m_Allocator, m_Device, m_OutputWidth, m_OutputHeight,
+            vk::Format::eR16G16B16A16Sfloat,
+            vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
+            vk::ImageAspectFlagBits::eColor,
+            std::format("Frame_{} Cloud output image", i).c_str());
+        m_OutputTextures.push_back(std::move(tex));
     }
 }
 
@@ -286,18 +257,17 @@ void CloudSystem::AllocateAndWriteBakeDescriptorSet()
 void CloudSystem::WriteDescriptorSets()
 {
     LogMsg(LogSeverity::Info, LogCloudSystem, "WriteDescriptorSets()");
-    
-	for (uint32_t i = 0u; i < m_FramesInFlight; i++)
+
+    for (uint32_t i = 0u; i < m_FramesInFlight; i++)
     {
         vk::DescriptorImageInfo storageImageInfo{
-            .imageView = *m_OutputViews[i],
+            .imageView = m_OutputTextures[i].GetImageView(),
             .imageLayout = vk::ImageLayout::eGeneral,
         };
         vk::DescriptorImageInfo perlinWorleyImageInfo{
             .sampler = *m_TextureSampler,
             .imageView = *m_PerlinWorleyView,
-			.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
-        };
+            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
         std::array<vk::WriteDescriptorSet, 2> writeDescSet{
             vk::WriteDescriptorSet{.dstSet = *m_DescriptorSets[i],
@@ -336,7 +306,7 @@ void CloudSystem::RecordDispatch(vk::raii::CommandBuffer& cmd,
         .newLayout = vk::ImageLayout::eGeneral,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = *m_OutputImages[frameIndex],
+        .image = m_OutputTextures[frameIndex].GetImage(),
         .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
     };
 
@@ -364,7 +334,7 @@ void CloudSystem::RecordDispatch(vk::raii::CommandBuffer& cmd,
         .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = *m_OutputImages[frameIndex],
+        .image = m_OutputTextures[frameIndex].GetImage(),
         .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
     };
 
@@ -390,23 +360,13 @@ void CloudSystem::CreateNoiseTexture()
         .sharingMode = vk::SharingMode::eExclusive,
         .initialLayout = vk::ImageLayout::eUndefined,
     };
-    m_PerlinWorleyImage = vk::raii::Image(m_Device, imageInfo);
-    SetVkDebugName(m_Device, *m_PerlinWorleyImage, vk::ObjectType::eImage,
+
+    m_PerlinWorleyImage = CreateImage(m_Allocator, imageInfo);
+    SetVkDebugName(m_Device, m_PerlinWorleyImage.Image, vk::ObjectType::eImage,
                    "Perlin Worley Image");
 
-    vk::MemoryRequirements memReq = m_PerlinWorleyImage.getMemoryRequirements();
-    uint32_t memTypeIndex =
-        FindMemoryType(m_PhysicalDevice, memReq.memoryTypeBits,
-                       vk::MemoryPropertyFlagBits::eDeviceLocal);
-    vk::MemoryAllocateInfo allocInfo{.allocationSize = memReq.size,
-                                     .memoryTypeIndex = memTypeIndex};
-    m_PerlinWorleyMemory = vk::raii::DeviceMemory(m_Device, allocInfo);
-    SetVkDebugName(m_Device, *m_PerlinWorleyMemory,
-                   vk::ObjectType::eDeviceMemory, "Perlin Worley Image Memory");
-    m_PerlinWorleyImage.bindMemory(*m_PerlinWorleyMemory, 0);
-
     vk::ImageViewCreateInfo viewInfo{
-        .image = *m_PerlinWorleyImage,
+        .image = m_PerlinWorleyImage.Image,
         .viewType = vk::ImageViewType::e3D,
         .format = vk::Format::eR8Unorm,
         .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
@@ -434,7 +394,7 @@ void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
         .newLayout = vk::ImageLayout::eGeneral,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = *m_PerlinWorleyImage,
+        .image = m_PerlinWorleyImage.Image,
         .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
     };
     vk::DependencyInfo dep1{.imageMemoryBarrierCount = 1,
@@ -461,7 +421,7 @@ void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
         .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = *m_PerlinWorleyImage,
+        .image = m_PerlinWorleyImage.Image,
         .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
     };
     vk::DependencyInfo dep2{.imageMemoryBarrierCount = 1,

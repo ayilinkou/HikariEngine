@@ -18,6 +18,7 @@
 				"sdl3-binding"
 			]
 		},
-		"pugixml"
+		"pugixml",
+		"vulkan-memory-allocator"
 	]
 }

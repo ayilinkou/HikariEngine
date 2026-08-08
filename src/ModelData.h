@@ -1,15 +1,10 @@
 #pragma once
 
-#include <memory>
-#include <string>
-
-#include "vulkan/vulkan.hpp"
-#include "vulkan/vulkan_raii.hpp"
-
 #include "Drawable.h"
 #include "Material.h"
 #include "Mesh.h"
 #include "Node.h"
+#include "AllocatedBuffer.h"
 
 struct aiMaterial;
 
@@ -18,9 +13,8 @@ class ModelData
 public:
     ModelData(const std::string& path,
               std::vector<std::unique_ptr<Material>> materials);
-    void Init(vk::raii::Buffer vertexBuffer,
-              vk::raii::DeviceMemory vertexMemory, vk::raii::Buffer indexBuffer,
-              vk::raii::DeviceMemory indexMemory,
+    void Init(AllocatedBuffer vertexBuffer,
+              AllocatedBuffer indexBuffer,
               std::unique_ptr<Node> rootNode);
 
     Mesh* RegisterMesh(aiMesh* mesh, uint32_t meshIndex,
@@ -28,8 +22,8 @@ public:
                        std::vector<Vertex>& vertices,
                        std::vector<uint32_t>& indices);
 
-    vk::Buffer GetVertexBuffer() const { return *m_VertexBuffer; }
-    vk::Buffer GetIndexBuffer() const { return *m_IndexBuffer; }
+    vk::Buffer GetVertexBuffer() const { return m_VertexBuffer.Buffer; }
+    vk::Buffer GetIndexBuffer() const { return m_IndexBuffer.Buffer; }
 
     const std::vector<Drawable>& GetDrawables() const { return m_Drawables; }
 
@@ -42,10 +36,8 @@ private:
 
     std::unique_ptr<Node> m_RootNode = nullptr;
 
-    vk::raii::Buffer m_VertexBuffer = nullptr;
-    vk::raii::Buffer m_IndexBuffer = nullptr;
-    vk::raii::DeviceMemory m_VertexMemory = nullptr;
-    vk::raii::DeviceMemory m_IndexMemory = nullptr;
+    AllocatedBuffer m_VertexBuffer;
+    AllocatedBuffer m_IndexBuffer;
 
     std::vector<Drawable> m_Drawables;
 

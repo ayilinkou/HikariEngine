@@ -1,5 +1,8 @@
 #pragma once
 
+#include "AllocatedImage.h"
+#include "Texture.h"
+
 struct CloudSystemCreateInfo
 {
     vk::raii::Device& Device;
@@ -11,6 +14,7 @@ struct CloudSystemCreateInfo
     uint32_t SwapchainWidth;
     uint32_t SwapchainHeight;
     uint32_t FramesInFlight;
+	VmaAllocator Allocator;
 };
 
 class CloudSystem
@@ -42,15 +46,15 @@ public:
                         vk::raii::DescriptorSet& depthSet);
     void Resize(uint32_t width, uint32_t height);
 
-    vk::raii::ImageView& GetImageView(uint8_t frameIndex)
+    vk::ImageView GetImageView(uint8_t frameIndex)
     {
-        return m_OutputViews[frameIndex];
+        return m_OutputTextures[frameIndex].GetImageView();
     }
 
 private:
     void Init(const CloudSystemCreateInfo& createInfo);
 
-    void CreateOutputImages(uint32_t width, uint32_t height);
+    void CreateOutputTextures(uint32_t width, uint32_t height);
     void CreateNoiseTexture();
     void CreateDescriptorSetLayout();
     void CreateBakeDescriptorSetLayout();
@@ -86,11 +90,8 @@ private:
     vk::raii::DescriptorSet m_BakeDescriptorSet = nullptr;
 	vk::raii::Sampler m_TextureSampler = nullptr;
 
-    std::vector<vk::raii::Image> m_OutputImages;
-    std::vector<vk::raii::DeviceMemory> m_OutputImageMemory;
-    std::vector<vk::raii::ImageView> m_OutputViews;
-    vk::raii::Image m_PerlinWorleyImage = nullptr;
-    vk::raii::DeviceMemory m_PerlinWorleyMemory = nullptr;
+    std::vector<Texture> m_OutputTextures;
+    AllocatedImage m_PerlinWorleyImage{};
     vk::raii::ImageView m_PerlinWorleyView = nullptr;
 
     const uint32_t m_FramesInFlight;
@@ -98,6 +99,8 @@ private:
     uint32_t m_Height;
     uint32_t m_OutputWidth;
     uint32_t m_OutputHeight;
+
+	VmaAllocator m_Allocator{};
 
     CloudPushConstants m_CloudData{};
 };

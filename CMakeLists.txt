@@ -57,7 +57,10 @@ set(SOURCES
     src/Mesh.cpp
     src/ThreadPool.cpp
     src/CloudSystem.cpp
-    src/XmlParser.cpp)
+    src/XmlParser.cpp
+    src/VMAImpl.cpp
+    src/AllocatedBuffer.cpp
+    src/AllocatedImage.cpp)
 
 # On macOS the Vulkan validation layer only ships with the Vulkan SDK (vcpkg
 # ships none) and is selected at runtime via VK_LAYER_PATH. vcpkg's own
@@ -76,6 +79,7 @@ if(APPLE AND DEFINED ENV{VULKAN_SDK})
 endif()
 
 find_package(Vulkan REQUIRED)
+find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(Stb REQUIRED)
@@ -113,6 +117,7 @@ target_link_libraries(
   VulkanApp
   PRIVATE SDL3::SDL3
           Vulkan::Vulkan
+          GPUOpen::VulkanMemoryAllocator
           glm::glm-header-only
           assimp::assimp
           imgui::imgui

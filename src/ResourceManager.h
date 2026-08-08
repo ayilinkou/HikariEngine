@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vk_mem_alloc.h"
+
 #include "Resource.h"
 
 struct CubemapCreateInfo;
@@ -17,7 +19,7 @@ public:
     static void Init(vk::raii::Device& device,
                      vk::raii::PhysicalDevice& physicalDevice,
                      vk::raii::CommandPool& commandPool,
-                     vk::raii::Queue& transferQueue);
+                     vk::raii::Queue& transferQueue, VmaAllocator allocator);
     static ResourceManager* Get() { return s_Instance; }
 
 private:

@@ -1,33 +1,37 @@
 #include "CubemapLoader.h"
 
+#include "ResourceManager.h"
 #include "stb_image.h"
 
 #include "Cubemap.h"
 #include "Log.h"
 #include "Utility.h"
+#include "vulkan/vulkan.hpp"
 
 constexpr LogCategory LogCubemapLoader("Cubemap Loader");
 
 CubemapLoader::CubemapLoader(vk::raii::Device& device,
                              vk::raii::PhysicalDevice& physicalDevice,
                              vk::raii::CommandPool& commandPool,
-                             vk::raii::Queue& transferQueue)
+                             vk::raii::Queue& transferQueue,
+                             VmaAllocator allocator)
     : m_Device(device), m_PhysicalDevice(physicalDevice),
-      m_CommandPool(commandPool), m_TransferQueue(transferQueue)
+      m_CommandPool(commandPool), m_TransferQueue(transferQueue),
+      m_Allocator(allocator)
 {
 }
 
 void CubemapLoader::Init(vk::raii::Device& device,
                          vk::raii::PhysicalDevice& physicalDevice,
                          vk::raii::CommandPool& commandPool,
-                         vk::raii::Queue& transferQueue)
+                         vk::raii::Queue& transferQueue, VmaAllocator allocator)
 {
     if (s_Instance)
         throw std::runtime_error(
             "CubemapLoader singleton is already initialised!");
 
-    s_Instance =
-        new CubemapLoader(device, physicalDevice, commandPool, transferQueue);
+    s_Instance = new CubemapLoader(device, physicalDevice, commandPool,
+                                   transferQueue, allocator);
 }
 
 void CubemapLoader::Shutdown()
@@ -42,13 +46,14 @@ void CubemapLoader::Shutdown()
 
 Cubemap* CubemapLoader::Load(const CubemapCreateInfo& createInfo)
 {
+    static constexpr uint32_t faceCount = 6u;
     struct FaceData
     {
-        std::array<stbi_uc*, 6> Pixels;
+        std::array<stbi_uc*, faceCount> Pixels;
         int Width, Height, Channels;
     } faceData;
 
-    for (size_t i = 0; i < 6; i++)
+    for (size_t i = 0; i < faceCount; i++)
     {
         const std::string* facePath;
 
@@ -89,62 +94,68 @@ Cubemap* CubemapLoader::Load(const CubemapCreateInfo& createInfo)
                 std::format("Failed to load texture: {}", facePath->c_str()));
     }
 
-    vk::raii::Buffer stagingBuffer({});
-    vk::raii::DeviceMemory stagingMemory({});
     vk::DeviceSize faceSize = faceData.Width * faceData.Height * 4u;
-    vk::DeviceSize totalSize = faceSize * 6u;
-    CreateBuffer(m_Device, m_PhysicalDevice, totalSize,
-                 vk::BufferUsageFlagBits::eTransferSrc,
-                 vk::MemoryPropertyFlagBits::eHostVisible |
-                     vk::MemoryPropertyFlagBits::eHostCoherent,
-                 stagingBuffer, stagingMemory);
+    vk::DeviceSize totalSize = faceSize * faceCount;
+    // TODO: fix and make use VMA
+    AllocatedBuffer stagingBuffer = CreateBuffer(
+        m_Allocator, totalSize, vk::BufferUsageFlagBits::eTransferSrc,
+        VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+            VMA_ALLOCATION_CREATE_MAPPED_BIT);
 
     // Vulkan ensures that these CPU writes are visible to the GPU before
     // the command buffer starts executing.
-    void* data = stagingMemory.mapMemory(0, totalSize);
-    uint8_t* dst = static_cast<uint8_t*>(data);
-    for (size_t i = 0; i < 6; i++)
+    uint8_t* dst =
+        static_cast<uint8_t*>(stagingBuffer.AllocationInfo.pMappedData);
+    for (size_t i = 0; i < faceCount; i++)
     {
         memcpy(dst + i * faceSize, faceData.Pixels[i], faceSize);
         stbi_image_free(faceData.Pixels[i]);
         faceData.Pixels[i] = nullptr;
     }
-    stagingMemory.unmapMemory();
 
-    vk::raii::Image image({});
-    vk::raii::DeviceMemory imageMemory({});
-    constexpr uint32_t arrayLayers = 6u;
-    CreateImage(m_Device, m_PhysicalDevice, faceData.Width, faceData.Height,
-                createInfo.Format, vk::ImageTiling::eOptimal,
-                vk::ImageUsageFlagBits::eTransferDst |
-                    vk::ImageUsageFlagBits::eSampled,
-                vk::MemoryPropertyFlagBits::eDeviceLocal, image, imageMemory,
-                arrayLayers, vk::ImageCreateFlagBits::eCubeCompatible);
-    SetVkDebugName(m_Device, *image, vk::ObjectType::eImage,
+    vk::ImageCreateInfo imageInfo{};
+    imageInfo.imageType = vk::ImageType::e2D;
+    imageInfo.extent = vk::Extent3D{static_cast<uint32_t>(faceData.Width),
+                                    static_cast<uint32_t>(faceData.Height), 1};
+    imageInfo.mipLevels = 1u;
+    imageInfo.arrayLayers = faceCount;
+    imageInfo.format = createInfo.Format;
+    imageInfo.tiling = vk::ImageTiling::eOptimal;
+    imageInfo.initialLayout = vk::ImageLayout::eUndefined;
+    imageInfo.usage =
+        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
+    imageInfo.samples = vk::SampleCountFlagBits::e1;
+    imageInfo.sharingMode = vk::SharingMode::eExclusive;
+    imageInfo.flags = vk::ImageCreateFlagBits::eCubeCompatible;
+
+    AllocatedImage cubemapImage = CreateImage(m_Allocator, imageInfo);
+    SetVkDebugName(m_Device, cubemapImage.Image, vk::ObjectType::eImage,
                    std::format("{} Cubemap Image", createInfo.Name).c_str());
-    SetVkDebugName(
-        m_Device, *imageMemory, vk::ObjectType::eDeviceMemory,
-        std::format("{} Cubemap Device Memory", createInfo.Name).c_str());
+    vmaSetAllocationName(
+        m_Allocator, cubemapImage.Allocation,
+        std::format("{} Cubemap Device allocation", createInfo.Name).c_str());
 
     auto cmd = BeginSingleTimeCommand(m_Device, m_CommandPool);
-    TransitionImageLayout(cmd, image, vk::ImageLayout::eUndefined,
+    TransitionImageLayout(cmd, cubemapImage.Image, vk::ImageLayout::eUndefined,
                           vk::ImageLayout::eTransferDstOptimal,
-                          vk::ImageAspectFlagBits::eColor);
-    CopyBufferToImage(cmd, stagingBuffer, image,
+                          vk::ImageAspectFlagBits::eColor, faceCount);
+    CopyBufferToImage(cmd, stagingBuffer.Buffer, cubemapImage.Image,
                       static_cast<uint32_t>(faceData.Width),
-                      static_cast<uint32_t>(faceData.Height));
-    TransitionImageLayout(cmd, image, vk::ImageLayout::eTransferDstOptimal,
+                      static_cast<uint32_t>(faceData.Height), faceCount);
+    TransitionImageLayout(cmd, cubemapImage.Image,
+                          vk::ImageLayout::eTransferDstOptimal,
                           vk::ImageLayout::eShaderReadOnlyOptimal,
-                          vk::ImageAspectFlagBits::eColor);
+                          vk::ImageAspectFlagBits::eColor, faceCount);
     EndSingleTimeCommand(cmd, m_TransferQueue);
 
     vk::raii::ImageView imageView = CreateImageView(
-        m_Device, image, vk::ImageViewType::eCube, createInfo.Format,
-        vk::ImageAspectFlagBits::eColor, arrayLayers);
+        m_Device, cubemapImage.Image, vk::ImageViewType::eCube,
+        createInfo.Format, vk::ImageAspectFlagBits::eColor, faceCount);
     SetVkDebugName(
         m_Device, *imageView, vk::ObjectType::eImageView,
         std::format("{} Cubemap Image View", createInfo.Name).c_str());
 
-    return new Cubemap(std::move(image), std::move(imageView),
-                       std::move(imageMemory), createInfo);
+    return new Cubemap(std::move(cubemapImage), std::move(imageView),
+                       createInfo);
 }

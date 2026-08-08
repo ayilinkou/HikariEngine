@@ -1,4 +1,7 @@
 #include "TextureLoader.h"
+#include "AllocatedBuffer.h"
+#include "AllocatedImage.h"
+#include "vulkan/vulkan.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -12,23 +15,25 @@ constexpr LogCategory LogTextureLoader("Texture Loader");
 TextureLoader::TextureLoader(vk::raii::Device& device,
                              vk::raii::PhysicalDevice& physicalDevice,
                              vk::raii::CommandPool& commandPool,
-                             vk::raii::Queue& transferQueue)
+                             vk::raii::Queue& transferQueue,
+                             VmaAllocator allocator)
     : m_Device(device), m_PhysicalDevice(physicalDevice),
-      m_CommandPool(commandPool), m_TransferQueue(transferQueue)
+      m_CommandPool(commandPool), m_TransferQueue(transferQueue),
+      m_Allocator(allocator)
 {
 }
 
 void TextureLoader::Init(vk::raii::Device& device,
                          vk::raii::PhysicalDevice& physicalDevice,
                          vk::raii::CommandPool& commandPool,
-                         vk::raii::Queue& transferQueue)
+                         vk::raii::Queue& transferQueue, VmaAllocator allocator)
 {
     if (s_Instance)
         throw std::runtime_error(
             "TextureLoader singleton is already initialised!");
 
-    s_Instance =
-        new TextureLoader(device, physicalDevice, commandPool, transferQueue);
+    s_Instance = new TextureLoader(device, physicalDevice, commandPool,
+                                   transferQueue, allocator);
 }
 
 void TextureLoader::Shutdown()
@@ -51,56 +56,60 @@ Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
         stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
     vk::DeviceSize imageSize = width * height * 4;
 
-	// TODO: instead of throwing, give it a 1x1 fallback texture
+    // TODO: instead of throwing, give it a 1x1 fallback texture
     if (!pixels)
         throw std::runtime_error(
             std::format("Failed to load texture: {}", path.c_str()));
 
-    vk::raii::Buffer stagingBuffer({});
-    vk::raii::DeviceMemory stagingMemory({});
-    CreateBuffer(m_Device, m_PhysicalDevice, imageSize,
-                 vk::BufferUsageFlagBits::eTransferSrc,
-                 vk::MemoryPropertyFlagBits::eHostVisible |
-                     vk::MemoryPropertyFlagBits::eHostCoherent,
-                 stagingBuffer, stagingMemory);
+    AllocatedBuffer stagingBuffer = CreateBuffer(
+        m_Allocator, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+            VMA_ALLOCATION_CREATE_MAPPED_BIT);
 
     // Vulkan ensures that these CPU writes are visible to the GPU before
     // the command buffer starts executing.
-    void* data = stagingMemory.mapMemory(0, imageSize);
-    memcpy(data, pixels, imageSize);
-    stagingMemory.unmapMemory();
-
+    memcpy(stagingBuffer.AllocationInfo.pMappedData, pixels, imageSize);
     stbi_image_free(pixels);
 
-    vk::raii::Image image({});
-    vk::raii::DeviceMemory imageMemory({});
-    CreateImage(
-        m_Device, m_PhysicalDevice, width, height, format,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
-        vk::MemoryPropertyFlagBits::eDeviceLocal, image, imageMemory, 1u);
-    SetVkDebugName(m_Device, *image, vk::ObjectType::eImage,
+    vk::ImageCreateInfo imageInfo{};
+    imageInfo.imageType = vk::ImageType::e2D;
+    imageInfo.extent = vk::Extent3D{static_cast<uint32_t>(width),
+                        static_cast<uint32_t>(height), 1u};
+    imageInfo.mipLevels = 1u;
+    imageInfo.arrayLayers = 1u;
+    imageInfo.format = format;
+    imageInfo.tiling = vk::ImageTiling::eOptimal;
+    imageInfo.initialLayout = vk::ImageLayout::eUndefined;
+    imageInfo.usage =
+        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
+    imageInfo.samples = vk::SampleCountFlagBits::e1;
+    imageInfo.sharingMode = vk::SharingMode::eExclusive;
+
+    AllocatedImage image = CreateImage(m_Allocator, imageInfo);
+    SetVkDebugName(m_Device, image.Image, vk::ObjectType::eImage,
                    std::format("{} Image", path).c_str());
-    SetVkDebugName(m_Device, *imageMemory, vk::ObjectType::eDeviceMemory,
-                   std::format("{} Device Memory", path).c_str());
+    vmaSetAllocationName(m_Allocator, image.Allocation,
+                         std::format("{} Allocation", path).c_str());
 
     auto cmd = BeginSingleTimeCommand(m_Device, m_CommandPool);
-    TransitionImageLayout(cmd, image, vk::ImageLayout::eUndefined,
+    TransitionImageLayout(cmd, image.Image, vk::ImageLayout::eUndefined,
                           vk::ImageLayout::eTransferDstOptimal,
                           vk::ImageAspectFlagBits::eColor);
-    CopyBufferToImage(cmd, stagingBuffer, image, static_cast<uint32_t>(width),
+    CopyBufferToImage(cmd, stagingBuffer.Buffer, image.Image,
+                      static_cast<uint32_t>(width),
                       static_cast<uint32_t>(height));
-    TransitionImageLayout(cmd, image, vk::ImageLayout::eTransferDstOptimal,
+    TransitionImageLayout(cmd, image.Image,
+                          vk::ImageLayout::eTransferDstOptimal,
                           vk::ImageLayout::eShaderReadOnlyOptimal,
                           vk::ImageAspectFlagBits::eColor);
     EndSingleTimeCommand(cmd, m_TransferQueue);
 
     vk::raii::ImageView imageView =
-        CreateImageView(m_Device, image, vk::ImageViewType::e2D, format,
+        CreateImageView(m_Device, image.Image, vk::ImageViewType::e2D, format,
                         vk::ImageAspectFlagBits::eColor, 1u);
     SetVkDebugName(m_Device, *imageView, vk::ObjectType::eImageView,
                    std::format("{} Image View", path).c_str());
 
-    return new Texture(std::move(image), std::move(imageView),
-                       std::move(imageMemory), path);
+    return new Texture(std::move(image), std::move(imageView), path);
 }

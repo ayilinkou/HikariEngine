@@ -8,16 +8,12 @@ ModelData::ModelData(const std::string& path,
 {
 }
 
-void ModelData::Init(vk::raii::Buffer vertexBuffer,
-                     vk::raii::DeviceMemory vertexMemory,
-                     vk::raii::Buffer indexBuffer,
-                     vk::raii::DeviceMemory indexMemory,
+void ModelData::Init(AllocatedBuffer vertexBuffer,
+                     AllocatedBuffer indexBuffer,
                      std::unique_ptr<Node> rootNode)
 {
     m_VertexBuffer = std::move(vertexBuffer);
     m_IndexBuffer = std::move(indexBuffer);
-    m_VertexMemory = std::move(vertexMemory);
-    m_IndexMemory = std::move(indexMemory);
     m_RootNode = std::move(rootNode);
 
     for (const Mesh& mesh : m_Meshes)

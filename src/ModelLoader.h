@@ -1,11 +1,8 @@
 #pragma once
 
-#include <string>
-#include <memory>
+#include "vk_mem_alloc.h"
 
-#include "vulkan/vulkan_raii.hpp"
-
-#include "PBRMaterial.h"
+#include "Material.h"
 
 struct aiScene;
 
@@ -19,12 +16,12 @@ private:
     ModelLoader(vk::raii::Device& device,
                 vk::raii::PhysicalDevice& physicalDevice,
                 vk::raii::CommandPool& commandPool,
-                vk::raii::Queue& transferQueue);
+                vk::raii::Queue& transferQueue, VmaAllocator allocator);
 
     static void Init(vk::raii::Device& device,
                      vk::raii::PhysicalDevice& physicalDevice,
                      vk::raii::CommandPool& commandPool,
-                     vk::raii::Queue& transferQueue);
+                     vk::raii::Queue& transferQueue, VmaAllocator allocator);
     static void Shutdown();
 
     static ModelLoader* Get() { return s_Instance; }
@@ -41,4 +38,6 @@ private:
     vk::raii::PhysicalDevice& m_PhysicalDevice;
     vk::raii::CommandPool& m_CommandPool;
     vk::raii::Queue& m_TransferQueue;
+
+    VmaAllocator m_Allocator;
 };

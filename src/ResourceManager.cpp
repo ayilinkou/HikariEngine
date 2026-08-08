@@ -15,7 +15,8 @@ inline constexpr LogCategory LogResourceManager{"Resource Manager"};
 void ResourceManager::Init(vk::raii::Device& device,
                            vk::raii::PhysicalDevice& physicalDevice,
                            vk::raii::CommandPool& commandPool,
-                           vk::raii::Queue& transferQueue)
+                           vk::raii::Queue& transferQueue,
+                           VmaAllocator allocator)
 {
     LogMsg(LogSeverity::Info, LogResourceManager, "Init()");
 
@@ -24,9 +25,12 @@ void ResourceManager::Init(vk::raii::Device& device,
             "ResourceManager singleton has already been initialised!");
 
     s_Instance = new ResourceManager();
-    TextureLoader::Init(device, physicalDevice, commandPool, transferQueue);
-    CubemapLoader::Init(device, physicalDevice, commandPool, transferQueue);
-    ModelLoader::Init(device, physicalDevice, commandPool, transferQueue);
+    TextureLoader::Init(device, physicalDevice, commandPool, transferQueue,
+                        allocator);
+    CubemapLoader::Init(device, physicalDevice, commandPool, transferQueue,
+                        allocator);
+    ModelLoader::Init(device, physicalDevice, commandPool, transferQueue,
+                      allocator);
     ModelManager::Init();
 }
 

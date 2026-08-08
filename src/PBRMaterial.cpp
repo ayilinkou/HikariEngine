@@ -102,15 +102,15 @@ void PBRMaterial::CreateDescriptorSet(
 
     vk::DescriptorImageInfo albedoInfo{
         .sampler = sampler,
-        .imageView = m_Albedo ? *m_Albedo->GetImageView() : VK_NULL_HANDLE,
+        .imageView = m_Albedo ? m_Albedo->GetImageView() : VK_NULL_HANDLE,
         .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
     vk::DescriptorImageInfo normalInfo{
         .sampler = sampler,
-        .imageView = m_Normal ? *m_Normal->GetImageView() : VK_NULL_HANDLE,
+        .imageView = m_Normal ? m_Normal->GetImageView() : VK_NULL_HANDLE,
         .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
     vk::DescriptorImageInfo metallicRoughnessInfo{
         .sampler = sampler,
-        .imageView = m_MetallicRoughness ? *m_MetallicRoughness->GetImageView()
+        .imageView = m_MetallicRoughness ? m_MetallicRoughness->GetImageView()
                                          : VK_NULL_HANDLE,
         .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 

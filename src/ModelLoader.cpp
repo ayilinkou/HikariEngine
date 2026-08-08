@@ -13,23 +13,24 @@
 ModelLoader::ModelLoader(vk::raii::Device& device,
                          vk::raii::PhysicalDevice& physicalDevice,
                          vk::raii::CommandPool& commandPool,
-                         vk::raii::Queue& transferQueue)
+                         vk::raii::Queue& transferQueue, VmaAllocator allocator)
     : m_Device(device), m_PhysicalDevice(physicalDevice),
-      m_CommandPool(commandPool), m_TransferQueue(transferQueue)
+      m_CommandPool(commandPool), m_TransferQueue(transferQueue),
+      m_Allocator(allocator)
 {
 }
 
 void ModelLoader::Init(vk::raii::Device& device,
                        vk::raii::PhysicalDevice& physicalDevice,
                        vk::raii::CommandPool& commandPool,
-                       vk::raii::Queue& transferQueue)
+                       vk::raii::Queue& transferQueue, VmaAllocator allocator)
 {
     if (s_Instance)
         throw std::runtime_error(
             "ModelLoader singleton is already initialised!");
 
-    s_Instance =
-        new ModelLoader(device, physicalDevice, commandPool, transferQueue);
+    s_Instance = new ModelLoader(device, physicalDevice, commandPool,
+                                 transferQueue, allocator);
 }
 
 void ModelLoader::Shutdown()
@@ -65,28 +66,29 @@ ModelData* ModelLoader::Load(const std::string& path)
     rootNode->ProcessNode(pModelData, pScene->mRootNode, pScene, glm::mat4(1.f),
                           vertices, indices);
 
-    vk::raii::Buffer vertexBuffer({});
-    vk::raii::DeviceMemory vertexMemory({});
-    CreateVertexBuffer(m_Device, m_PhysicalDevice, m_CommandPool,
-                       m_TransferQueue, sizeof(vertices[0]), vertices.size(),
-                       vertices.data(), vertexBuffer, vertexMemory);
-    SetVkDebugName(m_Device, *vertexBuffer, vk::ObjectType::eBuffer,
+    if (vertices.empty() || indices.empty())
+        throw std::runtime_error(
+            std::format("Model {} loaded with no vertices or indices!", path));
+
+    vk::DeviceSize vertexBufSize = sizeof(vertices[0]) * vertices.size();
+    AllocatedBuffer vertexBuffer = CreateStagedBuffer(
+        m_Allocator, m_Device, m_CommandPool, m_TransferQueue, vertexBufSize,
+        vk::BufferUsageFlagBits::eVertexBuffer, vertices.data());
+    SetVkDebugName(m_Device, vertexBuffer.Buffer, vk::ObjectType::eBuffer,
                    std::format("{} Vertex Buffer", path).c_str());
-    SetVkDebugName(m_Device, *vertexMemory, vk::ObjectType::eDeviceMemory,
-                   std::format("{} Vertex Buffer Memory", path).c_str());
+    vmaSetAllocationName(m_Allocator, vertexBuffer.Allocation,
+                         std::format("{} Vertex Buffer Memory", path).c_str());
 
-    vk::raii::Buffer indexBuffer({});
-    vk::raii::DeviceMemory indexMemory({});
-    CreateIndexBuffer(m_Device, m_PhysicalDevice, m_CommandPool,
-                      m_TransferQueue, sizeof(indices[0]), indices.size(),
-                      indices.data(), indexBuffer, indexMemory);
-    SetVkDebugName(m_Device, *indexBuffer, vk::ObjectType::eBuffer,
+    vk::DeviceSize indexBufSize = sizeof(indices[0]) * indices.size();
+    AllocatedBuffer indexBuffer = CreateStagedBuffer(
+        m_Allocator, m_Device, m_CommandPool, m_TransferQueue, indexBufSize,
+        vk::BufferUsageFlagBits::eIndexBuffer, indices.data());
+    SetVkDebugName(m_Device, indexBuffer.Buffer, vk::ObjectType::eBuffer,
                    std::format("{} Index Buffer", path).c_str());
-    SetVkDebugName(m_Device, *indexMemory, vk::ObjectType::eDeviceMemory,
-                   std::format("{} Index Buffer Memory", path).c_str());
+    vmaSetAllocationName(m_Allocator, indexBuffer.Allocation,
+                         std::format("{} Index Buffer Memory", path).c_str());
 
-    pModelData->Init(std::move(vertexBuffer), std::move(vertexMemory),
-                     std::move(indexBuffer), std::move(indexMemory),
+    pModelData->Init(std::move(vertexBuffer), std::move(indexBuffer),
                      std::move(rootNode));
 
     return pModelData;

@@ -1,8 +1,6 @@
 #pragma once
 
-#include <string>
-
-#include "vulkan/vulkan_raii.hpp"
+#include "vk_mem_alloc.h"
 
 class Texture;
 
@@ -14,12 +12,12 @@ private:
 	TextureLoader(vk::raii::Device& device,
                   vk::raii::PhysicalDevice& physicalDevice,
                   vk::raii::CommandPool& commandPool,
-                  vk::raii::Queue& transferQueue);
+                  vk::raii::Queue& transferQueue, VmaAllocator allocator);
 
     static void Init(vk::raii::Device& device,
                      vk::raii::PhysicalDevice& physicalDevice,
                      vk::raii::CommandPool& commandPool,
-                     vk::raii::Queue& transferQueue);
+                     vk::raii::Queue& transferQueue, VmaAllocator allocator);
     static void Shutdown();
 
     static TextureLoader* Get() { return s_Instance; }
@@ -34,4 +32,5 @@ private:
     vk::raii::PhysicalDevice& m_PhysicalDevice;
     vk::raii::CommandPool& m_CommandPool;
     vk::raii::Queue& m_TransferQueue;
+	VmaAllocator m_Allocator;
 };

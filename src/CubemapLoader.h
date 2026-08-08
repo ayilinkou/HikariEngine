@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vk_mem_alloc.h"
+
 struct CubemapCreateInfo;
 
 class Cubemap;
@@ -12,12 +14,12 @@ private:
     CubemapLoader(vk::raii::Device& device,
                   vk::raii::PhysicalDevice& physicalDevice,
                   vk::raii::CommandPool& commandPool,
-                  vk::raii::Queue& transferQueue);
+                  vk::raii::Queue& transferQueue, VmaAllocator allocator);
 
     static void Init(vk::raii::Device& device,
                      vk::raii::PhysicalDevice& physicalDevice,
                      vk::raii::CommandPool& commandPool,
-                     vk::raii::Queue& transferQueue);
+                     vk::raii::Queue& transferQueue, VmaAllocator allocator);
     static void Shutdown();
 
     static CubemapLoader* Get() { return s_Instance; }
@@ -31,4 +33,6 @@ private:
     vk::raii::PhysicalDevice& m_PhysicalDevice;
     vk::raii::CommandPool& m_CommandPool;
     vk::raii::Queue& m_TransferQueue;
+	
+	VmaAllocator m_Allocator{};
 };

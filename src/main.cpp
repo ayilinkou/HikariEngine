@@ -1,3 +1,4 @@
+#include "AllocatedImage.h"
 #include "Camera.h"
 #include "CloudSystem.h"
 #include "Common.h"
@@ -16,9 +17,11 @@
 #include "Timer.h"
 #include "Utility.h"
 #include "Vertex.h"
+#include "VulkanAllocator.h"
 #include "XmlParser.h"
 
 #include "ImGuiFileDialog.h"
+#include "vulkan/vulkan.hpp"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -356,6 +359,10 @@ private:
         CreateSurface();
         PickPhysicalDevice();
         CreateLogicalDevice();
+
+        m_VmaAllocator = VulkanAllocator(m_Instance, m_PhysicalDevice, m_Device,
+                                         m_APIVersion);
+
         CreateSwapchain();
         CreateSwapchainImageViews();
         CreateDepthResources();
@@ -364,7 +371,7 @@ private:
         CreateTextureSampler();
 
         ResourceManager::Init(m_Device, m_PhysicalDevice, m_GenericCommandPool,
-                              m_GraphicsQueue);
+                              m_GraphicsQueue, m_VmaAllocator);
         MaterialFactory::Init(m_Device, m_TextureSampler);
 
         CreatePipelines();
@@ -385,7 +392,8 @@ private:
                                              // compute queue
             .SwapchainWidth = m_SwapchainExtent.width,
             .SwapchainHeight = m_SwapchainExtent.height,
-            .FramesInFlight = MAX_FRAMES_IN_FLIGHT};
+            .FramesInFlight = MAX_FRAMES_IN_FLIGHT,
+            .Allocator = m_VmaAllocator};
         m_CloudSystem = std::make_unique<CloudSystem>(cloudCreateInfo);
 
         CreateDescriptorSets();
@@ -397,8 +405,11 @@ private:
     {
         LogMsg(LogSeverity::Info, LogMain, "Shutdown()");
 
-        ResourceManager::Get()->UnloadCubemap(m_pSkybox->GetCreateInfo());
-        m_pSkybox = nullptr;
+        if (m_pSkybox)
+        {
+            ResourceManager::Get()->UnloadCubemap(m_pSkybox->GetCreateInfo());
+            m_pSkybox = nullptr;
+        }
 
         m_SceneGraph.reset();
         ThreadPool::Shutdown();
@@ -1734,7 +1745,8 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        TransitionImageLayout(cmd, m_DepthImage, vk::ImageLayout::eUndefined,
+        TransitionImageLayout(cmd, m_DepthTex.GetImage(),
+                              vk::ImageLayout::eUndefined,
                               vk::ImageLayout::eDepthAttachmentOptimal,
                               vk::ImageAspectFlagBits::eDepth);
 
@@ -1753,7 +1765,7 @@ private:
             .storeOp = vk::AttachmentStoreOp::eStore,
             .clearValue = clearColor};
         vk::RenderingAttachmentInfo depthAttachmentInfo = {
-            .imageView = m_DepthImageView,
+            .imageView = m_DepthTex.GetImageView(),
             .imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eClear,
             .storeOp = vk::AttachmentStoreOp::eStore,
@@ -1778,7 +1790,7 @@ private:
                                m_OpaquePipelineLayout, 0,
                                *frame.GlobalBufferDescriptorSet, nullptr);
 
-        cmd.bindVertexBuffers(1, *frame.InstanceBuffer, {0});
+        cmd.bindVertexBuffers(1, frame.InstanceBuffer.Buffer, {0});
 
         vk::CullModeFlags cullMode = vk::CullModeFlagBits::eBack;
 
@@ -1842,7 +1854,7 @@ private:
                               vk::ImageLayout::eUndefined,
                               vk::ImageLayout::eColorAttachmentOptimal,
                               vk::ImageAspectFlagBits::eColor);
-        TransitionImageLayout(cmd, m_DepthImage,
+        TransitionImageLayout(cmd, m_DepthTex.GetImage(),
                               vk::ImageLayout::eDepthAttachmentOptimal,
                               vk::ImageLayout::eDepthReadOnlyOptimal,
                               vk::ImageAspectFlagBits::eDepth);
@@ -1863,7 +1875,7 @@ private:
               .storeOp = vk::AttachmentStoreOp::eStore,
               .clearValue = revealageClearColor}}};
         vk::RenderingAttachmentInfo depthAttachmentInfo = {
-            .imageView = m_DepthImageView,
+            .imageView = m_DepthTex.GetImageView(),
             .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
             .loadOp = vk::AttachmentLoadOp::eLoad,
             .storeOp = vk::AttachmentStoreOp::eNone};
@@ -1889,7 +1901,7 @@ private:
                                m_TransparentPipelineLayout, 0,
                                *frame.GlobalBufferDescriptorSet, nullptr);
 
-        cmd.bindVertexBuffers(1, *frame.InstanceBuffer, {0});
+        cmd.bindVertexBuffers(1, frame.InstanceBuffer.Buffer, {0});
 
         // per mesh batch
         const std::vector<MeshBatch>& batches =
@@ -1967,8 +1979,9 @@ private:
                                m_CompositePipelineLayout, 0u, descriptorSets,
                                nullptr);
 
-        cmd.bindVertexBuffers(0u, *m_QuadVertexBuffer, {0});
-        cmd.bindIndexBuffer(m_QuadIndexBuffer, 0u, vk::IndexType::eUint32);
+        cmd.bindVertexBuffers(0u, m_QuadVertexBuffer.Buffer, {0});
+        cmd.bindIndexBuffer(m_QuadIndexBuffer.Buffer, 0u,
+                            vk::IndexType::eUint32);
 
         constexpr uint32_t QUAD_INDEX_COUNT = 6u;
         cmd.drawIndexed(QUAD_INDEX_COUNT, 1u, 0u, 0, 0u);
@@ -2132,9 +2145,6 @@ private:
         m_SwapImageViews.clear();
         m_Swapchain = nullptr;
 
-        m_DepthImageView = nullptr;
-        m_DepthImage = nullptr;
-        m_DepthImageMemory = nullptr;
         m_DepthFormat = vk::Format::eUndefined;
 
         m_Device.waitIdle();
@@ -2232,26 +2242,19 @@ private:
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            vk::raii::Buffer buffer({});
-            vk::raii::DeviceMemory bufferMemory({});
-            CreateBuffer(m_Device, m_PhysicalDevice, size,
-                         vk::BufferUsageFlagBits::eUniformBuffer,
-                         vk::MemoryPropertyFlagBits::eHostVisible |
-                             vk::MemoryPropertyFlagBits::eHostCoherent,
-                         buffer, bufferMemory);
-            SetVkDebugName(m_Device, *buffer, vk::ObjectType::eBuffer,
+            AllocatedBuffer globalBuffer = CreateBuffer(
+                m_VmaAllocator, size, vk::BufferUsageFlagBits::eUniformBuffer,
+                VMA_MEMORY_USAGE_AUTO,
+                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                    VMA_ALLOCATION_CREATE_MAPPED_BIT);
+            SetVkDebugName(m_Device, globalBuffer.Buffer,
+                           vk::ObjectType::eBuffer,
                            std::format("Global Buffer Frame {}", i).c_str());
-            SetVkDebugName(
-                m_Device, *bufferMemory, vk::ObjectType::eDeviceMemory,
+            vmaSetAllocationName(
+                m_VmaAllocator, globalBuffer.Allocation,
                 std::format("Global Buffer Memory Frame {}", i).c_str());
 
-            m_Frames[i].GlobalBuffer = std::move(buffer);
-            m_Frames[i].GlobalBufferMemory = std::move(bufferMemory);
-            // Mapping once like this for the application's whole lifetime
-            // is called Persistent Mapping. Increases performance since
-            // mapping is not free.
-            m_Frames[i].GlobalBufferMapping =
-                m_Frames[i].GlobalBufferMemory.mapMemory(0, size);
+            m_Frames[i].GlobalBuffer = std::move(globalBuffer);
         }
 
         m_GlobalBuffer.SkyColor = SKY_COLOR;
@@ -2296,8 +2299,8 @@ private:
                 m_SceneGraph->DirLights[dirLightCount]->GetData();
         }
 
-        memcpy(m_Frames[frameIndex].GlobalBufferMapping, &m_GlobalBuffer,
-               sizeof(m_GlobalBuffer));
+        memcpy(m_Frames[frameIndex].GlobalBuffer.AllocationInfo.pMappedData,
+               &m_GlobalBuffer, sizeof(m_GlobalBuffer));
     }
 
     void CreateDescriptorPool()
@@ -2386,7 +2389,8 @@ private:
                 vk::ObjectType::eDescriptorSet,
                 std::format("Main Descriptor Set Frame {}", i).c_str());
 
-            vk::DescriptorBufferInfo bufferInfo{.buffer = frame.GlobalBuffer,
+            vk::DescriptorBufferInfo bufferInfo{.buffer =
+                                                    frame.GlobalBuffer.Buffer,
                                                 .offset = 0,
                                                 .range = sizeof(GlobalBuffer)};
 
@@ -2459,23 +2463,12 @@ private:
         LogMsg(LogSeverity::Info, LogRenderer, "CreateDepthResources()");
 
         m_DepthFormat = FindDepthFormat();
-        CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
-                    m_SwapchainExtent.height, m_DepthFormat,
-                    vk::ImageTiling::eOptimal,
-                    vk::ImageUsageFlagBits::eDepthStencilAttachment |
-                        vk::ImageUsageFlagBits::eSampled,
-                    vk::MemoryPropertyFlagBits::eDeviceLocal, m_DepthImage,
-                    m_DepthImageMemory, 1u);
-        SetVkDebugName(m_Device, *m_DepthImage, vk::ObjectType::eImage,
-                       "Depth Image");
-        SetVkDebugName(m_Device, *m_DepthImageMemory,
-                       vk::ObjectType::eDeviceMemory, "Depth Image Memory");
-
-        m_DepthImageView =
-            CreateImageView(m_Device, m_DepthImage, vk::ImageViewType::e2D,
-                            m_DepthFormat, vk::ImageAspectFlagBits::eDepth, 1u);
-        SetVkDebugName(m_Device, *m_DepthImageView, vk::ObjectType::eImageView,
-                       "Depth Image View");
+        m_DepthTex = CreateRenderTexture(
+            m_VmaAllocator, m_Device, m_SwapchainExtent.width,
+            m_SwapchainExtent.height, m_DepthFormat,
+            vk::ImageUsageFlagBits::eDepthStencilAttachment |
+                vk::ImageUsageFlagBits::eSampled,
+            vk::ImageAspectFlagBits::eDepth, "Depth Image");
     }
 
     vk::Format FindSupportedFormat(const std::vector<vk::Format>& candidates,
@@ -2522,22 +2515,18 @@ private:
         vk::DeviceSize size = sizeof(InstanceData) * MAX_INSTANCE_COUNT;
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            CreateBuffer(m_Device, m_PhysicalDevice, size,
-                         vk::BufferUsageFlagBits::eVertexBuffer,
-                         vk::MemoryPropertyFlagBits::eHostVisible |
-                             vk::MemoryPropertyFlagBits::eHostCoherent,
-                         m_Frames[i].InstanceBuffer,
-                         m_Frames[i].InstanceBufferMemory);
-            SetVkDebugName(m_Device, *m_Frames[i].InstanceBuffer,
-                           vk::ObjectType::eBuffer,
+            AllocatedBuffer buffer = CreateBuffer(
+                m_VmaAllocator, size, vk::BufferUsageFlagBits::eVertexBuffer,
+                VMA_MEMORY_USAGE_AUTO,
+                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                    VMA_ALLOCATION_CREATE_MAPPED_BIT);
+            SetVkDebugName(m_Device, buffer.Buffer, vk::ObjectType::eBuffer,
                            std::format("Instance Buffer Frame {}", i).c_str());
-            SetVkDebugName(
-                m_Device, *m_Frames[i].InstanceBufferMemory,
-                vk::ObjectType::eDeviceMemory,
+            vmaSetAllocationName(
+                m_VmaAllocator, buffer.Allocation,
                 std::format("Instance Buffer Memory Frame {}", i).c_str());
 
-            m_Frames[i].InstanceBufferMapping =
-                m_Frames[i].InstanceBufferMemory.mapMemory(0, size);
+            m_Frames[i].InstanceBuffer = std::move(buffer);
         }
     }
 
@@ -2549,81 +2538,37 @@ private:
         if (instanceDatas.size() > MAX_INSTANCE_COUNT)
             throw std::runtime_error("Max instance count exceeded!");
 
-        memcpy(m_Frames[frameIndex].InstanceBufferMapping, instanceDatas.data(),
+        memcpy(m_Frames[frameIndex].InstanceBuffer.AllocationInfo.pMappedData,
+               instanceDatas.data(),
                sizeof(InstanceData) * instanceDatas.size());
     }
 
     void CreateRenderTargets()
     {
         LogMsg(LogSeverity::Info, LogRenderer, "CreateRenderTargets()");
+        vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eColorAttachment |
+                                    vk::ImageUsageFlagBits::eSampled;
+        vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor;
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            vk::raii::Image opaqueImage({});
-            vk::raii::ImageView opaqueImageView({});
-            vk::raii::DeviceMemory opaqueImageMemory({});
+            Texture opaqueTex = CreateRenderTexture(
+                m_VmaAllocator, m_Device, m_SwapchainExtent.width,
+                m_SwapchainExtent.height, m_OpaqueImageFormat, usage, aspect,
+                std::format("Frame_{} Opaque Image", i).c_str());
+            m_Frames[i].OpaqueTexture = std::move(opaqueTex);
 
-            CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
-                        m_SwapchainExtent.height, m_OpaqueImageFormat,
-                        vk::ImageTiling::eOptimal,
-                        vk::ImageUsageFlagBits::eSampled |
-                            vk::ImageUsageFlagBits::eColorAttachment,
-                        vk::MemoryPropertyFlagBits::eDeviceLocal, opaqueImage,
-                        opaqueImageMemory, 1u);
-            opaqueImageView = CreateImageView(
-                m_Device, opaqueImage, vk::ImageViewType::e2D,
-                m_OpaqueImageFormat, vk::ImageAspectFlagBits::eColor, 1u);
+            Texture accumTex = CreateRenderTexture(
+                m_VmaAllocator, m_Device, m_SwapchainExtent.width,
+                m_SwapchainExtent.height, m_AccumImageFormat, usage, aspect,
+                std::format("Frame_{} Accum Image", i).c_str());
+            m_Frames[i].AccumTexture = std::move(accumTex);
 
-            Texture opaqueTexture(
-                std::move(opaqueImage), std::move(opaqueImageView),
-                std::move(opaqueImageMemory),
-                std::format("Opaque Texture Frame_{}", i).c_str());
-
-            m_Frames[i].OpaqueTexture = std::move(opaqueTexture);
-
-            vk::raii::Image accumImage({});
-            vk::raii::ImageView accumImageView({});
-            vk::raii::DeviceMemory accumImageMemory({});
-
-            CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
-                        m_SwapchainExtent.height, m_AccumImageFormat,
-                        vk::ImageTiling::eOptimal,
-                        vk::ImageUsageFlagBits::eSampled |
-                            vk::ImageUsageFlagBits::eColorAttachment,
-                        vk::MemoryPropertyFlagBits::eDeviceLocal, accumImage,
-                        accumImageMemory, 1u);
-            accumImageView = CreateImageView(
-                m_Device, accumImage, vk::ImageViewType::e2D,
-                m_AccumImageFormat, vk::ImageAspectFlagBits::eColor, 1u);
-
-            Texture accumTexture(
-                std::move(accumImage), std::move(accumImageView),
-                std::move(accumImageMemory),
-                std::format("Accum Texture Frame_{}", i).c_str());
-
-            m_Frames[i].AccumTexture = std::move(accumTexture);
-
-            vk::raii::Image revealageImage({});
-            vk::raii::ImageView revealageImageView({});
-            vk::raii::DeviceMemory revealageImageMemory({});
-
-            CreateImage(m_Device, m_PhysicalDevice, m_SwapchainExtent.width,
-                        m_SwapchainExtent.height, m_RevealageImageFormat,
-                        vk::ImageTiling::eOptimal,
-                        vk::ImageUsageFlagBits::eSampled |
-                            vk::ImageUsageFlagBits::eColorAttachment,
-                        vk::MemoryPropertyFlagBits::eDeviceLocal,
-                        revealageImage, revealageImageMemory, 1u);
-            revealageImageView = CreateImageView(
-                m_Device, revealageImage, vk::ImageViewType::e2D,
-                m_RevealageImageFormat, vk::ImageAspectFlagBits::eColor, 1u);
-
-            Texture revealageTexture(
-                std::move(revealageImage), std::move(revealageImageView),
-                std::move(revealageImageMemory),
-                std::format("Revealage Texture Frame_{}", i).c_str());
-
-            m_Frames[i].RevealageTexture = std::move(revealageTexture);
+            Texture revealageTex = CreateRenderTexture(
+                m_VmaAllocator, m_Device, m_SwapchainExtent.width,
+                m_SwapchainExtent.height, m_RevealageImageFormat, usage, aspect,
+                std::format("Frame_{} Revealage Image", i).c_str());
+            m_Frames[i].RevealageTexture = std::move(revealageTex);
         }
     }
 
@@ -2639,17 +2584,17 @@ private:
 
         assert(vertices.size() == 4);
 
-        CreateVertexBuffer(m_Device, m_PhysicalDevice, m_GenericCommandPool,
-                           m_GraphicsQueue, sizeof(vertices[0]),
-                           vertices.size(), vertices.data(), m_QuadVertexBuffer,
-                           m_QuadVertexBufferMemory);
+        m_QuadVertexBuffer = CreateStagedBuffer(
+            m_VmaAllocator, m_Device, m_GenericCommandPool, m_GraphicsQueue,
+            sizeof(vertices[0]) * vertices.size(),
+            vk::BufferUsageFlagBits::eVertexBuffer, vertices.data());
 
         std::array<uint32_t, 6> indices = {0, 1, 2, 0, 2, 3};
 
-        CreateIndexBuffer(m_Device, m_PhysicalDevice, m_GenericCommandPool,
-                          m_GraphicsQueue, sizeof(indices[0]), indices.size(),
-                          indices.data(), m_QuadIndexBuffer,
-                          m_QuadIndexBufferMemory);
+        m_QuadIndexBuffer = CreateStagedBuffer(
+            m_VmaAllocator, m_Device, m_GenericCommandPool, m_GraphicsQueue,
+            sizeof(indices[0]) * indices.size(),
+            vk::BufferUsageFlagBits::eIndexBuffer, indices.data());
     }
 
     void UpdateCompositeDescriptorSet()
@@ -2714,7 +2659,7 @@ private:
         LogMsg(LogSeverity::Info, LogRenderer, "UpdateDepthDescriptorSet()");
 
         vk::DescriptorImageInfo imageInfo{
-            .imageView = m_DepthImageView,
+            .imageView = m_DepthTex.GetImageView(),
             .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal};
 
         std::array depthDescriptorWrites = {vk::WriteDescriptorSet{
@@ -2735,6 +2680,11 @@ private:
     vk::raii::SurfaceKHR m_Surface = nullptr;
     vk::raii::PhysicalDevice m_PhysicalDevice = nullptr;
     vk::raii::Device m_Device = nullptr;
+
+    // must be destroyed before the device and after all resources that had
+    // memory allocated using this allocator
+    VulkanAllocator m_VmaAllocator{};
+
     vk::raii::Queue m_GraphicsQueue = nullptr;
     vk::raii::SwapchainKHR m_Swapchain = nullptr;
     vk::raii::PipelineLayout m_OpaquePipelineLayout = nullptr;
@@ -2752,9 +2702,7 @@ private:
     vk::raii::DescriptorPool m_FrameDescriptorPool = nullptr;
     vk::raii::DescriptorPool m_CompositeDescriptorPool = nullptr;
     vk::raii::DescriptorPool m_GenericDescriptorPool = nullptr;
-    vk::raii::Image m_DepthImage = nullptr;
-    vk::raii::DeviceMemory m_DepthImageMemory = nullptr;
-    vk::raii::ImageView m_DepthImageView = nullptr;
+    Texture m_DepthTex;
     vk::raii::DescriptorSet m_DepthBufferDescriptorSet = nullptr;
     vk::Format m_DepthFormat = vk::Format::eUndefined;
     static constexpr vk::Format m_OpaqueImageFormat =
@@ -2762,10 +2710,8 @@ private:
     static constexpr vk::Format m_AccumImageFormat =
         vk::Format::eR16G16B16A16Sfloat;
     static constexpr vk::Format m_RevealageImageFormat = vk::Format::eR8Unorm;
-    vk::raii::Buffer m_QuadVertexBuffer = nullptr;
-    vk::raii::DeviceMemory m_QuadVertexBufferMemory = nullptr;
-    vk::raii::Buffer m_QuadIndexBuffer = nullptr;
-    vk::raii::DeviceMemory m_QuadIndexBufferMemory = nullptr;
+    AllocatedBuffer m_QuadVertexBuffer;
+    AllocatedBuffer m_QuadIndexBuffer;
 
     vk::SurfaceFormatKHR m_SwapchainSurfaceFormat;
     vk::Extent2D m_SwapchainExtent;
