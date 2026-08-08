@@ -3,13 +3,14 @@
 #include "assimp/mesh.h"
 
 ModelData::ModelData(const std::string& path,
-                     std::vector<std::unique_ptr<Material>> materials)
+                     std::vector<std::unique_ptr<Material>> materials,
+                     uint32_t meshCount)
     : m_Materials(std::move(materials)), m_Path(path)
 {
+    m_Meshes.resize(meshCount);
 }
 
-void ModelData::Init(AllocatedBuffer vertexBuffer,
-                     AllocatedBuffer indexBuffer,
+void ModelData::Init(AllocatedBuffer vertexBuffer, AllocatedBuffer indexBuffer,
                      std::unique_ptr<Node> rootNode)
 {
     m_VertexBuffer = std::move(vertexBuffer);
@@ -36,9 +37,6 @@ Mesh* ModelData::RegisterMesh(aiMesh* mesh, uint32_t meshIndex,
                               std::vector<Vertex>& vertices,
                               std::vector<uint32_t>& indices)
 {
-    if (m_Meshes.size() == 0 || m_Meshes.size() <= meshIndex)
-        m_Meshes.resize(meshIndex + 1);
-
     if (!m_Meshes[meshIndex].IsValid())
     {
         Material* pMat = m_Materials[mesh->mMaterialIndex].get();

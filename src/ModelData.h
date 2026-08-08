@@ -1,10 +1,10 @@
 #pragma once
 
+#include "AllocatedBuffer.h"
 #include "Drawable.h"
 #include "Material.h"
 #include "Mesh.h"
 #include "Node.h"
-#include "AllocatedBuffer.h"
 
 struct aiMaterial;
 
@@ -12,9 +12,9 @@ class ModelData
 {
 public:
     ModelData(const std::string& path,
-              std::vector<std::unique_ptr<Material>> materials);
-    void Init(AllocatedBuffer vertexBuffer,
-              AllocatedBuffer indexBuffer,
+              std::vector<std::unique_ptr<Material>> materials,
+              uint32_t meshCount);
+    void Init(AllocatedBuffer vertexBuffer, AllocatedBuffer indexBuffer,
               std::unique_ptr<Node> rootNode);
 
     Mesh* RegisterMesh(aiMesh* mesh, uint32_t meshIndex,

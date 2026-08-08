@@ -61,7 +61,8 @@ ModelData* ModelLoader::Load(const std::string& path)
     std::vector<std::unique_ptr<Material>> materials =
         LoadMaterials(pScene, modelRoot);
 
-    ModelData* pModelData = new ModelData(path, std::move(materials));
+    ModelData* pModelData =
+        new ModelData(path, std::move(materials), pScene->mNumMeshes);
     std::unique_ptr<Node> rootNode = std::make_unique<Node>();
     rootNode->ProcessNode(pModelData, pScene->mRootNode, pScene, glm::mat4(1.f),
                           vertices, indices);
