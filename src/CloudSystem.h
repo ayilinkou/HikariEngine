@@ -14,7 +14,7 @@ struct CloudSystemCreateInfo
     uint32_t SwapchainWidth;
     uint32_t SwapchainHeight;
     uint32_t FramesInFlight;
-	VmaAllocator Allocator;
+    VmaAllocator Allocator;
 };
 
 class CloudSystem
@@ -27,7 +27,7 @@ private:
         float MaxHeight = 4000.f;
         float Coverage = 0.2f;
         float Anisotropy = 0.3f;
-		float BoundaryDisplacement = 300.f;
+        float BoundaryDisplacement = 300.f;
         uint32_t ViewStepCount = 64u;
         uint32_t SunStepCount = 6u;
     };
@@ -58,10 +58,8 @@ private:
     void CreateNoiseTexture();
     void CreateDescriptorSetLayout();
     void CreateBakeDescriptorSetLayout();
-    void CreatePipelineLayout(vk::raii::DescriptorSetLayout& globalSetLayout,
-                              vk::raii::DescriptorSetLayout& depthSetLayout);
-    void CreateBakePipelineLayout();
-    void CreatePipeline();
+    void CreatePipeline(vk::raii::DescriptorSetLayout& globalSetLayout,
+                        vk::raii::DescriptorSetLayout& depthSetLayout);
     void CreateBakePipeline();
     void CreateDescriptorPool();
     void CreateBakeDescriptorPool();
@@ -70,7 +68,7 @@ private:
     void WriteDescriptorSets();
     void BakeNoiseTexture(vk::raii::CommandPool& commandPool,
                           vk::raii::Queue& computeQueue);
-	void CreateTextureSampler();
+    void CreateTextureSampler();
 
 private:
     static const uint32_t s_NOISE_RES;
@@ -88,7 +86,7 @@ private:
     vk::raii::Pipeline m_BakePipeline = nullptr;
     std::vector<vk::raii::DescriptorSet> m_DescriptorSets;
     vk::raii::DescriptorSet m_BakeDescriptorSet = nullptr;
-	vk::raii::Sampler m_TextureSampler = nullptr;
+    vk::raii::Sampler m_TextureSampler = nullptr;
 
     std::vector<Texture> m_OutputTextures;
     AllocatedImage m_PerlinWorleyImage{};
@@ -100,7 +98,7 @@ private:
     uint32_t m_OutputWidth;
     uint32_t m_OutputHeight;
 
-	VmaAllocator m_Allocator{};
+    VmaAllocator m_Allocator{};
 
     CloudPushConstants m_CloudData{};
 };

@@ -22,7 +22,7 @@ struct InstanceData
 
     static constexpr std::array<vk::VertexInputAttributeDescription,
                                 AttributeCount>
-    GetAttributeDescription()
+    GetAttributeDescriptions()
     {
         return {{{.location = 4,
                   .binding = 1,

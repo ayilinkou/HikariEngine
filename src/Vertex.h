@@ -23,7 +23,7 @@ struct Vertex
 
     static constexpr std::array<vk::VertexInputAttributeDescription,
                                 AttributeCount>
-    GetAttributeDescription()
+    GetAttributeDescriptions()
     {
         return {{{.location = 0,
                   .binding = 0,

@@ -12,6 +12,7 @@
 #include "Model.h"
 #include "ModelManager.h"
 #include "PBRMaterial.h"
+#include "PipelineBuilder.h"
 #include "ResourceManager.h"
 #include "ThreadPool.h"
 #include "Timer.h"
@@ -197,13 +198,13 @@ public:
     App() {}
     App(SDL_Window* pWindow) : m_pWindow(pWindow) {}
     ~App()
-	{
-		if (!m_bShutdown && *m_Device)
-		{
-			m_Device.waitIdle();
-			Shutdown();
-		}
-	}
+    {
+        if (!m_bShutdown && *m_Device)
+        {
+            m_Device.waitIdle();
+            Shutdown();
+        }
+    }
 
     void Run()
     {
@@ -423,9 +424,9 @@ private:
         ShutdownImGui();
         MaterialFactory::Shutdown();
         ResourceManager::Shutdown();
-    
-		m_bShutdown = true;
-	}
+
+        m_bShutdown = true;
+    }
 
     void ShutdownImGui()
     {
@@ -1142,29 +1143,10 @@ private:
 
     void CreateOpaquePipeline()
     {
-        vk::raii::ShaderModule shaderModule =
-            CreateShaderModule(ReadFile("shaders/opaque.spv"));
-        SetVkDebugName(m_Device, *shaderModule, vk::ObjectType::eShaderModule,
-                       "PBR Opaque Shader Module");
-
-        vk::PipelineShaderStageCreateInfo vertCreateInfo{
-            .stage = vk::ShaderStageFlagBits::eVertex,
-            .module = shaderModule,
-            .pName = "vertMain"};
-
-        vk::PipelineShaderStageCreateInfo fragCreateInfo{
-            .stage = vk::ShaderStageFlagBits::eFragment,
-            .module = shaderModule,
-            .pName = "fragMain"};
-
-        std::vector<vk::PipelineShaderStageCreateInfo> shaderStages = {
-            vertCreateInfo, fragCreateInfo};
-
         auto vertexBindingDesc = Vertex::GetBindingDescription();
-        auto vertexAttributeDesc = Vertex::GetAttributeDescription();
-
+        auto vertexAttributeDesc = Vertex::GetAttributeDescriptions();
         auto instanceBindingDesc = InstanceData::GetBindingDescription();
-        auto instanceAttributeDesc = InstanceData::GetAttributeDescription();
+        auto instanceAttributeDesc = InstanceData::GetAttributeDescriptions();
 
         std::array<vk::VertexInputBindingDescription, 2> bindingDescs = {
             vertexBindingDesc, instanceBindingDesc};
@@ -1174,59 +1156,6 @@ private:
         std::ranges::copy(vertexAttributeDesc, attributeDescs.begin());
         std::ranges::copy(instanceAttributeDesc,
                           attributeDescs.begin() + Vertex::AttributeCount);
-
-        vk::PipelineVertexInputStateCreateInfo vertexInput{
-            .vertexBindingDescriptionCount =
-                static_cast<uint32_t>(bindingDescs.size()),
-            .pVertexBindingDescriptions = bindingDescs.data(),
-            .vertexAttributeDescriptionCount =
-                static_cast<uint32_t>(attributeDescs.size()),
-            .pVertexAttributeDescriptions = attributeDescs.data()};
-        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
-            .topology = vk::PrimitiveTopology::eTriangleList};
-
-        vk::Viewport viewport{
-            .x = 0.f,
-            .y = 0.f,
-            .width = static_cast<float>(m_SwapchainExtent.width),
-            .height = static_cast<float>(m_SwapchainExtent.height),
-            .minDepth = 0.f,
-            .maxDepth = 1.f};
-        vk::Rect2D scissor{.offset = vk::Offset2D{0, 0},
-                           .extent = m_SwapchainExtent};
-        std::vector<vk::DynamicState> dynamicStates = {
-            vk::DynamicState::eViewport, vk::DynamicState::eScissor,
-            vk::DynamicState::eCullMode};
-        vk::PipelineDynamicStateCreateInfo dynamicState{
-            .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
-            .pDynamicStates = dynamicStates.data()};
-        vk::PipelineViewportStateCreateInfo viewportState{
-            .viewportCount = 1,
-            .pViewports = &viewport,
-            .scissorCount = 1,
-            .pScissors = &scissor};
-
-        // frontFace is counter-clockwise because we are flipping the Y in the
-        // projection matrix
-        vk::PipelineRasterizationStateCreateInfo rasterState{
-            .depthClampEnable = vk::False,
-            .rasterizerDiscardEnable = vk::False,
-            .polygonMode = vk::PolygonMode::eFill,
-            .cullMode = vk::CullModeFlagBits::eNone,
-            .frontFace = vk::FrontFace::eCounterClockwise,
-            .depthBiasEnable = vk::False,
-            .lineWidth = 1.f};
-
-        vk::PipelineMultisampleStateCreateInfo multisampleState{
-            .rasterizationSamples = vk::SampleCountFlagBits::e1,
-            .sampleShadingEnable = vk::False};
-
-        vk::PipelineDepthStencilStateCreateInfo depthStencilState{
-            .depthTestEnable = vk::True,
-            .depthWriteEnable = vk::True,
-            .depthCompareOp = vk::CompareOp::eLess,
-            .depthBoundsTestEnable = vk::False,
-            .stencilTestEnable = vk::False};
 
         vk::PipelineColorBlendAttachmentState attachmentState{
             .blendEnable = vk::False,
@@ -1234,82 +1163,38 @@ private:
                               vk::ColorComponentFlagBits::eG |
                               vk::ColorComponentFlagBits::eB |
                               vk::ColorComponentFlagBits::eA};
-        vk::PipelineColorBlendStateCreateInfo blendState{
-            .logicOpEnable = vk::False,
-            .logicOp = vk::LogicOp::eCopy,
-            .attachmentCount = 1,
-            .pAttachments = &attachmentState};
 
-        vk::DescriptorSetLayout descriptorSetLayouts[] = {
-            m_GlobalBufferSetLayout,
-            MaterialFactory::Get()->GetDescriptorSetLayout()};
+        std::array setLayouts{*m_GlobalBufferSetLayout,
+                              MaterialFactory::Get()->GetDescriptorSetLayout()};
+
         vk::PushConstantRange pushConstantRange{
             .stageFlags = vk::ShaderStageFlagBits::eFragment,
             .size = sizeof(PBRMaterial::MaterialData)};
-        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
-            .setLayoutCount = 2,
-            .pSetLayouts = descriptorSetLayouts,
-            .pushConstantRangeCount = 1,
-            .pPushConstantRanges = &pushConstantRange};
-        m_OpaquePipelineLayout =
-            vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
-        SetVkDebugName(m_Device, *m_OpaquePipelineLayout,
-                       vk::ObjectType::ePipelineLayout,
-                       "Opaque Pipeline Layout");
 
-        vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo = {
-            .colorAttachmentCount = 1,
-            .pColorAttachmentFormats = &m_OpaqueImageFormat,
-            .depthAttachmentFormat = m_DepthFormat};
-        vk::StructureChain<vk::GraphicsPipelineCreateInfo,
-                           vk::PipelineRenderingCreateInfo>
-            pipelineCreateInfoChain = {
-                {.stageCount = static_cast<uint32_t>(shaderStages.size()),
-                 .pStages = shaderStages.data(),
-                 .pVertexInputState = &vertexInput,
-                 .pInputAssemblyState = &inputAssembly,
-                 .pViewportState = &viewportState,
-                 .pRasterizationState = &rasterState,
-                 .pMultisampleState = &multisampleState,
-                 .pDepthStencilState = &depthStencilState,
-                 .pColorBlendState = &blendState,
-                 .pDynamicState = &dynamicState,
-                 .layout = m_OpaquePipelineLayout,
-                 .renderPass = nullptr},
-                pipelineRenderingCreateInfo};
+        auto [opaqueLayout, opaquePipeline] =
+            PipelineBuilder(m_Device)
+                .Shaders("shaders/opaque.spv")
+                .VertexInput(bindingDescs, attributeDescs)
+                .Depth(true, true, vk::CompareOp::eLess)
+                .ColorAttachments(std::array{m_OpaqueImageFormat},
+                                  std::array{attachmentState})
+                .DepthAttachment(m_DepthFormat)
+                .Cull(vk::CullModeFlagBits::eNone, true)
+                .Layout(setLayouts, std::array{pushConstantRange})
+                .DebugName("Opaque")
+                .Build();
 
-        m_OpaquePipeline = vk::raii::Pipeline(
-            m_Device, nullptr,
-            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
-        SetVkDebugName(m_Device, *m_OpaquePipeline, vk::ObjectType::ePipeline,
-                       "Opaque Pipeline");
+        m_OpaquePipelineLayout = std::move(opaqueLayout);
+        m_OpaquePipeline = std::move(opaquePipeline);
     }
 
     void CreateTransparentPipeline()
     {
-        vk::raii::ShaderModule shaderModule =
-            CreateShaderModule(ReadFile("shaders/weightedBlendedOIT.spv"));
-        SetVkDebugName(m_Device, *shaderModule, vk::ObjectType::eShaderModule,
-                       "Order Independent Transparency Shader Module");
-
-        vk::PipelineShaderStageCreateInfo vertCreateInfo{
-            .stage = vk::ShaderStageFlagBits::eVertex,
-            .module = shaderModule,
-            .pName = "vertMain"};
-
-        vk::PipelineShaderStageCreateInfo fragCreateInfo{
-            .stage = vk::ShaderStageFlagBits::eFragment,
-            .module = shaderModule,
-            .pName = "fragMain"};
-
-        std::vector<vk::PipelineShaderStageCreateInfo> shaderStages = {
-            vertCreateInfo, fragCreateInfo};
-
         auto vertexBindingDesc = Vertex::GetBindingDescription();
-        auto vertexAttributeDesc = Vertex::GetAttributeDescription();
+        auto vertexAttributeDesc = Vertex::GetAttributeDescriptions();
 
         auto instanceBindingDesc = InstanceData::GetBindingDescription();
-        auto instanceAttributeDesc = InstanceData::GetAttributeDescription();
+        auto instanceAttributeDesc = InstanceData::GetAttributeDescriptions();
 
         std::array<vk::VertexInputBindingDescription, 2> bindingDescs = {
             vertexBindingDesc, instanceBindingDesc};
@@ -1320,57 +1205,8 @@ private:
         std::ranges::copy(instanceAttributeDesc,
                           attributeDescs.begin() + Vertex::AttributeCount);
 
-        vk::PipelineVertexInputStateCreateInfo vertexInput{
-            .vertexBindingDescriptionCount =
-                static_cast<uint32_t>(bindingDescs.size()),
-            .pVertexBindingDescriptions = bindingDescs.data(),
-            .vertexAttributeDescriptionCount =
-                static_cast<uint32_t>(attributeDescs.size()),
-            .pVertexAttributeDescriptions = attributeDescs.data()};
-        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
-            .topology = vk::PrimitiveTopology::eTriangleList};
-
-        vk::Viewport viewport{
-            .x = 0.f,
-            .y = 0.f,
-            .width = static_cast<float>(m_SwapchainExtent.width),
-            .height = static_cast<float>(m_SwapchainExtent.height),
-            .minDepth = 0.f,
-            .maxDepth = 1.f};
-        vk::Rect2D scissor{.offset = vk::Offset2D{0, 0},
-                           .extent = m_SwapchainExtent};
-        std::vector<vk::DynamicState> dynamicStates = {
-            vk::DynamicState::eViewport, vk::DynamicState::eScissor};
-        vk::PipelineDynamicStateCreateInfo dynamicState{
-            .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
-            .pDynamicStates = dynamicStates.data()};
-        vk::PipelineViewportStateCreateInfo viewportState{
-            .viewportCount = 1,
-            .pViewports = &viewport,
-            .scissorCount = 1,
-            .pScissors = &scissor};
-
-        // frontFace is counter-clockwise because we are flipping the Y in the
-        // projection matrix
-        vk::PipelineRasterizationStateCreateInfo rasterState{
-            .depthClampEnable = vk::False,
-            .rasterizerDiscardEnable = vk::False,
-            .polygonMode = vk::PolygonMode::eFill,
-            .cullMode = vk::CullModeFlagBits::eNone,
-            .frontFace = vk::FrontFace::eCounterClockwise,
-            .depthBiasEnable = vk::False,
-            .lineWidth = 1.f};
-
-        vk::PipelineMultisampleStateCreateInfo multisampleState{
-            .rasterizationSamples = vk::SampleCountFlagBits::e1,
-            .sampleShadingEnable = vk::False};
-
-        vk::PipelineDepthStencilStateCreateInfo depthStencilState{
-            .depthTestEnable = vk::True,
-            .depthWriteEnable = vk::False,
-            .depthCompareOp = vk::CompareOp::eLess,
-            .depthBoundsTestEnable = vk::False,
-            .stencilTestEnable = vk::False};
+        std::array<vk::Format, 2> attachmentFormats = {m_AccumImageFormat,
+                                                       m_RevealageImageFormat};
 
         std::array<vk::PipelineColorBlendAttachmentState, 2> attachmentStates{
             {{.blendEnable = vk::True,
@@ -1388,130 +1224,35 @@ private:
               .srcColorBlendFactor = vk::BlendFactor::eZero,
               .dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcColor,
               .colorWriteMask = vk::ColorComponentFlagBits::eR}}};
-        vk::PipelineColorBlendStateCreateInfo blendState{
-            .logicOpEnable = vk::False,
-            .logicOp = vk::LogicOp::eCopy,
-            .attachmentCount = static_cast<uint32_t>(attachmentStates.size()),
-            .pAttachments = attachmentStates.data()};
 
-        vk::DescriptorSetLayout descriptorSetLayouts[] = {
+        std::array<vk::DescriptorSetLayout, 2> setLayouts = {
             m_GlobalBufferSetLayout,
             MaterialFactory::Get()->GetDescriptorSetLayout()};
+
         vk::PushConstantRange pushConstantRange{
             .stageFlags = vk::ShaderStageFlagBits::eFragment,
             .size = sizeof(PBRMaterial::MaterialData)};
-        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
-            .setLayoutCount = 2,
-            .pSetLayouts = descriptorSetLayouts,
-            .pushConstantRangeCount = 1,
-            .pPushConstantRanges = &pushConstantRange};
-        m_TransparentPipelineLayout =
-            vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
-        SetVkDebugName(m_Device, *m_TransparentPipelineLayout,
-                       vk::ObjectType::ePipelineLayout,
-                       "Transparent Pipeline Layout");
 
-        std::array<vk::Format, 2> attachmentFormats = {m_AccumImageFormat,
-                                                       m_RevealageImageFormat};
-        vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo = {
-            .colorAttachmentCount =
-                static_cast<uint32_t>(attachmentFormats.size()),
-            .pColorAttachmentFormats = attachmentFormats.data(),
-            .depthAttachmentFormat = m_DepthFormat};
+        auto [transparentLayout, transparentPipeline] =
+            PipelineBuilder(m_Device)
+                .Shaders("shaders/weightedBlendedOIT.spv")
+                .VertexInput(bindingDescs, attributeDescs)
+                .Depth(true, false, vk::CompareOp::eLess)
+                .ColorAttachments(attachmentFormats, attachmentStates)
+                .DepthAttachment(m_DepthFormat)
+                .Cull(vk::CullModeFlagBits::eNone)
+                .Layout(setLayouts, std::array{pushConstantRange})
+                .DebugName("Transparent")
+                .Build();
 
-        vk::StructureChain<vk::GraphicsPipelineCreateInfo,
-                           vk::PipelineRenderingCreateInfo>
-            pipelineCreateInfoChain = {
-                {.stageCount = static_cast<uint32_t>(shaderStages.size()),
-                 .pStages = shaderStages.data(),
-                 .pVertexInputState = &vertexInput,
-                 .pInputAssemblyState = &inputAssembly,
-                 .pViewportState = &viewportState,
-                 .pRasterizationState = &rasterState,
-                 .pMultisampleState = &multisampleState,
-                 .pDepthStencilState = &depthStencilState,
-                 .pColorBlendState = &blendState,
-                 .pDynamicState = &dynamicState,
-                 .layout = m_TransparentPipelineLayout,
-                 .renderPass = nullptr},
-                pipelineRenderingCreateInfo};
-
-        m_TransparentPipeline = vk::raii::Pipeline(
-            m_Device, nullptr,
-            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
-        SetVkDebugName(m_Device, *m_TransparentPipeline,
-                       vk::ObjectType::ePipeline, "Transparent Pipeline");
+        m_TransparentPipelineLayout = std::move(transparentLayout);
+        m_TransparentPipeline = std::move(transparentPipeline);
     }
 
     void CreateCompositePipeline()
     {
-        vk::raii::ShaderModule shaderModule =
-            CreateShaderModule(ReadFile("shaders/composite.spv"));
-        SetVkDebugName(m_Device, *shaderModule, vk::ObjectType::eShaderModule,
-                       "Composite Shader Module");
-
-        vk::PipelineShaderStageCreateInfo vertCreateInfo{
-            .stage = vk::ShaderStageFlagBits::eVertex,
-            .module = shaderModule,
-            .pName = "vertMain"};
-
-        vk::PipelineShaderStageCreateInfo fragCreateInfo{
-            .stage = vk::ShaderStageFlagBits::eFragment,
-            .module = shaderModule,
-            .pName = "fragMain"};
-
-        std::vector<vk::PipelineShaderStageCreateInfo> shaderStages = {
-            vertCreateInfo, fragCreateInfo};
-
-        auto vertexBindingDesc = QuadVertex::GetBindingDescription();
-        auto vertexAttributeDesc = QuadVertex::GetAttributeDescription();
-
-        vk::PipelineVertexInputStateCreateInfo vertexInput{
-            .vertexBindingDescriptionCount = 1u,
-            .pVertexBindingDescriptions = &vertexBindingDesc,
-            .vertexAttributeDescriptionCount =
-                static_cast<uint32_t>(vertexAttributeDesc.size()),
-            .pVertexAttributeDescriptions = vertexAttributeDesc.data()};
-        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
-            .topology = vk::PrimitiveTopology::eTriangleList};
-
-        vk::Viewport viewport{
-            .x = 0.f,
-            .y = 0.f,
-            .width = static_cast<float>(m_SwapchainExtent.width),
-            .height = static_cast<float>(m_SwapchainExtent.height),
-            .minDepth = 0.f,
-            .maxDepth = 1.f};
-        vk::Rect2D scissor{.offset = vk::Offset2D{0, 0},
-                           .extent = m_SwapchainExtent};
-        std::vector<vk::DynamicState> dynamicStates = {
-            vk::DynamicState::eViewport, vk::DynamicState::eScissor};
-        vk::PipelineDynamicStateCreateInfo dynamicState{
-            .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
-            .pDynamicStates = dynamicStates.data()};
-        vk::PipelineViewportStateCreateInfo viewportState{
-            .viewportCount = 1,
-            .pViewports = &viewport,
-            .scissorCount = 1,
-            .pScissors = &scissor};
-
-        // frontFace is counter-clockwise because we are flipping the Y in the
-        // projection matrix
-        vk::PipelineRasterizationStateCreateInfo rasterState{
-            .depthClampEnable = vk::False,
-            .rasterizerDiscardEnable = vk::False,
-            .polygonMode = vk::PolygonMode::eFill,
-            .cullMode = vk::CullModeFlagBits::eBack,
-            .frontFace = vk::FrontFace::eCounterClockwise,
-            .depthBiasEnable = vk::False,
-            .lineWidth = 1.f};
-
-        vk::PipelineMultisampleStateCreateInfo multisampleState{
-            .rasterizationSamples = vk::SampleCountFlagBits::e1,
-            .sampleShadingEnable = vk::False};
-
-        vk::PipelineDepthStencilStateCreateInfo depthStencilState{
-            .depthTestEnable = vk::False, .depthWriteEnable = vk::False};
+        std::array bindingDescs = {QuadVertex::GetBindingDescription()};
+        std::array attributeDescs = {QuadVertex::GetAttributeDescription()};
 
         vk::PipelineColorBlendAttachmentState attachmentState{
             .blendEnable = vk::False,
@@ -1519,51 +1260,25 @@ private:
                               vk::ColorComponentFlagBits::eG |
                               vk::ColorComponentFlagBits::eB |
                               vk::ColorComponentFlagBits::eA};
-        vk::PipelineColorBlendStateCreateInfo blendState{
-            .logicOpEnable = vk::False,
-            .logicOp = vk::LogicOp::eCopy,
-            .attachmentCount = 1,
-            .pAttachments = &attachmentState};
 
-        std::array<vk::DescriptorSetLayout, 2> descriptorSetLayouts = {
+        std::array<vk::DescriptorSetLayout, 2> setLayouts = {
             m_GlobalBufferSetLayout, m_CompositeSetLayout};
-        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
-            .setLayoutCount =
-                static_cast<uint32_t>(descriptorSetLayouts.size()),
-            .pSetLayouts = descriptorSetLayouts.data()};
-        m_CompositePipelineLayout =
-            vk::raii::PipelineLayout(m_Device, pipelineLayoutInfo);
-        SetVkDebugName(m_Device, *m_CompositePipelineLayout,
-                       vk::ObjectType::ePipelineLayout,
-                       "Composite Pipeline Layout");
 
-        vk::PipelineRenderingCreateInfo renderingCreateInfo{
-            .colorAttachmentCount = 1u,
-            .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format,
-            .depthAttachmentFormat = vk::Format::eUndefined};
+        auto [compositeLayout, compositePipeline] =
+            PipelineBuilder(m_Device)
+                .Shaders("shaders/composite.spv")
+                .VertexInput(bindingDescs, attributeDescs)
+                .Depth(false, false, vk::CompareOp::eLess)
+                .ColorAttachments(std::array{m_SwapchainSurfaceFormat.format},
+                                  std::array{attachmentState})
+                .DepthAttachment(vk::Format::eUndefined)
+                .Cull(vk::CullModeFlagBits::eNone)
+                .Layout(setLayouts, {})
+                .DebugName("Composite")
+                .Build();
 
-        vk::StructureChain<vk::GraphicsPipelineCreateInfo,
-                           vk::PipelineRenderingCreateInfo>
-            pipelineCreateInfoChain = {
-                {.stageCount = static_cast<uint32_t>(shaderStages.size()),
-                 .pStages = shaderStages.data(),
-                 .pVertexInputState = &vertexInput,
-                 .pInputAssemblyState = &inputAssembly,
-                 .pViewportState = &viewportState,
-                 .pRasterizationState = &rasterState,
-                 .pMultisampleState = &multisampleState,
-                 .pDepthStencilState = &depthStencilState,
-                 .pColorBlendState = &blendState,
-                 .pDynamicState = &dynamicState,
-                 .layout = m_CompositePipelineLayout,
-                 .renderPass = nullptr},
-                renderingCreateInfo};
-
-        m_CompositePipeline = vk::raii::Pipeline(
-            m_Device, nullptr,
-            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
-        SetVkDebugName(m_Device, *m_CompositePipeline,
-                       vk::ObjectType::ePipeline, "Composite Pipeline");
+        m_CompositePipelineLayout = std::move(compositeLayout);
+        m_CompositePipeline = std::move(compositePipeline);
     }
 
     void CreatePipelines()
@@ -2749,7 +2464,7 @@ private:
     float m_DeltaTime = 0.f;
     float m_DisplayFrameTime = 0.f;
     float m_DisplayFPS = 0.f;
-	bool m_bShutdown = false;
+    bool m_bShutdown = false;
 };
 
 int main()

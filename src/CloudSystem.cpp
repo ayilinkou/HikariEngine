@@ -1,7 +1,7 @@
 #include "CloudSystem.h"
+#include "ComputePipelineBuilder.h"
 #include "Log.h"
 #include "Utility.h"
-#include "vulkan/vulkan.hpp"
 
 inline constexpr LogCategory LogCloudSystem{"Cloud System"};
 
@@ -24,14 +24,12 @@ void CloudSystem::Init(const CloudSystemCreateInfo& createInfo)
     CreateNoiseTexture();
     CreateDescriptorPool();
     CreateDescriptorSetLayout();
-    CreatePipelineLayout(createInfo.GlobalSetLayout, createInfo.DepthSetLayout);
-    CreatePipeline();
+    CreatePipeline(createInfo.GlobalSetLayout, createInfo.DepthSetLayout);
     AllocateDescriptorSets();
     WriteDescriptorSets();
 
     CreateBakeDescriptorPool();
     CreateBakeDescriptorSetLayout();
-    CreateBakePipelineLayout();
     CreateBakePipeline();
     AllocateAndWriteBakeDescriptorSet();
     BakeNoiseTexture(createInfo.CommandPool, createInfo.ComputeQueue);
@@ -97,93 +95,41 @@ void CloudSystem::CreateBakeDescriptorSetLayout()
     m_BakeSetLayout = vk::raii::DescriptorSetLayout(m_Device, layoutInfo);
 }
 
-void CloudSystem::CreatePipelineLayout(
-    vk::raii::DescriptorSetLayout& globalSetLayout,
-    vk::raii::DescriptorSetLayout& depthSetLayout)
+void CloudSystem::CreatePipeline(vk::raii::DescriptorSetLayout& globalSetLayout,
+                                 vk::raii::DescriptorSetLayout& depthSetLayout)
 {
-    std::array<vk::DescriptorSetLayout, 3> setLayouts = {
-        *globalSetLayout,
-        *depthSetLayout,
-        *m_SetLayout,
-    };
+    std::array setLayouts = {*globalSetLayout, *depthSetLayout, *m_SetLayout};
+    std::array<vk::PushConstantRange, 1> pushRanges = {
+        vk::PushConstantRange{.stageFlags = vk::ShaderStageFlagBits::eCompute,
+                              .offset = 0,
+                              .size = sizeof(CloudPushConstants)}};
 
-    vk::PushConstantRange pushRange{
-        .stageFlags = vk::ShaderStageFlagBits::eCompute,
-        .offset = 0,
-        .size = sizeof(CloudPushConstants),
-    };
+    auto [layout, pipeline] = ComputePipelineBuilder(m_Device)
+                                  .Shader("shaders/clouds.comp.spv")
+                                  .Layout(setLayouts, pushRanges)
+                                  .DebugName("Clouds")
+                                  .Build();
 
-    vk::PipelineLayoutCreateInfo layoutInfo{
-        .setLayoutCount = static_cast<uint32_t>(setLayouts.size()),
-        .pSetLayouts = setLayouts.data(),
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pushRange,
-    };
-    m_PipelineLayout = vk::raii::PipelineLayout(m_Device, layoutInfo);
-}
-
-void CloudSystem::CreateBakePipelineLayout()
-{
-    vk::PushConstantRange pushRange{
-        .stageFlags = vk::ShaderStageFlagBits::eCompute,
-        .offset = 0,
-        .size = sizeof(BakeConstants),
-    };
-
-    vk::PipelineLayoutCreateInfo layoutInfo{
-        .setLayoutCount = 1,
-        .pSetLayouts = &*m_BakeSetLayout,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pushRange,
-    };
-    m_BakePipelineLayout = vk::raii::PipelineLayout(m_Device, layoutInfo);
-}
-
-void CloudSystem::CreatePipeline()
-{
-    auto code =
-        ReadFile("shaders/clouds.comp.spv"); // your existing SPIR-V loader
-
-    vk::ShaderModuleCreateInfo moduleInfo{
-        .codeSize = code.size(),
-        .pCode = reinterpret_cast<const uint32_t*>(code.data()),
-    };
-    vk::raii::ShaderModule shaderModule(m_Device, moduleInfo);
-
-    vk::PipelineShaderStageCreateInfo stageInfo{
-        .stage = vk::ShaderStageFlagBits::eCompute,
-        .module = *shaderModule,
-        .pName = "main",
-    };
-
-    vk::ComputePipelineCreateInfo pipelineInfo{
-        .stage = stageInfo,
-        .layout = *m_PipelineLayout,
-    };
-    m_Pipeline = vk::raii::Pipeline(m_Device, nullptr, pipelineInfo);
+    m_PipelineLayout = std::move(layout);
+    m_Pipeline = std::move(pipeline);
 }
 
 void CloudSystem::CreateBakePipeline()
 {
-    auto code = ReadFile("shaders/bakePerlinWorley.comp.spv");
+    std::array<vk::DescriptorSetLayout, 1> setLayouts = {*m_BakeSetLayout};
+    std::array<vk::PushConstantRange, 1> pushRanges = {
+        vk::PushConstantRange{.stageFlags = vk::ShaderStageFlagBits::eCompute,
+                              .offset = 0,
+                              .size = sizeof(BakeConstants)}};
 
-    vk::ShaderModuleCreateInfo moduleInfo{
-        .codeSize = code.size(),
-        .pCode = reinterpret_cast<const uint32_t*>(code.data()),
-    };
-    vk::raii::ShaderModule shaderModule(m_Device, moduleInfo);
+    auto [layout, pipeline] = ComputePipelineBuilder(m_Device)
+                                  .Shader("shaders/bakePerlinWorley.comp.spv")
+                                  .Layout(setLayouts, pushRanges)
+                                  .DebugName("Bake Perlin Worley")
+                                  .Build();
 
-    vk::PipelineShaderStageCreateInfo stageInfo{
-        .stage = vk::ShaderStageFlagBits::eCompute,
-        .module = *shaderModule,
-        .pName = "main",
-    };
-
-    vk::ComputePipelineCreateInfo pipelineInfo{
-        .stage = stageInfo,
-        .layout = *m_BakePipelineLayout,
-    };
-    m_BakePipeline = vk::raii::Pipeline(m_Device, nullptr, pipelineInfo);
+    m_BakePipelineLayout = std::move(layout);
+    m_BakePipeline = std::move(pipeline);
 }
 
 void CloudSystem::CreateDescriptorPool()

@@ -60,7 +60,9 @@ set(SOURCES
     src/XmlParser.cpp
     src/VMAImpl.cpp
     src/AllocatedBuffer.cpp
-    src/AllocatedImage.cpp)
+    src/AllocatedImage.cpp
+    src/PipelineBuilder.cpp
+    src/ComputePipelineBuilder.cpp)
 
 # On macOS the Vulkan validation layer only ships with the Vulkan SDK (vcpkg
 # ships none) and is selected at runtime via VK_LAYER_PATH. vcpkg's own
