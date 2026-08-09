@@ -23,9 +23,11 @@ struct FrameData
     vk::raii::Fence DrawFence = nullptr;
     vk::raii::DescriptorSet GlobalBufferDescriptorSet = nullptr;
     vk::raii::DescriptorSet CompositeDescriptorSet = nullptr;
+    vk::raii::DescriptorSet DepthBufferDescriptorSet = nullptr;
     Texture OpaqueTexture;
     Texture AccumTexture;
     Texture RevealageTexture;
+	Texture DepthTexture;
     AllocatedBuffer GlobalBuffer;
     AllocatedBuffer InstanceBuffer;
 };

@@ -1,4 +1,5 @@
 #include "AllocatedImage.h"
+#include "Barrier.h"
 #include "Camera.h"
 #include "CloudSystem.h"
 #include "Common.h"
@@ -51,7 +52,7 @@ inline void EnableAnsiColors()
 constexpr uint32_t WIDTH = 1920u;
 constexpr uint32_t HEIGHT = 1080u;
 constexpr uint32_t MAX_INSTANCE_COUNT = 1024u;
-constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+constexpr int NUM_FRAMES_IN_FLIGHT = 2;
 constexpr glm::vec3 SKY_COLOR = {0.4f, 0.8f, 1.f};
 
 constexpr LogCategory LogValidationLayer("Validation Layer");
@@ -400,7 +401,7 @@ private:
                                              // compute queue
             .SwapchainWidth = m_SwapchainExtent.width,
             .SwapchainHeight = m_SwapchainExtent.height,
-            .FramesInFlight = MAX_FRAMES_IN_FLIGHT,
+            .FramesInFlight = NUM_FRAMES_IN_FLIGHT,
             .Allocator = m_VmaAllocator};
         m_CloudSystem = std::make_unique<CloudSystem>(cloudCreateInfo);
 
@@ -618,7 +619,7 @@ private:
             throw std::runtime_error("Failed to present image!");
         }
 
-        m_FrameIndex = (m_FrameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
+        m_FrameIndex = (m_FrameIndex + 1) % NUM_FRAMES_IN_FLIGHT;
     }
 
     void DrawImGuiFrame()
@@ -1303,7 +1304,7 @@ private:
 
         createInfo =
             vk::CommandPoolCreateInfo{.queueFamilyIndex = m_QueueIndex};
-        for (size_t i = 0u; i < MAX_FRAMES_IN_FLIGHT; i++)
+        for (size_t i = 0u; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
             FrameData& frame = m_Frames[i];
 
@@ -1360,7 +1361,7 @@ private:
     {
         LogMsg(LogSeverity::Info, LogRenderer, "CreateCommandBuffers()");
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
             FrameData& frame = m_Frames[i];
             vk::CommandBufferAllocateInfo allocInfo;
@@ -1469,15 +1470,10 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        TransitionImageLayout(cmd, m_DepthTex.GetImage(),
-                              vk::ImageLayout::eUndefined,
-                              vk::ImageLayout::eDepthAttachmentOptimal,
-                              vk::ImageAspectFlagBits::eDepth);
-
-        TransitionImageLayout(cmd, frame.OpaqueTexture.GetImage(),
-                              vk::ImageLayout::eUndefined,
-                              vk::ImageLayout::eColorAttachmentOptimal,
-                              vk::ImageAspectFlagBits::eColor);
+        RecordImageBarrier(cmd, frame.DepthTexture.GetImage(),
+                           Barriers::UndefinedToDepthAttachment());
+        RecordImageBarrier(cmd, frame.OpaqueTexture.GetImage(),
+                           Barriers::UndefinedToColorAttachment());
 
         vk::ClearValue clearColor =
             vk::ClearColorValue(SKY_COLOR.r, SKY_COLOR.g, SKY_COLOR.b, 1.f);
@@ -1489,7 +1485,7 @@ private:
             .storeOp = vk::AttachmentStoreOp::eStore,
             .clearValue = clearColor};
         vk::RenderingAttachmentInfo depthAttachmentInfo = {
-            .imageView = m_DepthTex.GetImageView(),
+            .imageView = frame.DepthTexture.GetImageView(),
             .imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eClear,
             .storeOp = vk::AttachmentStoreOp::eStore,
@@ -1558,7 +1554,7 @@ private:
 
         m_CloudSystem->RecordDispatch(frame.CloudCommandBuffer, m_FrameIndex,
                                       frame.GlobalBufferDescriptorSet,
-                                      m_DepthBufferDescriptorSet);
+                                      frame.DepthBufferDescriptorSet);
     }
 
     void RecordTransparentCommandBuffer()
@@ -1570,18 +1566,12 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        TransitionImageLayout(cmd, frame.AccumTexture.GetImage(),
-                              vk::ImageLayout::eUndefined,
-                              vk::ImageLayout::eColorAttachmentOptimal,
-                              vk::ImageAspectFlagBits::eColor);
-        TransitionImageLayout(cmd, frame.RevealageTexture.GetImage(),
-                              vk::ImageLayout::eUndefined,
-                              vk::ImageLayout::eColorAttachmentOptimal,
-                              vk::ImageAspectFlagBits::eColor);
-        TransitionImageLayout(cmd, m_DepthTex.GetImage(),
-                              vk::ImageLayout::eDepthAttachmentOptimal,
-                              vk::ImageLayout::eDepthReadOnlyOptimal,
-                              vk::ImageAspectFlagBits::eDepth);
+        RecordImageBarrier(cmd, frame.AccumTexture.GetImage(),
+                           Barriers::UndefinedToColorAttachment());
+        RecordImageBarrier(cmd, frame.RevealageTexture.GetImage(),
+                           Barriers::UndefinedToColorAttachment());
+        RecordImageBarrier(cmd, frame.DepthTexture.GetImage(),
+                           Barriers::DepthAttachmentToShaderRead());
 
         vk::ClearValue accumClearColor =
             vk::ClearColorValue(0.f, 0.f, 0.f, 0.f);
@@ -1599,7 +1589,7 @@ private:
               .storeOp = vk::AttachmentStoreOp::eStore,
               .clearValue = revealageClearColor}}};
         vk::RenderingAttachmentInfo depthAttachmentInfo = {
-            .imageView = m_DepthTex.GetImageView(),
+            .imageView = frame.DepthTexture.GetImageView(),
             .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
             .loadOp = vk::AttachmentLoadOp::eLoad,
             .storeOp = vk::AttachmentStoreOp::eNone};
@@ -1660,18 +1650,12 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        TransitionImageLayout(cmd, frame.OpaqueTexture.GetImage(),
-                              vk::ImageLayout::eColorAttachmentOptimal,
-                              vk::ImageLayout::eShaderReadOnlyOptimal,
-                              vk::ImageAspectFlagBits::eColor);
-        TransitionImageLayout(cmd, frame.AccumTexture.GetImage(),
-                              vk::ImageLayout::eColorAttachmentOptimal,
-                              vk::ImageLayout::eShaderReadOnlyOptimal,
-                              vk::ImageAspectFlagBits::eColor);
-        TransitionImageLayout(cmd, frame.RevealageTexture.GetImage(),
-                              vk::ImageLayout::eColorAttachmentOptimal,
-                              vk::ImageLayout::eShaderReadOnlyOptimal,
-                              vk::ImageAspectFlagBits::eColor);
+        RecordImageBarrier(cmd, frame.OpaqueTexture.GetImage(),
+                           Barriers::ColorAttachmentToShaderRead());
+        RecordImageBarrier(cmd, frame.AccumTexture.GetImage(),
+                           Barriers::ColorAttachmentToShaderRead());
+        RecordImageBarrier(cmd, frame.RevealageTexture.GetImage(),
+                           Barriers::ColorAttachmentToShaderRead());
 
         vk::ClearValue clearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 1.f);
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
@@ -1723,13 +1707,15 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        TransitionSwapImageLayout(
-            cmd, imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
-            vk::ImageLayout::eColorAttachmentOptimal,
-            vk::AccessFlagBits2::eColorAttachmentWrite,
-            vk::AccessFlagBits2::eColorAttachmentRead,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput);
+        constexpr ImageBarrierDesc barrierDesc{
+            .srcStage = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            .srcAccess = vk::AccessFlagBits2::eColorAttachmentWrite,
+            .dstStage = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            .dstAccess = vk::AccessFlagBits2::eColorAttachmentRead,
+            .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .aspect = vk::ImageAspectFlagBits::eColor};
+        RecordImageBarrier(cmd, m_SwapImages[imageIndex], barrierDesc);
 
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
             .imageView = m_SwapImageViews[imageIndex],
@@ -1759,14 +1745,8 @@ private:
             m_Frames[m_FrameIndex].DrawLayoutCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
-
-        TransitionSwapImageLayout(
-            cmd, imageIndex, vk::ImageLayout::eUndefined,
-            vk::ImageLayout::eColorAttachmentOptimal, {},
-            vk::AccessFlagBits2::eColorAttachmentWrite,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput);
-
+        RecordImageBarrier(cmd, m_SwapImages[imageIndex],
+                           Barriers::AcquiredSwapchainToColorAttachment());
         cmd.end();
     }
 
@@ -1777,46 +1757,9 @@ private:
             m_Frames[m_FrameIndex].PresentLayoutCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
-
-        TransitionSwapImageLayout(
-            cmd, imageIndex, vk::ImageLayout::eColorAttachmentOptimal,
-            vk::ImageLayout::ePresentSrcKHR,
-            vk::AccessFlagBits2::eColorAttachmentWrite, {},
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            vk::PipelineStageFlagBits2::eBottomOfPipe);
-
+        RecordImageBarrier(cmd, m_SwapImages[imageIndex],
+                           Barriers::ColorAttachmentToPresent());
         cmd.end();
-    }
-
-    void TransitionSwapImageLayout(vk::raii::CommandBuffer& cmd,
-                                   uint32_t imageIndex,
-                                   vk::ImageLayout oldLayout,
-                                   vk::ImageLayout newLayout,
-                                   vk::AccessFlags2 srcAccessMask,
-                                   vk::AccessFlags2 dstAccessFlags,
-                                   vk::PipelineStageFlags2 srcStageMask,
-                                   vk::PipelineStageFlags2 dstStageMask)
-    {
-        vk::ImageMemoryBarrier2 barrier = {
-            .srcStageMask = srcStageMask,
-            .srcAccessMask = srcAccessMask,
-            .dstStageMask = dstStageMask,
-            .dstAccessMask = dstAccessFlags,
-            .oldLayout = oldLayout,
-            .newLayout = newLayout,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = m_SwapImages[imageIndex],
-            .subresourceRange = {.aspectMask = vk::ImageAspectFlagBits::eColor,
-                                 .baseMipLevel = 0,
-                                 .levelCount = 1,
-                                 .baseArrayLayer = 0,
-                                 .layerCount = 1}};
-
-        vk::DependencyInfo info = {.dependencyFlags = {},
-                                   .imageMemoryBarrierCount = 1,
-                                   .pImageMemoryBarriers = &barrier};
-        cmd.pipelineBarrier2(info);
     }
 
     void CreateSyncObjects()
@@ -1833,7 +1776,7 @@ private:
                 std::format("Render Complete Semaphore_{}", i).c_str());
         }
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
             m_Frames[i].PresentCompleteSemaphore =
                 vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
@@ -1881,7 +1824,7 @@ private:
 
         m_CloudSystem->Resize(m_SwapchainExtent.width,
                               m_SwapchainExtent.height);
-        UpdateDepthDescriptorSet();
+        UpdateDepthDescriptorSets();
         UpdateCompositeDescriptorSet();
 
         m_Camera->SetProjection(
@@ -1964,7 +1907,7 @@ private:
             throw std::runtime_error(std::format(
                 "Buffer must be 16 byte aligned! Size is {}", size));
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
             AllocatedBuffer globalBuffer = CreateBuffer(
                 m_VmaAllocator, size, vk::BufferUsageFlagBits::eUniformBuffer,
@@ -2033,10 +1976,10 @@ private:
 
         std::array framePoolSize = {
             vk::DescriptorPoolSize{.type = vk::DescriptorType::eUniformBuffer,
-                                   .descriptorCount = MAX_FRAMES_IN_FLIGHT}};
+                                   .descriptorCount = NUM_FRAMES_IN_FLIGHT}};
         vk::DescriptorPoolCreateInfo frameCreateInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-            .maxSets = MAX_FRAMES_IN_FLIGHT,
+            .maxSets = NUM_FRAMES_IN_FLIGHT,
             .poolSizeCount = static_cast<uint32_t>(framePoolSize.size()),
             .pPoolSizes = framePoolSize.data()};
 
@@ -2048,13 +1991,13 @@ private:
 
         std::array compositePoolSize = {
             vk::DescriptorPoolSize{.type = vk::DescriptorType::eSampledImage,
-                                   .descriptorCount = MAX_FRAMES_IN_FLIGHT * 3},
+                                   .descriptorCount = NUM_FRAMES_IN_FLIGHT * 3},
             vk::DescriptorPoolSize{
                 .type = vk::DescriptorType::eCombinedImageSampler,
-                .descriptorCount = MAX_FRAMES_IN_FLIGHT * 1}};
+                .descriptorCount = NUM_FRAMES_IN_FLIGHT * 1}};
         vk::DescriptorPoolCreateInfo compCreateInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-            .maxSets = MAX_FRAMES_IN_FLIGHT,
+            .maxSets = NUM_FRAMES_IN_FLIGHT,
             .poolSizeCount = static_cast<uint32_t>(compositePoolSize.size()),
             .pPoolSizes = compositePoolSize.data()};
 
@@ -2064,11 +2007,12 @@ private:
                        vk::ObjectType::eDescriptorPool,
                        "Composite Descriptor Pool");
 
-        std::array genericPoolSize = {vk::DescriptorPoolSize{
-            .type = vk::DescriptorType::eSampledImage, .descriptorCount = 1}};
+        std::array genericPoolSize = {
+            vk::DescriptorPoolSize{.type = vk::DescriptorType::eSampledImage,
+                                   .descriptorCount = NUM_FRAMES_IN_FLIGHT}};
         vk::DescriptorPoolCreateInfo genericCreateInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-            .maxSets = 1u,
+            .maxSets = NUM_FRAMES_IN_FLIGHT,
             .poolSizeCount = static_cast<uint32_t>(genericPoolSize.size()),
             .pPoolSizes = genericPoolSize.data()};
 
@@ -2084,7 +2028,7 @@ private:
         LogMsg(LogSeverity::Info, LogRenderer, "CreateDescriptorSets()");
 
         std::vector<vk::DescriptorSetLayout> globalBufferLayouts(
-            MAX_FRAMES_IN_FLIGHT, *m_GlobalBufferSetLayout);
+            NUM_FRAMES_IN_FLIGHT, *m_GlobalBufferSetLayout);
         vk::DescriptorSetAllocateInfo globalBufferAllocInfo{
             .descriptorPool = *m_FrameDescriptorPool,
             .descriptorSetCount =
@@ -2094,7 +2038,7 @@ private:
             m_Device.allocateDescriptorSets(globalBufferAllocInfo);
 
         std::vector<vk::DescriptorSetLayout> compSetLayouts(
-            MAX_FRAMES_IN_FLIGHT, *m_CompositeSetLayout);
+            NUM_FRAMES_IN_FLIGHT, *m_CompositeSetLayout);
         vk::DescriptorSetAllocateInfo compAllocInfo{
             .descriptorPool = m_CompositeDescriptorPool,
             .descriptorSetCount = static_cast<uint32_t>(compSetLayouts.size()),
@@ -2102,7 +2046,7 @@ private:
         std::vector<vk::raii::DescriptorSet> compositeDescriptorSets =
             m_Device.allocateDescriptorSets(compAllocInfo);
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
             FrameData& frame = m_Frames[i];
 
@@ -2146,13 +2090,16 @@ private:
                 static_cast<uint32_t>(depthBufferSetLayouts.size()),
             .pSetLayouts = depthBufferSetLayouts.data()};
 
-        m_DepthBufferDescriptorSet =
-            std::move(m_Device.allocateDescriptorSets(depthAllocInfo).front());
-        SetVkDebugName(m_Device, *m_DepthBufferDescriptorSet,
-                       vk::ObjectType::eDescriptorSet,
-                       "Depth Buffer Descriptor Set");
+        for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
+        {
+            m_Frames[i].DepthBufferDescriptorSet = std::move(
+                m_Device.allocateDescriptorSets(depthAllocInfo).front());
+            SetVkDebugName(m_Device, *m_Frames[i].DepthBufferDescriptorSet,
+                           vk::ObjectType::eDescriptorSet,
+                           "Depth Buffer Descriptor Set");
+        }
 
-        UpdateDepthDescriptorSet();
+        UpdateDepthDescriptorSets();
     }
 
     void CreateTextureSampler()
@@ -2187,12 +2134,16 @@ private:
         LogMsg(LogSeverity::Info, LogRenderer, "CreateDepthResources()");
 
         m_DepthFormat = FindDepthFormat();
-        m_DepthTex = CreateRenderTexture(
-            m_VmaAllocator, m_Device, m_SwapchainExtent.width,
-            m_SwapchainExtent.height, m_DepthFormat,
-            vk::ImageUsageFlagBits::eDepthStencilAttachment |
-                vk::ImageUsageFlagBits::eSampled,
-            vk::ImageAspectFlagBits::eDepth, "Depth Image");
+        for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
+        {
+            m_Frames[i].DepthTexture = CreateRenderTexture(
+                m_VmaAllocator, m_Device, m_SwapchainExtent.width,
+                m_SwapchainExtent.height, m_DepthFormat,
+                vk::ImageUsageFlagBits::eDepthStencilAttachment |
+                    vk::ImageUsageFlagBits::eSampled,
+                vk::ImageAspectFlagBits::eDepth,
+                std::format("Frame_{} Depth Image", i).c_str());
+        }
     }
 
     vk::Format FindSupportedFormat(const std::vector<vk::Format>& candidates,
@@ -2237,7 +2188,7 @@ private:
         // TODO: allocating memory 3 times, can probably allocate once and
         // store offsets Can do the same with uniform buffer.
         vk::DeviceSize size = sizeof(InstanceData) * MAX_INSTANCE_COUNT;
-        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        for (int i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
             AllocatedBuffer buffer = CreateBuffer(
                 m_VmaAllocator, size, vk::BufferUsageFlagBits::eVertexBuffer,
@@ -2274,7 +2225,7 @@ private:
                                     vk::ImageUsageFlagBits::eSampled;
         vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor;
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
             Texture opaqueTex = CreateRenderTexture(
                 m_VmaAllocator, m_Device, m_SwapchainExtent.width,
@@ -2326,7 +2277,7 @@ private:
         LogMsg(LogSeverity::Info, LogRenderer,
                "UpdateCompositeDescriptorSet()");
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+        for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
             FrameData& frame = m_Frames[i];
             vk::DescriptorImageInfo opaqueImageInfo{
@@ -2378,23 +2329,26 @@ private:
         }
     }
 
-    void UpdateDepthDescriptorSet()
+    void UpdateDepthDescriptorSets()
     {
-        LogMsg(LogSeverity::Info, LogRenderer, "UpdateDepthDescriptorSet()");
+        LogMsg(LogSeverity::Info, LogRenderer, "UpdateDepthDescriptorSets()");
 
-        vk::DescriptorImageInfo imageInfo{
-            .imageView = m_DepthTex.GetImageView(),
-            .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal};
+        for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
+        {
+            vk::DescriptorImageInfo imageInfo{
+                .imageView = m_Frames[i].DepthTexture.GetImageView(),
+                .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal};
 
-        std::array depthDescriptorWrites = {vk::WriteDescriptorSet{
-            .dstSet = m_DepthBufferDescriptorSet,
-            .dstBinding = 0,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = vk::DescriptorType::eSampledImage,
-            .pImageInfo = &imageInfo}};
+            std::array depthDescriptorWrites = {vk::WriteDescriptorSet{
+                .dstSet = m_Frames[i].DepthBufferDescriptorSet,
+                .dstBinding = 0,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = vk::DescriptorType::eSampledImage,
+                .pImageInfo = &imageInfo}};
 
-        m_Device.updateDescriptorSets(depthDescriptorWrites, {});
+            m_Device.updateDescriptorSets(depthDescriptorWrites, {});
+        }
     }
 
 private:
@@ -2426,8 +2380,6 @@ private:
     vk::raii::DescriptorPool m_FrameDescriptorPool = nullptr;
     vk::raii::DescriptorPool m_CompositeDescriptorPool = nullptr;
     vk::raii::DescriptorPool m_GenericDescriptorPool = nullptr;
-    Texture m_DepthTex;
-    vk::raii::DescriptorSet m_DepthBufferDescriptorSet = nullptr;
     vk::Format m_DepthFormat = vk::Format::eUndefined;
     static constexpr vk::Format m_OpaqueImageFormat =
         vk::Format::eR16G16B16A16Sfloat;
@@ -2444,7 +2396,7 @@ private:
     uint32_t m_QueueIndex = ~0;
     uint32_t m_MinImageCount = 0;
 
-    std::array<FrameData, MAX_FRAMES_IN_FLIGHT> m_Frames;
+    std::array<FrameData, NUM_FRAMES_IN_FLIGHT> m_Frames;
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
 
     std::unique_ptr<SceneGraph> m_SceneGraph = nullptr;

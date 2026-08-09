@@ -1,5 +1,6 @@
 #include "CubemapLoader.h"
 
+#include "Barrier.h"
 #include "ResourceManager.h"
 #include "stb_image.h"
 
@@ -137,16 +138,13 @@ Cubemap* CubemapLoader::Load(const CubemapCreateInfo& createInfo)
         std::format("{} Cubemap Device allocation", createInfo.Name).c_str());
 
     auto cmd = BeginSingleTimeCommand(m_Device, m_CommandPool);
-    TransitionImageLayout(cmd, cubemapImage.Image, vk::ImageLayout::eUndefined,
-                          vk::ImageLayout::eTransferDstOptimal,
-                          vk::ImageAspectFlagBits::eColor, faceCount);
+    RecordImageBarrier(cmd, cubemapImage.Image,
+                       Barriers::UndefinedToTransferDst(faceCount));
     CopyBufferToImage(cmd, stagingBuffer.Buffer, cubemapImage.Image,
                       static_cast<uint32_t>(faceData.Width),
                       static_cast<uint32_t>(faceData.Height), faceCount);
-    TransitionImageLayout(cmd, cubemapImage.Image,
-                          vk::ImageLayout::eTransferDstOptimal,
-                          vk::ImageLayout::eShaderReadOnlyOptimal,
-                          vk::ImageAspectFlagBits::eColor, faceCount);
+    RecordImageBarrier(cmd, cubemapImage.Image,
+                       Barriers::TransferDstToShaderRead(faceCount));
     EndSingleTimeCommand(cmd, m_TransferQueue);
 
     vk::raii::ImageView imageView = CreateImageView(

@@ -1,6 +1,7 @@
 #include "TextureLoader.h"
 #include "AllocatedBuffer.h"
 #include "AllocatedImage.h"
+#include "Barrier.h"
 #include "vulkan/vulkan.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -75,7 +76,7 @@ Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
     vk::ImageCreateInfo imageInfo{};
     imageInfo.imageType = vk::ImageType::e2D;
     imageInfo.extent = vk::Extent3D{static_cast<uint32_t>(width),
-                        static_cast<uint32_t>(height), 1u};
+                                    static_cast<uint32_t>(height), 1u};
     imageInfo.mipLevels = 1u;
     imageInfo.arrayLayers = 1u;
     imageInfo.format = format;
@@ -93,16 +94,11 @@ Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
                          std::format("{} Allocation", path).c_str());
 
     auto cmd = BeginSingleTimeCommand(m_Device, m_CommandPool);
-    TransitionImageLayout(cmd, image.Image, vk::ImageLayout::eUndefined,
-                          vk::ImageLayout::eTransferDstOptimal,
-                          vk::ImageAspectFlagBits::eColor);
+    RecordImageBarrier(cmd, image, Barriers::UndefinedToTransferDst());
     CopyBufferToImage(cmd, stagingBuffer.Buffer, image.Image,
                       static_cast<uint32_t>(width),
                       static_cast<uint32_t>(height));
-    TransitionImageLayout(cmd, image.Image,
-                          vk::ImageLayout::eTransferDstOptimal,
-                          vk::ImageLayout::eShaderReadOnlyOptimal,
-                          vk::ImageAspectFlagBits::eColor);
+    RecordImageBarrier(cmd, image, Barriers::TransferDstToShaderRead());
     EndSingleTimeCommand(cmd, m_TransferQueue);
 
     vk::raii::ImageView imageView =

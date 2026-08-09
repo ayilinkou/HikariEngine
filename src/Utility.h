@@ -5,7 +5,7 @@
 #include "AllocatedBuffer.h"
 #include "AllocatedImage.h"
 #include "Texture.h"
-#include "vulkan/vulkan.hpp"
+#include "Barrier.h"
 
 template <typename T>
 inline void SetVkDebugName([[maybe_unused]] vk::raii::Device& device,
@@ -231,96 +231,38 @@ CreateImageView(vk::raii::Device& device, const vk::Image& image,
     return AllocatedImage(allocator, vk::Image(rawImage), allocation);
 }
 
-// This is starting to not really make sense anymore. It'll be better to do this
-// inline whenever it's needed rather than creating so many else ifs.
-inline void TransitionImageLayout(vk::raii::CommandBuffer& cmd, vk::Image image,
-                                  vk::ImageLayout oldLayout,
-                                  vk::ImageLayout newLayout,
-                                  vk::ImageAspectFlags aspectFlags,
-                                  uint32_t layerCount = 1u)
+// TODO: collect barriers and group them into a single pipelineBarrier2 call
+inline void RecordImageBarrier(vk::raii::CommandBuffer& cmd, vk::Image image,
+                        const ImageBarrierDesc& desc)
 {
-    vk::ImageMemoryBarrier2 barrier{
-        .oldLayout = oldLayout,
-        .newLayout = newLayout,
+    const vk::ImageSubresourceRange range{.aspectMask = desc.aspect,
+                                          .baseMipLevel = desc.baseMip,
+                                          .levelCount = desc.mipCount,
+                                          .baseArrayLayer = desc.baseLayer,
+                                          .layerCount = desc.layerCount};
+
+    const vk::ImageMemoryBarrier2 barrier{
+        .srcStageMask = desc.srcStage,
+        .srcAccessMask = desc.srcAccess,
+        .dstStageMask = desc.dstStage,
+        .dstAccessMask = desc.dstAccess,
+        .oldLayout = desc.oldLayout,
+        .newLayout = desc.newLayout,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = image,
-        .subresourceRange = {aspectFlags, 0, 1, 0, layerCount}};
-
-    if (oldLayout == vk::ImageLayout::eUndefined &&
-        newLayout == vk::ImageLayout::eTransferDstOptimal)
-    {
-        barrier.srcStageMask = vk::PipelineStageFlagBits2::eHost;
-        barrier.srcAccessMask = vk::AccessFlagBits2::eHostWrite;
-
-        barrier.dstStageMask = vk::PipelineStageFlagBits2::eTransfer;
-        barrier.dstAccessMask = vk::AccessFlagBits2::eTransferWrite;
-    }
-    else if (oldLayout == vk::ImageLayout::eTransferDstOptimal &&
-             newLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
-    {
-        barrier.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
-        barrier.srcStageMask = vk::PipelineStageFlagBits2::eTransfer;
-
-        barrier.dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
-        barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
-    }
-    else if (newLayout == vk::ImageLayout::eDepthAttachmentOptimal &&
-             aspectFlags == vk::ImageAspectFlagBits::eDepth)
-    {
-        barrier.srcStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-                               vk::PipelineStageFlagBits2::eLateFragmentTests;
-        barrier.srcAccessMask =
-            vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
-
-        barrier.dstStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-                               vk::PipelineStageFlagBits2::eLateFragmentTests;
-        barrier.dstAccessMask =
-            vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
-    }
-    else if (oldLayout == vk::ImageLayout::eDepthAttachmentOptimal &&
-             newLayout == vk::ImageLayout::eDepthReadOnlyOptimal)
-    {
-        barrier.srcStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-                               vk::PipelineStageFlagBits2::eLateFragmentTests;
-        barrier.srcAccessMask =
-            vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
-
-        barrier.dstStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-                               vk::PipelineStageFlagBits2::eLateFragmentTests |
-                               vk::PipelineStageFlagBits2::eFragmentShader;
-        barrier.dstAccessMask =
-            vk::AccessFlagBits2::eDepthStencilAttachmentRead |
-            vk::AccessFlagBits2::eShaderRead;
-    }
-    else if (oldLayout == vk::ImageLayout::eUndefined &&
-             newLayout == vk::ImageLayout::eColorAttachmentOptimal)
-    {
-        barrier.srcStageMask = vk::PipelineStageFlagBits2::eTopOfPipe;
-        barrier.srcAccessMask = vk::AccessFlagBits2::eNone;
-
-        barrier.dstStageMask =
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput;
-        barrier.dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
-    }
-    else if (oldLayout == vk::ImageLayout::eColorAttachmentOptimal &&
-             newLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
-    {
-        barrier.srcStageMask =
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput;
-        barrier.srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
-
-        barrier.dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader;
-        barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
-    }
-    else
-    {
-        throw std::runtime_error("Unsupported layout transition!");
-    }
+        .subresourceRange = range};
 
     vk::DependencyInfo dependencyInfo{.imageMemoryBarrierCount = 1,
                                       .pImageMemoryBarriers = &barrier};
     cmd.pipelineBarrier2(dependencyInfo);
+}
+
+inline void RecordImageBarrier(vk::raii::CommandBuffer& cmd,
+                        const AllocatedImage& image,
+                        const ImageBarrierDesc& desc)
+{
+    RecordImageBarrier(cmd, image.Image, desc);
 }
 
 inline void CopyBufferToImage(vk::raii::CommandBuffer& cmd, vk::Buffer buffer,
