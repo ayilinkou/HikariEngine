@@ -1,7 +1,6 @@
 #pragma once
 
-#include "vulkan/vulkan.hpp"
-class AllocatedImage;
+struct AllocatedImage;
 
 struct ImageBarrierDesc
 {
