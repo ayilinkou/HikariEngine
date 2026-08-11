@@ -780,22 +780,12 @@ private:
         auto extensionProperties =
             m_Context.enumerateInstanceExtensionProperties();
 
-        const bool bLayerSettingsExtSupported = std::ranges::any_of(
-            extensionProperties,
-            [](auto const& extensionProperty)
-            {
-                return strcmp(extensionProperty.extensionName,
-                              vk::EXTLayerSettingsExtensionName) == 0;
-            });
-
-        if (bLayerSettingsExtSupported)
-            requiredExtensions.push_back(vk::EXTLayerSettingsExtensionName);
-        else
-            LogMsg(LogSeverity::Warning, LogRenderer,
-                   "VK_EXT_layer_settings not supported. Skipping "
-                   "programmatic validation layer settings "
-                   "(validate_sync/validate_best_practices).");
-
+        // VK_EXT_layer_settings is implemented by layers (e.g.
+        // VK_LAYER_KHRONOS_validation), not by the loader, so it never appears
+        // in vkEnumerateInstanceExtensionProperties(nullptr). It takes effect
+        // purely through the VkLayerSettingsCreateInfoEXT pNext chain below; the
+        // gate for attaching it is whether the validation layer is enabled, not
+        // whether the extension happens to be enumerated.
         auto unsupportedExtensionIt = std::ranges::find_if(
             requiredExtensions,
             [&extensionProperties](auto const& requiredExtension)
@@ -861,7 +851,7 @@ private:
             .pSettings = settings.data()};
 
         vk::InstanceCreateInfo createInfo{
-            .pNext = bLayerSettingsExtSupported ? &layerSettingsInfo : nullptr,
+            .pNext = bEnableValidationLayers ? &layerSettingsInfo : nullptr,
 #if defined(__APPLE__)
             .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,
 #endif
