@@ -1,7 +1,5 @@
 #pragma once
 
-#include "vulkan/vulkan_raii.hpp"
-
 #include "Material.h"
 #include "Texture.h"
 
@@ -15,7 +13,6 @@ public:
                 vk::raii::DescriptorSetLayout& setLayout,
                 vk::raii::Sampler& sampler, aiMaterial* mat,
                 const std::string& texturesParentFolder);
-    virtual ~PBRMaterial() override;
 
     virtual void* GetPushConstantData() override { return &m_MatData; }
 
@@ -25,7 +22,6 @@ private:
                              vk::raii::DescriptorPool& descriptorPool,
                              vk::raii::DescriptorSetLayout& setLayout,
                              vk::raii::Sampler& sampler);
-    void Shutdown();
 
 public:
     struct MaterialData
@@ -34,7 +30,7 @@ public:
         float Metallic = 0.f;
         float Roughness = 1.f;
         float AO = 1.f;
-		float Opacity = 1.f; // might be redundant, can pack into albedo
+        float Opacity = 1.f; // might be redundant, can pack into albedo
         int bHasAlbedoTex = false;
         int bHasNormalTex = false;
         int bHasMetallicRoughnessTex = false;
@@ -42,9 +38,9 @@ public:
     };
 
 private:
-    Texture* m_Albedo = nullptr;
-    Texture* m_Normal = nullptr;
-    Texture* m_MetallicRoughness = nullptr;
+    std::shared_ptr<Texture> m_Albedo = nullptr;
+    std::shared_ptr<Texture> m_Normal = nullptr;
+    std::shared_ptr<Texture> m_MetallicRoughness = nullptr;
 
     MaterialData m_MatData{};
 };

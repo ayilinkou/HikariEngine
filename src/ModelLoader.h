@@ -26,7 +26,7 @@ private:
 
     static ModelLoader* Get() { return s_Instance; }
 
-    [[nodiscard]] ModelData* Load(const std::string& path);
+    [[nodiscard]] std::shared_ptr<ModelData> Load(const std::string& path);
 
     static std::vector<std::unique_ptr<Material>>
     LoadMaterials(const aiScene* pScene, const std::string& modelRoot);

@@ -47,155 +47,44 @@ void ResourceManager::Shutdown()
     CubemapLoader::Shutdown();
     TextureLoader::Shutdown();
 
-    if (!s_Instance->m_TexturesMap.empty() ||
-        !s_Instance->m_ModelsMap.empty() || !s_Instance->m_CubemapsMap.empty())
-    {
-        LogMsg(LogSeverity::Warning, LogResourceManager,
-               "Attempting to shutdown ResourceManager when resources are "
-               "still loaded!");
-        DEBUG_BREAK();
-    }
-
-    s_Instance->m_ModelsMap.clear();
-    s_Instance->m_TexturesMap.clear();
-    s_Instance->m_CubemapsMap.clear();
+    assert(s_Instance->m_TextureCache.LiveCount() == 0);
+    assert(s_Instance->m_CubemapCache.LiveCount() == 0);
+    assert(s_Instance->m_ModelCache.LiveCount() == 0);
 
     delete s_Instance;
     s_Instance = nullptr;
 }
 
-Texture* ResourceManager::LoadTexture(const std::string& filepath,
-                                      const vk::Format format)
+void ResourceManager::PurgeCaches()
 {
-    auto it = m_TexturesMap.find(filepath);
-    if (it != m_TexturesMap.end() && it->second.get())
-    {
-        it->second->AddRef();
-        return static_cast<Texture*>(it->second->m_pData);
-    }
+    if (!s_Instance)
+        return;
 
-    Texture* pData = TextureLoader::Get()->Load(filepath, format);
-    if (!pData)
-        return nullptr;
-
-    m_TexturesMap[filepath] = std::make_unique<Resource>(pData);
-    return pData;
+    s_Instance->m_TextureCache.Purge();
+    s_Instance->m_CubemapCache.Purge();
+    s_Instance->m_ModelCache.Purge();
 }
 
-Cubemap* ResourceManager::LoadCubemap(const CubemapCreateInfo& createInfo)
+std::shared_ptr<Texture>
+ResourceManager::LoadTexture(const std::string& filepath,
+                             const vk::Format format)
 {
-    auto it = m_CubemapsMap.find(createInfo.RightPath);
-    if (it != m_CubemapsMap.end() && it->second.get())
-    {
-        it->second->AddRef();
-        return static_cast<Cubemap*>(it->second->m_pData);
-    }
-
-    Cubemap* pData = CubemapLoader::Get()->Load(createInfo);
-    if (!pData)
-        return nullptr;
-
-    m_CubemapsMap[createInfo.RightPath] = std::make_unique<Resource>(pData);
-    return pData;
+    return m_TextureCache.Get(
+        filepath + std::to_string(static_cast<uint32_t>(format)),
+        [&] { return TextureLoader::Get()->Load(filepath, format); });
 }
 
-ModelData* ResourceManager::LoadModel(const std::string& modelPath)
+std::shared_ptr<Cubemap>
+ResourceManager::LoadCubemap(const CubemapCreateInfo& createInfo)
 {
-    auto it = m_ModelsMap.find(modelPath);
-    if (it != m_ModelsMap.end() && it->second.get())
-    {
-        it->second->AddRef();
-        return static_cast<ModelData*>(it->second->m_pData);
-    }
-
-    ModelData* pData = ModelLoader::Get()->Load(modelPath);
-    if (!pData)
-        return nullptr;
-
-    m_ModelsMap[modelPath] = std::make_unique<Resource>(pData);
-    return pData;
+    return m_CubemapCache.Get(
+        createInfo.Key(),
+        [&] { return CubemapLoader::Get()->Load(createInfo); });
 }
 
-uint32_t ResourceManager::UnloadTexture(const std::string& filepath)
+std::shared_ptr<ModelData>
+ResourceManager::LoadModel(const std::string& modelPath)
 {
-    const auto it = m_TexturesMap.find(filepath);
-    if (it == m_TexturesMap.end() || !it->second)
-    {
-        m_TexturesMap.erase(filepath);
-        return 0u;
-    }
-
-    Resource* resourceToUnload = it->second.get();
-    resourceToUnload->RemoveRef();
-    if (resourceToUnload->m_RefCount > 0u)
-    {
-        return resourceToUnload->m_RefCount;
-    }
-
-    Internal_UnloadTexture(filepath);
-    return 0u;
-}
-
-uint32_t ResourceManager::UnloadCubemap(const CubemapCreateInfo& createInfo)
-{
-    const auto it = m_CubemapsMap.find(createInfo.RightPath);
-    if (it == m_CubemapsMap.end() || !it->second)
-    {
-        m_CubemapsMap.erase(createInfo.RightPath);
-        return 0u;
-    }
-
-    Resource* resourceToUnload = it->second.get();
-    resourceToUnload->RemoveRef();
-    if (resourceToUnload->m_RefCount > 0u)
-    {
-        return resourceToUnload->m_RefCount;
-    }
-
-    Internal_UnloadCubemap(createInfo);
-    return 0u;
-}
-
-uint32_t ResourceManager::UnloadModel(const std::string& filepath)
-{
-    const auto it = m_ModelsMap.find(filepath);
-    if (it == m_ModelsMap.end() || !it->second)
-    {
-        m_ModelsMap.erase(filepath);
-        return 0u;
-    }
-
-    Resource* resourceToUnload = it->second.get();
-    resourceToUnload->RemoveRef();
-    if (resourceToUnload->m_RefCount > 0u)
-    {
-        return resourceToUnload->m_RefCount;
-    }
-
-    Internal_UnloadModel(filepath);
-    return 0u;
-}
-
-void ResourceManager::Internal_UnloadTexture(const std::string filepath)
-{
-    Texture* pTexture =
-        static_cast<Texture*>(m_TexturesMap.at(filepath)->m_pData);
-    delete pTexture;
-    m_TexturesMap.erase(filepath);
-}
-
-void ResourceManager::Internal_UnloadCubemap(const CubemapCreateInfo createInfo)
-{
-    Cubemap* pCubemap =
-        static_cast<Cubemap*>(m_CubemapsMap.at(createInfo.RightPath)->m_pData);
-    delete pCubemap;
-    m_CubemapsMap.erase(createInfo.RightPath);
-}
-
-void ResourceManager::Internal_UnloadModel(const std::string filepath)
-{
-    ModelData* pModelData =
-        static_cast<ModelData*>(m_ModelsMap.at(filepath)->m_pData);
-    delete pModelData;
-    m_ModelsMap.erase(filepath);
+    return m_ModelCache.Get(modelPath, [&]
+                            { return ModelLoader::Get()->Load(modelPath); });
 }

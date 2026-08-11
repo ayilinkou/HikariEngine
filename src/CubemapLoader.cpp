@@ -45,7 +45,8 @@ void CubemapLoader::Shutdown()
     s_Instance = nullptr;
 }
 
-Cubemap* CubemapLoader::Load(const CubemapCreateInfo& createInfo)
+std::shared_ptr<Cubemap>
+CubemapLoader::Load(const CubemapCreateInfo& createInfo)
 {
     static constexpr uint32_t faceCount = 6u;
     struct FaceData
@@ -154,6 +155,6 @@ Cubemap* CubemapLoader::Load(const CubemapCreateInfo& createInfo)
         m_Device, *imageView, vk::ObjectType::eImageView,
         std::format("{} Cubemap Image View", createInfo.Name).c_str());
 
-    return new Cubemap(std::move(cubemapImage), std::move(imageView),
-                       createInfo);
+    return std::make_shared<Cubemap>(std::move(cubemapImage),
+                                     std::move(imageView), createInfo);
 }

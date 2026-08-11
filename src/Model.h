@@ -23,6 +23,6 @@ public:
     static constexpr Transform GetDefaultTransform() { return Transform{}; }
 
 private:
-    ModelData* m_pModelData;
+    std::shared_ptr<ModelData> m_ModelData = nullptr;
     std::string m_Path;
 };

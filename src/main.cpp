@@ -299,7 +299,7 @@ private:
         m_SceneGraph = std::make_unique<SceneGraph>();
 
         // TODO: read from scene
-        /*CubemapCreateInfo createInfo{};
+        CubemapCreateInfo createInfo{};
         createInfo.Name = "Skybox";
         createInfo.Format = vk::Format::eR8G8B8A8Srgb;
 
@@ -311,7 +311,7 @@ private:
         createInfo.FrontPath = skyboxRoot + "front.jpg";
         createInfo.BackPath = skyboxRoot + "back.jpg";
 
-        m_pSkybox = ResourceManager::Get()->LoadCubemap(createInfo);*/
+        m_Skybox = ResourceManager::Get()->LoadCubemap(createInfo);
 
         m_Camera = std::make_unique<Camera>();
         m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
@@ -414,12 +414,7 @@ private:
     {
         LogMsg(LogSeverity::Info, LogMain, "Shutdown()");
 
-        if (m_pSkybox)
-        {
-            ResourceManager::Get()->UnloadCubemap(m_pSkybox->GetCreateInfo());
-            m_pSkybox = nullptr;
-        }
-
+		m_Skybox.reset();
         m_SceneGraph.reset();
         ThreadPool::Shutdown();
         ShutdownImGui();
@@ -2392,7 +2387,7 @@ private:
     std::unique_ptr<SceneGraph> m_SceneGraph = nullptr;
 
     std::unique_ptr<Camera> m_Camera = nullptr;
-    Cubemap* m_pSkybox = nullptr;
+	std::shared_ptr<Cubemap> m_Skybox = nullptr;
     std::unique_ptr<CloudSystem> m_CloudSystem = nullptr;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;

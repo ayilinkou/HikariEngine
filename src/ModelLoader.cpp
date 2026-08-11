@@ -43,7 +43,7 @@ void ModelLoader::Shutdown()
     s_Instance = nullptr;
 }
 
-ModelData* ModelLoader::Load(const std::string& path)
+std::shared_ptr<ModelData> ModelLoader::Load(const std::string& path)
 {
     Assimp::Importer importer;
     const aiScene* pScene = importer.ReadFile(
@@ -61,11 +61,11 @@ ModelData* ModelLoader::Load(const std::string& path)
     std::vector<std::unique_ptr<Material>> materials =
         LoadMaterials(pScene, modelRoot);
 
-    ModelData* pModelData =
-        new ModelData(path, std::move(materials), pScene->mNumMeshes);
+    std::shared_ptr<ModelData> pModelData = std::make_shared<ModelData>(
+        path, std::move(materials), pScene->mNumMeshes);
     std::unique_ptr<Node> rootNode = std::make_unique<Node>();
-    rootNode->ProcessNode(pModelData, pScene->mRootNode, pScene, glm::mat4(1.f),
-                          vertices, indices);
+    rootNode->ProcessNode(pModelData.get(), pScene->mRootNode, pScene,
+                          glm::mat4(1.f), vertices, indices);
 
     if (vertices.empty() || indices.empty())
         throw std::runtime_error(

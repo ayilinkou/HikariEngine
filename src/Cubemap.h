@@ -12,6 +12,12 @@ struct CubemapCreateInfo
     std::string BackPath = "";
     std::string Name = "Cubemap";
     vk::Format Format = vk::Format::eUndefined;
+
+    std::string Key() const
+    {
+        return RightPath + LeftPath + TopPath + BottomPath + FrontPath +
+               BackPath;
+    }
 };
 
 class Cubemap

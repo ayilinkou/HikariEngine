@@ -16,18 +16,6 @@ PBRMaterial::PBRMaterial(vk::raii::Device& device,
     CreateDescriptorSet(device, descriptorPool, setLayout, sampler);
 }
 
-PBRMaterial::~PBRMaterial() { Shutdown(); }
-
-void PBRMaterial::Shutdown()
-{
-    if (m_Albedo)
-        ResourceManager::Get()->UnloadTexture(m_Albedo->GetPath());
-    if (m_Normal)
-        ResourceManager::Get()->UnloadTexture(m_Normal->GetPath());
-    if (m_MetallicRoughness)
-        ResourceManager::Get()->UnloadTexture(m_MetallicRoughness->GetPath());
-}
-
 void PBRMaterial::LoadTextures(aiMaterial* mat,
                                const std::string& texturesParentFolder)
 {

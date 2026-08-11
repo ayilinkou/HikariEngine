@@ -24,7 +24,8 @@ private:
 
     static CubemapLoader* Get() { return s_Instance; }
 
-    [[nodiscard]] Cubemap* Load(const CubemapCreateInfo& createInfo);
+    [[nodiscard]] std::shared_ptr<Cubemap>
+    Load(const CubemapCreateInfo& createInfo);
 
 private:
     inline static CubemapLoader* s_Instance = nullptr;
@@ -33,6 +34,6 @@ private:
     vk::raii::PhysicalDevice& m_PhysicalDevice;
     vk::raii::CommandPool& m_CommandPool;
     vk::raii::Queue& m_TransferQueue;
-	
-	VmaAllocator m_Allocator{};
+
+    VmaAllocator m_Allocator{};
 };

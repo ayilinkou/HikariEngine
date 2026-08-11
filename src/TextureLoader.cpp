@@ -47,7 +47,8 @@ void TextureLoader::Shutdown()
     s_Instance = nullptr;
 }
 
-Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
+std::shared_ptr<Texture> TextureLoader::Load(const std::string& path,
+                                             const vk::Format format)
 {
     LogMsg(LogSeverity::Info, LogTextureLoader, "Loading texture: {}",
            path.c_str());
@@ -107,5 +108,6 @@ Texture* TextureLoader::Load(const std::string& path, const vk::Format format)
     SetVkDebugName(m_Device, *imageView, vk::ObjectType::eImageView,
                    std::format("{} Image View", path).c_str());
 
-    return new Texture(std::move(image), std::move(imageView), path);
+    return std::make_shared<Texture>(std::move(image), std::move(imageView),
+                                     path);
 }
