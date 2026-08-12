@@ -346,6 +346,7 @@ private:
         initInfo.DescriptorPoolSize =
             IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
         initInfo.MinImageCount = m_MinImageCount;
+        initInfo.MinAllocationSize = 1024 * 1024;
         initInfo.ImageCount = static_cast<uint32_t>(m_SwapImages.size());
         initInfo.UseDynamicRendering = true;
         initInfo.PipelineCache = VK_NULL_HANDLE;
@@ -414,7 +415,7 @@ private:
     {
         LogMsg(LogSeverity::Info, LogMain, "Shutdown()");
 
-		m_Skybox.reset();
+        m_Skybox.reset();
         m_SceneGraph.reset();
         ThreadPool::Shutdown();
         ShutdownImGui();
@@ -778,9 +779,9 @@ private:
         // VK_EXT_layer_settings is implemented by layers (e.g.
         // VK_LAYER_KHRONOS_validation), not by the loader, so it never appears
         // in vkEnumerateInstanceExtensionProperties(nullptr). It takes effect
-        // purely through the VkLayerSettingsCreateInfoEXT pNext chain below; the
-        // gate for attaching it is whether the validation layer is enabled, not
-        // whether the extension happens to be enumerated.
+        // purely through the VkLayerSettingsCreateInfoEXT pNext chain below;
+        // the gate for attaching it is whether the validation layer is enabled,
+        // not whether the extension happens to be enumerated.
         auto unsupportedExtensionIt = std::ranges::find_if(
             requiredExtensions,
             [&extensionProperties](auto const& requiredExtension)
@@ -2387,7 +2388,7 @@ private:
     std::unique_ptr<SceneGraph> m_SceneGraph = nullptr;
 
     std::unique_ptr<Camera> m_Camera = nullptr;
-	std::shared_ptr<Cubemap> m_Skybox = nullptr;
+    std::shared_ptr<Cubemap> m_Skybox = nullptr;
     std::unique_ptr<CloudSystem> m_CloudSystem = nullptr;
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
