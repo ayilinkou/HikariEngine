@@ -11,6 +11,7 @@
 #include "TextureLoader.h"
 
 inline constexpr LogCategory LogResourceManager{"Resource Manager"};
+constexpr std::string_view fallbackTexturePrefix = "FallbackTexture";
 
 void ResourceManager::Init(vk::raii::Device& device,
                            vk::raii::PhysicalDevice& physicalDevice,
@@ -69,9 +70,17 @@ std::shared_ptr<Texture>
 ResourceManager::LoadTexture(const std::string& filepath,
                              const vk::Format format)
 {
-    return m_TextureCache.Get(
-        filepath + std::to_string(static_cast<uint32_t>(format)),
+    const std::string key = filepath + std::to_string(static_cast<uint32_t>(format));
+    auto tex = m_TextureCache.Get(
+        key,
         [&] { return TextureLoader::Get()->Load(filepath, format); });
+    if (!tex)
+    {
+        tex.reset();
+        const std::string fallbackTextureKey = std::string(fallbackTexturePrefix) + std::to_string(static_cast<uint32_t>(format));
+        return m_TextureCache.Get(fallbackTextureKey, [&] { return TextureLoader::Get()->LoadFallbackTexture(format); });
+    }
+    return tex;
 }
 
 std::shared_ptr<Cubemap>

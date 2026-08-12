@@ -8,7 +8,6 @@
 #include "stb_image.h"
 
 #include "Log.h"
-#include "Texture.h"
 #include "Utility.h"
 
 constexpr LogCategory LogTextureLoader("Texture Loader");
@@ -58,21 +57,31 @@ std::shared_ptr<Texture> TextureLoader::Load(const std::string& path,
         stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
     vk::DeviceSize imageSize = width * height * 4;
 
-    // TODO: instead of throwing, give it a 1x1 fallback texture
     if (!pixels)
-        throw std::runtime_error(
-            std::format("Failed to load texture: {}", path.c_str()));
+    {
+        LogMsg(LogSeverity::Error, LogTextureLoader, "Failed to load texture: {}", path.c_str());
+        return nullptr;
+    }
 
+    std::shared_ptr<Texture> texture =
+        CreateTextureFromPixels(pixels, width, height, format, imageSize, path);
+    stbi_image_free(pixels);
+    return texture;
+}
+
+std::shared_ptr<Texture> TextureLoader::CreateTextureFromPixels(
+    stbi_uc* pixels, const int width, const int height,
+    const vk::Format format, const vk::DeviceSize size, const std::string& path)
+{
     AllocatedBuffer stagingBuffer = CreateBuffer(
-        m_Allocator, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+        m_Allocator, size, vk::BufferUsageFlagBits::eTransferSrc,
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
             VMA_ALLOCATION_CREATE_MAPPED_BIT);
 
     // Vulkan ensures that these CPU writes are visible to the GPU before
     // the command buffer starts executing.
-    memcpy(stagingBuffer.AllocationInfo.pMappedData, pixels, imageSize);
-    stbi_image_free(pixels);
+    memcpy(stagingBuffer.AllocationInfo.pMappedData, pixels, size);
 
     vk::ImageCreateInfo imageInfo{};
     imageInfo.imageType = vk::ImageType::e2D;
@@ -110,4 +119,12 @@ std::shared_ptr<Texture> TextureLoader::Load(const std::string& path,
 
     return std::make_shared<Texture>(std::move(image), std::move(imageView),
                                      path);
+}
+
+std::shared_ptr<Texture> TextureLoader::LoadFallbackTexture(const vk::Format format)
+{
+    LogMsg(LogSeverity::Error, LogTextureLoader, "Loading fallback texture...");
+    stbi_uc fallbackPixels[] = {255, 0, 255, 255};
+    return CreateTextureFromPixels(fallbackPixels, 1, 1, format, sizeof(fallbackPixels) / sizeof(stbi_uc),
+                                   "FallbackTexture");
 }

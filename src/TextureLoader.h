@@ -2,7 +2,9 @@
 
 #include "vk_mem_alloc.h"
 
-class Texture;
+#include "Texture.h"
+
+typedef unsigned char stbi_uc;
 
 class TextureLoader
 {
@@ -24,6 +26,10 @@ private:
 
     [[nodiscard]] std::shared_ptr<Texture> Load(const std::string& filepath,
                                                 const vk::Format format);
+    [[nodiscard]] std::shared_ptr<Texture> LoadFallbackTexture(const vk::Format format);
+    [[nodiscard]] std::shared_ptr<Texture> CreateTextureFromPixels(
+                    stbi_uc* pixels, const int width, const int height,
+                    const vk::Format format, const vk::DeviceSize size, const std::string& name);
 
 private:
     inline static TextureLoader* s_Instance = nullptr;
@@ -32,5 +38,6 @@ private:
     vk::raii::PhysicalDevice& m_PhysicalDevice;
     vk::raii::CommandPool& m_CommandPool;
     vk::raii::Queue& m_TransferQueue;
+
     VmaAllocator m_Allocator;
 };
