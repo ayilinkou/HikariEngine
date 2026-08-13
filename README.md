@@ -30,9 +30,18 @@ Or you can manually specify which generator you want to use.
 cmake -B build -G "Visual Studio 17 2022"
 ```
 
-### Linux/MacOS (Apple Silicon)
+### Linux
 
 To build the debug config, just run the `build.sh` script.
 ```Terminal
 ./build.sh
 ```
+
+### MacOS (Apple Silicon) (Experimental)
+
+To build the debug config, just run the `build.sh` script.
+```Terminal
+./build.sh
+```
+
+The MacOS build is not tested as regularly as Windows and Linux and so is tagged as experimental.
