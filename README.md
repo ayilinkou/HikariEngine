@@ -12,7 +12,7 @@
 This project requires CMake, vcpkg and the Vulkan SDK to be installed. Please make sure the `VULKAN_SDK` environment variable is set to the correct path.
 
 ## Build
-`CMakePresets.json` contains presets for building on Windows, Linux and MacOS (Apple Silicon). These presets set the `CMAKE_TOOLCHAIN_FILE` variable using a `VCPKG_ROOT` environment variable. If you're using these presets, please make sure that the `VCPKG_ROOT` environment variable is set correctly.
+`CMakePresets.json` contains presets for building on Windows, Linux and macOS (Apple Silicon). These presets set the `CMAKE_TOOLCHAIN_FILE` variable using a `VCPKG_ROOT` environment variable. If you're using these presets, please make sure that the `VCPKG_ROOT` environment variable is set correctly.
 
 ```Terminal
 cmake --workflow --preset generate-sln
@@ -45,11 +45,11 @@ To build the debug config, just run the `build.sh` script.
 ./build.sh
 ```
 
-### MacOS (Apple Silicon) (Experimental)
+### macOS (Apple Silicon) (Experimental)
 
 To build the debug config, just run the `build.sh` script.
 ```Terminal
 ./build.sh
 ```
 
-The MacOS build is not tested as regularly as Windows and Linux and so is tagged as experimental.
+The macOS build is not tested as regularly as Windows and Linux and so is tagged as experimental.
