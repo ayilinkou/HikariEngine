@@ -5,6 +5,8 @@
 [![Linux ASan](https://img.shields.io/github/actions/workflow/status/ayilinkou/VulkanApp/ci.yml?branch=main&job=build%20%28ubuntu-latest%2C%20ninja-asan-linux%29&label=Linux%20ASan)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
 [![Windows Debug](https://img.shields.io/github/actions/workflow/status/ayilinkou/VulkanApp/ci.yml?branch=main&job=build%20%28windows-latest%2C%20ninja-debug-windows%29&label=Windows%20Debug)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
 [![Windows Release](https://img.shields.io/github/actions/workflow/status/ayilinkou/VulkanApp/ci.yml?branch=main&job=build%20%28windows-latest%2C%20ninja-release-windows%29&label=Windows%20Release)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
+[![macOS Debug](https://img.shields.io/github/actions/workflow/status/ayilinkou/VulkanApp/ci.yml?branch=main&job=build%20%28macos-latest%2C%20ninja-debug-macos%29&label=macOS%20Debug)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
+[![macOS Release](https://img.shields.io/github/actions/workflow/status/ayilinkou/VulkanApp/ci.yml?branch=main&job=build%20%28macos-latest%2C%20ninja-release-macos%29&label=macOS%20Release)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
 
 ## Requirements
 This project requires CMake, vcpkg and the Vulkan SDK to be installed. Please make sure the `VULKAN_SDK` environment variable is set to the correct path.
