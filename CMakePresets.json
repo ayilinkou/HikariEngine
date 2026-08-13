@@ -87,7 +87,6 @@
 			"hidden": true,
 			"cacheVariables": {
 				"VCPKG_TARGET_TRIPLET": "arm64-osx",
-				"CMAKE_MAKE_PROGRAM": "/opt/homebrew/bin/ninja",
 				"CMAKE_CXX_COMPILER": "/usr/bin/clang++"
 			}
 		},

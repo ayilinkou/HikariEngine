@@ -26,6 +26,10 @@ jobs:
             preset: ninja-debug-windows
           - os: windows-latest
             preset: ninja-release-windows
+          - os: macos-latest
+            preset: ninja-debug-macos
+          - os: macos-latest
+            preset: ninja-release-macos
 
     runs-on: ${{ matrix.os }}
 
