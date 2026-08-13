@@ -198,7 +198,7 @@ function(add_slang_shader_target target)
       COMMAND
         ${SLANGC_EXECUTABLE} ${shader} -target spirv -profile spirv_1_4
         -emit-spirv-directly -fvk-use-entrypoint-name ${entry_points} -o
-        ${output_file} $<IF:$<CONFIG:Debug>,-g1,-O3> $<$<CONFIG:Debug>:-O0>
+        ${output_file} $<IF:$<CONFIG:Debug>,-g1$<SEMICOLON>-O0,-O3>
       DEPENDS ${shader} ${shader_headers}
       COMMENT "Compiling shader ${rel_path}"
       VERBATIM)
