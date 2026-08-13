@@ -92,6 +92,13 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      - name: Setup ccache (Linux only)
+        if: runner.os == 'Linux'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ccache-${{ matrix.preset }}
+          max-size: 500M
+      
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
         env:
