@@ -8,6 +8,7 @@ on:
 
 env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  VCPKG_DISABLE_METRICS: "1"
 
 jobs:
   build:
