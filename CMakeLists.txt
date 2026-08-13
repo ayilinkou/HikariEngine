@@ -35,6 +35,13 @@ project(
   VERSION 1.0
   LANGUAGES CXX)
 
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+  set(CMAKE_C_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+  set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+  message(STATUS "ccache found, enabling compiler cache: ${CCACHE_PROGRAM}")
+endif()
+
 set(SOURCES
     src/main.cpp
     src/Model.cpp
@@ -166,6 +173,18 @@ else()
             $<$<CONFIG:Release>:
             -O3
             >)
+
+  # lld links noticeably faster than bfd, which matters most for the
+  # ASan/UBSan build (large instrumented runtime + debug info to link). Not used
+  # on Apple platforms since Xcode's ld already handles this well and lld's
+  # Mach-O support is less mature.
+  if(NOT APPLE)
+    include(CheckLinkerFlag)
+    check_linker_flag(CXX "-fuse-ld=lld" LLD_LINKER_AVAILABLE)
+    if(LLD_LINKER_AVAILABLE)
+      target_link_options(VulkanApp PRIVATE -fuse-ld=lld)
+    endif()
+  endif()
 endif()
 
 # TODO: make shaders only depend on headers that they actually include
@@ -198,7 +217,8 @@ function(add_slang_shader_target target)
       COMMAND
         ${SLANGC_EXECUTABLE} ${shader} -target spirv -profile spirv_1_4
         -emit-spirv-directly -fvk-use-entrypoint-name ${entry_points} -o
-        ${output_file} $<IF:$<CONFIG:Debug>,-g1,-g0> $<IF:$<CONFIG:Debug>,-O0,-O3>
+        ${output_file} $<IF:$<CONFIG:Debug>,-g1,-g0>
+        $<IF:$<CONFIG:Debug>,-O0,-O3>
       DEPENDS ${shader} ${shader_headers}
       COMMENT "Compiling shader ${rel_path}"
       VERBATIM)
