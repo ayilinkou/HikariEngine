@@ -394,7 +394,6 @@ private:
         // TODO: read from scene
         CloudSystemCreateInfo cloudCreateInfo{
             .Device = m_Device,
-            .PhysicalDevice = m_PhysicalDevice,
             .GlobalSetLayout = m_GlobalBufferSetLayout,
             .DepthSetLayout = m_DepthSetLayout,
             .CommandPool = m_GenericCommandPool,

@@ -6,7 +6,6 @@
 struct CloudSystemCreateInfo
 {
     vk::raii::Device& Device;
-    vk::raii::PhysicalDevice& PhysicalDevice;
     vk::raii::DescriptorSetLayout& GlobalSetLayout;
     vk::raii::DescriptorSetLayout& DepthSetLayout;
     vk::raii::CommandPool& CommandPool;
@@ -74,7 +73,6 @@ private:
     static const uint32_t s_NOISE_RES;
 
     vk::raii::Device& m_Device;
-    vk::raii::PhysicalDevice& m_PhysicalDevice;
 
     vk::raii::DescriptorSetLayout m_SetLayout = nullptr;
     vk::raii::DescriptorSetLayout m_BakeSetLayout = nullptr;

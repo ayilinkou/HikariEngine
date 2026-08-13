@@ -8,8 +8,7 @@ inline constexpr LogCategory LogCloudSystem{"Cloud System"};
 const uint32_t CloudSystem::s_NOISE_RES = 128u;
 
 CloudSystem::CloudSystem(CloudSystemCreateInfo createInfo)
-    : m_Device(createInfo.Device), m_PhysicalDevice(createInfo.PhysicalDevice),
-      m_FramesInFlight(createInfo.FramesInFlight),
+    : m_Device(createInfo.Device), m_FramesInFlight(createInfo.FramesInFlight),
       m_Allocator(createInfo.Allocator)
 {
     Init(createInfo);
