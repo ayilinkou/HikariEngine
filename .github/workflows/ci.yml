@@ -9,6 +9,7 @@ on:
 env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_DISABLE_METRICS: "1"
+  VULKAN_SDK_VERSION: "1.4.357.0"
 
 jobs:
   build:
@@ -47,11 +48,40 @@ jobs:
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
 
-      - name: Install Vulkan SDK
+      - name: Install Ninja via Homebrew (macOS only)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Install Vulkan SDK (Linux/Windows)
+        if: runner.os != 'macOS'
         uses: humbletim/install-vulkan-sdk@v1.2
         with:
           version: latest
           cache: true
+
+      - name: Cache Vulkan SDK (macOS)
+        if: runner.os == 'macOS'
+        id: vulkan-cache-macos
+        uses: actions/cache@v4
+        with:
+          path: ~/VulkanSDK/${{ env.VULKAN_SDK_VERSION }}
+          key: vulkan-sdk-macos-${{ env.VULKAN_SDK_VERSION }}
+
+      - name: Install Vulkan SDK (macOS)
+        if: runner.os == 'macOS' && steps.vulkan-cache-macos.outputs.cache-hit != 'true'
+        run: |
+          curl -sL -o vulkan_sdk.zip \
+            "https://sdk.lunarg.com/sdk/download/${VULKAN_SDK_VERSION}/mac/vulkan_sdk.zip"
+          unzip -q vulkan_sdk.zip
+          sudo "./vulkansdk-macOS-${VULKAN_SDK_VERSION}.app/Contents/MacOS/vulkansdk-macOS-${VULKAN_SDK_VERSION}" \
+            --root "$HOME/VulkanSDK/${VULKAN_SDK_VERSION}" \
+            --accept-licenses --default-answer --confirm-command install
+
+      - name: Set Vulkan SDK env vars (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "VULKAN_SDK=$HOME/VulkanSDK/${VULKAN_SDK_VERSION}/macOS" >> "$GITHUB_ENV"
+          echo "$HOME/VulkanSDK/${VULKAN_SDK_VERSION}/macOS/bin" >> "$GITHUB_PATH"
 
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
