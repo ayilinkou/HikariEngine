@@ -193,11 +193,111 @@ void ShutdownSDL(SDL_Window* pWindow)
     SDL_Quit();
 }
 
+struct Options
+{
+    std::string ScenePath;
+    int Frames = 0;                 // 0 = run until closed, TODO
+    bool bFixedDt = false;          // TODO
+    int CameraPreset = -1;          // -1 = free camera; TODO
+    std::string ScreenshotPath;     // TODO
+    std::string ReportPath;         // TODO
+    bool bStrictValidation = false; // TODO
+    bool bHeadless = false;         // TODO
+};
+
+void PrintUsage()
+{
+    std::cout <<
+        "VulkanApp\n"
+        "\n"
+        "Usage: VulkanApp [options]\n"
+        "\n"
+        "Options:\n"
+        "  --scene <path>          Load a scene (.map) on startup\n"
+        "  --frames <N>            Exit automatically after N frames (0 = run until closed)\n"
+        "  --fixed-dt              Use a fixed 1/60s timestep instead of wall-clock time\n"
+        "  --camera-preset <N>     Use a hardcoded camera preset instead of free camera\n"
+        "  --screenshot <path>     Write a PNG of the final frame before exiting\n"
+        "  --report <path>         Write a JSON run report before exiting\n"
+        "  --strict-validation     Exit non-zero if any Vulkan validation error occurred\n"
+        "  --headless              Run without a window (reserved, not yet implemented)\n"
+        "  --help                  Print this message and exit\n";
+}
+
+[[noreturn]] void ExitWithUsage(int code)
+{
+    PrintUsage();
+    std::exit(code);
+}
+
+Options ParseArgs(int argc, char** argv)
+{
+    Options options;
+
+    auto RequireValue = [&](int& i, const char* flag) -> std::string
+    {
+        if (i + 1 >= argc)
+        {
+            std::cerr << "Missing value for " << flag << "\n";
+            ExitWithUsage(EXIT_FAILURE);
+        }
+        return argv[++i];
+    };
+
+    auto RequireInt = [&](int& i, const char* flag) -> int
+    {
+        std::string value = RequireValue(i, flag);
+        try
+        {
+            return std::stoi(value);
+        }
+        catch (const std::exception&)
+        {
+            std::cerr << "Invalid integer value for " << flag << ": " << value << "\n";
+            ExitWithUsage(EXIT_FAILURE);
+        }
+    };
+
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string_view arg = argv[i];
+
+        if (arg == "--help" || arg == "-h")
+            ExitWithUsage(EXIT_SUCCESS);
+        else if (arg == "--scene")
+            options.ScenePath = RequireValue(i, "--scene");
+        else if (arg == "--frames")
+            options.Frames = RequireInt(i, "--frames");
+        else if (arg == "--fixed-dt")
+            options.bFixedDt = true;
+        else if (arg == "--camera-preset")
+            options.CameraPreset = RequireInt(i, "--camera-preset");
+        else if (arg == "--screenshot")
+            options.ScreenshotPath = RequireValue(i, "--screenshot");
+        else if (arg == "--report")
+            options.ReportPath = RequireValue(i, "--report");
+        else if (arg == "--strict-validation")
+            options.bStrictValidation = true;
+        else if (arg == "--headless")
+            options.bHeadless = true;
+        else
+        {
+            std::cerr << "Unknown option: " << arg << "\n";
+            ExitWithUsage(EXIT_FAILURE);
+        }
+    }
+
+    return options;
+}
+
 class App
 {
 public:
     App() {}
-    App(SDL_Window* pWindow) : m_pWindow(pWindow) {}
+    App(SDL_Window* pWindow, Options options)
+        : m_pWindow(pWindow), m_Options(std::move(options))
+    {
+    }
     ~App()
     {
         if (!m_bShutdown && *m_Device)
@@ -2397,6 +2497,7 @@ private:
     bool m_bCursorVisible = true;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_LastTime;
+    Options m_Options;
     float m_RunTime = 0.f;
     float m_DeltaTime = 0.f;
     float m_DisplayFrameTime = 0.f;
@@ -2404,8 +2505,10 @@ private:
     bool m_bShutdown = false;
 };
 
-int main()
+int main(int argc, char** argv)
 {
+    Options options = ParseArgs(argc, argv);
+
 #ifdef _WIN32
     EnableAnsiColors();
 #endif
@@ -2423,7 +2526,7 @@ int main()
         InitSDL();
         pWindow.reset(CreateSDLWindow());
 
-        pApp = std::make_unique<App>(pWindow.get());
+        pApp = std::make_unique<App>(pWindow.get(), options);
         pApp->Run();
     }
     catch (const SDLException& e)
