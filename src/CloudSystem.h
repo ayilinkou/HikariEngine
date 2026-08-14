@@ -41,8 +41,7 @@ public:
     CloudSystem(CloudSystemCreateInfo createInfo);
 
     void RecordDispatch(vk::raii::CommandBuffer& cmd, uint32_t frameIndex,
-                        vk::raii::DescriptorSet& globalSet,
-                        vk::raii::DescriptorSet& depthSet);
+                        vk::raii::DescriptorSet& globalSet, vk::raii::DescriptorSet& depthSet);
     void Resize(uint32_t width, uint32_t height);
 
     vk::ImageView GetImageView(uint8_t frameIndex)
@@ -65,8 +64,7 @@ private:
     void AllocateDescriptorSets();
     void AllocateAndWriteBakeDescriptorSet();
     void WriteDescriptorSets();
-    void BakeNoiseTexture(vk::raii::CommandPool& commandPool,
-                          vk::raii::Queue& computeQueue);
+    void BakeNoiseTexture(vk::raii::CommandPool& commandPool, vk::raii::Queue& computeQueue);
     void CreateTextureSampler();
 
 private:

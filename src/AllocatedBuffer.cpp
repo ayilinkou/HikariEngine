@@ -1,10 +1,8 @@
 #include "AllocatedBuffer.h"
 
-AllocatedBuffer::AllocatedBuffer(VmaAllocator allocator, vk::Buffer buffer,
-                                 VmaAllocation alloc,
+AllocatedBuffer::AllocatedBuffer(VmaAllocator allocator, vk::Buffer buffer, VmaAllocation alloc,
                                  const VmaAllocationInfo& info)
-    : Buffer(buffer), Allocation(alloc), AllocationInfo(info),
-      Allocator(allocator)
+    : Buffer(buffer), Allocation(alloc), AllocationInfo(info), Allocator(allocator)
 {
 }
 

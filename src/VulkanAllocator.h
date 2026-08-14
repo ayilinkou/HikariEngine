@@ -6,10 +6,8 @@ class VulkanAllocator
 {
 public:
     VulkanAllocator() = default;
-    VulkanAllocator(vk::raii::Instance& instance,
-                    vk::raii::PhysicalDevice& physicalDevice,
-                    vk::raii::Device& device,
-                    uint32_t vulkanApiVersion)
+    VulkanAllocator(vk::raii::Instance& instance, vk::raii::PhysicalDevice& physicalDevice,
+                    vk::raii::Device& device, uint32_t vulkanApiVersion)
     {
         VmaAllocatorCreateInfo allocatorInfo{};
         allocatorInfo.physicalDevice = *physicalDevice;
@@ -17,8 +15,8 @@ public:
         allocatorInfo.instance = *instance;
         allocatorInfo.vulkanApiVersion = vulkanApiVersion;
 
-        vk::Result result = static_cast<vk::Result>(
-            vmaCreateAllocator(&allocatorInfo, &m_Allocator));
+        vk::Result result =
+            static_cast<vk::Result>(vmaCreateAllocator(&allocatorInfo, &m_Allocator));
 
         if (result != vk::Result::eSuccess)
             throw std::runtime_error("Failed to create VMA allocator!");

@@ -8,20 +8,16 @@ struct aiMaterial;
 class PBRMaterial : public Material
 {
 public:
-    PBRMaterial(vk::raii::Device& device,
-                vk::raii::DescriptorPool& descriptorPool,
-                vk::raii::DescriptorSetLayout& setLayout,
-                vk::raii::Sampler& sampler, aiMaterial* mat,
-                const std::string& texturesParentFolder);
+    PBRMaterial(vk::raii::Device& device, vk::raii::DescriptorPool& descriptorPool,
+                vk::raii::DescriptorSetLayout& setLayout, vk::raii::Sampler& sampler,
+                aiMaterial* mat, const std::string& texturesParentFolder);
 
     virtual void* GetPushConstantData() override { return &m_MatData; }
 
 private:
     void LoadTextures(aiMaterial* mat, const std::string& texturesParentFolder);
-    void CreateDescriptorSet(vk::raii::Device& device,
-                             vk::raii::DescriptorPool& descriptorPool,
-                             vk::raii::DescriptorSetLayout& setLayout,
-                             vk::raii::Sampler& sampler);
+    void CreateDescriptorSet(vk::raii::Device& device, vk::raii::DescriptorPool& descriptorPool,
+                             vk::raii::DescriptorSetLayout& setLayout, vk::raii::Sampler& sampler);
 
 public:
     struct MaterialData

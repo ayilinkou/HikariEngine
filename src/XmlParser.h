@@ -38,8 +38,7 @@ public:
     static void WriteModel(pugi::xml_node& parent, Model* pModel);
     static void WriteLight(pugi::xml_node& parent, Light* pLight);
 
-    static void SaveScene(const std::unique_ptr<SceneGraph>& sceneGraph,
-                          const std::string& path);
+    static void SaveScene(const std::unique_ptr<SceneGraph>& sceneGraph, const std::string& path);
 
 private:
     static NodeType TagToNodeType(std::string_view tag);

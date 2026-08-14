@@ -5,8 +5,8 @@
 struct AllocatedBuffer
 {
     AllocatedBuffer() = default;
-    AllocatedBuffer(VmaAllocator allocator, vk::Buffer buffer,
-                    VmaAllocation alloc, const VmaAllocationInfo& info);
+    AllocatedBuffer(VmaAllocator allocator, vk::Buffer buffer, VmaAllocation alloc,
+                    const VmaAllocationInfo& info);
     // move-only, like vk::raii types
     AllocatedBuffer(const AllocatedBuffer&) = delete;
     AllocatedBuffer& operator=(const AllocatedBuffer&) = delete;
@@ -16,8 +16,7 @@ struct AllocatedBuffer
 
     vk::Buffer Buffer{};
     VmaAllocation Allocation{};
-    VmaAllocationInfo
-        AllocationInfo{}; // has .pMappedData if persistently mapped
+    VmaAllocationInfo AllocationInfo{}; // has .pMappedData if persistently mapped
 
 private:
     void Destroy();

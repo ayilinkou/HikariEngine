@@ -47,9 +47,7 @@ public:
 
     Data GetData() const
     {
-        return Data{.Color = m_Color,
-                    .Intensity = m_Intensity,
-                    .Pos = m_Transform.Position};
+        return Data{.Color = m_Color, .Intensity = m_Intensity, .Pos = m_Transform.Position};
     }
 };
 
@@ -71,10 +69,7 @@ public:
         float Padding{};
     };
 
-    Data GetData() const
-    {
-        return Data{.Color = m_Color, .Intensity = m_Intensity, .Dir = m_Dir};
-    }
+    Data GetData() const { return Data{.Color = m_Color, .Intensity = m_Intensity, .Dir = m_Dir}; }
 
 private:
     glm::vec3 m_Dir;

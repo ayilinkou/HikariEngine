@@ -1,25 +1,25 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
-#include <vector>
-#include <memory>
+#include <chrono>
+#include <cmath>
+#include <csignal>
 #include <cstdint>
+#include <filesystem>
+#include <format>
+#include <functional>
+#include <future>
+#include <iostream>
+#include <limits>
+#include <memory>
+#include <queue>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <format>
-#include <unordered_map>
-#include <functional>
-#include <filesystem>
-#include <iostream>
-#include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <limits>
-#include <csignal>
 #include <thread>
-#include <future>
-#include <queue>
+#include <unordered_map>
+#include <vector>
 
 #if defined(__APPLE__)
 // Enable Vulkan Metal-surface (VK_EXT_metal_surface) support on macOS so we
@@ -37,9 +37,9 @@
 
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
-#include "glm/gtx/hash.hpp"
 #include "glm/gtc/quaternion.hpp"
 #include "glm/gtc/type_ptr.hpp"
+#include "glm/gtx/hash.hpp"
 
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_vulkan.h"
@@ -47,4 +47,3 @@
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
-

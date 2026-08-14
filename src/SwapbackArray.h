@@ -5,7 +5,8 @@
 
 // This class is a wrapper for std::vector which keeps all elements in a
 // contiguous array. Order is not maintained.
-template <typename T> class SwapbackArray
+template <typename T>
+class SwapbackArray
 {
 public:
     SwapbackArray() { m_Data = std::vector<T>(); }

@@ -18,9 +18,15 @@ void ModelManager::Shutdown()
     s_Instance = nullptr;
 }
 
-void ModelManager::RegisterModel(Model* pModel) { m_Models.Pushback(pModel); }
+void ModelManager::RegisterModel(Model* pModel)
+{
+    m_Models.Pushback(pModel);
+}
 
-void ModelManager::UnregisterModel(Model* pModel) { m_Models.Erase(pModel); }
+void ModelManager::UnregisterModel(Model* pModel)
+{
+    m_Models.Erase(pModel);
+}
 
 void ModelManager::GenerateBatches()
 {
@@ -33,8 +39,7 @@ void ModelManager::GenerateBatches()
     for (Model* pModel : m_Models)
     {
         const std::vector<Drawable> drawables = pModel->GetDrawables();
-        m_Drawables.insert(m_Drawables.end(), drawables.begin(),
-                           drawables.end());
+        m_Drawables.insert(m_Drawables.end(), drawables.begin(), drawables.end());
     }
 
     // sort by mesh and material
@@ -57,15 +62,13 @@ void ModelManager::GenerateBatches()
         batch.IndexCount = pMesh->GetIndexCount();
         batch.FirstIndex = pMesh->GetIndexOffset();
 
-        while (i < size && pMesh == m_Drawables[i].pMesh &&
-               m_Drawables[i].pMat == batch.pMaterial)
+        while (i < size && pMesh == m_Drawables[i].pMesh && m_Drawables[i].pMat == batch.pMaterial)
         {
             InstanceData data;
             // float4x4 constructor already implicitely transposes, no don't
             // need to explicitely transpose here before sending to GPU
             data.ModelMatrix = m_Drawables[i].Transform;
-            data.NormalMatrix =
-                glm::transpose(glm::inverse(m_Drawables[i].Transform));
+            data.NormalMatrix = glm::transpose(glm::inverse(m_Drawables[i].Transform));
             m_InstanceDatas.push_back(data);
             batch.InstanceCount++;
             i++;
@@ -77,8 +80,7 @@ void ModelManager::GenerateBatches()
         else if (blendMode == BlendMode::Transparent)
             m_TransparentBatches.push_back(batch);
         else
-            throw std::runtime_error(
-                std::format("BlendMode of type {} is not supported!",
-                            static_cast<uint8_t>(blendMode)));
+            throw std::runtime_error(std::format("BlendMode of type {} is not supported!",
+                                                 static_cast<uint8_t>(blendMode)));
     }
 }

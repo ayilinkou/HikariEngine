@@ -21,8 +21,7 @@ public:
             m_End = std::chrono::high_resolution_clock::now();
             std::chrono::duration<float> duration = m_End - m_Start;
 
-            printf("%s took %.1f milliseconds.\n", m_Name.c_str(),
-                   duration.count() * 1000.f);
+            printf("%s took %.1f milliseconds.\n", m_Name.c_str(), duration.count() * 1000.f);
         }
     }
 

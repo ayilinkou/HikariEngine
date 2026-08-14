@@ -16,21 +16,19 @@ private:
     ResourceManager() {}
 
 public:
-    static void Init(vk::raii::Device& device,
-                     vk::raii::PhysicalDevice& physicalDevice,
-                     vk::raii::CommandPool& commandPool,
-                     vk::raii::Queue& transferQueue, VmaAllocator allocator);
+    static void Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
+                     vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
+                     VmaAllocator allocator);
     static ResourceManager* Get() { return s_Instance; }
 
 private:
     inline static ResourceManager* s_Instance = nullptr;
 
 public:
-	static void PurgeCaches();
+    static void PurgeCaches();
     static void Shutdown();
 
-    std::shared_ptr<Texture> LoadTexture(const std::string& filepath,
-                                         const vk::Format format);
+    std::shared_ptr<Texture> LoadTexture(const std::string& filepath, const vk::Format format);
     std::shared_ptr<Cubemap> LoadCubemap(const CubemapCreateInfo& createInfo);
     std::shared_ptr<ModelData> LoadModel(const std::string& modelPath);
 

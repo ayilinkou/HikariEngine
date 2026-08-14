@@ -27,7 +27,7 @@ struct FrameData
     Texture OpaqueTexture;
     Texture AccumTexture;
     Texture RevealageTexture;
-	Texture DepthTexture;
+    Texture DepthTexture;
     AllocatedBuffer GlobalBuffer;
     AllocatedBuffer InstanceBuffer;
 };

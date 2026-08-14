@@ -12,6 +12,5 @@ glm::mat4 SceneComponent::GetAccumulatedTransform() const
 
     // We want the transform to be affected by the parent's scale so
     // ToLocalMatrix() is used here.
-    return m_pOwningComp->GetAccumulatedTransform() *
-           m_Transform.ToLocalMatrix();
+    return m_pOwningComp->GetAccumulatedTransform() * m_Transform.ToLocalMatrix();
 }

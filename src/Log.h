@@ -31,12 +31,12 @@ constexpr std::string_view SeverityColor(LogSeverity severity)
 {
     switch (severity)
     {
-    case LogSeverity::Info:
-        return Reset;
-    case LogSeverity::Warning:
-        return Yellow;
-    case LogSeverity::Error:
-        return Red;
+        case LogSeverity::Info:
+            return Reset;
+        case LogSeverity::Warning:
+            return Yellow;
+        case LogSeverity::Error:
+            return Red;
     }
     return Reset;
 }
@@ -45,12 +45,12 @@ constexpr std::string_view SeverityTag(LogSeverity severity)
 {
     switch (severity)
     {
-    case LogSeverity::Info:
-        return "";
-    case LogSeverity::Warning:
-        return "[WARNING]";
-    case LogSeverity::Error:
-        return "[ERROR]";
+        case LogSeverity::Info:
+            return "";
+        case LogSeverity::Warning:
+            return "[WARNING]";
+        case LogSeverity::Error:
+            return "[ERROR]";
     }
     return "[?]";
 }
@@ -61,8 +61,8 @@ inline LogSeverity g_MinSeverity{LogSeverity::Info};
 // If manually entering a log category, it must be constructed into a
 // LogCategory object with a string literal.
 template <typename... Args>
-void LogMsg(LogSeverity severity, const LogCategory& cat,
-            std::format_string<Args...> fmt, Args&&... args)
+void LogMsg(LogSeverity severity, const LogCategory& cat, std::format_string<Args...> fmt,
+            Args&&... args)
 {
     if (severity < Log::g_MinSeverity)
         return;
@@ -71,9 +71,7 @@ void LogMsg(LogSeverity severity, const LogCategory& cat,
     const auto tag = Log::SeverityTag(severity);
 
     FILE* stream =
-        (severity == LogSeverity::Warning || severity == LogSeverity::Error)
-            ? stderr
-            : stdout;
+        (severity == LogSeverity::Warning || severity == LogSeverity::Error) ? stderr : stdout;
 
     // color
     std::fprintf(stream, "%.*s", static_cast<int>(color.size()), color.data());
@@ -82,33 +80,29 @@ void LogMsg(LogSeverity severity, const LogCategory& cat,
     if (!tag.empty())
         std::fprintf(stream, "%.*s ", static_cast<int>(tag.size()), tag.data());
 
-    std::fprintf(stream, "[%.*s] ", static_cast<int>(cat.Name.size()),
-                 cat.Name.data());
-    std::fputs(std::vformat(fmt.get(), std::make_format_args(args...)).c_str(),
-               stream);
+    std::fprintf(stream, "[%.*s] ", static_cast<int>(cat.Name.size()), cat.Name.data());
+    std::fputs(std::vformat(fmt.get(), std::make_format_args(args...)).c_str(), stream);
 
     // reset color at the very end of the line
-    std::fprintf(stream, "%.*s\n", static_cast<int>(Log::Reset.size()),
-                 Log::Reset.data());
+    std::fprintf(stream, "%.*s\n", static_cast<int>(Log::Reset.size()), Log::Reset.data());
 }
 
 // Also prints a log message if a LogCategory is given
-inline void ShowMessageBox(const char* title, const char* message,
-                           LogSeverity severity,
+inline void ShowMessageBox(const char* title, const char* message, LogSeverity severity,
                            LogCategory category = LogCategory(""))
 {
     SDL_MessageBoxFlags flags{0};
     switch (severity)
     {
-    case LogSeverity::Info:
-        flags |= SDL_MESSAGEBOX_INFORMATION;
-        break;
-    case LogSeverity::Warning:
-        flags |= SDL_MESSAGEBOX_WARNING;
-        break;
-    case LogSeverity::Error:
-        flags |= SDL_MESSAGEBOX_ERROR;
-        break;
+        case LogSeverity::Info:
+            flags |= SDL_MESSAGEBOX_INFORMATION;
+            break;
+        case LogSeverity::Warning:
+            flags |= SDL_MESSAGEBOX_WARNING;
+            break;
+        case LogSeverity::Error:
+            flags |= SDL_MESSAGEBOX_ERROR;
+            break;
     }
 
     if (!category.Name.empty())

@@ -19,18 +19,9 @@ public:
     void UnregisterModel(Model* pModel);
 
     void GenerateBatches();
-    const std::vector<MeshBatch>& GetOpaqueBatches() const
-    {
-        return m_OpaqueBatches;
-    }
-    const std::vector<MeshBatch>& GetTransparentBatches() const
-    {
-        return m_TransparentBatches;
-    }
-    const std::vector<InstanceData>& GetInstanceDatas() const
-    {
-        return m_InstanceDatas;
-    }
+    const std::vector<MeshBatch>& GetOpaqueBatches() const { return m_OpaqueBatches; }
+    const std::vector<MeshBatch>& GetTransparentBatches() const { return m_TransparentBatches; }
+    const std::vector<InstanceData>& GetInstanceDatas() const { return m_InstanceDatas; }
 
 private:
     SwapbackArray<Model*> m_Models;

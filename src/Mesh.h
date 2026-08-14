@@ -11,9 +11,8 @@ class Material;
 class Mesh
 {
 public:
-    void Init(ModelData* pModelData, aiMesh* mesh,
-              std::vector<Vertex>& vertices, std::vector<uint32_t>& indices,
-              Material* pMaterial, uint32_t meshIndex);
+    void Init(ModelData* pModelData, aiMesh* mesh, std::vector<Vertex>& vertices,
+              std::vector<uint32_t>& indices, Material* pMaterial, uint32_t meshIndex);
 
     bool IsValid() const { return m_bIsValid; }
 

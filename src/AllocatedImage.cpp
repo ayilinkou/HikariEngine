@@ -1,7 +1,6 @@
 #include "AllocatedImage.h"
 
-AllocatedImage::AllocatedImage(VmaAllocator allocator, vk::Image image,
-                               VmaAllocation alloc)
+AllocatedImage::AllocatedImage(VmaAllocator allocator, vk::Image image, VmaAllocation alloc)
     : Image(image), Allocation(alloc), Allocator(allocator)
 {
 }

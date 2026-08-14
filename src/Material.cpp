@@ -14,8 +14,7 @@ BlendMode Material::DetectBlendMode(aiMaterial* pMat)
         return BlendMode::Transparent;
 
     aiColor4D baseColor;
-    if (pMat->Get(AI_MATKEY_BASE_COLOR, baseColor) == AI_SUCCESS &&
-        baseColor.a < 1.f)
+    if (pMat->Get(AI_MATKEY_BASE_COLOR, baseColor) == AI_SUCCESS && baseColor.a < 1.f)
         return BlendMode::Transparent;
 
     return BlendMode::Opaque;

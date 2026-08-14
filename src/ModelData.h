@@ -11,16 +11,13 @@ struct aiMaterial;
 class ModelData
 {
 public:
-    ModelData(const std::string& path,
-              std::vector<std::unique_ptr<Material>> materials,
+    ModelData(const std::string& path, std::vector<std::unique_ptr<Material>> materials,
               uint32_t meshCount);
     void Init(AllocatedBuffer vertexBuffer, AllocatedBuffer indexBuffer,
               std::unique_ptr<Node> rootNode);
 
-    Mesh* RegisterMesh(aiMesh* mesh, uint32_t meshIndex,
-                       const glm::mat4& localTransform,
-                       std::vector<Vertex>& vertices,
-                       std::vector<uint32_t>& indices);
+    Mesh* RegisterMesh(aiMesh* mesh, uint32_t meshIndex, const glm::mat4& localTransform,
+                       std::vector<Vertex>& vertices, std::vector<uint32_t>& indices);
 
     vk::Buffer GetVertexBuffer() const { return m_VertexBuffer.Buffer; }
     vk::Buffer GetIndexBuffer() const { return m_IndexBuffer.Buffer; }

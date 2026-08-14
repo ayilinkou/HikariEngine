@@ -5,19 +5,16 @@
 #include "ResourceManager.h"
 #include "Utility.h"
 
-PBRMaterial::PBRMaterial(vk::raii::Device& device,
-                         vk::raii::DescriptorPool& descriptorPool,
-                         vk::raii::DescriptorSetLayout& setLayout,
-                         vk::raii::Sampler& sampler, aiMaterial* mat,
-                         const std::string& texturesParentFolder)
+PBRMaterial::PBRMaterial(vk::raii::Device& device, vk::raii::DescriptorPool& descriptorPool,
+                         vk::raii::DescriptorSetLayout& setLayout, vk::raii::Sampler& sampler,
+                         aiMaterial* mat, const std::string& texturesParentFolder)
     : Material(mat)
 {
     LoadTextures(mat, texturesParentFolder);
     CreateDescriptorSet(device, descriptorPool, setLayout, sampler);
 }
 
-void PBRMaterial::LoadTextures(aiMaterial* mat,
-                               const std::string& texturesParentFolder)
+void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParentFolder)
 {
     aiString texturePath;
 
@@ -31,14 +28,11 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
     // prefer texture, get value if texture not available
     aiColor4D baseColor;
     aiColor3D diffuse;
-    if (mat->GetTexture(aiTextureType::aiTextureType_BASE_COLOR, 0,
-                        &texturePath) == AI_SUCCESS ||
-        mat->GetTexture(aiTextureType::aiTextureType_DIFFUSE, 0,
-                        &texturePath) == AI_SUCCESS)
+    if (mat->GetTexture(aiTextureType::aiTextureType_BASE_COLOR, 0, &texturePath) == AI_SUCCESS ||
+        mat->GetTexture(aiTextureType::aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_Albedo = ResourceManager::Get()->LoadTexture(
-            path, vk::Format::eR8G8B8A8Srgb);
+        m_Albedo = ResourceManager::Get()->LoadTexture(path, vk::Format::eR8G8B8A8Srgb);
         m_MatData.bHasAlbedoTex = (m_Albedo != nullptr);
     }
     else if (mat->Get(AI_MATKEY_BASE_COLOR, baseColor) == AI_SUCCESS)
@@ -50,21 +44,18 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
         m_MatData.Albedo = {diffuse.r, diffuse.g, diffuse.b, m_Opacity};
     }
 
-    if (mat->GetTexture(aiTextureType::aiTextureType_NORMALS, 0,
-                        &texturePath) == AI_SUCCESS)
+    if (mat->GetTexture(aiTextureType::aiTextureType_NORMALS, 0, &texturePath) == AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_Normal = ResourceManager::Get()->LoadTexture(
-            path, vk::Format::eR8G8B8A8Unorm);
+        m_Normal = ResourceManager::Get()->LoadTexture(path, vk::Format::eR8G8B8A8Unorm);
         m_MatData.bHasNormalTex = (m_Normal != nullptr);
     }
 
-    if (mat->GetTexture(aiTextureType::aiTextureType_GLTF_METALLIC_ROUGHNESS, 0,
-                        &texturePath) == AI_SUCCESS)
+    if (mat->GetTexture(aiTextureType::aiTextureType_GLTF_METALLIC_ROUGHNESS, 0, &texturePath) ==
+        AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_MetallicRoughness = ResourceManager::Get()->LoadTexture(
-            path, vk::Format::eR8G8B8A8Unorm);
+        m_MetallicRoughness = ResourceManager::Get()->LoadTexture(path, vk::Format::eR8G8B8A8Unorm);
         m_MatData.bHasMetallicRoughnessTex = (m_MetallicRoughness != nullptr);
     }
 
@@ -72,58 +63,57 @@ void PBRMaterial::LoadTextures(aiMaterial* mat,
     mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, m_MatData.Roughness);
 }
 
-void PBRMaterial::CreateDescriptorSet(
-    vk::raii::Device& device, vk::raii::DescriptorPool& descriptorPool,
-    vk::raii::DescriptorSetLayout& materialSetLayout,
-    vk::raii::Sampler& sampler)
+void PBRMaterial::CreateDescriptorSet(vk::raii::Device& device,
+                                      vk::raii::DescriptorPool& descriptorPool,
+                                      vk::raii::DescriptorSetLayout& materialSetLayout,
+                                      vk::raii::Sampler& sampler)
 {
     std::vector<vk::DescriptorSetLayout> layouts(1, materialSetLayout);
-    vk::DescriptorSetAllocateInfo allocInfo{
-        .descriptorPool = descriptorPool,
-        .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
-        .pSetLayouts = layouts.data()};
+    vk::DescriptorSetAllocateInfo allocInfo{.descriptorPool = descriptorPool,
+                                            .descriptorSetCount =
+                                                static_cast<uint32_t>(layouts.size()),
+                                            .pSetLayouts = layouts.data()};
 
     auto sets = device.allocateDescriptorSets(allocInfo);
     m_DescriptorSet = std::move(sets.front());
     SetVkDebugName(device, *m_DescriptorSet, vk::ObjectType::eDescriptorSet,
                    std::format("{} Material Descriptor Set", m_Name).c_str());
 
-    vk::DescriptorImageInfo albedoInfo{
-        .sampler = sampler,
-        .imageView = m_Albedo ? m_Albedo->GetImageView() : VK_NULL_HANDLE,
-        .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
-    vk::DescriptorImageInfo normalInfo{
-        .sampler = sampler,
-        .imageView = m_Normal ? m_Normal->GetImageView() : VK_NULL_HANDLE,
-        .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+    vk::DescriptorImageInfo albedoInfo{.sampler = sampler,
+                                       .imageView =
+                                           m_Albedo ? m_Albedo->GetImageView() : VK_NULL_HANDLE,
+                                       .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+    vk::DescriptorImageInfo normalInfo{.sampler = sampler,
+                                       .imageView =
+                                           m_Normal ? m_Normal->GetImageView() : VK_NULL_HANDLE,
+                                       .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
     vk::DescriptorImageInfo metallicRoughnessInfo{
         .sampler = sampler,
-        .imageView = m_MetallicRoughness ? m_MetallicRoughness->GetImageView()
-                                         : VK_NULL_HANDLE,
+        .imageView = m_MetallicRoughness ? m_MetallicRoughness->GetImageView() : VK_NULL_HANDLE,
         .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
     std::vector<vk::WriteDescriptorSet> writeDescriptors;
     if (m_Albedo)
     {
-        vk::WriteDescriptorSet albedoWriteSet{
-            .dstSet = m_DescriptorSet,
-            .dstBinding = TextureBinding::Albedo,
-            .dstArrayElement = 0u,
-            .descriptorCount = 1u,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .pImageInfo = &albedoInfo};
+        vk::WriteDescriptorSet albedoWriteSet{.dstSet = m_DescriptorSet,
+                                              .dstBinding = TextureBinding::Albedo,
+                                              .dstArrayElement = 0u,
+                                              .descriptorCount = 1u,
+                                              .descriptorType =
+                                                  vk::DescriptorType::eCombinedImageSampler,
+                                              .pImageInfo = &albedoInfo};
         writeDescriptors.push_back(albedoWriteSet);
     }
 
     if (m_Normal)
     {
-        vk::WriteDescriptorSet normalWriteSet{
-            .dstSet = m_DescriptorSet,
-            .dstBinding = TextureBinding::Normal,
-            .dstArrayElement = 0u,
-            .descriptorCount = 1u,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .pImageInfo = &normalInfo};
+        vk::WriteDescriptorSet normalWriteSet{.dstSet = m_DescriptorSet,
+                                              .dstBinding = TextureBinding::Normal,
+                                              .dstArrayElement = 0u,
+                                              .descriptorCount = 1u,
+                                              .descriptorType =
+                                                  vk::DescriptorType::eCombinedImageSampler,
+                                              .pImageInfo = &normalInfo};
         writeDescriptors.push_back(normalWriteSet);
     }
 

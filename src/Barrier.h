@@ -33,9 +33,9 @@ inline constexpr ImageBarrierDesc AcquiredSwapchainToColorAttachment()
     };
 }
 
-inline constexpr ImageBarrierDesc UndefinedToTransferDst(
-    uint32_t layerCount = 1u, uint32_t mipCount = 1u,
-    vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor)
+inline constexpr ImageBarrierDesc
+UndefinedToTransferDst(uint32_t layerCount = 1u, uint32_t mipCount = 1u,
+                       vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor)
 {
     return ImageBarrierDesc{
         .srcStage = vk::PipelineStageFlagBits2::eTopOfPipe,
@@ -50,9 +50,9 @@ inline constexpr ImageBarrierDesc UndefinedToTransferDst(
     };
 }
 
-inline constexpr ImageBarrierDesc TransferDstToShaderRead(
-    uint32_t layerCount = 1u, uint32_t mipCount = 1u,
-    vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor)
+inline constexpr ImageBarrierDesc
+TransferDstToShaderRead(uint32_t layerCount = 1u, uint32_t mipCount = 1u,
+                        vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor)
 {
     return ImageBarrierDesc{
         .srcStage = vk::PipelineStageFlagBits2::eTransfer,
@@ -76,8 +76,8 @@ inline constexpr ImageBarrierDesc DepthAttachmentToShaderRead()
         .dstStage = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
                     vk::PipelineStageFlagBits2::eLateFragmentTests |
                     vk::PipelineStageFlagBits2::eComputeShader,
-        .dstAccess = vk::AccessFlagBits2::eShaderRead |
-                     vk::AccessFlagBits2::eDepthStencilAttachmentRead,
+        .dstAccess =
+            vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eDepthStencilAttachmentRead,
         .oldLayout = vk::ImageLayout::eDepthAttachmentOptimal,
         .newLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
         .aspect = vk::ImageAspectFlagBits::eDepth,
@@ -86,8 +86,7 @@ inline constexpr ImageBarrierDesc DepthAttachmentToShaderRead()
     };
 }
 
-inline constexpr ImageBarrierDesc
-UndefinedToColorAttachment(uint32_t layerCount = 1u)
+inline constexpr ImageBarrierDesc UndefinedToColorAttachment(uint32_t layerCount = 1u)
 {
     return ImageBarrierDesc{
         .srcStage = vk::PipelineStageFlagBits2::eTopOfPipe,
@@ -128,8 +127,8 @@ inline constexpr ImageBarrierDesc ColorAttachmentToPresent()
     };
 }
 
-inline constexpr ImageBarrierDesc UndefinedToGeneral(
-    vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor)
+inline constexpr ImageBarrierDesc
+UndefinedToGeneral(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor)
 {
     return ImageBarrierDesc{
         .srcStage = vk::PipelineStageFlagBits2::eTopOfPipe,
@@ -144,14 +143,13 @@ inline constexpr ImageBarrierDesc UndefinedToGeneral(
 
 inline constexpr ImageBarrierDesc ColorAttachmentToShaderRead()
 {
-    return ImageBarrierDesc{
-        .srcStage = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-        .srcAccess = vk::AccessFlagBits2::eColorAttachmentWrite,
-        .dstStage = vk::PipelineStageFlagBits2::eFragmentShader,
-        .dstAccess = vk::AccessFlagBits2::eShaderRead,
-        .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
-        .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
-        .aspect = vk::ImageAspectFlagBits::eColor};
+    return ImageBarrierDesc{.srcStage = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                            .srcAccess = vk::AccessFlagBits2::eColorAttachmentWrite,
+                            .dstStage = vk::PipelineStageFlagBits2::eFragmentShader,
+                            .dstAccess = vk::AccessFlagBits2::eShaderRead,
+                            .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
+                            .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+                            .aspect = vk::ImageAspectFlagBits::eColor};
 }
 
 // Used to copy out the fully-composited swapchain image before presenting,

@@ -20,8 +20,7 @@ struct InstanceData
                 .inputRate = vk::VertexInputRate::eInstance};
     }
 
-    static constexpr std::array<vk::VertexInputAttributeDescription,
-                                AttributeCount>
+    static constexpr std::array<vk::VertexInputAttributeDescription, AttributeCount>
     GetAttributeDescriptions()
     {
         return {{{.location = 4,

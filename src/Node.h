@@ -18,10 +18,8 @@ class Node
 public:
     Node();
 
-    void ProcessNode(ModelData* pModelData, aiNode* modelNode,
-                     const aiScene* scene,
-                     const glm::mat4& parentAccumulatedModelLocal,
-                     std::vector<Vertex>& vertices,
+    void ProcessNode(ModelData* pModelData, aiNode* modelNode, const aiScene* scene,
+                     const glm::mat4& parentAccumulatedModelLocal, std::vector<Vertex>& vertices,
                      std::vector<uint32_t>& indices);
 
 private:

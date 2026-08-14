@@ -16,13 +16,10 @@ struct Vertex
 
     static constexpr vk::VertexInputBindingDescription GetBindingDescription()
     {
-        return {.binding = 0,
-                .stride = sizeof(Vertex),
-                .inputRate = vk::VertexInputRate::eVertex};
+        return {.binding = 0, .stride = sizeof(Vertex), .inputRate = vk::VertexInputRate::eVertex};
     }
 
-    static constexpr std::array<vk::VertexInputAttributeDescription,
-                                AttributeCount>
+    static constexpr std::array<vk::VertexInputAttributeDescription, AttributeCount>
     GetAttributeDescriptions()
     {
         return {{{.location = 0,
@@ -45,8 +42,8 @@ struct Vertex
 
     constexpr bool operator==(const Vertex& other) const
     {
-        return Pos == other.Pos && TexCoord == other.TexCoord &&
-               Normal == other.Normal && Tangent == other.Tangent;
+        return Pos == other.Pos && TexCoord == other.TexCoord && Normal == other.Normal &&
+               Tangent == other.Tangent;
     }
 };
 
@@ -59,13 +56,11 @@ struct QuadVertex
 
     static constexpr vk::VertexInputBindingDescription GetBindingDescription()
     {
-        return {.binding = 0,
-                .stride = sizeof(QuadVertex),
-                .inputRate = vk::VertexInputRate::eVertex};
+        return {
+            .binding = 0, .stride = sizeof(QuadVertex), .inputRate = vk::VertexInputRate::eVertex};
     }
 
-    static constexpr std::array<vk::VertexInputAttributeDescription,
-                                AttributeCount>
+    static constexpr std::array<vk::VertexInputAttributeDescription, AttributeCount>
     GetAttributeDescription()
     {
         return {{{.location = 0,
@@ -81,13 +76,12 @@ struct QuadVertex
 
 namespace std
 {
-template <> struct hash<Vertex>
+template <>
+struct hash<Vertex>
 {
     size_t operator()(const Vertex& vertex) const
     {
-        return ((hash<glm::vec3>()(vertex.Pos) ^
-                 (hash<glm::vec3>()(vertex.Normal) << 1)) >>
-                1) ^
+        return ((hash<glm::vec3>()(vertex.Pos) ^ (hash<glm::vec3>()(vertex.Normal) << 1)) >> 1) ^
                (hash<glm::vec2>()(vertex.TexCoord) << 1);
     }
 };

@@ -13,25 +13,19 @@
 inline constexpr LogCategory LogResourceManager{"Resource Manager"};
 constexpr std::string_view fallbackTexturePrefix = "FallbackTexture";
 
-void ResourceManager::Init(vk::raii::Device& device,
-                           vk::raii::PhysicalDevice& physicalDevice,
-                           vk::raii::CommandPool& commandPool,
-                           vk::raii::Queue& transferQueue,
+void ResourceManager::Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
+                           vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
                            VmaAllocator allocator)
 {
     LogMsg(LogSeverity::Info, LogResourceManager, "Init()");
 
     if (s_Instance)
-        throw std::runtime_error(
-            "ResourceManager singleton has already been initialised!");
+        throw std::runtime_error("ResourceManager singleton has already been initialised!");
 
     s_Instance = new ResourceManager();
-    TextureLoader::Init(device, physicalDevice, commandPool, transferQueue,
-                        allocator);
-    CubemapLoader::Init(device, physicalDevice, commandPool, transferQueue,
-                        allocator);
-    ModelLoader::Init(device, physicalDevice, commandPool, transferQueue,
-                      allocator);
+    TextureLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
+    CubemapLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
+    ModelLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
     ModelManager::Init();
 }
 
@@ -40,8 +34,7 @@ void ResourceManager::Shutdown()
     LogMsg(LogSeverity::Info, LogResourceManager, "Shutdown()");
 
     if (!s_Instance)
-        throw std::runtime_error(
-            "Attempting to shutdown ResourceManager when it is already null!");
+        throw std::runtime_error("Attempting to shutdown ResourceManager when it is already null!");
 
     ModelManager::Shutdown();
     ModelLoader::Shutdown();
@@ -66,34 +59,30 @@ void ResourceManager::PurgeCaches()
     s_Instance->m_ModelCache.Purge();
 }
 
-std::shared_ptr<Texture>
-ResourceManager::LoadTexture(const std::string& filepath,
-                             const vk::Format format)
+std::shared_ptr<Texture> ResourceManager::LoadTexture(const std::string& filepath,
+                                                      const vk::Format format)
 {
     const std::string key = filepath + std::to_string(static_cast<uint32_t>(format));
-    auto tex = m_TextureCache.Get(
-        key,
-        [&] { return TextureLoader::Get()->Load(filepath, format); });
+    auto tex =
+        m_TextureCache.Get(key, [&] { return TextureLoader::Get()->Load(filepath, format); });
     if (!tex)
     {
         tex.reset();
-        const std::string fallbackTextureKey = std::string(fallbackTexturePrefix) + std::to_string(static_cast<uint32_t>(format));
-        return m_TextureCache.Get(fallbackTextureKey, [&] { return TextureLoader::Get()->LoadFallbackTexture(format); });
+        const std::string fallbackTextureKey =
+            std::string(fallbackTexturePrefix) + std::to_string(static_cast<uint32_t>(format));
+        return m_TextureCache.Get(fallbackTextureKey, [&]
+                                  { return TextureLoader::Get()->LoadFallbackTexture(format); });
     }
     return tex;
 }
 
-std::shared_ptr<Cubemap>
-ResourceManager::LoadCubemap(const CubemapCreateInfo& createInfo)
+std::shared_ptr<Cubemap> ResourceManager::LoadCubemap(const CubemapCreateInfo& createInfo)
 {
-    return m_CubemapCache.Get(
-        createInfo.Key(),
-        [&] { return CubemapLoader::Get()->Load(createInfo); });
+    return m_CubemapCache.Get(createInfo.Key(),
+                              [&] { return CubemapLoader::Get()->Load(createInfo); });
 }
 
-std::shared_ptr<ModelData>
-ResourceManager::LoadModel(const std::string& modelPath)
+std::shared_ptr<ModelData> ResourceManager::LoadModel(const std::string& modelPath)
 {
-    return m_ModelCache.Get(modelPath, [&]
-                            { return ModelLoader::Get()->Load(modelPath); });
+    return m_ModelCache.Get(modelPath, [&] { return ModelLoader::Get()->Load(modelPath); });
 }

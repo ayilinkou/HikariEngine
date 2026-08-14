@@ -10,7 +10,10 @@ Model::Model(const std::string& path)
     ModelManager::Get()->RegisterModel(this);
 }
 
-Model::~Model() { ModelManager::Get()->UnregisterModel(this); }
+Model::~Model()
+{
+    ModelManager::Get()->UnregisterModel(this);
+}
 
 std::vector<Drawable> Model::GetDrawables() const
 {

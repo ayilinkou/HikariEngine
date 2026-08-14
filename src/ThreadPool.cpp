@@ -29,8 +29,8 @@ inline void SetCurrentThreadName(const std::string& name)
 
 ThreadPool::ThreadPool(uint32_t threadCount)
 {
-    LogMsg(LogSeverity::Info, LogThreadPool,
-           "Initialising ThreadPool with {} threads...", threadCount);
+    LogMsg(LogSeverity::Info, LogThreadPool, "Initialising ThreadPool with {} threads...",
+           threadCount);
 
     for (uint32_t i = 0u; i < threadCount; i++)
     {
@@ -46,8 +46,7 @@ ThreadPool::ThreadPool(uint32_t threadCount)
 
                         // stop waiting if the instance is shutting down or if
                         // there are jobs to be completed
-                        m_CV.wait(lock, [this]
-                                  { return m_Stopping || !m_Jobs.empty(); });
+                        m_CV.wait(lock, [this] { return m_Stopping || !m_Jobs.empty(); });
 
                         if (m_Stopping && m_Jobs.empty())
                             return;
@@ -87,14 +86,14 @@ void ThreadPool::Init()
     const uint32_t hwThreadCount = std::thread::hardware_concurrency();
     if (hwThreadCount == 0u)
     {
-        LogMsg(LogSeverity::Warning, LogThreadPool, "Failed to determine hardware "
-            "thread count! Thread pool will be initialised with 1 thread.");
+        LogMsg(LogSeverity::Warning, LogThreadPool,
+               "Failed to determine hardware "
+               "thread count! Thread pool will be initialised with 1 thread.");
     }
 
     const uint32_t poolThreadCount = hwThreadCount > 1u ? hwThreadCount - 1u : 1u;
-    
-    LogMsg(LogSeverity::Info, LogThreadPool, "CPU thread count: {}",
-           hwThreadCount);
+
+    LogMsg(LogSeverity::Info, LogThreadPool, "CPU thread count: {}", hwThreadCount);
 
     s_Instance = new ThreadPool(poolThreadCount);
 }

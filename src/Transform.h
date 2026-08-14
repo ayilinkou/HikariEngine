@@ -13,5 +13,5 @@ struct Transform
     glm::mat4 ToLocalMatrix() const;
     glm::mat4 ToRotationMatrix() const;
 
-	bool operator==(const Transform&) const = default;
+    bool operator==(const Transform&) const = default;
 };

@@ -2,22 +2,19 @@
 
 #include "Utility.h"
 
-ComputePipelineBuilder::ComputePipelineBuilder(vk::raii::Device& device)
-    : m_Device(device)
-{
-}
+ComputePipelineBuilder::ComputePipelineBuilder(vk::raii::Device& device) : m_Device(device) {}
 
-ComputePipelineBuilder&
-ComputePipelineBuilder::Shader(const std::string& spvPath, const char* entry)
+ComputePipelineBuilder& ComputePipelineBuilder::Shader(const std::string& spvPath,
+                                                       const char* entry)
 {
     m_SpvPath = spvPath;
     m_Entry = entry;
     return *this;
 }
 
-ComputePipelineBuilder& ComputePipelineBuilder::Layout(
-    std::span<const vk::DescriptorSetLayout> setLayouts,
-    std::span<const vk::PushConstantRange> pushRanges)
+ComputePipelineBuilder&
+ComputePipelineBuilder::Layout(std::span<const vk::DescriptorSetLayout> setLayouts,
+                               std::span<const vk::PushConstantRange> pushRanges)
 {
     m_SetLayouts.assign(setLayouts.begin(), setLayouts.end());
     m_PushRanges.assign(pushRanges.begin(), pushRanges.end());
@@ -30,23 +27,20 @@ ComputePipelineBuilder& ComputePipelineBuilder::DebugName(std::string name)
     return *this;
 }
 
-std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline>
-ComputePipelineBuilder::Build()
+std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> ComputePipelineBuilder::Build()
 {
     if (m_SpvPath.empty())
         throw std::runtime_error("ComputePipelineBuilder: no shader path set!");
 
     // --- Shader module + stage ---
     auto code = ReadFile(m_SpvPath);
-    vk::ShaderModuleCreateInfo moduleInfo{
-        .codeSize = code.size(),
-        .pCode = reinterpret_cast<const uint32_t*>(code.data())};
+    vk::ShaderModuleCreateInfo moduleInfo{.codeSize = code.size(),
+                                          .pCode = reinterpret_cast<const uint32_t*>(code.data())};
     vk::raii::ShaderModule shaderModule(m_Device, moduleInfo);
 
-    vk::PipelineShaderStageCreateInfo stageInfo{
-        .stage = vk::ShaderStageFlagBits::eCompute,
-        .module = *shaderModule,
-        .pName = m_Entry.c_str()};
+    vk::PipelineShaderStageCreateInfo stageInfo{.stage = vk::ShaderStageFlagBits::eCompute,
+                                                .module = *shaderModule,
+                                                .pName = m_Entry.c_str()};
 
     // --- Pipeline layout ---
     vk::PipelineLayoutCreateInfo layoutInfo{
@@ -57,8 +51,7 @@ ComputePipelineBuilder::Build()
     vk::raii::PipelineLayout pipelineLayout(m_Device, layoutInfo);
 
     // --- Pipeline ---
-    vk::ComputePipelineCreateInfo pipelineInfo{.stage = stageInfo,
-                                               .layout = *pipelineLayout};
+    vk::ComputePipelineCreateInfo pipelineInfo{.stage = stageInfo, .layout = *pipelineLayout};
     vk::raii::Pipeline pipeline(m_Device, nullptr, pipelineInfo);
 
     if (!m_DebugName.empty())
@@ -67,8 +60,7 @@ ComputePipelineBuilder::Build()
                        (m_DebugName + " Compute Pipeline Shader Module").c_str());
         SetVkDebugName(m_Device, *pipeline, vk::ObjectType::ePipeline,
                        (m_DebugName + " Compute Pipeline").c_str());
-        SetVkDebugName(m_Device, *pipelineLayout,
-                       vk::ObjectType::ePipelineLayout,
+        SetVkDebugName(m_Device, *pipelineLayout, vk::ObjectType::ePipelineLayout,
                        (m_DebugName + " Compute Pipeline Layout").c_str());
     }
 

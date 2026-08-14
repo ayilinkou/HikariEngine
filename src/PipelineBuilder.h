@@ -11,27 +11,21 @@ class PipelineBuilder
 public:
     explicit PipelineBuilder(vk::raii::Device& device);
 
-    PipelineBuilder& Shaders(const std::string& spvPath,
-                             const char* vertEntry = "vertMain",
+    PipelineBuilder& Shaders(const std::string& spvPath, const char* vertEntry = "vertMain",
                              const char* fragEntry = "fragMain");
-    PipelineBuilder&
-    VertexInput(std::span<const vk::VertexInputBindingDescription> bindings,
-               std::span<const vk::VertexInputAttributeDescription> attributes);
-    PipelineBuilder& Depth(bool bTest, bool bWrite,
-                          vk::CompareOp op = vk::CompareOp::eLess);
+    PipelineBuilder& VertexInput(std::span<const vk::VertexInputBindingDescription> bindings,
+                                 std::span<const vk::VertexInputAttributeDescription> attributes);
+    PipelineBuilder& Depth(bool bTest, bool bWrite, vk::CompareOp op = vk::CompareOp::eLess);
     PipelineBuilder&
     ColorAttachments(std::span<const vk::Format> formats,
-                     std::span<const vk::PipelineColorBlendAttachmentState>
-                         blendStates);
+                     std::span<const vk::PipelineColorBlendAttachmentState> blendStates);
     PipelineBuilder& DepthAttachment(vk::Format format);
     PipelineBuilder& Cull(vk::CullModeFlags mode, bool bDynamic = false);
-    PipelineBuilder&
-    Layout(std::span<const vk::DescriptorSetLayout> setLayouts,
-          std::span<const vk::PushConstantRange> pushRanges);
+    PipelineBuilder& Layout(std::span<const vk::DescriptorSetLayout> setLayouts,
+                            std::span<const vk::PushConstantRange> pushRanges);
     PipelineBuilder& DebugName(std::string name);
 
-    [[nodiscard]] std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline>
-    Build();
+    [[nodiscard]] std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> Build();
 
 private:
     vk::raii::Device& m_Device;

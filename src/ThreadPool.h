@@ -12,10 +12,10 @@ public:
     // and rvalues. std::forward then casts it back into the value category the
     // argument had at the call site. This allows it to avoid copies if the
     // argument is an rvalue but still works with lvalues (with copies).
-    template <typename F> std::future<void> Submit(F&& f)
+    template <typename F>
+    std::future<void> Submit(F&& f)
     {
-        auto task =
-            std::make_shared<std::packaged_task<void()>>(std::forward<F>(f));
+        auto task = std::make_shared<std::packaged_task<void()>>(std::forward<F>(f));
         std::future<void> future = task->get_future();
         {
             std::unique_lock lock(m_Mutex);

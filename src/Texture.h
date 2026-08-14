@@ -15,8 +15,7 @@ class Texture
 {
 public:
     Texture() = default;
-    Texture(AllocatedImage image, vk::raii::ImageView imageView,
-            const std::string& path);
+    Texture(AllocatedImage image, vk::raii::ImageView imageView, const std::string& path);
 
     vk::Image GetImage() { return m_Image.Image; }
     vk::ImageView GetImageView() { return *m_ImageView; }

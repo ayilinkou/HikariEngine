@@ -15,17 +15,17 @@ public:
     float GetMoveSpeed() const { return m_MoveSpeed; }
     glm::vec3 GetForwardVector() const { return m_ForwardVector; }
     glm::vec3 GetRightVector() const { return m_RightVector; }
-	float GetNearPlane() const { return m_NearPlane; }
-	float GetFarPlane() const { return m_FarPlane; }
-	float GetFOV() const { return m_FOV; }
+    float GetNearPlane() const { return m_NearPlane; }
+    float GetFarPlane() const { return m_FarPlane; }
+    float GetFOV() const { return m_FOV; }
 
     void Tick();
 
     void Rotate(float x, float y);
     void SetProjection(const glm::mat4& newProj) { m_Proj = newProj; }
-    
-	// FOV in degrees
-	void SetProjection(float fov, float aspect, float near, float far);
+
+    // FOV in degrees
+    void SetProjection(float fov, float aspect, float near, float far);
 
 private:
     void CalcViewMatrix();
@@ -34,9 +34,9 @@ private:
     glm::mat4 m_View;
     glm::mat4 m_Proj;
     glm::mat4 m_RotationMatrix;
-	float m_FOV;
-	float m_NearPlane;
-	float m_FarPlane;
+    float m_FOV;
+    float m_NearPlane;
+    float m_FarPlane;
 
     glm::vec3 m_ForwardVector;
     glm::vec3 m_UpVector;

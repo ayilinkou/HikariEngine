@@ -3,9 +3,9 @@
 Camera::Camera()
 {
     m_View = glm::mat4(1.f);
-	m_FOV = 90.f;
-	m_NearPlane = 0.1f;
-	m_FarPlane = 10000.f;
+    m_FOV = 90.f;
+    m_NearPlane = 0.1f;
+    m_FarPlane = 10000.f;
     m_Proj = glm::perspective(glm::radians(m_FOV), 16.f / 9.f, m_NearPlane, m_FarPlane);
     m_RotationMatrix = glm::mat4(1.f);
 
@@ -17,14 +17,16 @@ Camera::Camera()
     m_LookSens = 0.1f;
 }
 
-void Camera::Tick() { CalcViewMatrix(); }
+void Camera::Tick()
+{
+    CalcViewMatrix();
+}
 
 void Camera::CalcViewMatrix()
 {
     m_RotationMatrix = m_Transform.ToRotationMatrix();
 
-    m_ForwardVector =
-        glm::vec3(m_RotationMatrix * glm::vec4(0.f, 0.f, -1.f, 0.f));
+    m_ForwardVector = glm::vec3(m_RotationMatrix * glm::vec4(0.f, 0.f, -1.f, 0.f));
     m_UpVector = glm::vec3(m_RotationMatrix * glm::vec4(0.f, 1.f, 0.f, 0.f));
     m_RightVector = glm::cross(m_ForwardVector, m_UpVector);
 
@@ -48,8 +50,8 @@ void Camera::Rotate(float dx, float dy)
 
 void Camera::SetProjection(float fov, float aspect, float near, float far)
 {
-	m_FOV = fov;
+    m_FOV = fov;
     m_NearPlane = near;
     m_FarPlane = far;
-	m_Proj = glm::perspective(glm::radians(fov), aspect, near, far);
+    m_Proj = glm::perspective(glm::radians(fov), aspect, near, far);
 }

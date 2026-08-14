@@ -28,15 +28,14 @@ public:
     void Purge()
     {
         std::lock_guard lock(m_Mutex);
-        std::erase_if(m_Cache,
-                      [](const auto& kv) { return kv.second.expired(); });
+        std::erase_if(m_Cache, [](const auto& kv) { return kv.second.expired(); });
     }
 
     size_t LiveCount() const
     {
         std::lock_guard lock(m_Mutex);
-        return std::count_if(m_Cache.begin(), m_Cache.end(), [](const auto& kv)
-                             { return !kv.second.expired(); });
+        return std::count_if(m_Cache.begin(), m_Cache.end(),
+                             [](const auto& kv) { return !kv.second.expired(); });
     }
 
 private:

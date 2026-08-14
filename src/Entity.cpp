@@ -2,8 +2,8 @@
 
 Entity::Entity() : m_ID(s_NextID++)
 {
-	m_Name = std::string("Entity_") + std::to_string(m_ID);
-	m_RootComponent.SetOwner(this);
+    m_Name = std::string("Entity_") + std::to_string(m_ID);
+    m_RootComponent.SetOwner(this);
 }
 
 // This moves a component into the SceneComponents vector. Be sure to call

@@ -15,8 +15,7 @@ struct CubemapCreateInfo
 
     std::string Key() const
     {
-        return RightPath + LeftPath + TopPath + BottomPath + FrontPath +
-               BackPath;
+        return RightPath + LeftPath + TopPath + BottomPath + FrontPath + BackPath;
     }
 };
 

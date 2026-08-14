@@ -8,23 +8,18 @@ struct aiMaterial;
 class MaterialFactory
 {
 public:
-    static void Init(vk::raii::Device& device,
-                     vk::raii::Sampler& sampler);
+    static void Init(vk::raii::Device& device, vk::raii::Sampler& sampler);
     static void Shutdown();
 
     static MaterialFactory* Get() { return s_Instance; }
 
-    [[nodiscard]] PBRMaterial*
-    CreatePBRMaterial(aiMaterial* mat, const std::string& texturesParentFolder);
+    [[nodiscard]] PBRMaterial* CreatePBRMaterial(aiMaterial* mat,
+                                                 const std::string& texturesParentFolder);
 
-    vk::DescriptorSetLayout GetDescriptorSetLayout() const
-    {
-        return *m_SetLayout;
-    }
+    vk::DescriptorSetLayout GetDescriptorSetLayout() const { return *m_SetLayout; }
 
 private:
-    MaterialFactory(vk::raii::Device& device,
-                    vk::raii::Sampler& sampler);
+    MaterialFactory(vk::raii::Device& device, vk::raii::Sampler& sampler);
 
     void CreateDescriptorPool();
     void CreateDescriptorSetLayout();

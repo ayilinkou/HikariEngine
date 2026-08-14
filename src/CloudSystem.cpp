@@ -56,11 +56,9 @@ void CloudSystem::CreateOutputTextures(uint32_t width, uint32_t height)
     for (uint32_t i = 0; i < m_FramesInFlight; ++i)
     {
         Texture tex = CreateRenderTexture(
-            m_Allocator, m_Device, m_OutputWidth, m_OutputHeight,
-            vk::Format::eR16G16B16A16Sfloat,
+            m_Allocator, m_Device, m_OutputWidth, m_OutputHeight, vk::Format::eR16G16B16A16Sfloat,
             vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
-            vk::ImageAspectFlagBits::eColor,
-            std::format("Frame_{} Cloud output image", i).c_str());
+            vk::ImageAspectFlagBits::eColor, std::format("Frame_{} Cloud output image", i).c_str());
         m_OutputTextures.push_back(std::move(tex));
     }
 }
@@ -68,10 +66,8 @@ void CloudSystem::CreateOutputTextures(uint32_t width, uint32_t height)
 void CloudSystem::CreateDescriptorSetLayout()
 {
     std::array<vk::DescriptorSetLayoutBinding, 2> bindings{
-        {{0, vk::DescriptorType::eStorageImage, 1,
-          vk::ShaderStageFlagBits::eCompute},
-         {1, vk::DescriptorType::eCombinedImageSampler, 1,
-          vk::ShaderStageFlagBits::eCompute}}};
+        {{0, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute},
+         {1, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eCompute}}};
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo{
         .bindingCount = static_cast<uint32_t>(bindings.size()),
@@ -83,8 +79,7 @@ void CloudSystem::CreateDescriptorSetLayout()
 void CloudSystem::CreateBakeDescriptorSetLayout()
 {
     std::array<vk::DescriptorSetLayoutBinding, 1> bindings{{
-        {0, vk::DescriptorType::eStorageImage, 1,
-         vk::ShaderStageFlagBits::eCompute},
+        {0, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute},
     }};
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo{
@@ -163,8 +158,7 @@ void CloudSystem::CreateBakeDescriptorPool()
 
 void CloudSystem::AllocateDescriptorSets()
 {
-    std::vector<vk::DescriptorSetLayout> layouts(m_FramesInFlight,
-                                                 *m_SetLayout);
+    std::vector<vk::DescriptorSetLayout> layouts(m_FramesInFlight, *m_SetLayout);
     vk::DescriptorSetAllocateInfo allocInfo{
         .descriptorPool = *m_DescriptorPool,
         .descriptorSetCount = m_FramesInFlight,
@@ -180,8 +174,7 @@ void CloudSystem::AllocateAndWriteBakeDescriptorSet()
         .descriptorSetCount = 1,
         .pSetLayouts = &*m_BakeSetLayout,
     };
-    m_BakeDescriptorSet =
-        std::move(vk::raii::DescriptorSets(m_Device, allocInfo).front());
+    m_BakeDescriptorSet = std::move(vk::raii::DescriptorSets(m_Device, allocInfo).front());
 
     vk::DescriptorImageInfo noiseImageInfo{
         .imageView = *m_PerlinWorleyView,
@@ -209,18 +202,17 @@ void CloudSystem::WriteDescriptorSets()
             .imageView = m_OutputTextures[i].GetImageView(),
             .imageLayout = vk::ImageLayout::eGeneral,
         };
-        vk::DescriptorImageInfo perlinWorleyImageInfo{
-            .sampler = *m_TextureSampler,
-            .imageView = *m_PerlinWorleyView,
-            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+        vk::DescriptorImageInfo perlinWorleyImageInfo{.sampler = *m_TextureSampler,
+                                                      .imageView = *m_PerlinWorleyView,
+                                                      .imageLayout =
+                                                          vk::ImageLayout::eShaderReadOnlyOptimal};
 
         std::array<vk::WriteDescriptorSet, 2> writeDescSet{
             vk::WriteDescriptorSet{.dstSet = *m_DescriptorSets[i],
                                    .dstBinding = 0,
                                    .dstArrayElement = 0,
                                    .descriptorCount = 1,
-                                   .descriptorType =
-                                       vk::DescriptorType::eStorageImage,
+                                   .descriptorType = vk::DescriptorType::eStorageImage,
                                    .pImageInfo = &storageImageInfo},
             vk::WriteDescriptorSet{
                 .dstSet = *m_DescriptorSets[i],
@@ -235,8 +227,7 @@ void CloudSystem::WriteDescriptorSets()
     }
 }
 
-void CloudSystem::RecordDispatch(vk::raii::CommandBuffer& cmd,
-                                 uint32_t frameIndex,
+void CloudSystem::RecordDispatch(vk::raii::CommandBuffer& cmd, uint32_t frameIndex,
                                  vk::raii::DescriptorSet& globalSet,
                                  vk::raii::DescriptorSet& depthSet)
 {
@@ -255,18 +246,16 @@ void CloudSystem::RecordDispatch(vk::raii::CommandBuffer& cmd,
         .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
     };
 
-    vk::DependencyInfo toGeneralDependencyInfo{
-        .imageMemoryBarrierCount = 1u, .pImageMemoryBarriers = &toGeneral};
+    vk::DependencyInfo toGeneralDependencyInfo{.imageMemoryBarrierCount = 1u,
+                                               .pImageMemoryBarriers = &toGeneral};
     cmd.pipelineBarrier2(toGeneralDependencyInfo);
 
     cmd.bindPipeline(vk::PipelineBindPoint::eCompute, *m_Pipeline);
-    std::array<vk::DescriptorSet, 3> sets = {*globalSet, *depthSet,
-                                             *m_DescriptorSets[frameIndex]};
-    cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute, *m_PipelineLayout,
-                           0, sets, {});
+    std::array<vk::DescriptorSet, 3> sets = {*globalSet, *depthSet, *m_DescriptorSets[frameIndex]};
+    cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute, *m_PipelineLayout, 0, sets, {});
 
-    cmd.pushConstants<CloudPushConstants>(
-        *m_PipelineLayout, vk::ShaderStageFlagBits::eCompute, 0, m_CloudData);
+    cmd.pushConstants<CloudPushConstants>(*m_PipelineLayout, vk::ShaderStageFlagBits::eCompute, 0,
+                                          m_CloudData);
 
     cmd.dispatch((m_OutputWidth + 7) / 8, (m_OutputHeight + 7) / 8, 1);
 
@@ -300,8 +289,7 @@ void CloudSystem::CreateNoiseTexture()
         .arrayLayers = 1,
         .samples = vk::SampleCountFlagBits::e1,
         .tiling = vk::ImageTiling::eOptimal,
-        .usage =
-            vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
+        .usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
         .sharingMode = vk::SharingMode::eExclusive,
         .initialLayout = vk::ImageLayout::eUndefined,
     };
@@ -324,9 +312,8 @@ void CloudSystem::CreateNoiseTexture()
 void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
                                    vk::raii::Queue& computeQueue)
 {
-    LogMsg(LogSeverity::Info, LogCloudSystem,
-           "Baking perlin worley texture ({}x{}x{})", s_NOISE_RES, s_NOISE_RES,
-           s_NOISE_RES);
+    LogMsg(LogSeverity::Info, LogCloudSystem, "Baking perlin worley texture ({}x{}x{})",
+           s_NOISE_RES, s_NOISE_RES, s_NOISE_RES);
 
     vk::raii::CommandBuffer cmd = BeginSingleTimeCommand(m_Device, commandPool);
 
@@ -342,17 +329,16 @@ void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
         .image = m_PerlinWorleyImage.Image,
         .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
     };
-    vk::DependencyInfo dep1{.imageMemoryBarrierCount = 1,
-                            .pImageMemoryBarriers = &toGeneral};
+    vk::DependencyInfo dep1{.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &toGeneral};
     cmd.pipelineBarrier2(dep1);
 
     cmd.bindPipeline(vk::PipelineBindPoint::eCompute, *m_BakePipeline);
-    cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                           *m_BakePipelineLayout, 0, *m_BakeDescriptorSet, {});
+    cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute, *m_BakePipelineLayout, 0,
+                           *m_BakeDescriptorSet, {});
 
     BakeConstants bc{.Resolution = s_NOISE_RES, .WorleyPointsPerCell = 1};
-    cmd.pushConstants<BakeConstants>(*m_BakePipelineLayout,
-                                     vk::ShaderStageFlagBits::eCompute, 0, bc);
+    cmd.pushConstants<BakeConstants>(*m_BakePipelineLayout, vk::ShaderStageFlagBits::eCompute, 0,
+                                     bc);
 
     cmd.dispatch(s_NOISE_RES / 4, s_NOISE_RES / 4,
                  s_NOISE_RES / 4); // matches numthreads(4,4,4)
@@ -369,8 +355,7 @@ void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
         .image = m_PerlinWorleyImage.Image,
         .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
     };
-    vk::DependencyInfo dep2{.imageMemoryBarrierCount = 1,
-                            .pImageMemoryBarriers = &toRead};
+    vk::DependencyInfo dep2{.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &toRead};
     cmd.pipelineBarrier2(dep2);
 
     // TODO: move to a read only image
@@ -381,19 +366,18 @@ void CloudSystem::CreateTextureSampler()
 {
     LogMsg(LogSeverity::Info, LogCloudSystem, "CreateTextureSampler()");
 
-    vk::SamplerCreateInfo createInfo{
-        .magFilter = vk::Filter::eLinear,
-        .minFilter = vk::Filter::eLinear,
-        .mipmapMode = vk::SamplerMipmapMode::eLinear,
-        .addressModeU = vk::SamplerAddressMode::eRepeat,
-        .addressModeV = vk::SamplerAddressMode::eRepeat,
-        .addressModeW = vk::SamplerAddressMode::eRepeat,
-        .anisotropyEnable = vk::False,
-        .compareEnable = vk::False,
-        .minLod = 0.f,
-        .maxLod = 0.f,
-        .borderColor = vk::BorderColor::eIntOpaqueBlack,
-        .unnormalizedCoordinates = vk::False};
+    vk::SamplerCreateInfo createInfo{.magFilter = vk::Filter::eLinear,
+                                     .minFilter = vk::Filter::eLinear,
+                                     .mipmapMode = vk::SamplerMipmapMode::eLinear,
+                                     .addressModeU = vk::SamplerAddressMode::eRepeat,
+                                     .addressModeV = vk::SamplerAddressMode::eRepeat,
+                                     .addressModeW = vk::SamplerAddressMode::eRepeat,
+                                     .anisotropyEnable = vk::False,
+                                     .compareEnable = vk::False,
+                                     .minLod = 0.f,
+                                     .maxLod = 0.f,
+                                     .borderColor = vk::BorderColor::eIntOpaqueBlack,
+                                     .unnormalizedCoordinates = vk::False};
     m_TextureSampler = vk::raii::Sampler(m_Device, createInfo);
     SetVkDebugName(m_Device, *m_TextureSampler, vk::ObjectType::eSampler,
                    "Cloud System Texture Sampler");

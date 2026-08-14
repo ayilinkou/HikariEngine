@@ -11,21 +11,18 @@ class CubemapLoader
 private:
     friend class ResourceManager;
 
-    CubemapLoader(vk::raii::Device& device,
-                  vk::raii::PhysicalDevice& physicalDevice,
-                  vk::raii::CommandPool& commandPool,
-                  vk::raii::Queue& transferQueue, VmaAllocator allocator);
+    CubemapLoader(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
+                  vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
+                  VmaAllocator allocator);
 
-    static void Init(vk::raii::Device& device,
-                     vk::raii::PhysicalDevice& physicalDevice,
-                     vk::raii::CommandPool& commandPool,
-                     vk::raii::Queue& transferQueue, VmaAllocator allocator);
+    static void Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
+                     vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
+                     VmaAllocator allocator);
     static void Shutdown();
 
     static CubemapLoader* Get() { return s_Instance; }
 
-    [[nodiscard]] std::shared_ptr<Cubemap>
-    Load(const CubemapCreateInfo& createInfo);
+    [[nodiscard]] std::shared_ptr<Cubemap> Load(const CubemapCreateInfo& createInfo);
 
 private:
     inline static CubemapLoader* s_Instance = nullptr;

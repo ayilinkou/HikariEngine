@@ -13,23 +13,21 @@ class ModelLoader
 private:
     friend class ResourceManager;
 
-    ModelLoader(vk::raii::Device& device,
-                vk::raii::PhysicalDevice& physicalDevice,
-                vk::raii::CommandPool& commandPool,
-                vk::raii::Queue& transferQueue, VmaAllocator allocator);
+    ModelLoader(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
+                vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
+                VmaAllocator allocator);
 
-    static void Init(vk::raii::Device& device,
-                     vk::raii::PhysicalDevice& physicalDevice,
-                     vk::raii::CommandPool& commandPool,
-                     vk::raii::Queue& transferQueue, VmaAllocator allocator);
+    static void Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
+                     vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
+                     VmaAllocator allocator);
     static void Shutdown();
 
     static ModelLoader* Get() { return s_Instance; }
 
     [[nodiscard]] std::shared_ptr<ModelData> Load(const std::string& path);
 
-    static std::vector<std::unique_ptr<Material>>
-    LoadMaterials(const aiScene* pScene, const std::string& modelRoot);
+    static std::vector<std::unique_ptr<Material>> LoadMaterials(const aiScene* pScene,
+                                                                const std::string& modelRoot);
 
 private:
     inline static ModelLoader* s_Instance = nullptr;

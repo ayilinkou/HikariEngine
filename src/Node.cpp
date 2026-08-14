@@ -6,10 +6,8 @@
 
 Node::Node() : m_AccumulatedModelLocal(glm::mat4(1.f)) {}
 
-void Node::ProcessNode(ModelData* pModelData, aiNode* modelNode,
-                       const aiScene* scene,
-                       const glm::mat4& parentAccumulatedModelLocal,
-                       std::vector<Vertex>& vertices,
+void Node::ProcessNode(ModelData* pModelData, aiNode* modelNode, const aiScene* scene,
+                       const glm::mat4& parentAccumulatedModelLocal, std::vector<Vertex>& vertices,
                        std::vector<uint32_t>& indices)
 {
     m_NodeName = modelNode->mName.C_Str();
@@ -21,18 +19,17 @@ void Node::ProcessNode(ModelData* pModelData, aiNode* modelNode,
     {
         uint32_t meshIndex = modelNode->mMeshes[i];
         aiMesh* sceneMesh = scene->mMeshes[meshIndex];
-        m_Meshes.push_back(pModelData->RegisterMesh(
-            sceneMesh, meshIndex, m_AccumulatedModelLocal, vertices,
-            indices)); // TODO: this is already transposed
-                       // somehow
+        m_Meshes.push_back(pModelData->RegisterMesh(sceneMesh, meshIndex, m_AccumulatedModelLocal,
+                                                    vertices,
+                                                    indices)); // TODO: this is already transposed
+                                                               // somehow
     }
 
     for (size_t i = 0; i < modelNode->mNumChildren; i++)
     {
         m_Children.emplace_back();
-        m_Children.back().ProcessNode(pModelData, modelNode->mChildren[i],
-                                      scene, m_AccumulatedModelLocal, vertices,
-                                      indices);
+        m_Children.back().ProcessNode(pModelData, modelNode->mChildren[i], scene,
+                                      m_AccumulatedModelLocal, vertices, indices);
     }
 }
 
