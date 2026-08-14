@@ -21,6 +21,7 @@
 #include "Vertex.h"
 #include "VulkanAllocator.h"
 #include "XmlParser.h"
+#include <optional>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -202,11 +203,13 @@ void ShutdownSDL(SDL_Window* pWindow)
 struct Options
 {
     std::string ScenePath;
-    uint64_t Frames = 0;            // 0 = run until closed
-    bool bFixedDt = false;          // use a fixed 1/60s timestep
-    int CameraPreset = -1;          // -1 = free camera; else index into kCameraPresets
-    std::string ScreenshotPath;     // capture the final frame to this PNG path
-    std::string ReportPath;         // write a JSON run report to this path
+    uint64_t Frames = 0;   // 0 = run until closed
+    bool bFixedDt = false; // use a fixed 1/60s timestep
+    int CameraPreset = -1; // -1 = free camera; else index into kCameraPresets
+    std::string ScreenshotPath; // capture the final frame to this PNG path
+    bool bScreenshotAutoPath = false;
+    std::string ReportPath; // write a JSON run report to this path
+    bool bReportAutoPath = false;
     bool bStrictValidation = false; // exit non-zero on any validation error
     bool bHeadless = false;         // TODO
 };
@@ -230,23 +233,28 @@ constexpr int kNumCameraPresets =
 
 void PrintUsage()
 {
-    std::cout <<
-        "VulkanApp\n"
-        "\n"
-        "Usage: VulkanApp [options]\n"
-        "\n"
-        "Options:\n"
-        "  --scene <path>          Load a scene (.map) on startup\n"
-        "  --frames <N>            Exit automatically after N frames (0 = run until closed)\n"
-        "  --fixed-dt              Use a fixed 1/60s timestep instead of wall-clock time\n"
-        "  --camera-preset <N>     Use a hardcoded camera preset (0-" +
-        std::to_string(kNumCameraPresets - 1) +
-        ") instead of free camera\n"
-        "  --screenshot <path>     Write a PNG of the final frame before exiting\n"
-        "  --report <path>         Write a JSON run report before exiting\n"
-        "  --strict-validation     Exit non-zero if any Vulkan validation error occurred\n"
-        "  --headless              Run without a window (reserved, not yet implemented)\n"
-        "  --help                  Print this message and exit\n";
+    std::cout << "VulkanApp\n"
+                 "\n"
+                 "Usage: VulkanApp [options]\n"
+                 "\n"
+                 "Options:\n"
+                 "  --scene <path>          Load a scene (.map) on startup\n"
+                 "  --frames <N>            Exit automatically after N frames "
+                 "(0 = run until closed)\n"
+                 "  --fixed-dt              Use a fixed 1/60s timestep instead "
+                 "of wall-clock time\n"
+                 "  --camera-preset <N>     Use a hardcoded camera preset (0-" +
+                     std::to_string(kNumCameraPresets - 1) +
+                     ") instead of free camera\n"
+                     "  --screenshot <path>     Write a PNG of the final frame "
+                     "before exiting\n"
+                     "  --report <path>         Write a JSON run report before "
+                     "exiting\n"
+                     "  --strict-validation     Exit non-zero if any Vulkan "
+                     "validation error occurred\n"
+                     "  --headless              Run without a window "
+                     "(reserved, not yet implemented)\n"
+                     "  --help                  Print this message and exit\n";
 }
 
 [[noreturn]] void ExitWithUsage(int code)
@@ -255,8 +263,26 @@ void PrintUsage()
     std::exit(code);
 }
 
+std::string GenerateTimestamp()
+{
+    using namespace std::chrono;
+    std::time_t now = system_clock::to_time_t(system_clock::now());
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &now);
+#else
+    localtime_r(&now, &tm);
+#endif
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%d_%m_%Y_%H_%M_%S"); // DD_MM_YYYY_HH_mm_SS
+    return oss.str();
+}
+
 Options ParseArgs(int argc, char** argv)
 {
+    constexpr const char* DEFAULT_SCENE = "scenes/test_scene.map";
+    constexpr uint64_t DEFAULT_FRAMES = 1000u;
+
     Options options;
 
     auto RequireValue = [&](int& i, const char* flag) -> std::string
@@ -307,24 +333,42 @@ Options ParseArgs(int argc, char** argv)
         }
     };
 
+    // Returns true if the next token looks like a value rather than another
+    // flag.
+    auto HasInlineValue = [&](int i) -> bool
+    {
+        return i + 1 < argc && !std::string_view(argv[i + 1]).starts_with("--");
+    };
+
     for (int i = 1; i < argc; ++i)
     {
         std::string_view arg = argv[i];
-
         if (arg == "--help" || arg == "-h")
             ExitWithUsage(EXIT_SUCCESS);
         else if (arg == "--scene")
-            options.ScenePath = RequireValue(i, "--scene");
+            options.ScenePath =
+                HasInlineValue(i) ? RequireValue(i, "--scene") : DEFAULT_SCENE;
         else if (arg == "--frames")
-            options.Frames = RequireUint64(i, "--frames");
+            options.Frames = HasInlineValue(i) ? RequireUint64(i, "--frames")
+                                               : DEFAULT_FRAMES;
         else if (arg == "--fixed-dt")
             options.bFixedDt = true;
         else if (arg == "--camera-preset")
             options.CameraPreset = RequireInt(i, "--camera-preset");
         else if (arg == "--screenshot")
-            options.ScreenshotPath = RequireValue(i, "--screenshot");
+        {
+            if (HasInlineValue(i))
+                options.ScreenshotPath = RequireValue(i, "--screenshot");
+            else
+                options.bScreenshotAutoPath = true;
+        }
         else if (arg == "--report")
-            options.ReportPath = RequireValue(i, "--report");
+        {
+            if (HasInlineValue(i))
+                options.ReportPath = RequireValue(i, "--report");
+            else
+                options.bReportAutoPath = true;
+        }
         else if (arg == "--strict-validation")
             options.bStrictValidation = true;
         else if (arg == "--headless")
@@ -335,7 +379,6 @@ Options ParseArgs(int argc, char** argv)
             ExitWithUsage(EXIT_FAILURE);
         }
     }
-
     return options;
 }
 
@@ -376,13 +419,11 @@ public:
             else
             {
                 m_DeltaTime =
-                    std::chrono::duration<float,
-                                          std::chrono::seconds::period>(
+                    std::chrono::duration<float, std::chrono::seconds::period>(
                         now - m_LastTime)
                         .count();
                 m_RunTime =
-                    std::chrono::duration<float,
-                                          std::chrono::seconds::period>(
+                    std::chrono::duration<float, std::chrono::seconds::period>(
                         now - m_StartTime)
                         .count();
             }
@@ -393,7 +434,7 @@ public:
             m_DisplayFrameTime = (m_DisplayFrameTime * smoothing) +
                                  (currentFrameTime * (1.f - smoothing));
 
-            if (!m_Options.ReportPath.empty())
+            if (!m_Options.ReportPath.empty() || m_Options.bReportAutoPath)
                 m_FrameTimesMs.push_back(currentFrameTime);
 
             float currentFPS = 1.f / m_DeltaTime;
@@ -443,7 +484,8 @@ public:
                 g_bShouldClose || (m_Options.Frames != 0 &&
                                    (m_FrameCounter + 1) >= m_Options.Frames);
             const bool captureScreenshot =
-                bIsLastFrame && !m_Options.ScreenshotPath.empty();
+                bIsLastFrame && (!m_Options.ScreenshotPath.empty() ||
+                                 m_Options.bScreenshotAutoPath);
 
             DrawFrame(captureScreenshot);
 
@@ -454,10 +496,10 @@ public:
             }
         }
 
-        if (!m_Options.ScreenshotPath.empty())
+        if (!m_Options.ScreenshotPath.empty() || m_Options.bScreenshotAutoPath)
             WriteScreenshot();
 
-        if (!m_Options.ReportPath.empty())
+        if (!m_Options.ReportPath.empty() || m_Options.bReportAutoPath)
             WriteReport();
 
         m_Device.waitIdle();
@@ -625,6 +667,9 @@ private:
 
     void WriteReport()
     {
+        const std::string DEFAULT_PATH = "tests/reports/report_";
+        EnsureParentDirectoryExists(DEFAULT_PATH);
+
         uint64_t validationErrors =
             g_ValidationErrorCount.load(std::memory_order_relaxed);
         uint64_t validationWarnings =
@@ -640,8 +685,7 @@ private:
             double sum = 0.0;
             for (float t : m_FrameTimesMs)
                 sum += t;
-            meanFrameTimeMs =
-                static_cast<float>(sum / m_FrameTimesMs.size());
+            meanFrameTimeMs = static_cast<float>(sum / m_FrameTimesMs.size());
 
             std::vector<float> sorted = m_FrameTimesMs;
             std::sort(sorted.begin(), sorted.end());
@@ -651,12 +695,15 @@ private:
             p99FrameTimeMs = sorted[index];
         }
 
-        std::ofstream file(m_Options.ReportPath);
+        std::string path = m_Options.bReportAutoPath
+                               ? DEFAULT_PATH + GenerateTimestamp()
+                               : m_Options.ReportPath;
+        path = EnsureExtension(path, ".json");
+        std::ofstream file(path);
         if (!file.is_open())
         {
             LogMsg(LogSeverity::Error, LogMain,
-                   "Failed to open report file for writing: {}",
-                   m_Options.ReportPath);
+                   "Failed to open report file for writing: {}", path);
             return;
         }
 
@@ -672,8 +719,7 @@ private:
              << "}\n";
         file.close();
 
-        LogMsg(LogSeverity::Info, LogMain, "Wrote report to {}",
-               m_Options.ReportPath);
+        LogMsg(LogSeverity::Info, LogMain, "Wrote report to {}", path);
     }
 
     // Writes the frame captured into m_ScreenshotStagingBuffer (during the
@@ -682,6 +728,9 @@ private:
 
     void WriteScreenshot()
     {
+        const std::string DEFAULT_PATH = "tests/screenshots/screenshot_";
+        EnsureParentDirectoryExists(DEFAULT_PATH);
+
         m_Device.waitIdle();
 
         if (!m_bScreenshotBufferReady)
@@ -695,8 +744,8 @@ private:
         const uint32_t width = m_SwapchainExtent.width;
         const uint32_t height = m_SwapchainExtent.height;
         constexpr uint32_t bytesPerPixel = 4;
-        const vk::DeviceSize bufferSize = static_cast<vk::DeviceSize>(width) *
-                                          height * bytesPerPixel;
+        const vk::DeviceSize bufferSize =
+            static_cast<vk::DeviceSize>(width) * height * bytesPerPixel;
 
         // The swapchain format is BGRA; swizzle to RGBA before writing.
         const auto* src = static_cast<const uint8_t*>(
@@ -710,21 +759,22 @@ private:
             pixels[i * 4 + 3] = src[i * 4 + 3]; // A <- A
         }
 
+        std::string path = m_Options.bScreenshotAutoPath
+                               ? DEFAULT_PATH + GenerateTimestamp()
+                               : m_Options.ScreenshotPath;
+        path = EnsureExtension(path, ".png");
         const int writeResult = stbi_write_png(
-            m_Options.ScreenshotPath.c_str(), static_cast<int>(width),
-            static_cast<int>(height), 4, pixels.data(),
-            static_cast<int>(width * bytesPerPixel));
+            path.c_str(), static_cast<int>(width), static_cast<int>(height), 4,
+            pixels.data(), static_cast<int>(width * bytesPerPixel));
 
         if (writeResult == 0)
         {
             LogMsg(LogSeverity::Error, LogMain,
-                   "Failed to write screenshot to {}",
-                   m_Options.ScreenshotPath);
+                   "Failed to write screenshot to {}", path);
         }
         else
         {
-            LogMsg(LogSeverity::Info, LogMain, "Wrote screenshot to {}",
-                   m_Options.ScreenshotPath);
+            LogMsg(LogSeverity::Info, LogMain, "Wrote screenshot to {}", path);
         }
     }
 
@@ -2098,13 +2148,14 @@ private:
                 .bufferOffset = 0,
                 .bufferRowLength = 0,
                 .bufferImageHeight = 0,
-                .imageSubresource = {.aspectMask = vk::ImageAspectFlagBits::eColor,
+                .imageSubresource = {.aspectMask =
+                                         vk::ImageAspectFlagBits::eColor,
                                      .mipLevel = 0,
                                      .baseArrayLayer = 0,
                                      .layerCount = 1},
                 .imageOffset = {0, 0, 0},
                 .imageExtent = {m_SwapchainExtent.width,
-                               m_SwapchainExtent.height, 1}};
+                                m_SwapchainExtent.height, 1}};
             cmd.copyImageToBuffer(m_SwapImages[imageIndex],
                                   vk::ImageLayout::eTransferSrcOptimal,
                                   m_ScreenshotStagingBuffer.Buffer, region);

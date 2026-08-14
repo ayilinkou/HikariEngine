@@ -4,8 +4,8 @@
 
 #include "AllocatedBuffer.h"
 #include "AllocatedImage.h"
-#include "Texture.h"
 #include "Barrier.h"
+#include "Texture.h"
 
 template <typename T>
 inline void SetVkDebugName([[maybe_unused]] vk::raii::Device& device,
@@ -233,7 +233,7 @@ CreateImageView(vk::raii::Device& device, const vk::Image& image,
 
 // TODO: collect barriers and group them into a single pipelineBarrier2 call
 inline void RecordImageBarrier(vk::raii::CommandBuffer& cmd, vk::Image image,
-                        const ImageBarrierDesc& desc)
+                               const ImageBarrierDesc& desc)
 {
     const vk::ImageSubresourceRange range{.aspectMask = desc.aspect,
                                           .baseMipLevel = desc.baseMip,
@@ -259,8 +259,8 @@ inline void RecordImageBarrier(vk::raii::CommandBuffer& cmd, vk::Image image,
 }
 
 inline void RecordImageBarrier(vk::raii::CommandBuffer& cmd,
-                        const AllocatedImage& image,
-                        const ImageBarrierDesc& desc)
+                               const AllocatedImage& image,
+                               const ImageBarrierDesc& desc)
 {
     RecordImageBarrier(cmd, image.Image, desc);
 }
@@ -335,4 +335,29 @@ CreateRenderTexture(VmaAllocator allocator, vk::raii::Device& device,
                          (name + " allocation").c_str());
     Texture tex(std::move(image), std::move(imageView), name.c_str());
     return tex;
+}
+
+inline void EnsureParentDirectoryExists(std::string_view path)
+{
+    std::filesystem::path p(path);
+    if (p.has_parent_path())
+    {
+        std::error_code ec;
+        std::filesystem::create_directories(p.parent_path(), ec);
+        if (ec)
+        {
+            throw std::runtime_error(
+                std::format("Failed to create directory {}: {}",
+                            p.parent_path().string(), ec.message()));
+        }
+    }
+}
+
+inline std::string EnsureExtension(const std::string& path,
+                                   const std::string& ext)
+{
+    std::filesystem::path p(path);
+    if (p.extension() != ext)
+        p.replace_extension(ext);
+    return p.string();
 }
