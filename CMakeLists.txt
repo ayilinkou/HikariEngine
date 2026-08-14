@@ -22,18 +22,27 @@ if(CMAKE_EXPORT_COMPILE_COMMANDS AND CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
   endif()
 endif()
 
-option(ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
-
-if(ENABLE_SANITIZERS)
-  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer
-                      -fno-sanitize-recover=undefined -g)
-  add_link_options(-fsanitize=address,undefined)
-endif()
-
 project(
   VulkanApp
   VERSION 1.0
   LANGUAGES CXX)
+
+option(ENABLE_SANITIZERS "Enable ASan (and UBSan when available)" OFF)
+
+if(ENABLE_SANITIZERS)
+  if(MSVC)
+    add_compile_options(/fsanitize=address)
+    add_link_options(/fsanitize=address /INCREMENTAL:NO)
+
+    # ASan is incompatible with /RTC1, which CMake's Debug config injects by
+    # default
+    string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+  else()
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer
+                        -fno-sanitize-recover=undefined -g)
+    add_link_options(-fsanitize=address,undefined)
+  endif()
+endif()
 
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
@@ -174,10 +183,10 @@ else()
             -O3
             >)
 
-  # lld links noticeably faster than bfd, which matters most for the
-  # ASan/UBSan build (large instrumented runtime + debug info to link). Not used
-  # on Apple platforms since Xcode's ld already handles this well and lld's
-  # Mach-O support is less mature.
+  # lld links noticeably faster than bfd, which matters most for the ASan/UBSan
+  # build (large instrumented runtime + debug info to link). Not used on Apple
+  # platforms since Xcode's ld already handles this well and lld's Mach-O
+  # support is less mature.
   if(NOT APPLE)
     include(CheckLinkerFlag)
     check_linker_flag(CXX "-fuse-ld=lld" LLD_LINKER_AVAILABLE)

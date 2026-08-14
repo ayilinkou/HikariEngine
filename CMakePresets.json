@@ -1,244 +1,296 @@
 {
-	"version": 6,
-	"configurePresets": [
-		{
-			"name": "base",
-			"hidden": true,
-			"binaryDir": "${sourceDir}/build/${presetName}",
-			"cacheVariables": {
-				"CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-			}
-		},
-		{
-			"name": "linux-base",
-			"inherits": "base",
-			"hidden": true,
-			"cacheVariables": {
-				"VCPKG_TARGET_TRIPLET": "x64-linux"
-			}
-		},
-		{
-			"name": "ninja-debug-linux",
-			"inherits": "linux-base",
-			"generator": "Ninja",
-			"cacheVariables": {
-				"CMAKE_BUILD_TYPE": "Debug"
-			}
-		},
-		{
-			"name": "ninja-asan-linux",
-			"inherits": "ninja-debug-linux",
-			"description": "Debug config for Ninja on Linux using Address Sanitizer and Undefined Behaviour Sanitizer",
-			"cacheVariables": {
-				"ENABLE_SANITIZERS": "ON",
-				"VCPKG_TARGET_TRIPLET": "x64-linux-asan",
-				"VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/vcpkg-triplets"
-			}
-		},
-		{
-			"name": "ninja-release-linux",
-			"inherits": "linux-base",
-			"generator": "Ninja",
-			"cacheVariables": {
-				"CMAKE_BUILD_TYPE": "Release"
-			}
-		},
-		{
-			"name": "windows-base",
-			"inherits": "base",
-			"hidden": true,
-			"cacheVariables": {
-				"VCPKG_TARGET_TRIPLET": "x64-windows"
-			}
-		},
-		{
-			"name": "msvc",
-			"inherits": "windows-base",
-			"generator": "Visual Studio 17 2022",
-		    "architecture": "x64"
-		},
-		{
-		    "name": "windows-ninja-base",
-			"inherits": "windows-base",
-			"hidden": true,
-			"generator": "Ninja",
-			"cacheVariables": {
-				"CMAKE_CXX_COMPILER": "cl",
-				"VCPKG_INSTALLED_DIR": "${sourceDir}/build/vcpkg_installed"
-			}
-		},
-		{
-			"name": "ninja-debug-windows",
-			"inherits": "windows-ninja-base",
-			"cacheVariables": {
-				"CMAKE_BUILD_TYPE": "Debug"
-			}
-		},
-		{
-			"name": "ninja-release-windows",
-			"inherits": "windows-ninja-base",
-			"cacheVariables": {
-				"CMAKE_BUILD_TYPE": "Release"
-			}
-		},
-		{
-			"name": "macos-base",
-			"inherits": "base",
-			"hidden": true,
-			"cacheVariables": {
-				"VCPKG_TARGET_TRIPLET": "arm64-osx",
-				"CMAKE_CXX_COMPILER": "/usr/bin/clang++"
-			}
-		},
-		{
-			"name": "ninja-debug-macos",
-			"inherits": "macos-base",
-			"generator": "Ninja",
-			"cacheVariables": {
-				"CMAKE_BUILD_TYPE": "Debug"
-			}
-		},
-		{
-			"name": "ninja-release-macos",
-			"inherits": "macos-base",
-			"generator": "Ninja",
-			"cacheVariables": {
-				"CMAKE_BUILD_TYPE": "Release"
-			}
-		}
-	],
-	"buildPresets": [
-		{
-			"name": "ninja-debug-linux",
-			"configurePreset": "ninja-debug-linux"
-		},
-		{
-			"name": "ninja-asan-linux",
-			"description": "Debug config for Ninja on Linux using Address Sanitizer and Undefined Behaviour Sanitizer",
-			"configurePreset": "ninja-asan-linux"
-		},
-		{
-			"name": "ninja-release-linux",
-			"configurePreset": "ninja-release-linux"
-		},
-		{
-			"name": "ninja-debug-windows",
-			"configurePreset": "ninja-debug-windows"
-		},
-		{
-			"name": "ninja-release-windows",
-			"configurePreset": "ninja-release-windows"
-		},
-		{
-			"name": "ninja-debug-macos",
-			"configurePreset": "ninja-debug-macos"
-		},
-		{
-			"name": "ninja-release-macos",
-			"configurePreset": "ninja-release-macos"
-		}
-	],
-	"workflowPresets": [
-		{
-			"name": "ninja-debug-linux",
-			"steps": [
-				{
-					"type": "configure",
-					"name": "ninja-debug-linux"
-				},
-				{
-					"type": "build",
-					"name": "ninja-debug-linux"
-				}
-			]
-		},
-		{
-			"name": "ninja-asan-linux",
-			"description": "Debug config for Ninja on Linux using Address Sanitizer and Undefined Behaviour Sanitizer",
-			"steps": [
-				{
-					"type": "configure",
-					"name": "ninja-asan-linux"
-				},
-				{
-					"type": "build",
-					"name": "ninja-asan-linux"
-				}
-			]
-		},
-		{
-			"name": "ninja-release-linux",
-			"steps": [
-				{
-					"type": "configure",
-					"name": "ninja-release-linux"
-				},
-				{
-					"type": "build",
-					"name": "ninja-release-linux"
-				}
-			]
-		},
-		{
-			"name": "ninja-debug-windows",
-			"steps": [
-				{
-					"type": "configure",
-					"name": "ninja-debug-windows"
-				},
-				{
-					"type": "build",
-					"name": "ninja-debug-windows"
-				}
-			]
-		},
-		{
-			"name": "ninja-release-windows",
-			"steps": [
-				{
-					"type": "configure",
-					"name": "ninja-release-windows"
-				},
-				{
-					"type": "build",
-					"name": "ninja-release-windows"
-				}
-			]
-		},
-		{
-			"name": "ninja-debug-macos",
-			"steps": [
-				{
-					"type": "configure",
-					"name": "ninja-debug-macos"
-				},
-				{
-					"type": "build",
-					"name": "ninja-debug-macos"
-				}
-			]
-		},
-		{
-			"name": "ninja-release-macos",
-			"steps": [
-				{
-					"type": "configure",
-					"name": "ninja-release-macos"
-				},
-				{
-					"type": "build",
-					"name": "ninja-release-macos"
-				}
-			]
-		},
-		{
-			"name": "generate-sln",
-			"steps": [
-				{
-					"type": "configure",
-					"name": "msvc"
-				}
-			]
-		}
-	]
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+            }
+        },
+        {
+            "name": "linux-base",
+            "inherits": "base",
+            "hidden": true,
+            "cacheVariables": {
+                "VCPKG_TARGET_TRIPLET": "x64-linux"
+            }
+        },
+        {
+            "name": "ninja-debug-linux",
+            "inherits": "linux-base",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "ninja-asan-linux",
+            "inherits": "ninja-debug-linux",
+            "description": "Debug config for Ninja on Linux using Address Sanitizer and Undefined Behaviour Sanitizer",
+            "cacheVariables": {
+                "ENABLE_SANITIZERS": "ON",
+                "VCPKG_TARGET_TRIPLET": "x64-linux-asan",
+                "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/vcpkg-triplets"
+            }
+        },
+        {
+            "name": "ninja-release-linux",
+            "inherits": "linux-base",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "windows-base",
+            "inherits": "base",
+            "hidden": true,
+            "cacheVariables": {
+                "VCPKG_TARGET_TRIPLET": "x64-windows"
+            }
+        },
+        {
+            "name": "msvc",
+            "inherits": "windows-base",
+            "generator": "Visual Studio 17 2022",
+            "architecture": "x64"
+        },
+        {
+            "name": "windows-ninja-base",
+            "inherits": "windows-base",
+            "hidden": true,
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_CXX_COMPILER": "cl",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/vcpkg_installed"
+            }
+        },
+        {
+            "name": "ninja-debug-windows",
+            "inherits": "windows-ninja-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "ninja-asan-windows",
+            "inherits": "ninja-debug-windows",
+            "description": "Debug config for Ninja on Windows using Address Sanitizer",
+            "cacheVariables": {
+                "ENABLE_SANITIZERS": "ON"
+            }
+        },
+        {
+            "name": "ninja-release-windows",
+            "inherits": "windows-ninja-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "macos-base",
+            "inherits": "base",
+            "hidden": true,
+            "cacheVariables": {
+                "VCPKG_TARGET_TRIPLET": "arm64-osx",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++"
+            }
+        },
+        {
+            "name": "ninja-debug-macos",
+            "inherits": "macos-base",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "ninja-asan-macos",
+            "inherits": "ninja-debug-macos",
+            "description": "Debug config for Ninja on macOS using Address Sanitizer and Undefined Behaviour Sanitizer",
+            "cacheVariables": {
+                "ENABLE_SANITIZERS": "ON",
+                "VCPKG_TARGET_TRIPLET": "arm64-osx-asan",
+                "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/vcpkg-triplets"
+            }
+        },
+        {
+            "name": "ninja-release-macos",
+            "inherits": "macos-base",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "ninja-debug-linux",
+            "configurePreset": "ninja-debug-linux"
+        },
+        {
+            "name": "ninja-asan-linux",
+            "description": "Debug config for Ninja on Linux using Address Sanitizer and Undefined Behaviour Sanitizer",
+            "configurePreset": "ninja-asan-linux"
+        },
+        {
+            "name": "ninja-release-linux",
+            "configurePreset": "ninja-release-linux"
+        },
+        {
+            "name": "ninja-debug-windows",
+            "configurePreset": "ninja-debug-windows"
+        },
+        {
+            "name": "ninja-asan-windows",
+            "configurePreset": "ninja-asan-windows"
+        },
+        {
+            "name": "ninja-release-windows",
+            "configurePreset": "ninja-release-windows"
+        },
+        {
+            "name": "ninja-debug-macos",
+            "configurePreset": "ninja-debug-macos"
+        },
+        {
+            "name": "ninja-asan-macos",
+            "configurePreset": "ninja-asan-macos"
+        },
+        {
+            "name": "ninja-release-macos",
+            "configurePreset": "ninja-release-macos"
+        }
+    ],
+    "workflowPresets": [
+        {
+            "name": "ninja-debug-linux",
+            "steps": [
+                {
+                    "type": "configure",
+                    "name": "ninja-debug-linux"
+                },
+                {
+                    "type": "build",
+                    "name": "ninja-debug-linux"
+                }
+            ]
+        },
+        {
+            "name": "ninja-asan-linux",
+            "description": "Debug config for Ninja on Linux using Address Sanitizer and Undefined Behaviour Sanitizer",
+            "steps": [
+                {
+                    "type": "configure",
+                    "name": "ninja-asan-linux"
+                },
+                {
+                    "type": "build",
+                    "name": "ninja-asan-linux"
+                }
+            ]
+        },
+        {
+            "name": "ninja-release-linux",
+            "steps": [
+                {
+                    "type": "configure",
+                    "name": "ninja-release-linux"
+                },
+                {
+                    "type": "build",
+                    "name": "ninja-release-linux"
+                }
+            ]
+        },
+        {
+            "name": "ninja-debug-windows",
+            "steps": [
+                {
+                    "type": "configure",
+                    "name": "ninja-debug-windows"
+                },
+                {
+                    "type": "build",
+                    "name": "ninja-debug-windows"
+                }
+            ]
+        },
+        {
+            "name": "ninja-asan-windows",
+            "steps": [
+                {
+                    "type": "configure",
+                    "name": "ninja-asan-windows"
+                },
+                {
+                    "type": "build",
+                    "name": "ninja-asan-windows"
+                }
+            ]
+        },
+        {
+            "name": "ninja-release-windows",
+            "steps": [
+                {
+                    "type": "configure",
+                    "name": "ninja-release-windows"
+                },
+                {
+                    "type": "build",
+                    "name": "ninja-release-windows"
+                }
+            ]
+        },
+        {
+            "name": "ninja-debug-macos",
+            "steps": [
+                {
+                    "type": "configure",
+                    "name": "ninja-debug-macos"
+                },
+                {
+                    "type": "build",
+                    "name": "ninja-debug-macos"
+                }
+            ]
+        },
+        {
+            "name": "ninja-asan-macos",
+            "steps": [
+                {
+                    "type": "configure",
+                    "name": "ninja-asan-macos"
+                },
+                {
+                    "type": "build",
+                    "name": "ninja-asan-macos"
+                }
+            ]
+        },
+        {
+            "name": "ninja-release-macos",
+            "steps": [
+                {
+                    "type": "configure",
+                    "name": "ninja-release-macos"
+                },
+                {
+                    "type": "build",
+                    "name": "ninja-release-macos"
+                }
+            ]
+        },
+        {
+            "name": "generate-sln",
+            "steps": [
+                {
+                    "type": "configure",
+                    "name": "msvc"
+                }
+            ]
+        }
+    ]
 }
