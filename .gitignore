@@ -4,3 +4,5 @@ build/
 imgui.ini
 models/sponza/**
 .cache/
+tests/screenshots/
+tests/reports/
