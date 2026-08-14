@@ -23,7 +23,6 @@
 #include "XmlParser.h"
 
 #include "ImGuiFileDialog.h"
-#include "vulkan/vulkan.hpp"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -63,6 +62,8 @@ constexpr LogCategory LogRenderer("Renderer");
 constexpr LogCategory LogImGui("InitImGui");
 
 std::atomic<bool> g_bShouldClose = false;
+std::atomic<uint64_t> g_ValidationErrorCount = 0;
+std::atomic<uint64_t> g_ValidationWarningCount = 0;
 
 void HandleSIGINT(int)
 {
@@ -130,9 +131,11 @@ DebugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
         break;
     case vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning:
         logSeverity = LogSeverity::Warning;
+        g_ValidationWarningCount.fetch_add(1, std::memory_order_relaxed);
         break;
     case vk::DebugUtilsMessageSeverityFlagBitsEXT::eError:
         logSeverity = LogSeverity::Error;
+        g_ValidationErrorCount.fetch_add(1, std::memory_order_relaxed);
         break;
     }
 
@@ -200,8 +203,8 @@ struct Options
     bool bFixedDt = false;          // use a fixed 1/60s timestep
     int CameraPreset = -1;          // -1 = free camera; else index into kCameraPresets
     std::string ScreenshotPath;     // TODO
-    std::string ReportPath;         // TODO
-    bool bStrictValidation = false; // TODO
+    std::string ReportPath;         // write a JSON run report to this path
+    bool bStrictValidation = false; // exit non-zero on any validation error
     bool bHeadless = false;         // TODO
 };
 
@@ -387,6 +390,9 @@ public:
             m_DisplayFrameTime = (m_DisplayFrameTime * smoothing) +
                                  (currentFrameTime * (1.f - smoothing));
 
+            if (!m_Options.ReportPath.empty())
+                m_FrameTimesMs.push_back(currentFrameTime);
+
             float currentFPS = 1.f / m_DeltaTime;
             m_DisplayFPS =
                 (m_DisplayFPS * smoothing) + (currentFPS * (1.f - smoothing));
@@ -437,6 +443,9 @@ public:
                 g_bShouldClose = true;
             }
         }
+
+        if (!m_Options.ReportPath.empty())
+            WriteReport();
 
         m_Device.waitIdle();
         Shutdown();
@@ -599,6 +608,59 @@ private:
         CreateDescriptorSets();
         CreateSyncObjects();
         CreateQuadBuffers();
+    }
+
+    void WriteReport()
+    {
+        uint64_t validationErrors =
+            g_ValidationErrorCount.load(std::memory_order_relaxed);
+        uint64_t validationWarnings =
+            g_ValidationWarningCount.load(std::memory_order_relaxed);
+        uint32_t drawCalls = m_OpaqueDrawCallCount + m_TransparentDrawCallCount;
+        uint32_t batches = m_OpaqueBatchCount + m_TransparentBatchCount;
+        uint32_t instances = m_OpaqueInstanceCount + m_TransparentInstanceCount;
+
+        float meanFrameTimeMs = 0.f;
+        float p99FrameTimeMs = 0.f;
+        if (!m_FrameTimesMs.empty())
+        {
+            double sum = 0.0;
+            for (float t : m_FrameTimesMs)
+                sum += t;
+            meanFrameTimeMs =
+                static_cast<float>(sum / m_FrameTimesMs.size());
+
+            std::vector<float> sorted = m_FrameTimesMs;
+            std::sort(sorted.begin(), sorted.end());
+            size_t index = static_cast<size_t>(
+                std::ceil(0.99 * static_cast<double>(sorted.size())));
+            index = std::min(index, sorted.size()) - 1;
+            p99FrameTimeMs = sorted[index];
+        }
+
+        std::ofstream file(m_Options.ReportPath);
+        if (!file.is_open())
+        {
+            LogMsg(LogSeverity::Error, LogMain,
+                   "Failed to open report file for writing: {}",
+                   m_Options.ReportPath);
+            return;
+        }
+
+        file << "{\n"
+             << "  \"frames\": " << m_FrameCounter << ",\n"
+             << "  \"validationErrors\": " << validationErrors << ",\n"
+             << "  \"validationWarnings\": " << validationWarnings << ",\n"
+             << "  \"drawCalls\": " << drawCalls << ",\n"
+             << "  \"batches\": " << batches << ",\n"
+             << "  \"instances\": " << instances << ",\n"
+             << "  \"meanFrameTimeMs\": " << meanFrameTimeMs << ",\n"
+             << "  \"p99FrameTimeMs\": " << p99FrameTimeMs << "\n"
+             << "}\n";
+        file.close();
+
+        LogMsg(LogSeverity::Info, LogMain, "Wrote report to {}",
+               m_Options.ReportPath);
     }
 
     void Shutdown()
@@ -1693,6 +1755,7 @@ private:
         // per mesh batch
         const std::vector<MeshBatch>& batches =
             ModelManager::Get()->GetOpaqueBatches();
+        uint32_t instanceCount = 0;
         for (const MeshBatch& batch : batches)
         {
             vk::CullModeFlags requiredCullMode =
@@ -1716,7 +1779,11 @@ private:
                     batch.pMaterial->GetPushConstantData()));
             cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
                             batch.FirstIndex, 0, batch.FirstInstance);
+            instanceCount += batch.InstanceCount;
         }
+        m_OpaqueDrawCallCount = static_cast<uint32_t>(batches.size());
+        m_OpaqueBatchCount = static_cast<uint32_t>(batches.size());
+        m_OpaqueInstanceCount = instanceCount;
 
         cmd.endRendering();
 
@@ -1796,6 +1863,7 @@ private:
         // per mesh batch
         const std::vector<MeshBatch>& batches =
             ModelManager::Get()->GetTransparentBatches();
+        uint32_t instanceCount = 0;
         for (const MeshBatch& batch : batches)
         {
             cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
@@ -1810,7 +1878,11 @@ private:
                     batch.pMaterial->GetPushConstantData()));
             cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
                             batch.FirstIndex, 0, batch.FirstInstance);
+            instanceCount += batch.InstanceCount;
         }
+        m_TransparentDrawCallCount = static_cast<uint32_t>(batches.size());
+        m_TransparentBatchCount = static_cast<uint32_t>(batches.size());
+        m_TransparentInstanceCount = instanceCount;
 
         cmd.endRendering();
 
@@ -2595,6 +2667,15 @@ private:
     float m_DisplayFrameTime = 0.f;
     float m_DisplayFPS = 0.f;
     bool m_bShutdown = false;
+
+    // Used in WriteReport()
+    uint32_t m_OpaqueDrawCallCount = 0;
+    uint32_t m_OpaqueBatchCount = 0;
+    uint32_t m_OpaqueInstanceCount = 0;
+    uint32_t m_TransparentDrawCallCount = 0;
+    uint32_t m_TransparentBatchCount = 0;
+    uint32_t m_TransparentInstanceCount = 0;
+    std::vector<float> m_FrameTimesMs;
 };
 
 int main(int argc, char** argv)
@@ -2642,6 +2723,15 @@ int main(int argc, char** argv)
 
     pApp.reset();
     pWindow.reset();
+
+    if (options.bStrictValidation &&
+        g_ValidationErrorCount.load(std::memory_order_relaxed) > 0)
+    {
+        LogMsg(LogSeverity::Error, LogMain,
+               "Strict validation failed: {} validation error(s) occurred",
+               g_ValidationErrorCount.load(std::memory_order_relaxed));
+        return EXIT_FAILURE;
+    }
 
     LogMsg(LogSeverity::Info, LogMain, "Exiting gracefully...");
     return EXIT_SUCCESS;
