@@ -197,13 +197,30 @@ struct Options
 {
     std::string ScenePath;
     uint64_t Frames = 0;            // 0 = run until closed
-    bool bFixedDt = false;          // TODO
-    int CameraPreset = -1;          // -1 = free camera; TODO
+    bool bFixedDt = false;          // use a fixed 1/60s timestep
+    int CameraPreset = -1;          // -1 = free camera; else index into kCameraPresets
     std::string ScreenshotPath;     // TODO
     std::string ReportPath;         // TODO
     bool bStrictValidation = false; // TODO
     bool bHeadless = false;         // TODO
 };
+
+// Hardcoded camera transforms selected via --camera-preset <N>, for
+// deterministic screenshots/reports. Rotation is (pitch, yaw, roll) in
+// degrees, matching Transform::Rotation.
+struct CameraPresetData
+{
+    glm::vec3 Position;
+    glm::vec3 Rotation;
+};
+
+constexpr CameraPresetData kCameraPresets[] = {
+    {{0.f, 2.f, 10.f}, {0.f, 0.f, 0.f}},    // 0: front view, eye height
+    {{10.f, 2.f, 0.f}, {0.f, 90.f, 0.f}},   // 1: side view
+    {{0.f, 20.f, 0.1f}, {-89.f, 0.f, 0.f}}, // 2: top-down view
+};
+constexpr int kNumCameraPresets =
+    static_cast<int>(sizeof(kCameraPresets) / sizeof(kCameraPresets[0]));
 
 void PrintUsage()
 {
@@ -216,7 +233,9 @@ void PrintUsage()
         "  --scene <path>          Load a scene (.map) on startup\n"
         "  --frames <N>            Exit automatically after N frames (0 = run until closed)\n"
         "  --fixed-dt              Use a fixed 1/60s timestep instead of wall-clock time\n"
-        "  --camera-preset <N>     Use a hardcoded camera preset instead of free camera\n"
+        "  --camera-preset <N>     Use a hardcoded camera preset (0-" +
+        std::to_string(kNumCameraPresets - 1) +
+        ") instead of free camera\n"
         "  --screenshot <path>     Write a PNG of the final frame before exiting\n"
         "  --report <path>         Write a JSON run report before exiting\n"
         "  --strict-validation     Exit non-zero if any Vulkan validation error occurred\n"
@@ -343,14 +362,24 @@ public:
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
             auto now = std::chrono::high_resolution_clock::now();
-            m_DeltaTime =
-                std::chrono::duration<float, std::chrono::seconds::period>(
-                    now - m_LastTime)
-                    .count();
-            m_RunTime =
-                std::chrono::duration<float, std::chrono::seconds::period>(
-                    now - m_StartTime)
-                    .count();
+            if (m_Options.bFixedDt)
+            {
+                m_DeltaTime = 1.f / 60.f;
+                m_RunTime += m_DeltaTime;
+            }
+            else
+            {
+                m_DeltaTime =
+                    std::chrono::duration<float,
+                                          std::chrono::seconds::period>(
+                        now - m_LastTime)
+                        .count();
+                m_RunTime =
+                    std::chrono::duration<float,
+                                          std::chrono::seconds::period>(
+                        now - m_StartTime)
+                        .count();
+            }
             m_LastTime = now;
 
             const float smoothing = 0.9f;
@@ -456,7 +485,27 @@ private:
         m_Skybox = ResourceManager::Get()->LoadCubemap(createInfo);
 
         m_Camera = std::make_unique<Camera>();
-        m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
+
+        if (m_Options.CameraPreset >= 0)
+        {
+            if (m_Options.CameraPreset >= kNumCameraPresets)
+            {
+                throw std::runtime_error(
+                    "Invalid --camera-preset index: " +
+                    std::to_string(m_Options.CameraPreset) +
+                    " (valid range: 0-" +
+                    std::to_string(kNumCameraPresets - 1) + ")");
+            }
+
+            const CameraPresetData& preset =
+                kCameraPresets[m_Options.CameraPreset];
+            m_Camera->GetTransform().Position = preset.Position;
+            m_Camera->GetTransform().Rotation = preset.Rotation;
+        }
+        else
+        {
+            m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
+        }
 
         LogMsg(LogSeverity::Info, LogMain, "Init() succeeded");
     }
@@ -575,7 +624,7 @@ private:
 
     void HandleMouse(float x, float y)
     {
-        if (!m_bCursorVisible)
+        if (!m_bCursorVisible && m_Options.CameraPreset < 0)
             m_Camera->Rotate(x, y);
     }
 
@@ -612,7 +661,7 @@ private:
     // delay.
     void HandleMovement()
     {
-        if (m_bCursorVisible)
+        if (m_bCursorVisible || m_Options.CameraPreset >= 0)
             return;
 
         glm::vec3 camOffset = {0.f, 0.f, 0.f};
