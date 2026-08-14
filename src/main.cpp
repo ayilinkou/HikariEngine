@@ -196,7 +196,7 @@ void ShutdownSDL(SDL_Window* pWindow)
 struct Options
 {
     std::string ScenePath;
-    int Frames = 0;                 // 0 = run until closed, TODO
+    uint64_t Frames = 0;            // 0 = run until closed
     bool bFixedDt = false;          // TODO
     int CameraPreset = -1;          // -1 = free camera; TODO
     std::string ScreenshotPath;     // TODO
@@ -238,7 +238,7 @@ Options ParseArgs(int argc, char** argv)
     {
         if (i + 1 >= argc)
         {
-            std::cerr << "Missing value for " << flag << "\n";
+            LogMsg(LogSeverity::Error, LogMain, "Missing value for {}", flag);
             ExitWithUsage(EXIT_FAILURE);
         }
         return argv[++i];
@@ -253,7 +253,31 @@ Options ParseArgs(int argc, char** argv)
         }
         catch (const std::exception&)
         {
-            std::cerr << "Invalid integer value for " << flag << ": " << value << "\n";
+            LogMsg(LogSeverity::Error, LogMain,
+                   "Invalid integer value for {}: {}", flag, value);
+            ExitWithUsage(EXIT_FAILURE);
+        }
+    };
+
+    auto RequireUint64 = [&](int& i, const char* flag) -> uint64_t
+    {
+        std::string value = RequireValue(i, flag);
+        try
+        {
+            if (!value.empty() && value[0] == '-')
+                throw std::invalid_argument("negative value");
+
+            size_t pos = 0;
+            uint64_t result = std::stoull(value, &pos);
+            if (pos != value.size())
+                throw std::invalid_argument("trailing characters");
+
+            return result;
+        }
+        catch (const std::exception&)
+        {
+            LogMsg(LogSeverity::Error, LogMain,
+                   "Invalid unsigned integer value for {}: {}", flag, value);
             ExitWithUsage(EXIT_FAILURE);
         }
     };
@@ -267,7 +291,7 @@ Options ParseArgs(int argc, char** argv)
         else if (arg == "--scene")
             options.ScenePath = RequireValue(i, "--scene");
         else if (arg == "--frames")
-            options.Frames = RequireInt(i, "--frames");
+            options.Frames = RequireUint64(i, "--frames");
         else if (arg == "--fixed-dt")
             options.bFixedDt = true;
         else if (arg == "--camera-preset")
@@ -282,7 +306,7 @@ Options ParseArgs(int argc, char** argv)
             options.bHeadless = true;
         else
         {
-            std::cerr << "Unknown option: " << arg << "\n";
+            LogMsg(LogSeverity::Error, LogMain, "Unknown option: {}", arg);
             ExitWithUsage(EXIT_FAILURE);
         }
     }
@@ -377,6 +401,12 @@ public:
 
             ModelManager::Get()->GenerateBatches();
             DrawFrame();
+
+            ++m_FrameCounter;
+            if (m_Options.Frames != 0 && m_FrameCounter >= m_Options.Frames)
+            {
+                g_bShouldClose = true;
+            }
         }
 
         m_Device.waitIdle();
@@ -396,7 +426,19 @@ private:
 
         ThreadPool::Init();
 
-        m_SceneGraph = std::make_unique<SceneGraph>();
+        if (!m_Options.ScenePath.empty())
+        {
+            m_SceneGraph = XmlParser::LoadScene(m_Options.ScenePath);
+            if (!m_SceneGraph)
+            {
+                throw std::runtime_error("Failed to load scene: " +
+                                         m_Options.ScenePath);
+            }
+        }
+        else
+        {
+            m_SceneGraph = std::make_unique<SceneGraph>();
+        }
 
         // TODO: read from scene
         CubemapCreateInfo createInfo{};
@@ -2498,6 +2540,7 @@ private:
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_LastTime;
     Options m_Options;
+    uint64_t m_FrameCounter = 0;
     float m_RunTime = 0.f;
     float m_DeltaTime = 0.f;
     float m_DisplayFrameTime = 0.f;
@@ -2507,14 +2550,14 @@ private:
 
 int main(int argc, char** argv)
 {
-    Options options = ParseArgs(argc, argv);
-
 #ifdef _WIN32
     EnableAnsiColors();
 #endif
     std::signal(SIGINT, HandleSIGINT);
 
     Log::g_MinSeverity = LogSeverity::Info;
+
+    Options options = ParseArgs(argc, argv);
 
     // will be destroyed in reverse order of declaration
     std::unique_ptr<SDL_Window, decltype(&ShutdownSDL)> pWindow(nullptr,
