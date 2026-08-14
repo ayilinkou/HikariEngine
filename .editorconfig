@@ -1,0 +1,25 @@
+# .editorconfig
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{cpp,hpp,h,cc,cxx}]
+indent_size = 4
+
+[*.{cmake,txt}]
+indent_size = 2
+
+[CMakeLists.txt]
+indent_size = 2
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false  # markdown uses trailing spaces for line breaks

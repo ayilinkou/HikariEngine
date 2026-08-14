@@ -1,0 +1,33 @@
+# .clang-format
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+BreakBeforeBraces: Allman
+AccessModifierOffset: -4
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# This is newer, needs clang-format 17+
+BreakTemplateDeclarations: Yes
+
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakTemplateDeclarations: Yes
+
+IndentCaseLabels: true
+NamespaceIndentation: None
+FixNamespaceComments: true
+
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+
+SpaceBeforeParens: ControlStatements
+SpacesInParentheses: false
+Cpp11BracedListStyle: true
