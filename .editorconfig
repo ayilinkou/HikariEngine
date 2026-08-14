@@ -22,4 +22,5 @@ indent_size = 2
 indent_size = 2
 
 [*.md]
-trim_trailing_whitespace = false  # markdown uses trailing spaces for line breaks
+# markdown uses trailing spaces for line breaks
+trim_trailing_whitespace = false
