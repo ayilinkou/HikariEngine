@@ -153,4 +153,32 @@ inline constexpr ImageBarrierDesc ColorAttachmentToShaderRead()
         .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
         .aspect = vk::ImageAspectFlagBits::eColor};
 }
+
+// Used to copy out the fully-composited swapchain image before presenting,
+// for screenshot capture (--screenshot).
+inline constexpr ImageBarrierDesc ColorAttachmentToTransferSrc()
+{
+    return ImageBarrierDesc{
+        .srcStage = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        .srcAccess = vk::AccessFlagBits2::eColorAttachmentWrite,
+        .dstStage = vk::PipelineStageFlagBits2::eTransfer,
+        .dstAccess = vk::AccessFlagBits2::eTransferRead,
+        .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
+        .newLayout = vk::ImageLayout::eTransferSrcOptimal,
+        .aspect = vk::ImageAspectFlagBits::eColor,
+    };
+}
+
+inline constexpr ImageBarrierDesc TransferSrcToPresent()
+{
+    return ImageBarrierDesc{
+        .srcStage = vk::PipelineStageFlagBits2::eTransfer,
+        .srcAccess = vk::AccessFlagBits2::eTransferRead,
+        .dstStage = vk::PipelineStageFlagBits2::eBottomOfPipe,
+        .dstAccess = {},
+        .oldLayout = vk::ImageLayout::eTransferSrcOptimal,
+        .newLayout = vk::ImageLayout::ePresentSrcKHR,
+        .aspect = vk::ImageAspectFlagBits::eColor,
+    };
+}
 } // namespace Barriers

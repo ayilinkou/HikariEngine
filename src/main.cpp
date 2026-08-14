@@ -22,8 +22,10 @@
 #include "VulkanAllocator.h"
 #include "XmlParser.h"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 #include "ImGuiFileDialog.h"
-#include "vulkan/vulkan.hpp"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -63,6 +65,8 @@ constexpr LogCategory LogRenderer("Renderer");
 constexpr LogCategory LogImGui("InitImGui");
 
 std::atomic<bool> g_bShouldClose = false;
+std::atomic<uint64_t> g_ValidationErrorCount = 0;
+std::atomic<uint64_t> g_ValidationWarningCount = 0;
 
 void HandleSIGINT(int)
 {
@@ -130,9 +134,11 @@ DebugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
         break;
     case vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning:
         logSeverity = LogSeverity::Warning;
+        g_ValidationWarningCount.fetch_add(1, std::memory_order_relaxed);
         break;
     case vk::DebugUtilsMessageSeverityFlagBitsEXT::eError:
         logSeverity = LogSeverity::Error;
+        g_ValidationErrorCount.fetch_add(1, std::memory_order_relaxed);
         break;
     }
 
@@ -193,11 +199,154 @@ void ShutdownSDL(SDL_Window* pWindow)
     SDL_Quit();
 }
 
+struct Options
+{
+    std::string ScenePath;
+    uint64_t Frames = 0;            // 0 = run until closed
+    bool bFixedDt = false;          // use a fixed 1/60s timestep
+    int CameraPreset = -1;          // -1 = free camera; else index into kCameraPresets
+    std::string ScreenshotPath;     // capture the final frame to this PNG path
+    std::string ReportPath;         // write a JSON run report to this path
+    bool bStrictValidation = false; // exit non-zero on any validation error
+    bool bHeadless = false;         // TODO
+};
+
+// Hardcoded camera transforms selected via --camera-preset <N>, for
+// deterministic screenshots/reports. Rotation is (pitch, yaw, roll) in
+// degrees, matching Transform::Rotation.
+struct CameraPresetData
+{
+    glm::vec3 Position;
+    glm::vec3 Rotation;
+};
+
+constexpr CameraPresetData kCameraPresets[] = {
+    {{0.f, 2.f, 10.f}, {0.f, 0.f, 0.f}},    // 0: front view, eye height
+    {{10.f, 2.f, 0.f}, {0.f, 90.f, 0.f}},   // 1: side view
+    {{0.f, 20.f, 0.1f}, {-89.f, 0.f, 0.f}}, // 2: top-down view
+};
+constexpr int kNumCameraPresets =
+    static_cast<int>(sizeof(kCameraPresets) / sizeof(kCameraPresets[0]));
+
+void PrintUsage()
+{
+    std::cout <<
+        "VulkanApp\n"
+        "\n"
+        "Usage: VulkanApp [options]\n"
+        "\n"
+        "Options:\n"
+        "  --scene <path>          Load a scene (.map) on startup\n"
+        "  --frames <N>            Exit automatically after N frames (0 = run until closed)\n"
+        "  --fixed-dt              Use a fixed 1/60s timestep instead of wall-clock time\n"
+        "  --camera-preset <N>     Use a hardcoded camera preset (0-" +
+        std::to_string(kNumCameraPresets - 1) +
+        ") instead of free camera\n"
+        "  --screenshot <path>     Write a PNG of the final frame before exiting\n"
+        "  --report <path>         Write a JSON run report before exiting\n"
+        "  --strict-validation     Exit non-zero if any Vulkan validation error occurred\n"
+        "  --headless              Run without a window (reserved, not yet implemented)\n"
+        "  --help                  Print this message and exit\n";
+}
+
+[[noreturn]] void ExitWithUsage(int code)
+{
+    PrintUsage();
+    std::exit(code);
+}
+
+Options ParseArgs(int argc, char** argv)
+{
+    Options options;
+
+    auto RequireValue = [&](int& i, const char* flag) -> std::string
+    {
+        if (i + 1 >= argc)
+        {
+            LogMsg(LogSeverity::Error, LogMain, "Missing value for {}", flag);
+            ExitWithUsage(EXIT_FAILURE);
+        }
+        return argv[++i];
+    };
+
+    auto RequireInt = [&](int& i, const char* flag) -> int
+    {
+        std::string value = RequireValue(i, flag);
+        try
+        {
+            return std::stoi(value);
+        }
+        catch (const std::exception&)
+        {
+            LogMsg(LogSeverity::Error, LogMain,
+                   "Invalid integer value for {}: {}", flag, value);
+            ExitWithUsage(EXIT_FAILURE);
+        }
+    };
+
+    auto RequireUint64 = [&](int& i, const char* flag) -> uint64_t
+    {
+        std::string value = RequireValue(i, flag);
+        try
+        {
+            if (!value.empty() && value[0] == '-')
+                throw std::invalid_argument("negative value");
+
+            size_t pos = 0;
+            uint64_t result = std::stoull(value, &pos);
+            if (pos != value.size())
+                throw std::invalid_argument("trailing characters");
+
+            return result;
+        }
+        catch (const std::exception&)
+        {
+            LogMsg(LogSeverity::Error, LogMain,
+                   "Invalid unsigned integer value for {}: {}", flag, value);
+            ExitWithUsage(EXIT_FAILURE);
+        }
+    };
+
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string_view arg = argv[i];
+
+        if (arg == "--help" || arg == "-h")
+            ExitWithUsage(EXIT_SUCCESS);
+        else if (arg == "--scene")
+            options.ScenePath = RequireValue(i, "--scene");
+        else if (arg == "--frames")
+            options.Frames = RequireUint64(i, "--frames");
+        else if (arg == "--fixed-dt")
+            options.bFixedDt = true;
+        else if (arg == "--camera-preset")
+            options.CameraPreset = RequireInt(i, "--camera-preset");
+        else if (arg == "--screenshot")
+            options.ScreenshotPath = RequireValue(i, "--screenshot");
+        else if (arg == "--report")
+            options.ReportPath = RequireValue(i, "--report");
+        else if (arg == "--strict-validation")
+            options.bStrictValidation = true;
+        else if (arg == "--headless")
+            options.bHeadless = true;
+        else
+        {
+            LogMsg(LogSeverity::Error, LogMain, "Unknown option: {}", arg);
+            ExitWithUsage(EXIT_FAILURE);
+        }
+    }
+
+    return options;
+}
+
 class App
 {
 public:
     App() {}
-    App(SDL_Window* pWindow) : m_pWindow(pWindow) {}
+    App(SDL_Window* pWindow, Options options)
+        : m_pWindow(pWindow), m_Options(std::move(options))
+    {
+    }
     ~App()
     {
         if (!m_bShutdown && *m_Device)
@@ -219,20 +368,33 @@ public:
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
             auto now = std::chrono::high_resolution_clock::now();
-            m_DeltaTime =
-                std::chrono::duration<float, std::chrono::seconds::period>(
-                    now - m_LastTime)
-                    .count();
-            m_RunTime =
-                std::chrono::duration<float, std::chrono::seconds::period>(
-                    now - m_StartTime)
-                    .count();
+            if (m_Options.bFixedDt)
+            {
+                m_DeltaTime = 1.f / 60.f;
+                m_RunTime += m_DeltaTime;
+            }
+            else
+            {
+                m_DeltaTime =
+                    std::chrono::duration<float,
+                                          std::chrono::seconds::period>(
+                        now - m_LastTime)
+                        .count();
+                m_RunTime =
+                    std::chrono::duration<float,
+                                          std::chrono::seconds::period>(
+                        now - m_StartTime)
+                        .count();
+            }
             m_LastTime = now;
 
             const float smoothing = 0.9f;
             float currentFrameTime = m_DeltaTime * 1000.f;
             m_DisplayFrameTime = (m_DisplayFrameTime * smoothing) +
                                  (currentFrameTime * (1.f - smoothing));
+
+            if (!m_Options.ReportPath.empty())
+                m_FrameTimesMs.push_back(currentFrameTime);
 
             float currentFPS = 1.f / m_DeltaTime;
             m_DisplayFPS =
@@ -276,8 +438,27 @@ public:
                 DrawImGuiFrame();
 
             ModelManager::Get()->GenerateBatches();
-            DrawFrame();
+
+            const bool bIsLastFrame =
+                g_bShouldClose || (m_Options.Frames != 0 &&
+                                   (m_FrameCounter + 1) >= m_Options.Frames);
+            const bool captureScreenshot =
+                bIsLastFrame && !m_Options.ScreenshotPath.empty();
+
+            DrawFrame(captureScreenshot);
+
+            ++m_FrameCounter;
+            if (m_Options.Frames != 0 && m_FrameCounter >= m_Options.Frames)
+            {
+                g_bShouldClose = true;
+            }
         }
+
+        if (!m_Options.ScreenshotPath.empty())
+            WriteScreenshot();
+
+        if (!m_Options.ReportPath.empty())
+            WriteReport();
 
         m_Device.waitIdle();
         Shutdown();
@@ -296,7 +477,19 @@ private:
 
         ThreadPool::Init();
 
-        m_SceneGraph = std::make_unique<SceneGraph>();
+        if (!m_Options.ScenePath.empty())
+        {
+            m_SceneGraph = XmlParser::LoadScene(m_Options.ScenePath);
+            if (!m_SceneGraph)
+            {
+                throw std::runtime_error("Failed to load scene: " +
+                                         m_Options.ScenePath);
+            }
+        }
+        else
+        {
+            m_SceneGraph = std::make_unique<SceneGraph>();
+        }
 
         // TODO: read from scene
         CubemapCreateInfo createInfo{};
@@ -314,7 +507,27 @@ private:
         m_Skybox = ResourceManager::Get()->LoadCubemap(createInfo);
 
         m_Camera = std::make_unique<Camera>();
-        m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
+
+        if (m_Options.CameraPreset >= 0)
+        {
+            if (m_Options.CameraPreset >= kNumCameraPresets)
+            {
+                throw std::runtime_error(
+                    "Invalid --camera-preset index: " +
+                    std::to_string(m_Options.CameraPreset) +
+                    " (valid range: 0-" +
+                    std::to_string(kNumCameraPresets - 1) + ")");
+            }
+
+            const CameraPresetData& preset =
+                kCameraPresets[m_Options.CameraPreset];
+            m_Camera->GetTransform().Position = preset.Position;
+            m_Camera->GetTransform().Rotation = preset.Rotation;
+        }
+        else
+        {
+            m_Camera->GetTransform().Position += glm::vec3(0.f, 0.f, 10.f);
+        }
 
         LogMsg(LogSeverity::Info, LogMain, "Init() succeeded");
     }
@@ -410,6 +623,111 @@ private:
         CreateQuadBuffers();
     }
 
+    void WriteReport()
+    {
+        uint64_t validationErrors =
+            g_ValidationErrorCount.load(std::memory_order_relaxed);
+        uint64_t validationWarnings =
+            g_ValidationWarningCount.load(std::memory_order_relaxed);
+        uint32_t drawCalls = m_OpaqueDrawCallCount + m_TransparentDrawCallCount;
+        uint32_t batches = m_OpaqueBatchCount + m_TransparentBatchCount;
+        uint32_t instances = m_OpaqueInstanceCount + m_TransparentInstanceCount;
+
+        float meanFrameTimeMs = 0.f;
+        float p99FrameTimeMs = 0.f;
+        if (!m_FrameTimesMs.empty())
+        {
+            double sum = 0.0;
+            for (float t : m_FrameTimesMs)
+                sum += t;
+            meanFrameTimeMs =
+                static_cast<float>(sum / m_FrameTimesMs.size());
+
+            std::vector<float> sorted = m_FrameTimesMs;
+            std::sort(sorted.begin(), sorted.end());
+            size_t index = static_cast<size_t>(
+                std::ceil(0.99 * static_cast<double>(sorted.size())));
+            index = std::min(index, sorted.size()) - 1;
+            p99FrameTimeMs = sorted[index];
+        }
+
+        std::ofstream file(m_Options.ReportPath);
+        if (!file.is_open())
+        {
+            LogMsg(LogSeverity::Error, LogMain,
+                   "Failed to open report file for writing: {}",
+                   m_Options.ReportPath);
+            return;
+        }
+
+        file << "{\n"
+             << "  \"frames\": " << m_FrameCounter << ",\n"
+             << "  \"validationErrors\": " << validationErrors << ",\n"
+             << "  \"validationWarnings\": " << validationWarnings << ",\n"
+             << "  \"drawCalls\": " << drawCalls << ",\n"
+             << "  \"batches\": " << batches << ",\n"
+             << "  \"instances\": " << instances << ",\n"
+             << "  \"meanFrameTimeMs\": " << meanFrameTimeMs << ",\n"
+             << "  \"p99FrameTimeMs\": " << p99FrameTimeMs << "\n"
+             << "}\n";
+        file.close();
+
+        LogMsg(LogSeverity::Info, LogMain, "Wrote report to {}",
+               m_Options.ReportPath);
+    }
+
+    // Writes the frame captured into m_ScreenshotStagingBuffer (during the
+    // final frame's DrawFrame() call, before it was presented) out to disk as
+    // a PNG. Used for deterministic verification via --screenshot.
+
+    void WriteScreenshot()
+    {
+        m_Device.waitIdle();
+
+        if (!m_bScreenshotBufferReady)
+        {
+            LogMsg(LogSeverity::Error, LogMain,
+                   "WriteScreenshot() called without a captured frame. No "
+                   "frame was drawn?");
+            return;
+        }
+
+        const uint32_t width = m_SwapchainExtent.width;
+        const uint32_t height = m_SwapchainExtent.height;
+        constexpr uint32_t bytesPerPixel = 4;
+        const vk::DeviceSize bufferSize = static_cast<vk::DeviceSize>(width) *
+                                          height * bytesPerPixel;
+
+        // The swapchain format is BGRA; swizzle to RGBA before writing.
+        const auto* src = static_cast<const uint8_t*>(
+            m_ScreenshotStagingBuffer.AllocationInfo.pMappedData);
+        std::vector<uint8_t> pixels(static_cast<size_t>(bufferSize));
+        for (size_t i = 0; i < static_cast<size_t>(width) * height; i++)
+        {
+            pixels[i * 4 + 0] = src[i * 4 + 2]; // R <- B
+            pixels[i * 4 + 1] = src[i * 4 + 1]; // G <- G
+            pixels[i * 4 + 2] = src[i * 4 + 0]; // B <- R
+            pixels[i * 4 + 3] = src[i * 4 + 3]; // A <- A
+        }
+
+        const int writeResult = stbi_write_png(
+            m_Options.ScreenshotPath.c_str(), static_cast<int>(width),
+            static_cast<int>(height), 4, pixels.data(),
+            static_cast<int>(width * bytesPerPixel));
+
+        if (writeResult == 0)
+        {
+            LogMsg(LogSeverity::Error, LogMain,
+                   "Failed to write screenshot to {}",
+                   m_Options.ScreenshotPath);
+        }
+        else
+        {
+            LogMsg(LogSeverity::Info, LogMain, "Wrote screenshot to {}",
+                   m_Options.ScreenshotPath);
+        }
+    }
+
     void Shutdown()
     {
         LogMsg(LogSeverity::Info, LogMain, "Shutdown()");
@@ -433,7 +751,7 @@ private:
 
     void HandleMouse(float x, float y)
     {
-        if (!m_bCursorVisible)
+        if (!m_bCursorVisible && m_Options.CameraPreset < 0)
             m_Camera->Rotate(x, y);
     }
 
@@ -470,7 +788,7 @@ private:
     // delay.
     void HandleMovement()
     {
-        if (m_bCursorVisible)
+        if (m_bCursorVisible || m_Options.CameraPreset >= 0)
             return;
 
         glm::vec3 camOffset = {0.f, 0.f, 0.f};
@@ -511,7 +829,7 @@ private:
             m_Camera->GetTransform().Position += camOffset;
     }
 
-    void DrawFrame()
+    void DrawFrame(bool captureScreenshot = false)
     {
         // Semaphores coordinate GPU to GPU synchronisation, for example
         // ordering work between queues. They get reset automatically after the
@@ -548,6 +866,19 @@ private:
         UpdateGlobalBuffer(m_FrameIndex);
         UpdateInstanceBuffer(m_FrameIndex);
 
+        if (captureScreenshot && !m_bScreenshotBufferReady)
+        {
+            const vk::DeviceSize bufferSize =
+                static_cast<vk::DeviceSize>(m_SwapchainExtent.width) *
+                m_SwapchainExtent.height * 4;
+            m_ScreenshotStagingBuffer = CreateBuffer(
+                m_VmaAllocator, bufferSize,
+                vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO,
+                VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+                    VMA_ALLOCATION_CREATE_MAPPED_BIT);
+            m_bScreenshotBufferReady = true;
+        }
+
         {
             // Timer recordTimer("Command buffer recording");
 #if MULTITHREADED_COMMAND_RECORDING
@@ -563,7 +894,7 @@ private:
             RecordCloudsCommandBuffer();
             RecordCompositeCommandBuffer(imageIndex);
             RecordImGui(imageIndex);
-            RecordSwapImageToPresentLayout(imageIndex);
+            RecordSwapImageToPresentLayout(imageIndex, captureScreenshot);
 
             opaqueFuture.get();
             transparentFuture.get();
@@ -574,7 +905,7 @@ private:
             RecordCloudsCommandBuffer();
             RecordCompositeCommandBuffer(imageIndex);
             RecordImGui(imageIndex);
-            RecordSwapImageToPresentLayout(imageIndex);
+            RecordSwapImageToPresentLayout(imageIndex, captureScreenshot);
 #endif
         }
 
@@ -1076,7 +1407,9 @@ private:
             .imageColorSpace = m_SwapchainSurfaceFormat.colorSpace,
             .imageExtent = m_SwapchainExtent,
             .imageArrayLayers = 1,
-            .imageUsage = vk::ImageUsageFlagBits::eColorAttachment,
+            .imageUsage = vk::ImageUsageFlagBits::eColorAttachment |
+                          vk::ImageUsageFlagBits::eTransferSrc,
+
             .imageSharingMode = vk::SharingMode::eExclusive,
             .preTransform = capabilities.currentTransform,
             .compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque,
@@ -1502,6 +1835,7 @@ private:
         // per mesh batch
         const std::vector<MeshBatch>& batches =
             ModelManager::Get()->GetOpaqueBatches();
+        uint32_t instanceCount = 0;
         for (const MeshBatch& batch : batches)
         {
             vk::CullModeFlags requiredCullMode =
@@ -1525,7 +1859,11 @@ private:
                     batch.pMaterial->GetPushConstantData()));
             cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
                             batch.FirstIndex, 0, batch.FirstInstance);
+            instanceCount += batch.InstanceCount;
         }
+        m_OpaqueDrawCallCount = static_cast<uint32_t>(batches.size());
+        m_OpaqueBatchCount = static_cast<uint32_t>(batches.size());
+        m_OpaqueInstanceCount = instanceCount;
 
         cmd.endRendering();
 
@@ -1605,6 +1943,7 @@ private:
         // per mesh batch
         const std::vector<MeshBatch>& batches =
             ModelManager::Get()->GetTransparentBatches();
+        uint32_t instanceCount = 0;
         for (const MeshBatch& batch : batches)
         {
             cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
@@ -1619,7 +1958,11 @@ private:
                     batch.pMaterial->GetPushConstantData()));
             cmd.drawIndexed(batch.IndexCount, batch.InstanceCount,
                             batch.FirstIndex, 0, batch.FirstInstance);
+            instanceCount += batch.InstanceCount;
         }
+        m_TransparentDrawCallCount = static_cast<uint32_t>(batches.size());
+        m_TransparentBatchCount = static_cast<uint32_t>(batches.size());
+        m_TransparentInstanceCount = instanceCount;
 
         cmd.endRendering();
 
@@ -1735,15 +2078,46 @@ private:
         cmd.end();
     }
 
-    void RecordSwapImageToPresentLayout(uint32_t imageIndex)
+    void RecordSwapImageToPresentLayout(uint32_t imageIndex,
+                                        bool captureScreenshot)
     {
         m_Frames[m_FrameIndex].PresentLayoutCommandPool.reset();
         vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].PresentLayoutCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
-        RecordImageBarrier(cmd, m_SwapImages[imageIndex],
-                           Barriers::ColorAttachmentToPresent());
+
+        if (captureScreenshot)
+        {
+            // Copy out the composited frame while it is still safely between
+            // acquire and present (see ColorAttachmentToTransferSrc()).
+            RecordImageBarrier(cmd, m_SwapImages[imageIndex],
+                               Barriers::ColorAttachmentToTransferSrc());
+
+            const vk::BufferImageCopy region{
+                .bufferOffset = 0,
+                .bufferRowLength = 0,
+                .bufferImageHeight = 0,
+                .imageSubresource = {.aspectMask = vk::ImageAspectFlagBits::eColor,
+                                     .mipLevel = 0,
+                                     .baseArrayLayer = 0,
+                                     .layerCount = 1},
+                .imageOffset = {0, 0, 0},
+                .imageExtent = {m_SwapchainExtent.width,
+                               m_SwapchainExtent.height, 1}};
+            cmd.copyImageToBuffer(m_SwapImages[imageIndex],
+                                  vk::ImageLayout::eTransferSrcOptimal,
+                                  m_ScreenshotStagingBuffer.Buffer, region);
+
+            RecordImageBarrier(cmd, m_SwapImages[imageIndex],
+                               Barriers::TransferSrcToPresent());
+        }
+        else
+        {
+            RecordImageBarrier(cmd, m_SwapImages[imageIndex],
+                               Barriers::ColorAttachmentToPresent());
+        }
+
         cmd.end();
     }
 
@@ -2397,14 +2771,27 @@ private:
     bool m_bCursorVisible = true;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_LastTime;
+    Options m_Options;
+    uint64_t m_FrameCounter = 0;
     float m_RunTime = 0.f;
     float m_DeltaTime = 0.f;
     float m_DisplayFrameTime = 0.f;
     float m_DisplayFPS = 0.f;
     bool m_bShutdown = false;
+
+    // Used in WriteReport()
+    uint32_t m_OpaqueDrawCallCount = 0;
+    uint32_t m_OpaqueBatchCount = 0;
+    uint32_t m_OpaqueInstanceCount = 0;
+    uint32_t m_TransparentDrawCallCount = 0;
+    uint32_t m_TransparentBatchCount = 0;
+    uint32_t m_TransparentInstanceCount = 0;
+    std::vector<float> m_FrameTimesMs;
+    AllocatedBuffer m_ScreenshotStagingBuffer;
+    bool m_bScreenshotBufferReady = false;
 };
 
-int main()
+int main(int argc, char** argv)
 {
 #ifdef _WIN32
     EnableAnsiColors();
@@ -2412,6 +2799,8 @@ int main()
     std::signal(SIGINT, HandleSIGINT);
 
     Log::g_MinSeverity = LogSeverity::Info;
+
+    Options options = ParseArgs(argc, argv);
 
     // will be destroyed in reverse order of declaration
     std::unique_ptr<SDL_Window, decltype(&ShutdownSDL)> pWindow(nullptr,
@@ -2423,7 +2812,7 @@ int main()
         InitSDL();
         pWindow.reset(CreateSDLWindow());
 
-        pApp = std::make_unique<App>(pWindow.get());
+        pApp = std::make_unique<App>(pWindow.get(), options);
         pApp->Run();
     }
     catch (const SDLException& e)
@@ -2447,6 +2836,15 @@ int main()
 
     pApp.reset();
     pWindow.reset();
+
+    if (options.bStrictValidation &&
+        g_ValidationErrorCount.load(std::memory_order_relaxed) > 0)
+    {
+        LogMsg(LogSeverity::Error, LogMain,
+               "Strict validation failed: {} validation error(s) occurred",
+               g_ValidationErrorCount.load(std::memory_order_relaxed));
+        return EXIT_FAILURE;
+    }
 
     LogMsg(LogSeverity::Info, LogMain, "Exiting gracefully...");
     return EXIT_SUCCESS;
