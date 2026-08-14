@@ -27,10 +27,14 @@ jobs:
             preset: ninja-debug-windows
           - os: windows-latest
             preset: ninja-release-windows
+          - os: windows-latest
+            preset: ninja-asan-windows
           - os: macos-latest
             preset: ninja-debug-macos
           - os: macos-latest
             preset: ninja-release-macos
+          - os: macos-latest
+            preset: ninja-asan-macos
 
     runs-on: ${{ matrix.os }}
 
@@ -98,7 +102,7 @@ jobs:
         with:
           key: ccache-${{ matrix.preset }}
           max-size: 500M
-      
+
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
         env:
