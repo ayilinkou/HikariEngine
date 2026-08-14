@@ -22,6 +22,9 @@
 #include "VulkanAllocator.h"
 #include "XmlParser.h"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 #include "ImGuiFileDialog.h"
 
 #ifdef _WIN32
@@ -202,7 +205,7 @@ struct Options
     uint64_t Frames = 0;            // 0 = run until closed
     bool bFixedDt = false;          // use a fixed 1/60s timestep
     int CameraPreset = -1;          // -1 = free camera; else index into kCameraPresets
-    std::string ScreenshotPath;     // TODO
+    std::string ScreenshotPath;     // capture the final frame to this PNG path
     std::string ReportPath;         // write a JSON run report to this path
     bool bStrictValidation = false; // exit non-zero on any validation error
     bool bHeadless = false;         // TODO
@@ -435,7 +438,14 @@ public:
                 DrawImGuiFrame();
 
             ModelManager::Get()->GenerateBatches();
-            DrawFrame();
+
+            const bool bIsLastFrame =
+                g_bShouldClose || (m_Options.Frames != 0 &&
+                                   (m_FrameCounter + 1) >= m_Options.Frames);
+            const bool captureScreenshot =
+                bIsLastFrame && !m_Options.ScreenshotPath.empty();
+
+            DrawFrame(captureScreenshot);
 
             ++m_FrameCounter;
             if (m_Options.Frames != 0 && m_FrameCounter >= m_Options.Frames)
@@ -443,6 +453,9 @@ public:
                 g_bShouldClose = true;
             }
         }
+
+        if (!m_Options.ScreenshotPath.empty())
+            WriteScreenshot();
 
         if (!m_Options.ReportPath.empty())
             WriteReport();
@@ -663,6 +676,58 @@ private:
                m_Options.ReportPath);
     }
 
+    // Writes the frame captured into m_ScreenshotStagingBuffer (during the
+    // final frame's DrawFrame() call, before it was presented) out to disk as
+    // a PNG. Used for deterministic verification via --screenshot.
+
+    void WriteScreenshot()
+    {
+        m_Device.waitIdle();
+
+        if (!m_bScreenshotBufferReady)
+        {
+            LogMsg(LogSeverity::Error, LogMain,
+                   "WriteScreenshot() called without a captured frame. No "
+                   "frame was drawn?");
+            return;
+        }
+
+        const uint32_t width = m_SwapchainExtent.width;
+        const uint32_t height = m_SwapchainExtent.height;
+        constexpr uint32_t bytesPerPixel = 4;
+        const vk::DeviceSize bufferSize = static_cast<vk::DeviceSize>(width) *
+                                          height * bytesPerPixel;
+
+        // The swapchain format is BGRA; swizzle to RGBA before writing.
+        const auto* src = static_cast<const uint8_t*>(
+            m_ScreenshotStagingBuffer.AllocationInfo.pMappedData);
+        std::vector<uint8_t> pixels(static_cast<size_t>(bufferSize));
+        for (size_t i = 0; i < static_cast<size_t>(width) * height; i++)
+        {
+            pixels[i * 4 + 0] = src[i * 4 + 2]; // R <- B
+            pixels[i * 4 + 1] = src[i * 4 + 1]; // G <- G
+            pixels[i * 4 + 2] = src[i * 4 + 0]; // B <- R
+            pixels[i * 4 + 3] = src[i * 4 + 3]; // A <- A
+        }
+
+        const int writeResult = stbi_write_png(
+            m_Options.ScreenshotPath.c_str(), static_cast<int>(width),
+            static_cast<int>(height), 4, pixels.data(),
+            static_cast<int>(width * bytesPerPixel));
+
+        if (writeResult == 0)
+        {
+            LogMsg(LogSeverity::Error, LogMain,
+                   "Failed to write screenshot to {}",
+                   m_Options.ScreenshotPath);
+        }
+        else
+        {
+            LogMsg(LogSeverity::Info, LogMain, "Wrote screenshot to {}",
+                   m_Options.ScreenshotPath);
+        }
+    }
+
     void Shutdown()
     {
         LogMsg(LogSeverity::Info, LogMain, "Shutdown()");
@@ -764,7 +829,7 @@ private:
             m_Camera->GetTransform().Position += camOffset;
     }
 
-    void DrawFrame()
+    void DrawFrame(bool captureScreenshot = false)
     {
         // Semaphores coordinate GPU to GPU synchronisation, for example
         // ordering work between queues. They get reset automatically after the
@@ -801,6 +866,19 @@ private:
         UpdateGlobalBuffer(m_FrameIndex);
         UpdateInstanceBuffer(m_FrameIndex);
 
+        if (captureScreenshot && !m_bScreenshotBufferReady)
+        {
+            const vk::DeviceSize bufferSize =
+                static_cast<vk::DeviceSize>(m_SwapchainExtent.width) *
+                m_SwapchainExtent.height * 4;
+            m_ScreenshotStagingBuffer = CreateBuffer(
+                m_VmaAllocator, bufferSize,
+                vk::BufferUsageFlagBits::eTransferDst, VMA_MEMORY_USAGE_AUTO,
+                VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+                    VMA_ALLOCATION_CREATE_MAPPED_BIT);
+            m_bScreenshotBufferReady = true;
+        }
+
         {
             // Timer recordTimer("Command buffer recording");
 #if MULTITHREADED_COMMAND_RECORDING
@@ -816,7 +894,7 @@ private:
             RecordCloudsCommandBuffer();
             RecordCompositeCommandBuffer(imageIndex);
             RecordImGui(imageIndex);
-            RecordSwapImageToPresentLayout(imageIndex);
+            RecordSwapImageToPresentLayout(imageIndex, captureScreenshot);
 
             opaqueFuture.get();
             transparentFuture.get();
@@ -827,7 +905,7 @@ private:
             RecordCloudsCommandBuffer();
             RecordCompositeCommandBuffer(imageIndex);
             RecordImGui(imageIndex);
-            RecordSwapImageToPresentLayout(imageIndex);
+            RecordSwapImageToPresentLayout(imageIndex, captureScreenshot);
 #endif
         }
 
@@ -1329,7 +1407,9 @@ private:
             .imageColorSpace = m_SwapchainSurfaceFormat.colorSpace,
             .imageExtent = m_SwapchainExtent,
             .imageArrayLayers = 1,
-            .imageUsage = vk::ImageUsageFlagBits::eColorAttachment,
+            .imageUsage = vk::ImageUsageFlagBits::eColorAttachment |
+                          vk::ImageUsageFlagBits::eTransferSrc,
+
             .imageSharingMode = vk::SharingMode::eExclusive,
             .preTransform = capabilities.currentTransform,
             .compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque,
@@ -1998,15 +2078,46 @@ private:
         cmd.end();
     }
 
-    void RecordSwapImageToPresentLayout(uint32_t imageIndex)
+    void RecordSwapImageToPresentLayout(uint32_t imageIndex,
+                                        bool captureScreenshot)
     {
         m_Frames[m_FrameIndex].PresentLayoutCommandPool.reset();
         vk::raii::CommandBuffer& cmd =
             m_Frames[m_FrameIndex].PresentLayoutCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
-        RecordImageBarrier(cmd, m_SwapImages[imageIndex],
-                           Barriers::ColorAttachmentToPresent());
+
+        if (captureScreenshot)
+        {
+            // Copy out the composited frame while it is still safely between
+            // acquire and present (see ColorAttachmentToTransferSrc()).
+            RecordImageBarrier(cmd, m_SwapImages[imageIndex],
+                               Barriers::ColorAttachmentToTransferSrc());
+
+            const vk::BufferImageCopy region{
+                .bufferOffset = 0,
+                .bufferRowLength = 0,
+                .bufferImageHeight = 0,
+                .imageSubresource = {.aspectMask = vk::ImageAspectFlagBits::eColor,
+                                     .mipLevel = 0,
+                                     .baseArrayLayer = 0,
+                                     .layerCount = 1},
+                .imageOffset = {0, 0, 0},
+                .imageExtent = {m_SwapchainExtent.width,
+                               m_SwapchainExtent.height, 1}};
+            cmd.copyImageToBuffer(m_SwapImages[imageIndex],
+                                  vk::ImageLayout::eTransferSrcOptimal,
+                                  m_ScreenshotStagingBuffer.Buffer, region);
+
+            RecordImageBarrier(cmd, m_SwapImages[imageIndex],
+                               Barriers::TransferSrcToPresent());
+        }
+        else
+        {
+            RecordImageBarrier(cmd, m_SwapImages[imageIndex],
+                               Barriers::ColorAttachmentToPresent());
+        }
+
         cmd.end();
     }
 
@@ -2676,6 +2787,8 @@ private:
     uint32_t m_TransparentBatchCount = 0;
     uint32_t m_TransparentInstanceCount = 0;
     std::vector<float> m_FrameTimesMs;
+    AllocatedBuffer m_ScreenshotStagingBuffer;
+    bool m_bScreenshotBufferReady = false;
 };
 
 int main(int argc, char** argv)
