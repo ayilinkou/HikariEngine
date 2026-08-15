@@ -2339,7 +2339,7 @@ validation errors".
 |---|---|---|
 | P0/P1 correctness fixes from `suggested_work_04_08_2026.md` | various | S–M each |
 | Expose cloud push-constants in ImGui (`m_CloudData` is pushed but never written) | `CloudSystem` + editor UI | S |
-| Guard `DirLights[0]` when `DirLightCount == 0` (currently NaNs) | `clouds.comp.slang:106` | XS |
+| [DONE] Guard `DirLights[0]` when `DirLightCount == 0` (currently NaNs) | `clouds.comp.slang:106` | XS |
 | Epsilon on `dir.y` instead of `== 0.f` | `clouds.comp.slang:24,96` | XS |
 | Hoist sun-slab setup inside `if (density > 0)` | `clouds.comp.slang:119` | XS |
 | Delete unused `VS_Out::Color : TEXCOORD1` interpolator | `opaque.slang:56`, `weightedBlendedOIT.slang:55` | XS |
