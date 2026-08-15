@@ -132,16 +132,19 @@ void main(uint3 dispatchId : SV_DispatchThreadID)
 			{
 				float3 sunSamplePos = samplePos + sunDir * sunT;
 				float sunDensity = SampleDensity(sunSamplePos);
-	
+
 				if (sunDensity > 0.f)
 				{
 					sunTransmittance *= exp(-sunDensity * sunStepSize * extinction);
 				}
 				sunT += sunStepSize;
 			}
-			
-			float3 sampleLight = (sunColor * sunIntensity * sunTransmittance * sigmaT * phase) + (ambientColor * sigmaT);
-			scatteredLight += sampleLight * viewTransmittance * stepSize;
+
+            if (globalBuffer.Lights.DirLightCount > 0)
+            {
+		    	float3 sampleLight = (sunColor * sunIntensity * sunTransmittance * sigmaT * phase) + (ambientColor * sigmaT);
+		    	scatteredLight += sampleLight * viewTransmittance * stepSize;
+            }
             viewTransmittance *= exp(-sigmaT * stepSize);
         }
 
