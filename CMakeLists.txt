@@ -169,6 +169,45 @@ if(ENGINE_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
+# test whether the project will still compile without a pch
+
+# TODO: make it work across different targets
+file(GLOB_RECURSE HEADER_SELF_CONTAINMENT_HEADERS CONFIGURE_DEPENDS
+     ${CMAKE_SOURCE_DIR}/src/*.h)
+
+# pch.h is deliberately excluded — it exists specifically to be force-included
+# ahead of everything else and isn't meant to stand alone.
+list(REMOVE_ITEM HEADER_SELF_CONTAINMENT_HEADERS ${CMAKE_SOURCE_DIR}/src/pch.h)
+
+set_source_files_properties(${HEADER_SELF_CONTAINMENT_HEADERS}
+                            PROPERTIES LANGUAGE CXX)
+
+add_library(HeaderSelfContainment OBJECT EXCLUDE_FROM_ALL
+                                         ${HEADER_SELF_CONTAINMENT_HEADERS})
+
+if(NOT MSVC)
+  target_compile_options(HeaderSelfContainment
+                         PRIVATE -Wno-pragma-once-outside-header)
+endif()
+
+target_link_libraries(
+  HeaderSelfContainment
+  PRIVATE SDL3::SDL3
+          Vulkan::Vulkan
+          GPUOpen::VulkanMemoryAllocator
+          glm::glm-header-only
+          assimp::assimp
+          imgui::imgui
+          pugixml::pugixml
+          ImGuiFileDialog)
+
+target_include_directories(HeaderSelfContainment PRIVATE src ${Stb_INCLUDE_DIR})
+
+target_compile_definitions(
+  HeaderSelfContainment
+  PRIVATE VULKAN_HPP_NO_STRUCT_CONSTRUCTORS GLM_FORCE_DEPTH_ZERO_TO_ONE
+          GLM_ENABLE_EXPERIMENTAL $<$<CONFIG:Debug>:DEBUG>)
+
 add_executable(VulkanApp)
 
 target_precompile_headers(VulkanApp PRIVATE src/pch.h)
