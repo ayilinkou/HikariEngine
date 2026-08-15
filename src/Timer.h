@@ -25,7 +25,7 @@ public:
             m_End = std::chrono::high_resolution_clock::now();
             std::chrono::duration<float> duration = m_End - m_Start; // in seconds
 
-            if (duration.count() < 10.f)
+            if (duration.count() < 1.f)
                 LogMsg(LogSeverity::Info, LogTimer, "{} took {:.1f} milliseconds.", m_Name,
                        duration.count() * 1000.f);
             else
