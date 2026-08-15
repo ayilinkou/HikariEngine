@@ -17,9 +17,9 @@ This project requires CMake, vcpkg and the Vulkan SDK to be installed. Please ma
 `CMakePresets.json` contains presets for building on Windows, Linux and macOS (Apple Silicon). These presets set the `CMAKE_TOOLCHAIN_FILE` variable using a `VCPKG_ROOT` environment variable. If you're using these presets, please make sure that the `VCPKG_ROOT` environment variable is set correctly.
 
 ```Terminal
-cmake --workflow --preset generate-sln
-cmake --workflow --preset ninja-debug-linux
-cmake --workflow --preset ninja-release-macos
+cmake --workflow generate-sln
+cmake --workflow ninja-debug-linux
+cmake --workflow ninja-release-macos
 ```
 
 Otherwise you can manually set the `CMAKE_TOOLCHAIN_FILE` variable yourself like this:
