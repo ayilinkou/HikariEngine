@@ -9,7 +9,7 @@
 supports (a) headless + automated runtime testing, (b) data-oriented performance,
 (c) scalability as features are added.
 
-**Status:** Stage 0 complete.
+**Status:** Stage 1 complete.
 
 > Companion document: `suggested_work_04_08_2026.md` covers *correctness bugs* and
 > localised fixes. This document deliberately does **not** repeat them. Where a bug is
