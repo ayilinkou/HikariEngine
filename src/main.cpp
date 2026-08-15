@@ -2377,6 +2377,8 @@ private:
     void UpdateInstanceBuffer(uint32_t frameIndex)
     {
         const std::vector<InstanceData>& instanceDatas = ModelManager::Get()->GetInstanceDatas();
+        if (instanceDatas.empty())
+            return;
 
         if (instanceDatas.size() > MAX_INSTANCE_COUNT)
             throw std::runtime_error("Max instance count exceeded!");
