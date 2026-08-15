@@ -510,6 +510,7 @@ private:
             {
                 throw std::runtime_error("Failed to load scene: " + m_Options.ScenePath);
             }
+            ResourceManager::PurgeCaches();
         }
         else
         {
@@ -1026,6 +1027,7 @@ private:
                     {
                         m_SceneGraph.reset();
                         m_SceneGraph = std::move(tempSceneGraph);
+                        ResourceManager::PurgeCaches();
                     }
                 }
                 ImGuiFileDialog::Instance()->Close();

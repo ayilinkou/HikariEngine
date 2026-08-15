@@ -25,10 +25,21 @@ public:
     }
 
     // Remove entries to resources which are expired
-    void Purge()
+    uint32_t Purge()
     {
         std::lock_guard lock(m_Mutex);
-        std::erase_if(m_Cache, [](const auto& kv) { return kv.second.expired(); });
+        uint32_t count = 0u;
+        std::erase_if(m_Cache,
+                      [&](const auto& kv)
+                      {
+                          if (kv.second.expired())
+                          {
+                              count++;
+                              return true;
+                          }
+                          return false;
+                      });
+        return count;
     }
 
     size_t LiveCount() const

@@ -54,9 +54,13 @@ void ResourceManager::PurgeCaches()
     if (!s_Instance)
         return;
 
-    s_Instance->m_TextureCache.Purge();
-    s_Instance->m_CubemapCache.Purge();
-    s_Instance->m_ModelCache.Purge();
+    uint32_t count = 0u;
+    count += s_Instance->m_TextureCache.Purge();
+    count += s_Instance->m_CubemapCache.Purge();
+    count += s_Instance->m_ModelCache.Purge();
+
+    if (count > 0u)
+        LogMsg(LogSeverity::Info, LogResourceManager, "Purged {} expired resource entries.", count);
 }
 
 std::shared_ptr<Texture> ResourceManager::LoadTexture(const std::string& filepath,

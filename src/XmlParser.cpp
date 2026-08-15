@@ -1,5 +1,6 @@
 #include "XmlParser.h"
 #include "Log.h"
+#include "Timer.h"
 
 #include <sstream>
 #include <stdexcept>
@@ -155,6 +156,7 @@ NodeType XmlParser::TagToNodeType(std::string_view tag)
 std::unique_ptr<SceneGraph> XmlParser::LoadScene(const std::string& path)
 {
     LogMsg(LogSeverity::Info, LogXmlParser, "Loading scene: {}", path.c_str());
+    Timer timer("LoadScene()");
 
     std::unique_ptr<SceneGraph> scene = std::make_unique<SceneGraph>();
 

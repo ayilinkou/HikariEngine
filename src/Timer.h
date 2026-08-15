@@ -3,6 +3,8 @@
 #include <chrono>
 #include <string>
 
+#include "Log.h"
+
 class Timer
 {
 public:
@@ -15,13 +17,20 @@ public:
 
     void EndTimer()
     {
+        static constexpr LogCategory LogTimer("Timer");
+
         if (!m_bFinished)
         {
             m_bFinished = true;
             m_End = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<float> duration = m_End - m_Start;
+            std::chrono::duration<float> duration = m_End - m_Start; // in seconds
 
-            printf("%s took %.1f milliseconds.\n", m_Name.c_str(), duration.count() * 1000.f);
+            if (duration.count() < 10.f)
+                LogMsg(LogSeverity::Info, LogTimer, "{} took {:.1f} milliseconds.", m_Name,
+                       duration.count() * 1000.f);
+            else
+                LogMsg(LogSeverity::Info, LogTimer, "{} took {:.1f} seconds.", m_Name,
+                       duration.count());
         }
     }
 
