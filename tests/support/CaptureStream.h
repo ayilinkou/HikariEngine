@@ -34,9 +34,16 @@ inline std::string CaptureStream(FILE* stream, const std::function<void()>& fn)
     std::string tempPath =
         (std::filesystem::temp_directory_path() / "engine_log_capture.txt").string();
 
+#if defined(_MSC_VER)
+    FILE* redirected = nullptr;
+    errno_t err = freopen_s(tempPath.c_str(), "w", stream);
+    if (err != 0 || !redirected)
+        throw std::runtime_error("CaptureStream: freopen failed to redirect stream");
+#else
     FILE* redirected = std::freopen(tempPath.c_str(), "w", stream);
     if (!redirected)
         throw std::runtime_error("CaptureStream: freopen failed to redirect stream");
+#endif
 
     fn();
 
