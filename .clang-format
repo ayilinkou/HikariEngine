@@ -14,7 +14,7 @@ PointerAlignment: Left
 ReferenceAlignment: Left
 
 # This is newer, needs clang-format 17+
-BreakTemplateDeclarations: Yes
+# BreakTemplateDeclarations: Yes
 
 AllowShortFunctionsOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: Never

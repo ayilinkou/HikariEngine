@@ -21,7 +21,6 @@
 #include "Vertex.h"
 #include "VulkanAllocator.h"
 #include "XmlParser.h"
-#include <optional>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"

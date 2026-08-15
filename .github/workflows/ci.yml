@@ -18,21 +18,21 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            preset: ninja-debug-linux
-          - os: ubuntu-latest
             preset: ninja-release-linux
+          - os: ubuntu-latest
+            preset: ninja-debug-linux
           - os: ubuntu-latest
             preset: ninja-asan-linux
           - os: windows-latest
-            preset: ninja-debug-windows
-          - os: windows-latest
             preset: ninja-release-windows
+          - os: windows-latest
+            preset: ninja-debug-windows
           - os: windows-latest
             preset: ninja-asan-windows
           - os: macos-latest
-            preset: ninja-debug-macos
-          - os: macos-latest
             preset: ninja-release-macos
+          - os: macos-latest
+            preset: ninja-debug-macos
           - os: macos-latest
             preset: ninja-asan-macos
 
@@ -51,6 +51,10 @@ jobs:
 
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
+
+      - name: Install clang-format (macOS only)
+        if: runner.os == 'macOS'
+        run: brew install clang-format
 
       - name: Install Ninja via Homebrew (macOS only)
         if: runner.os == 'macOS'
@@ -110,3 +114,27 @@ jobs:
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Header self-containment check
+        id: header-check
+        continue-on-error: true
+        run: cmake --build --preset ${{ matrix.preset }} --target HeaderSelfContainment
+
+      - name: Format check
+        id: format-check
+        continue-on-error: true
+        run: cmake --build --preset ${{ matrix.preset }} --target format-check
+
+      - name: Catch2 tests
+        id: catch2-tests
+        continue-on-error: true
+        run: ctest --test-dir build/${{ matrix.preset }} -L unit --output-on-failure
+
+      - name: Fail if any check failed
+        if: steps.header-check.outcome == 'failure' || steps.format-check.outcome == 'failure' || steps.catch2-tests.outcome == 'failure'
+        run: |
+          echo "One or more checks failed:"
+          echo "  Header self-containment: ${{ steps.header-check.outcome }}"
+          echo "  Format check: ${{ steps.format-check.outcome }}"
+          echo "  Catch2 tests: ${{ steps.catch2-tests.outcome }}"
+          exit 1

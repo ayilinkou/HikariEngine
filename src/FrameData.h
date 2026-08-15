@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vulkan/vulkan_raii.hpp"
+
 #include "AllocatedBuffer.h"
 #include "Texture.h"
 

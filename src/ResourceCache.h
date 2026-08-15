@@ -1,6 +1,9 @@
 #pragma once
 
+#include <algorithm>
+#include <memory>
 #include <mutex>
+#include <unordered_map>
 
 template <typename T>
 class ResourceCache

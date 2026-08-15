@@ -1,5 +1,7 @@
 #pragma once
 
+#include "glm/glm.hpp"
+
 #include "SceneComponent.h"
 
 enum class LightType : uint8_t

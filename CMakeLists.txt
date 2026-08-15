@@ -1,3 +1,5 @@
+include(cmake/Warnings.cmake)
+
 cmake_minimum_required(VERSION 4.0)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -27,6 +29,7 @@ project(
   VERSION 1.0
   LANGUAGES CXX)
 
+option(ENGINE_BUILD_TESTS "Build unit tests" ON)
 option(ENABLE_SANITIZERS "Enable ASan (and UBSan when available)" OFF)
 
 if(ENABLE_SANITIZERS)
@@ -37,6 +40,13 @@ if(ENABLE_SANITIZERS)
     # ASan is incompatible with /RTC1, which CMake's Debug config injects by
     # default
     string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+
+    # MSVC STL auto-enables container-overflow annotations under
+    # /fsanitize=address, which changes std::string/vector/optional ABI. vcpkg's
+    # prebuilt libs (Catch2, etc.) aren't built with this, so leaving it on
+    # causes LNK2038 ABI-mismatch errors when linking against them. Disable to
+    # match their ABI.
+    add_compile_definitions(_DISABLE_STL_ANNOTATION)
   else()
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer
                         -fno-sanitize-recover=undefined -g)
@@ -151,6 +161,57 @@ else()
   )
 endif()
 
+if(ENGINE_BUILD_TESTS)
+  enable_testing()
+  find_package(Catch2 CONFIG REQUIRED)
+  include(cmake/Testing.cmake)
+  add_subdirectory(tests)
+endif()
+
+# test whether the project will still compile without a pch
+
+# TODO: make it work across different targets
+file(GLOB_RECURSE HEADER_SELF_CONTAINMENT_HEADERS CONFIGURE_DEPENDS
+     ${CMAKE_SOURCE_DIR}/src/*.h)
+
+# pch.h is deliberately excluded — it exists specifically to be force-included
+# ahead of everything else and isn't meant to stand alone.
+list(REMOVE_ITEM HEADER_SELF_CONTAINMENT_HEADERS ${CMAKE_SOURCE_DIR}/src/pch.h)
+
+# Generate one .cpp stub per header that does nothing but #include it. Compiling
+# via a stub (rather than compiling the .h directly as its own TU) avoids
+# "#pragma once in main file" warning.
+set(HEADER_CHECK_STUB_DIR ${CMAKE_BINARY_DIR}/header_self_containment)
+set(HEADER_SELF_CONTAINMENT_STUBS "")
+foreach(header ${HEADER_SELF_CONTAINMENT_HEADERS})
+  file(RELATIVE_PATH rel_header ${CMAKE_SOURCE_DIR}/src ${header})
+  string(REPLACE "/" "_" stub_name ${rel_header})
+  set(stub_file ${HEADER_CHECK_STUB_DIR}/${stub_name}.cpp)
+  file(WRITE ${stub_file} "#include \"${header}\"\n")
+  list(APPEND HEADER_SELF_CONTAINMENT_STUBS ${stub_file})
+endforeach()
+
+add_library(HeaderSelfContainment OBJECT EXCLUDE_FROM_ALL
+                                         ${HEADER_SELF_CONTAINMENT_HEADERS})
+
+target_link_libraries(
+  HeaderSelfContainment
+  PRIVATE SDL3::SDL3
+          Vulkan::Vulkan
+          GPUOpen::VulkanMemoryAllocator
+          glm::glm-header-only
+          assimp::assimp
+          imgui::imgui
+          pugixml::pugixml
+          ImGuiFileDialog)
+
+target_include_directories(HeaderSelfContainment PRIVATE src ${Stb_INCLUDE_DIR})
+
+target_compile_definitions(
+  HeaderSelfContainment
+  PRIVATE VULKAN_HPP_NO_STRUCT_CONSTRUCTORS GLM_FORCE_DEPTH_ZERO_TO_ONE
+          GLM_ENABLE_EXPERIMENTAL $<$<CONFIG:Debug>:DEBUG>)
+
 add_executable(VulkanApp)
 
 target_precompile_headers(VulkanApp PRIVATE src/pch.h)
@@ -186,9 +247,8 @@ if(MSVC)
                                                "$<$<CONFIG:Debug>:Embedded>")
   endif()
 
-  target_compile_options(
-    VulkanApp PRIVATE /W3 # Warning level
-                      $<$<CONFIG:Debug>:/Od> $<$<CONFIG:Release>:/O2>)
+  target_compile_options(VulkanApp PRIVATE $<$<CONFIG:Debug>:/Od>
+                                           $<$<CONFIG:Release>:/O2>)
 
   target_link_options(
     VulkanApp PRIVATE $<$<CONFIG:Debug>:/DEBUG> # optional but useful for crash
@@ -197,11 +257,7 @@ if(MSVC)
 else()
   target_compile_options(
     VulkanApp
-    PRIVATE -Wall
-            -Wextra
-            -Wpedantic
-            -Wshadow
-            $<$<CONFIG:Debug>:
+    PRIVATE $<$<CONFIG:Debug>:
             -O0
             -g
             >
@@ -221,6 +277,8 @@ else()
     endif()
   endif()
 endif()
+
+engine_set_warnings(VulkanApp)
 
 # TODO: make shaders only depend on headers that they actually include
 function(add_slang_shader_target target)

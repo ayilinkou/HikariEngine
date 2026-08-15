@@ -1,0 +1,7 @@
+function(engine_set_warnings target)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /W3)
+  else()
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wshadow)
+  endif()
+endfunction()
