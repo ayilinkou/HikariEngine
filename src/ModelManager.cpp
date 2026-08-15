@@ -1,6 +1,7 @@
 #include "ModelManager.h"
 
 #include "ModelData.h"
+#include <complex>
 #include <stdexcept>
 
 void ModelManager::Init()
@@ -68,7 +69,8 @@ void ModelManager::GenerateBatches()
             // float4x4 constructor already implicitely transposes, no don't
             // need to explicitely transpose here before sending to GPU
             data.ModelMatrix = m_Drawables[i].Transform;
-            data.NormalMatrix = glm::transpose(glm::inverse(m_Drawables[i].Transform));
+            const glm::mat4 normalMatrix4 = glm::transpose(glm::inverse(m_Drawables[i].Transform));
+            data.NormalMatrix = glm::mat3x4(normalMatrix4[0], normalMatrix4[1], normalMatrix4[2]);
             m_InstanceDatas.push_back(data);
             batch.InstanceCount++;
             i++;

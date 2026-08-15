@@ -32,21 +32,20 @@ struct VS_In
 	float4 TModelCol1 : POSITION2;
 	float4 TModelCol2 : POSITION3;
 	float4 TModelCol3 : POSITION4;
-	
+
 	float4 TNormalCol0 : NORMAL1;
 	float4 TNormalCol1 : NORMAL2;
 	float4 TNormalCol2 : NORMAL3;
-	float4 TNormalCol3 : NORMAL4;
 
 	float4x4 GetModelMatrix()
 	{
 		return float4x4(TModelCol0, TModelCol1, TModelCol2, TModelCol3);
 	}
 
-	float4x4 GetNormalMatrix()
+	float3x3 GetNormalMatrix()
 	{
-		return float4x4(TNormalCol0, TNormalCol1, TNormalCol2, TNormalCol3); // TODO: only upload 3x3 matrix
-	}
+		return float3x3(TNormalCol0.xyz, TNormalCol1.xyz, TNormalCol2.xyz);
+    }
 };
 
 struct VS_Out
@@ -67,7 +66,7 @@ VS_Out vertMain(VS_In v)
 	o.Pos = mul(mul(worldPos, globalBuffer.Camera.View), globalBuffer.Camera.Proj);
 	o.WorldPos = worldPos.xyz;
 	o.TexCoord = v.TexCoord;
-	float3x3 normalMatrix = (float3x3)v.GetNormalMatrix();
+	const float3x3 normalMatrix = v.GetNormalMatrix();
 	o.Normal = mul(v.Normal, normalMatrix);
 	o.Tangent = float4(mul(v.Tangent.xyz, normalMatrix), v.Tangent.w);
 	return o;
@@ -91,7 +90,7 @@ float4 fragMain(VS_Out f) : SV_Target
 		albedo = albedoTex.Sample(f.TexCoord);
 	else
 		albedo = pcMatData.Albedo;
-	
+
 	if (albedo.a < 0.01f) // might need to play around with this number
 		discard;
 
@@ -115,7 +114,7 @@ float4 fragMain(VS_Out f) : SV_Target
 	{
 		float3 tangentNormal = normalTex.Sample(f.TexCoord).xyz; // packed tangent space normal
 		tangentNormal = tangentNormal * 2.f - float3(1.f); // unpacked tangent space
-	
+
 		float3 T = normalize(f.Tangent.xyz);
 		T = normalize(T - vertexNormal * dot(T, vertexNormal)); // re-orthogonalise tangent
 		float3 B = cross(vertexNormal, T) * f.Tangent.w; // w contains the handedness
@@ -129,10 +128,10 @@ float4 fragMain(VS_Out f) : SV_Target
 	}
 
 	float3 camToFrag = normalize(f.WorldPos - globalBuffer.Camera.Pos);
-	float viewNormalAlignment = dot(camToFrag, vertexNormal); 
+	float viewNormalAlignment = dot(camToFrag, vertexNormal);
 	bool bNormalNeedsFlip = pcMatData.bTwoSided && (viewNormalAlignment > 0.f);
 	N = bNormalNeedsFlip ? -1.f * N : N;
-	
+
 	float3 V = -1.f * camToFrag; // view vector
 	float3 Lo = float3(0.f, 0.f, 0.f); // total radiance out
 

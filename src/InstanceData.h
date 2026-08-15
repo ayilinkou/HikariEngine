@@ -9,9 +9,9 @@ class Material;
 struct InstanceData
 {
     glm::mat4 ModelMatrix;
-    glm::mat4 NormalMatrix;
+    glm::mat3x4 NormalMatrix;
 
-    static constexpr uint32_t AttributeCount = 8;
+    static constexpr uint32_t AttributeCount = 7;
 
     static constexpr vk::VertexInputBindingDescription GetBindingDescription()
     {
@@ -50,11 +50,7 @@ struct InstanceData
                  {.location = 10,
                   .binding = 1,
                   .format = vk::Format::eR32G32B32A32Sfloat,
-                  .offset = sizeof(glm::vec4) * 6},
-                 {.location = 11,
-                  .binding = 1,
-                  .format = vk::Format::eR32G32B32A32Sfloat,
-                  .offset = sizeof(glm::vec4) * 7}}};
+                  .offset = sizeof(glm::vec4) * 6}}};
     }
 };
 
