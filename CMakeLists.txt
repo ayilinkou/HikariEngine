@@ -178,16 +178,21 @@ file(GLOB_RECURSE HEADER_SELF_CONTAINMENT_HEADERS CONFIGURE_DEPENDS
 # ahead of everything else and isn't meant to stand alone.
 list(REMOVE_ITEM HEADER_SELF_CONTAINMENT_HEADERS ${CMAKE_SOURCE_DIR}/src/pch.h)
 
-set_source_files_properties(${HEADER_SELF_CONTAINMENT_HEADERS}
-                            PROPERTIES LANGUAGE CXX)
+# Generate one .cpp stub per header that does nothing but #include it. Compiling
+# via a stub (rather than compiling the .h directly as its own TU) avoids
+# "#pragma once in main file" warning.
+set(HEADER_CHECK_STUB_DIR ${CMAKE_BINARY_DIR}/header_self_containment)
+set(HEADER_SELF_CONTAINMENT_STUBS "")
+foreach(header ${HEADER_SELF_CONTAINMENT_HEADERS})
+  file(RELATIVE_PATH rel_header ${CMAKE_SOURCE_DIR}/src ${header})
+  string(REPLACE "/" "_" stub_name ${rel_header})
+  set(stub_file ${HEADER_CHECK_STUB_DIR}/${stub_name}.cpp)
+  file(WRITE ${stub_file} "#include \"${header}\"\n")
+  list(APPEND HEADER_SELF_CONTAINMENT_STUBS ${stub_file})
+endforeach()
 
 add_library(HeaderSelfContainment OBJECT EXCLUDE_FROM_ALL
                                          ${HEADER_SELF_CONTAINMENT_HEADERS})
-
-if(NOT MSVC)
-  target_compile_options(HeaderSelfContainment
-                         PRIVATE -Wno-pragma-once-outside-header)
-endif()
 
 target_link_libraries(
   HeaderSelfContainment
