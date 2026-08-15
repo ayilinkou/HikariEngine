@@ -36,7 +36,7 @@ inline std::string CaptureStream(FILE* stream, const std::function<void()>& fn)
 
 #if defined(_MSC_VER)
     FILE* redirected = nullptr;
-    errno_t err = freopen_s(tempPath.c_str(), "w", stream);
+    errno_t err = freopen_s(&redirected, tempPath.c_str(), "w", stream);
     if (err != 0 || !redirected)
         throw std::runtime_error("CaptureStream: freopen failed to redirect stream");
 #else
