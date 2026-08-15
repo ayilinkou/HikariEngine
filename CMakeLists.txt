@@ -46,8 +46,7 @@ if(ENABLE_SANITIZERS)
     # prebuilt libs (Catch2, etc.) aren't built with this, so leaving it on
     # causes LNK2038 ABI-mismatch errors when linking against them. Disable to
     # match their ABI.
-    add_compile_definitions(_DISABLE_VECTOR_ANNOTATION
-                            _DISABLE_STRING_ANNOTATION)
+    add_compile_definitions(_DISABLE_STL_ANNOTATION)
   else()
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer
                         -fno-sanitize-recover=undefined -g)
