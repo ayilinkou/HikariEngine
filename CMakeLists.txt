@@ -1,4 +1,5 @@
 include(cmake/Warnings.cmake)
+include(cmake/EngineModule.cmake)
 
 cmake_minimum_required(VERSION 4.0)
 
@@ -135,6 +136,8 @@ if(NOT SLANGC_EXE)
   message(FATAL_ERROR "slangc not found!")
 endif()
 
+add_subdirectory(engine/core)
+
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 if(CLANG_FORMAT_EXE)
   file(GLOB_RECURSE FORMAT_SOURCES CONFIGURE_DEPENDS
@@ -220,7 +223,8 @@ target_sources(VulkanApp PRIVATE ${SOURCES})
 
 target_link_libraries(
   VulkanApp
-  PRIVATE SDL3::SDL3
+  PRIVATE Engine::Core
+          SDL3::SDL3
           Vulkan::Vulkan
           GPUOpen::VulkanMemoryAllocator
           glm::glm-header-only

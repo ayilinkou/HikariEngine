@@ -3,8 +3,6 @@
 #include <format>
 #include <string>
 
-#include <SDL3/SDL_messagebox.h>
-
 struct LogCategory
 {
     std::string_view Name;
@@ -89,28 +87,4 @@ void LogMsg(LogSeverity severity, const LogCategory& cat, std::format_string<Arg
 
     // reset color at the very end of the line
     std::fprintf(stream, "%.*s\n", static_cast<int>(Log::Reset.size()), Log::Reset.data());
-}
-
-// Also prints a log message if a LogCategory is given
-inline void ShowMessageBox(const char* title, const char* message, LogSeverity severity,
-                           LogCategory category = LogCategory(""))
-{
-    SDL_MessageBoxFlags flags{0};
-    switch (severity)
-    {
-        case LogSeverity::Info:
-            flags |= SDL_MESSAGEBOX_INFORMATION;
-            break;
-        case LogSeverity::Warning:
-            flags |= SDL_MESSAGEBOX_WARNING;
-            break;
-        case LogSeverity::Error:
-            flags |= SDL_MESSAGEBOX_ERROR;
-            break;
-    }
-
-    if (!category.Name.empty())
-        LogMsg(severity, category, "{}", message);
-
-    SDL_ShowSimpleMessageBox(flags, title, message, nullptr);
 }

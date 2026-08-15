@@ -10,7 +10,7 @@
 #define NOMINMAX
 #include <windows.h>
 #endif
-#include "Log.h"
+#include <core/Log.h>
 
 constexpr LogCategory LogThreadPool("Thread Pool");
 

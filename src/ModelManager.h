@@ -2,7 +2,7 @@
 
 #include "InstanceData.h"
 #include "Model.h"
-#include "SwapbackArray.h"
+#include <core/SwapbackArray.h>
 
 class ModelManager
 {
