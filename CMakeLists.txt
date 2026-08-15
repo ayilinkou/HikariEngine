@@ -40,6 +40,14 @@ if(ENABLE_SANITIZERS)
     # ASan is incompatible with /RTC1, which CMake's Debug config injects by
     # default
     string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+
+    # MSVC STL auto-enables container-overflow annotations under
+    # /fsanitize=address, which changes std::string/vector/optional ABI. vcpkg's
+    # prebuilt libs (Catch2, etc.) aren't built with this, so leaving it on
+    # causes LNK2038 ABI-mismatch errors when linking against them. Disable to
+    # match their ABI.
+    add_compile_definitions(_DISABLE_VECTOR_ANNOTATION
+                            _DISABLE_STRING_ANNOTATION)
   else()
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer
                         -fno-sanitize-recover=undefined -g)
