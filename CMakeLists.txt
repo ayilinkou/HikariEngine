@@ -1,3 +1,5 @@
+include(cmake/Warnings.cmake)
+
 cmake_minimum_required(VERSION 4.0)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -27,6 +29,7 @@ project(
   VERSION 1.0
   LANGUAGES CXX)
 
+option(ENGINE_BUILD_TESTS "Build unit tests" ON)
 option(ENABLE_SANITIZERS "Enable ASan (and UBSan when available)" OFF)
 
 if(ENABLE_SANITIZERS)
@@ -151,6 +154,13 @@ else()
   )
 endif()
 
+if(ENGINE_BUILD_TESTS)
+  enable_testing()
+  find_package(Catch2 CONFIG REQUIRED)
+  include(cmake/Testing.cmake)
+  add_subdirectory(tests)
+endif()
+
 add_executable(VulkanApp)
 
 target_precompile_headers(VulkanApp PRIVATE src/pch.h)
@@ -186,9 +196,8 @@ if(MSVC)
                                                "$<$<CONFIG:Debug>:Embedded>")
   endif()
 
-  target_compile_options(
-    VulkanApp PRIVATE /W3 # Warning level
-                      $<$<CONFIG:Debug>:/Od> $<$<CONFIG:Release>:/O2>)
+  target_compile_options(VulkanApp PRIVATE $<$<CONFIG:Debug>:/Od>
+                                           $<$<CONFIG:Release>:/O2>)
 
   target_link_options(
     VulkanApp PRIVATE $<$<CONFIG:Debug>:/DEBUG> # optional but useful for crash
@@ -197,11 +206,7 @@ if(MSVC)
 else()
   target_compile_options(
     VulkanApp
-    PRIVATE -Wall
-            -Wextra
-            -Wpedantic
-            -Wshadow
-            $<$<CONFIG:Debug>:
+    PRIVATE $<$<CONFIG:Debug>:
             -O0
             -g
             >
@@ -221,6 +226,8 @@ else()
     endif()
   endif()
 endif()
+
+engine_set_warnings(VulkanApp)
 
 # TODO: make shaders only depend on headers that they actually include
 function(add_slang_shader_target target)

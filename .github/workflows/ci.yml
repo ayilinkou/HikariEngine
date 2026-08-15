@@ -108,5 +108,8 @@ jobs:
         env:
           VCPKG_ROOT: ${{ github.workspace }}/vcpkg
 
+      - name: Test
+        run: ctest --test-dir build/${{ matrix.preset }} -L unit --output-on-failure
+
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}

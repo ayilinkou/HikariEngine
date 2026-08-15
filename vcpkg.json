@@ -19,6 +19,7 @@
 			]
 		},
 		"pugixml",
-		"vulkan-memory-allocator"
+		"vulkan-memory-allocator",
+        "catch2"
 	]
 }
