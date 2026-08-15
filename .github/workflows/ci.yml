@@ -108,8 +108,14 @@ jobs:
         env:
           VCPKG_ROOT: ${{ github.workspace }}/vcpkg
 
-      - name: Test
-        run: ctest --test-dir build/${{ matrix.preset }} -L unit --output-on-failure
-
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Header self-containment check
+        run: cmake --build --preset ${{ matrix.preset }} --target HeaderSelfContainment
+
+      - name: Format check
+        run: cmake --build --preset ${{ matrix.preset }} --target format-check
+
+      - name: Catch2 tests
+        run: ctest --test-dir build/${{ matrix.preset }} -L unit --output-on-failure
