@@ -1,5 +1,9 @@
 #pragma once
 
+#include <memory>
+
+#include "glm/glm.hpp"
+
 #include "Material.h"
 #include "Texture.h"
 

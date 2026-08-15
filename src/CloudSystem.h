@@ -1,5 +1,8 @@
 #pragma once
 
+#include "vulkan/vulkan_raii.hpp"
+#include "glm/glm.hpp"
+
 #include "AllocatedImage.h"
 #include "Texture.h"
 

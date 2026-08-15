@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vulkan/vulkan_raii.hpp"
+
 #include "AllocatedImage.h"
 
 enum TextureBinding : uint8_t

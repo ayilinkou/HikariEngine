@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "vulkan/vulkan.hpp"
+#include "vulkan/vulkan_raii.hpp"
 
 class PipelineBuilder
 {

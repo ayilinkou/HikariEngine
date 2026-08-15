@@ -1,6 +1,10 @@
 #pragma once
 
+#include <string>
+#include <format>
+
 #include <SDL3/SDL_messagebox.h>
+
 struct LogCategory
 {
     std::string_view Name;

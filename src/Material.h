@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include "vulkan/vulkan_raii.hpp"
+
 struct aiMaterial;
 
 enum class BlendMode : uint8_t

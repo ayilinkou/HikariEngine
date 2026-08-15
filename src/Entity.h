@@ -1,6 +1,7 @@
 #pragma once
 
 #include <concepts>
+#include <memory>
 
 #include "LogicComponent.h"
 #include "SceneComponent.h"

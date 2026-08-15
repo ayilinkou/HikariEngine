@@ -1,6 +1,9 @@
 #pragma once
 
 #include <span>
+#include <string>
+
+#include "vulkan/vulkan_raii.hpp"
 
 class ComputePipelineBuilder
 {
