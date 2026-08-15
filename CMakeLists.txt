@@ -120,9 +120,35 @@ else()
   target_compile_options(ImGuiFileDialog PRIVATE -w)
 endif()
 
-find_program(SLANGC_EXECUTABLE slangc)
-if(NOT SLANGC_EXECUTABLE)
+find_program(SLANGC_EXE slangc)
+if(NOT SLANGC_EXE)
   message(FATAL_ERROR "slangc not found!")
+endif()
+
+find_program(CLANG_FORMAT_EXE NAMES clang-format)
+if(CLANG_FORMAT_EXE)
+  file(GLOB_RECURSE FORMAT_SOURCES CONFIGURE_DEPENDS
+       ${CMAKE_SOURCE_DIR}/src/*.cpp ${CMAKE_SOURCE_DIR}/src/*.h
+       ${CMAKE_SOURCE_DIR}/src/*.hpp)
+
+  add_custom_target(
+    format
+    COMMAND ${CLANG_FORMAT_EXE} -i ${FORMAT_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Running clang-format -i over src/"
+    VERBATIM)
+
+  add_custom_target(
+    format-check
+    COMMAND ${CLANG_FORMAT_EXE} --dry-run --Werror ${FORMAT_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Checking clang-format compliance over src/"
+    VERBATIM)
+else()
+  message(
+    STATUS
+      "clang-format not found — 'format' and 'format-check' targets unavailable"
+  )
 endif()
 
 add_executable(VulkanApp)
@@ -224,7 +250,7 @@ function(add_slang_shader_target target)
       COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${rel_path}"
       COMMAND ${CMAKE_COMMAND} -E make_directory ${output_dir}
       COMMAND
-        ${SLANGC_EXECUTABLE} ${shader} -target spirv -profile spirv_1_4
+        ${SLANGC_EXE} ${shader} -target spirv -profile spirv_1_4
         -emit-spirv-directly -fvk-use-entrypoint-name ${entry_points} -o
         ${output_file} $<IF:$<CONFIG:Debug>,-g1,-g0>
         $<IF:$<CONFIG:Debug>,-O0,-O3>
