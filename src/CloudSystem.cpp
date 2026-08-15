@@ -1,7 +1,7 @@
 #include "CloudSystem.h"
 #include "ComputePipelineBuilder.h"
-#include <core/Log.h>
 #include "Utility.h"
+#include <core/Log.h>
 
 inline constexpr LogCategory LogCloudSystem{"Cloud System"};
 

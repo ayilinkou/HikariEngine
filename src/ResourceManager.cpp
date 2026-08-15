@@ -2,13 +2,13 @@
 
 #include "Cubemap.h"
 #include "CubemapLoader.h"
-#include <core/Log.h>
 #include "ModelData.h"
 #include "ModelLoader.h"
 #include "ModelManager.h"
-#include <core/MyMacros.h>
 #include "Texture.h"
 #include "TextureLoader.h"
+#include <core/Log.h>
+#include <core/MyMacros.h>
 
 inline constexpr LogCategory LogResourceManager{"Resource Manager"};
 constexpr std::string_view fallbackTexturePrefix = "FallbackTexture";
