@@ -2,11 +2,11 @@
 
 #include "Cubemap.h"
 #include "CubemapLoader.h"
-#include "Log.h"
+#include <core/Log.h>
 #include "ModelData.h"
 #include "ModelLoader.h"
 #include "ModelManager.h"
-#include "MyMacros.h"
+#include <core/MyMacros.h>
 #include "Texture.h"
 #include "TextureLoader.h"
 

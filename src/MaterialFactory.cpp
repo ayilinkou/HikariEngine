@@ -1,6 +1,6 @@
 #include "MaterialFactory.h"
 
-#include "Log.h"
+#include <core/Log.h>
 #include "Utility.h"
 
 constexpr LogCategory LogMaterialFactory("Material Factory");

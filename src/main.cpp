@@ -8,7 +8,6 @@
 #include "FrameData.h"
 #include "InstanceData.h"
 #include "Lights.h"
-#include "Log.h"
 #include "MaterialFactory.h"
 #include "Model.h"
 #include "ModelManager.h"
@@ -16,11 +15,13 @@
 #include "PipelineBuilder.h"
 #include "ResourceManager.h"
 #include "ThreadPool.h"
-#include "Timer.h"
 #include "Utility.h"
 #include "Vertex.h"
 #include "VulkanAllocator.h"
 #include "XmlParser.h"
+
+#include <core/Log.h>
+#include <core/Timer.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
