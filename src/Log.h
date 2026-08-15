@@ -1,7 +1,7 @@
 #pragma once
 
-#include <string>
 #include <format>
+#include <string>
 
 #include <SDL3/SDL_messagebox.h>
 

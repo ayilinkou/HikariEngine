@@ -1,8 +1,8 @@
 #pragma once
 
 #include <future>
-#include <vector>
 #include <queue>
+#include <vector>
 
 class ThreadPool
 {

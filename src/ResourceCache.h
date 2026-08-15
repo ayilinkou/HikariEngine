@@ -1,8 +1,8 @@
 #pragma once
 
 #include <algorithm>
-#include <mutex>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 
 template <typename T>

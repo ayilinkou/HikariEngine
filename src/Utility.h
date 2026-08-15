@@ -1,10 +1,10 @@
 #pragma once
 
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 
-#include "vulkan/vulkan_raii.hpp"
 #include "SDL3/SDL_video.h"
+#include "vulkan/vulkan_raii.hpp"
 
 #include "AllocatedBuffer.h"
 #include "AllocatedImage.h"
