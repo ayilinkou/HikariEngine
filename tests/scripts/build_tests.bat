@@ -12,7 +12,7 @@ if not "%PRESET%"=="msvc" (
     if errorlevel 1 exit /b %errorlevel%
 )
 
-cmake --build "build\%PRESET%" --target core_tests
+cmake --build "build\%PRESET%" --target core_tests platform_tests
 if errorlevel 1 exit /b %errorlevel%
 
 endlocal

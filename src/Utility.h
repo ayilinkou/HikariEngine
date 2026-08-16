@@ -1,7 +1,6 @@
 #pragma once
 
 #include <filesystem>
-#include <fstream>
 
 #include "vulkan/vulkan_raii.hpp"
 
@@ -26,22 +25,6 @@ inline void SetVkDebugName([[maybe_unused]] vk::raii::Device& device, [[maybe_un
         .pObjectName = name};
     device.setDebugUtilsObjectNameEXT(nameInfo);
 #endif
-}
-
-inline std::vector<char> ReadFile(const std::string filename)
-{
-    // std::ios::ate starts to read at end of file so that we can get the size
-    // of the buffer
-    std::ifstream file(filename, std::ios::ate | std::ios::binary);
-    if (!file.is_open())
-        throw std::runtime_error("Failed to open file!");
-
-    std::vector<char> buffer(file.tellg());
-    file.seekg(0, std::ios::beg);
-    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    file.close();
-
-    return buffer;
 }
 
 // Chooses an ideal swapchain format if available, if not picks the first
