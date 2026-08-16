@@ -4,13 +4,18 @@ Cross-platform game engine (Windows / Linux / macOS-ARM) built on Vulkan, with a
 backend planned later. C++20, CMake + vcpkg, Slang shaders.
 
 The engine is mid-refactor from a single-executable prototype into a layered library set.
-Two reference documents drive that work — read the relevant section before proposing
+Three reference documents drive that work — read the relevant section before proposing
 architecture, and prefer them over inventing a design:
 
-- `docs/architecture_plan_14_08_2026.md` — target architecture (Part II), test strategy
+- `docs/architecture_plan.md` — target architecture (Part II), test strategy
   (Part III), and the **76-step incremental work order (Part IV)** that the project follows.
-- `docs/suggested_work_04_08_2026.md` — the code review that motivated the plan; open it for
+- `docs/suggested_work.md` — the code review that motivated the plan; open it for
   the *why* behind a known defect.
+- `docs/rhi_extraction_plan.md` — **temporary; authoritative for Stage 5 only.**
+  Replaces Part IV steps 24–34 with a 17-step sequence (R1–R17) that makes the RHI's public
+  API backend-neutral so a D3D12 backend is possible later. Records the design decisions
+  (D0–D12) behind that. **Delete it when Stage 5 completes** — see its §10 for what to
+  promote into the architecture plan first.
 
 ---
 
@@ -18,7 +23,9 @@ architecture, and prefer them over inventing a design:
 
 **Follow Part IV strictly, one step at a time.** Each step is sized to end in a compiling,
 running application. Do not start work outside the current stage, and do not combine steps,
-without asking first.
+without asking first. **While Stage 5 is in progress, follow `docs/rhi_extraction_plan.md`
+steps R1–R17 instead of Part IV steps 24–34** — that document wins where the two disagree,
+and everything outside steps 24–34 stays governed by the architecture plan.
 
 **Do not opportunistically refactor.** `src/main.cpp` is ~2,600 lines and is scheduled for
 dismantling across Stages 4–9. Touching it outside its scheduled step creates conflicts with
@@ -57,7 +64,7 @@ Authoritative sources, local copies first (they match the installed SDK version)
 The validation layers are the empirical check, not a substitute for the spec — a clean
 validation run proves nothing was caught, not that the code is correct. Synchronization
 validation in particular is off by default and worth enabling when touching barriers.
-`grep`ping this repo for prior art is also not a source: `docs/suggested_work_04_08_2026.md`
+`grep`ping this repo for prior art is also not a source: `docs/suggested_work.md`
 §1.15 (sync objects not recreated when the swapchain image count changes) is a known-wrong
 place to copy from, and §2.6's fixed ceilings abort rather than grow.
 
@@ -73,7 +80,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 2 — Header self-containment | 12–14 | ✅ done (`HeaderSelfContainment` target, enforced in CI) |
 | 3 — Core library | 15–19 | ✅ done (`Engine::Core`, `IJobSystem` injected into `App`) |
 | 4 — Platform library | 20–23 | ✅ done (`Engine::Platform`, `Paths` + `content/` root, `CommandLine`) |
-| **5 — RHI extraction** | **24–34** | **← next: `engine/rhi`, batched uploads, growable descriptors** |
+| **5 — RHI extraction** | **R1–R17** | **← next: `engine/rhi` with a backend-neutral API, handle-based resources, batched uploads, growable descriptors. Planned in `docs/rhi_extraction_plan.md`, which supersedes Part IV steps 24–34.** |
 | 6 — Headless capability | 35–40 | not started |
 | 7 — Engine shell + DI | 41–47 | not started — **CI goal met at step 47** |
 | 8+ — Frame graph, DOD, scalability | 48–76 | not started |

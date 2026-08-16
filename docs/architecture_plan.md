@@ -11,7 +11,7 @@ supports (a) headless + automated runtime testing, (b) data-oriented performance
 
 **Status:** Stage 4 complete.
 
-> Companion document: `suggested_work_04_08_2026.md` covers *correctness bugs* and
+> Companion document: `suggested_work.md` covers *correctness bugs* and
 > localised fixes. This document deliberately does **not** repeat them. Where a bug is
 > load-bearing for the architecture (e.g. per-upload `queue.waitIdle()`), it is
 > referenced, not re-explained.
@@ -1222,7 +1222,7 @@ the *encoding logic* is tested without a driver. Runs on all platforms.
   per-image/per-subresource layout state, and asserts that every use matches the declared
   layout and that every layout change is covered by a barrier with compatible
   stage/access masks. **This catches, in a 20 ms CPU-only test, the exact class of bug that
-  `suggested_work_04_08_2026.md` items 1.10 and 1.11 describe** — and it catches them for
+  `suggested_work.md` items 1.10 and 1.11 describe** — and it catches them for
   every future pass too.
 - Encoding: given a known snapshot, assert exact draw-call count, instance count and bind
   count. A regression that doubles descriptor binds is visible immediately.
@@ -1755,7 +1755,7 @@ quiet.
   `/INCREMENTAL:NO` for MSVC, `-fsanitize=address,undefined …` otherwise.
 - **Verify:** `cmake --workflow --preset ninja-asan-linux` builds **and the binary actually
   runs**: `VulkanApp --frames 30`. Expect it to report real bugs — that is the point. Triage
-  them via `suggested_work_04_08_2026.md`; do not fix them in this step.
+  them via `suggested_work.md`; do not fix them in this step.
 - **Size:** S · **Needs:** —
 
 ### 10. CMake helper modules
@@ -2337,7 +2337,7 @@ validation errors".
 
 | Item | Where | Size |
 |---|---|---|
-| P0/P1 correctness fixes from `suggested_work_04_08_2026.md` | various | S–M each |
+| P0/P1 correctness fixes from `suggested_work.md` | various | S–M each |
 | Expose cloud push-constants in ImGui (`m_CloudData` is pushed but never written) | `CloudSystem` + editor UI | S |
 | [DONE] Guard `DirLights[0]` when `DirLightCount == 0` (currently NaNs) | `clouds.comp.slang:106` | XS |
 | Epsilon on `dir.y` instead of `== 0.f` | `clouds.comp.slang:24,96` | XS |
