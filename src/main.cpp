@@ -26,6 +26,7 @@
 #include <core/Timer.h>
 
 #include <platform/IPlatform.h>
+#include <platform/Paths.h>
 #include <platform/SdlPlatform.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -155,6 +156,7 @@ static VKAPI_ATTR vk::Bool32 VKAPI_CALL DebugCallback(
 struct Options
 {
     std::string ScenePath;
+    std::string ContentRoot;    // --content; empty = resolve automatically
     uint64_t Frames = 0;        // 0 = run until closed
     bool bFixedDt = false;      // use a fixed 1/60s timestep
     int CameraPreset = -1;      // -1 = free camera; else index into kCameraPresets
@@ -193,6 +195,7 @@ void PrintUsage()
                  "\n"
                  "Options:\n"
                  "  --scene <path>          Load a scene (.map) on startup\n"
+                 "  --content <dir>         Use <dir> as the content root\n"
                  "  --frames <N>            Exit automatically after N frames "
                  "(0 = run until closed)\n"
                  "  --fixed-dt              Use a fixed 1/60s timestep instead "
@@ -298,6 +301,8 @@ Options ParseArgs(int argc, char** argv)
         std::string_view arg = argv[i];
         if (arg == "--help" || arg == "-h")
             ExitWithUsage(EXIT_SUCCESS);
+        else if (arg == "--content")
+            options.ContentRoot = RequireValue(i, "--content");
         else if (arg == "--scene")
             options.ScenePath = HasInlineValue(i) ? RequireValue(i, "--scene") : DEFAULT_SCENE;
         else if (arg == "--frames")
@@ -338,8 +343,9 @@ Options ParseArgs(int argc, char** argv)
 class App
 {
 public:
-    App(IPlatform& platform, Options options, IJobSystem& jobSystem)
-        : m_Platform(platform), m_Options(std::move(options)), m_JobSystem(jobSystem)
+    App(IPlatform& platform, const Paths& paths, Options options, IJobSystem& jobSystem)
+        : m_Platform(platform), m_Paths(paths), m_Options(std::move(options)),
+          m_JobSystem(jobSystem)
     {
     }
     ~App()
@@ -466,7 +472,7 @@ private:
 
         if (!m_Options.ScenePath.empty())
         {
-            m_SceneGraph = XmlParser::LoadScene(m_Options.ScenePath);
+            m_SceneGraph = XmlParser::LoadScene(m_Paths.Content(m_Options.ScenePath).string());
             if (!m_SceneGraph)
             {
                 throw std::runtime_error("Failed to load scene: " + m_Options.ScenePath);
@@ -483,13 +489,15 @@ private:
         createInfo.Name = "Skybox";
         createInfo.Format = vk::Format::eR8G8B8A8Srgb;
 
-        const std::string skyboxRoot = "textures/skybox/";
-        createInfo.RightPath = skyboxRoot + "right.jpg";
-        createInfo.LeftPath = skyboxRoot + "left.jpg";
-        createInfo.TopPath = skyboxRoot + "top.jpg";
-        createInfo.BottomPath = skyboxRoot + "bottom.jpg";
-        createInfo.FrontPath = skyboxRoot + "front.jpg";
-        createInfo.BackPath = skyboxRoot + "back.jpg";
+        const auto skyboxFace = [this](std::string_view face)
+        { return m_Paths.Content("textures/skybox/" + std::string(face)).string(); };
+
+        createInfo.RightPath = skyboxFace("right.jpg");
+        createInfo.LeftPath = skyboxFace("left.jpg");
+        createInfo.TopPath = skyboxFace("top.jpg");
+        createInfo.BottomPath = skyboxFace("bottom.jpg");
+        createInfo.FrontPath = skyboxFace("front.jpg");
+        createInfo.BackPath = skyboxFace("back.jpg");
 
         m_Skybox = ResourceManager::Get()->LoadCubemap(createInfo);
 
@@ -575,7 +583,7 @@ private:
         CreateTextureSampler();
 
         ResourceManager::Init(m_Device, m_PhysicalDevice, m_GenericCommandPool, m_GraphicsQueue,
-                              m_VmaAllocator);
+                              m_VmaAllocator, m_Paths);
         MaterialFactory::Init(m_Device, m_TextureSampler);
 
         CreatePipelines();
@@ -587,6 +595,7 @@ private:
 
         // TODO: read from scene
         CloudSystemCreateInfo cloudCreateInfo{.Device = m_Device,
+                                              .ContentPaths = m_Paths,
                                               .GlobalSetLayout = m_GlobalBufferSetLayout,
                                               .DepthSetLayout = m_DepthSetLayout,
                                               .CommandPool = m_GenericCommandPool,
@@ -948,7 +957,7 @@ private:
             if (ImGui::Button("Load Scene"))
             {
                 IGFD::FileDialogConfig config;
-                config.path = "scenes/";
+                config.path = m_Paths.Content("scenes").string();
                 ImGuiFileDialog::Instance()->OpenDialog("LoadSceneDlg", "Choose Scene to Load",
                                                         ".map", config);
             }
@@ -982,7 +991,7 @@ private:
             if (ImGui::Button("Save Scene"))
             {
                 IGFD::FileDialogConfig config;
-                config.path = "scenes/";
+                config.path = m_Paths.Content("scenes").string();
                 config.fileName = "new_scene.map";
                 ImGuiFileDialog::Instance()->OpenDialog("SaveSceneDlg", "Save Scene As", ".map",
                                                         config);
@@ -1396,7 +1405,7 @@ private:
 
         auto [opaqueLayout, opaquePipeline] =
             PipelineBuilder(m_Device)
-                .Shaders("shaders/opaque.spv")
+                .Shaders(m_Paths.Content("shaders/opaque.spv").string())
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(true, true, vk::CompareOp::eLess)
                 .ColorAttachments(std::array{m_OpaqueImageFormat}, std::array{attachmentState})
@@ -1451,7 +1460,7 @@ private:
 
         auto [transparentLayout, transparentPipeline] =
             PipelineBuilder(m_Device)
-                .Shaders("shaders/weightedBlendedOIT.spv")
+                .Shaders(m_Paths.Content("shaders/weightedBlendedOIT.spv").string())
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(true, false, vk::CompareOp::eLess)
                 .ColorAttachments(attachmentFormats, attachmentStates)
@@ -1480,7 +1489,7 @@ private:
 
         auto [compositeLayout, compositePipeline] =
             PipelineBuilder(m_Device)
-                .Shaders("shaders/composite.spv")
+                .Shaders(m_Paths.Content("shaders/composite.spv").string())
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(false, false, vk::CompareOp::eLess)
                 .ColorAttachments(std::array{m_SwapchainSurfaceFormat.format},
@@ -2520,6 +2529,7 @@ private:
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
     IPlatform& m_Platform;
+    const Paths& m_Paths;
     bool m_bIsFocused = true;
     bool m_bCursorVisible = true;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
@@ -2560,6 +2570,7 @@ int main(int argc, char** argv)
     // will be destroyed in reverse order of declaration. The platform must
     // outlive App: destroying it unloads the Vulkan library.
     std::unique_ptr<SdlPlatform> pPlatform = nullptr;
+    std::unique_ptr<Paths> pPaths = nullptr;
     std::unique_ptr<IJobSystem> pJobSystem = nullptr;
     std::unique_ptr<App> pApp = nullptr;
 
@@ -2589,7 +2600,9 @@ int main(int argc, char** argv)
                    pJobSystem->WorkerCount());
         }
 
-        pApp = std::make_unique<App>(*pPlatform, options, *pJobSystem);
+        pPaths = std::make_unique<Paths>(options.ContentRoot);
+
+        pApp = std::make_unique<App>(*pPlatform, *pPaths, options, *pJobSystem);
         pApp->Run();
     }
     catch (const SDLException& e)
@@ -2611,6 +2624,7 @@ int main(int argc, char** argv)
 
     pApp.reset();
     pJobSystem.reset();
+    pPaths.reset();
     pPlatform.reset();
 
     if (options.bStrictValidation && g_ValidationErrorCount.load(std::memory_order_relaxed) > 0)

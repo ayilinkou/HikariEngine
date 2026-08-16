@@ -3,6 +3,8 @@
 #include "vk_mem_alloc.h"
 #include "vulkan/vulkan_raii.hpp"
 
+#include <platform/Paths.h>
+
 #include "ResourceCache.h"
 
 struct CubemapCreateInfo;
@@ -14,12 +16,12 @@ class ModelData;
 class ResourceManager
 {
 private:
-    ResourceManager() {}
+    explicit ResourceManager(const Paths& paths) : m_Paths(paths) {}
 
 public:
     static void Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
                      vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                     VmaAllocator allocator);
+                     VmaAllocator allocator, const Paths& paths);
     static ResourceManager* Get() { return s_Instance; }
 
 private:
@@ -34,6 +36,11 @@ public:
     std::shared_ptr<ModelData> LoadModel(const std::string& modelPath);
 
 private:
+    // Asset paths arrive here content-relative (a Model keeps the path it was
+    // serialized with) and are resolved against the content root here, at the
+    // point of loading.
+    const Paths& m_Paths;
+
     ResourceCache<Texture> m_TextureCache;
     ResourceCache<Cubemap> m_CubemapCache;
     ResourceCache<ModelData> m_ModelCache;

@@ -41,7 +41,8 @@ public:
 
     const std::filesystem::path& ContentRoot() const { return m_ContentRoot; }
 
-    // Content("shaders/opaque.spv") -> <root>/shaders/opaque.spv
+    // Content("shaders/opaque.spv") -> <root>/shaders/opaque.spv.
+    // An absolute path is returned unchanged.
     std::filesystem::path Content(std::string_view relativePath) const;
 
 private:

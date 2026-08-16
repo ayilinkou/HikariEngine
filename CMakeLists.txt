@@ -206,7 +206,8 @@ add_library(HeaderSelfContainment OBJECT EXCLUDE_FROM_ALL
 
 target_link_libraries(
   HeaderSelfContainment
-  PRIVATE SDL3::SDL3
+  PRIVATE Engine::Platform
+          SDL3::SDL3
           Vulkan::Vulkan
           GPUOpen::VulkanMemoryAllocator
           glm::glm-header-only
@@ -297,7 +298,7 @@ function(add_slang_shader_target target)
   cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
 
   set(shaders_source_dir ${CMAKE_CURRENT_LIST_DIR}/src/shaders)
-  set(shaders_out_dir ${CMAKE_CURRENT_LIST_DIR}/shaders)
+  set(shaders_out_dir ${CMAKE_CURRENT_LIST_DIR}/content/shaders)
 
   file(GLOB_RECURSE shader_headers CONFIGURE_DEPENDS
        ${shaders_source_dir}/*.slangh)

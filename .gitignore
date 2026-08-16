@@ -2,7 +2,7 @@ compile_commands.json
 build/
 *.spv
 imgui.ini
-models/sponza/**
+content/models/sponza/**
 .cache/
 tests/screenshots/
 tests/reports/

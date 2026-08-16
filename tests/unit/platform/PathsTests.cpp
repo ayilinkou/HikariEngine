@@ -163,3 +163,16 @@ TEST_CASE("Content() joins a relative path onto the resolved root", "[Paths]")
     REQUIRE(paths.ContentRoot() == root);
     REQUIRE(paths.Content("shaders/opaque.spv") == root / "shaders/opaque.spv");
 }
+
+TEST_CASE("Content() returns an absolute path unchanged", "[Paths]")
+{
+    const TempDir temp;
+    const std::filesystem::path root = temp.MakeDir("content");
+    const Paths paths{root.string()};
+
+    // A scene given on the command line, or picked from a file dialog, is
+    // already fully specified and must not be re-rooted under content/.
+    const std::filesystem::path absolute = temp.Missing("elsewhere/scene.map");
+    REQUIRE(absolute.is_absolute());
+    REQUIRE(paths.Content(absolute.string()) == absolute);
+}

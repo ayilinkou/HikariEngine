@@ -81,5 +81,10 @@ Paths::Paths(std::string_view commandLineOverride)
 
 std::filesystem::path Paths::Content(std::string_view relativePath) const
 {
-    return m_ContentRoot / std::filesystem::path(relativePath);
+    const std::filesystem::path path(relativePath);
+
+    // An absolute path is already fully specified — a scene passed on the
+    // command line or picked from a file dialog must be used as given, not
+    // re-rooted under the content directory.
+    return path.is_absolute() ? path : m_ContentRoot / path;
 }
