@@ -46,7 +46,21 @@ function(engine_header_self_containment name)
     file(RELATIVE_PATH rel_header ${CMAKE_SOURCE_DIR} ${header})
     string(REPLACE "/" "_" stub_name ${rel_header})
     set(stub_file ${stub_dir}/${stub_name}.cpp)
-    file(WRITE ${stub_file} "#include \"${header}\"\n")
+    set(stub_content "#include \"${header}\"\n")
+
+    # Only write when the content actually differs. file(WRITE) always updates
+    # the timestamp, and every configure would then invalidate every stub
+    # object — making the whole check rebuild from scratch on each run rather
+    # than only for the headers that changed.
+    set(existing_content "")
+    if(EXISTS ${stub_file})
+      file(READ ${stub_file} existing_content)
+    endif()
+
+    if(NOT existing_content STREQUAL stub_content)
+      file(WRITE ${stub_file} "${stub_content}")
+    endif()
+
     list(APPEND stubs ${stub_file})
   endforeach()
 
