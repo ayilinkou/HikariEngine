@@ -1,9 +1,7 @@
 #pragma once
 
 #include <filesystem>
-#include <fstream>
 
-#include "SDL3/SDL_video.h"
 #include "vulkan/vulkan_raii.hpp"
 
 #include "AllocatedBuffer.h"
@@ -27,22 +25,6 @@ inline void SetVkDebugName([[maybe_unused]] vk::raii::Device& device, [[maybe_un
         .pObjectName = name};
     device.setDebugUtilsObjectNameEXT(nameInfo);
 #endif
-}
-
-inline std::vector<char> ReadFile(const std::string filename)
-{
-    // std::ios::ate starts to read at end of file so that we can get the size
-    // of the buffer
-    std::ifstream file(filename, std::ios::ate | std::ios::binary);
-    if (!file.is_open())
-        throw std::runtime_error("Failed to open file!");
-
-    std::vector<char> buffer(file.tellg());
-    file.seekg(0, std::ios::beg);
-    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    file.close();
-
-    return buffer;
 }
 
 // Chooses an ideal swapchain format if available, if not picks the first
@@ -74,23 +56,21 @@ inline vk::PresentModeKHR ChoosePresentMode(const std::vector<vk::PresentModeKHR
     return modeIt != modes.end() ? *modeIt : vk::PresentModeKHR::eFifo;
 }
 
+// `framebufferExtent` must be the drawable size in pixels (IPlatform::
+// GetFramebufferExtent), not the window size in screen coordinates — the two
+// differ on high-DPI displays.
 inline vk::Extent2D ChooseSwapchainExtent(const vk::SurfaceCapabilitiesKHR& capabilities,
-                                          SDL_Window* window)
+                                          vk::Extent2D framebufferExtent)
 {
     // Some window managers allow resolutions which don't match the window. They
     // symbol this with max value of a uint32_t.
     if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
         return capabilities.currentExtent;
 
-    // This has to be used rather than the raw window width and height as high
-    // DPI displays might not match screen coordinates and pixels.
-    int width, height;
-    SDL_GetWindowSizeInPixels(window, &width, &height);
-
-    return {std::clamp<uint32_t>(width, capabilities.minImageExtent.width,
-                                 capabilities.maxImageExtent.width),
-            std::clamp<uint32_t>(height, capabilities.minImageExtent.height,
-                                 capabilities.maxImageExtent.height)};
+    return {std::clamp(framebufferExtent.width, capabilities.minImageExtent.width,
+                       capabilities.maxImageExtent.width),
+            std::clamp(framebufferExtent.height, capabilities.minImageExtent.height,
+                       capabilities.maxImageExtent.height)};
 }
 
 // Tries to get at least 3 images.

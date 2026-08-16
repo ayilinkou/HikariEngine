@@ -15,14 +15,14 @@ constexpr std::string_view fallbackTexturePrefix = "FallbackTexture";
 
 void ResourceManager::Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
                            vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                           VmaAllocator allocator)
+                           VmaAllocator allocator, const Paths& paths)
 {
     LogMsg(LogSeverity::Info, LogResourceManager, "Init()");
 
     if (s_Instance)
         throw std::runtime_error("ResourceManager singleton has already been initialised!");
 
-    s_Instance = new ResourceManager();
+    s_Instance = new ResourceManager(paths);
     TextureLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
     CubemapLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
     ModelLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
@@ -66,9 +66,13 @@ void ResourceManager::PurgeCaches()
 std::shared_ptr<Texture> ResourceManager::LoadTexture(const std::string& filepath,
                                                       const vk::Format format)
 {
-    const std::string key = filepath + std::to_string(static_cast<uint32_t>(format));
+    // Keyed on the resolved path so that the same file requested relatively
+    // (from a scene) and absolutely (from a model's own texture references)
+    // shares one cache entry.
+    const std::string resolved = m_Paths.Content(filepath).string();
+    const std::string key = resolved + std::to_string(static_cast<uint32_t>(format));
     auto tex =
-        m_TextureCache.Get(key, [&] { return TextureLoader::Get()->Load(filepath, format); });
+        m_TextureCache.Get(key, [&] { return TextureLoader::Get()->Load(resolved, format); });
     if (!tex)
     {
         tex.reset();
@@ -88,5 +92,9 @@ std::shared_ptr<Cubemap> ResourceManager::LoadCubemap(const CubemapCreateInfo& c
 
 std::shared_ptr<ModelData> ResourceManager::LoadModel(const std::string& modelPath)
 {
-    return m_ModelCache.Get(modelPath, [&] { return ModelLoader::Get()->Load(modelPath); });
+    // ModelLoader derives its texture directory from the path it is given, so
+    // handing it the resolved path is also what makes the model's own texture
+    // references resolve.
+    const std::string resolved = m_Paths.Content(modelPath).string();
+    return m_ModelCache.Get(resolved, [&] { return ModelLoader::Get()->Load(resolved); });
 }

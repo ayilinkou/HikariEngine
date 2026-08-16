@@ -25,6 +25,11 @@
 #include <core/SharedQueueJobSystem.h>
 #include <core/Timer.h>
 
+#include <platform/CommandLine.h>
+#include <platform/IPlatform.h>
+#include <platform/Paths.h>
+#include <platform/SdlPlatform.h>
+
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
@@ -52,8 +57,6 @@ inline void EnableAnsiColors()
 }
 #endif
 
-constexpr uint32_t WIDTH = 1920u;
-constexpr uint32_t HEIGHT = 1080u;
 constexpr uint32_t MAX_INSTANCE_COUNT = 1024u;
 constexpr int NUM_FRAMES_IN_FLIGHT = 2;
 constexpr glm::vec3 SKY_COLOR = {0.4f, 0.8f, 1.f};
@@ -151,55 +154,10 @@ static VKAPI_ATTR vk::Bool32 VKAPI_CALL DebugCallback(
     return vk::False;
 }
 
-class SDLException : public std::runtime_error
-{
-public:
-    SDLException(const std::string& message)
-        : std::runtime_error(std::format("{} {}", message, SDL_GetError()))
-    {
-    }
-};
-
-void InitSDL()
-{
-    if (!SDL_Init(SDL_INIT_VIDEO))
-        throw SDLException("Failed to initialise SDL!");
-
-    LogMsg(LogSeverity::Info, LogSDL, "SDL video driver: {}", SDL_GetCurrentVideoDriver());
-
-    if (!SDL_Vulkan_LoadLibrary(nullptr))
-        throw SDLException("Failed to load Vulkan library!");
-}
-
-SDL_Window* CreateSDLWindow()
-{
-    // hidden to hide the window while initialisation is taking place
-    SDL_WindowFlags flags =
-        SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_BORDERLESS;
-    SDL_Window* window = SDL_CreateWindow("Vulkan App", WIDTH, HEIGHT, flags);
-    if (window == nullptr)
-        throw SDLException("Failed to create window!");
-
-    SDL_SetWindowFullscreen(window, false);
-    return window;
-}
-
-void ShutdownSDL(SDL_Window* pWindow)
-{
-    if (pWindow)
-    {
-        SDL_WarpMouseInWindow(pWindow, 0.f, 0.f);
-        SDL_SetWindowRelativeMouseMode(pWindow, false);
-        SDL_DestroyWindow(pWindow);
-    }
-
-    SDL_Vulkan_UnloadLibrary();
-    SDL_Quit();
-}
-
 struct Options
 {
     std::string ScenePath;
+    std::string ContentRoot;    // --content; empty = resolve automatically
     uint64_t Frames = 0;        // 0 = run until closed
     bool bFixedDt = false;      // use a fixed 1/60s timestep
     int CameraPreset = -1;      // -1 = free camera; else index into kCameraPresets
@@ -238,6 +196,7 @@ void PrintUsage()
                  "\n"
                  "Options:\n"
                  "  --scene <path>          Load a scene (.map) on startup\n"
+                 "  --content <dir>         Use <dir> as the content root\n"
                  "  --frames <N>            Exit automatically after N frames "
                  "(0 = run until closed)\n"
                  "  --fixed-dt              Use a fixed 1/60s timestep instead "
@@ -286,105 +245,80 @@ Options ParseArgs(int argc, char** argv)
 
     Options options;
 
-    auto RequireValue = [&](int& i, const char* flag) -> std::string
+    try
     {
-        if (i + 1 >= argc)
-        {
-            LogMsg(LogSeverity::Error, LogMain, "Missing value for {}", flag);
-            ExitWithUsage(EXIT_FAILURE);
-        }
-        return argv[++i];
-    };
+        // Named rather than a temporary in the range-init: Options() hands out
+        // a reference into the CommandLine, which C++20 would not keep alive
+        // for the duration of the loop.
+        const CommandLine commandLine(argc, argv);
 
-    auto RequireInt = [&](int& i, const char* flag) -> int
-    {
-        std::string value = RequireValue(i, flag);
-        try
+        for (const CommandLineOption& option : commandLine.Options())
         {
-            return std::stoi(value);
-        }
-        catch (const std::exception&)
-        {
-            LogMsg(LogSeverity::Error, LogMain, "Invalid integer value for {}: {}", flag, value);
-            ExitWithUsage(EXIT_FAILURE);
-        }
-    };
+            const std::string& flag = option.Flag;
 
-    auto RequireUint64 = [&](int& i, const char* flag) -> uint64_t
-    {
-        std::string value = RequireValue(i, flag);
-        try
-        {
-            if (!value.empty() && value[0] == '-')
-                throw std::invalid_argument("negative value");
-
-            size_t pos = 0;
-            uint64_t result = std::stoull(value, &pos);
-            if (pos != value.size())
-                throw std::invalid_argument("trailing characters");
-
-            return result;
-        }
-        catch (const std::exception&)
-        {
-            LogMsg(LogSeverity::Error, LogMain, "Invalid unsigned integer value for {}: {}", flag,
-                   value);
-            ExitWithUsage(EXIT_FAILURE);
-        }
-    };
-
-    // Returns true if the next token looks like a value rather than another
-    // flag.
-    auto HasInlineValue = [&](int i) -> bool
-    { return i + 1 < argc && !std::string_view(argv[i + 1]).starts_with("--"); };
-
-    for (int i = 1; i < argc; ++i)
-    {
-        std::string_view arg = argv[i];
-        if (arg == "--help" || arg == "-h")
-            ExitWithUsage(EXIT_SUCCESS);
-        else if (arg == "--scene")
-            options.ScenePath = HasInlineValue(i) ? RequireValue(i, "--scene") : DEFAULT_SCENE;
-        else if (arg == "--frames")
-            options.Frames = HasInlineValue(i) ? RequireUint64(i, "--frames") : DEFAULT_FRAMES;
-        else if (arg == "--fixed-dt")
-            options.bFixedDt = true;
-        else if (arg == "--camera-preset")
-            options.CameraPreset = RequireInt(i, "--camera-preset");
-        else if (arg == "--screenshot")
-        {
-            if (HasInlineValue(i))
-                options.ScreenshotPath = RequireValue(i, "--screenshot");
+            if (flag == "--help" || flag == "-h")
+                ExitWithUsage(EXIT_SUCCESS);
+            else if (flag == "--content")
+                options.ContentRoot = option.RequireValue();
+            else if (flag == "--scene")
+                options.ScenePath = option.Value.value_or(DEFAULT_SCENE);
+            else if (flag == "--frames")
+                options.Frames = option.Value ? option.RequireUint64() : DEFAULT_FRAMES;
+            else if (flag == "--fixed-dt")
+            {
+                option.RequireNoValue();
+                options.bFixedDt = true;
+            }
+            else if (flag == "--camera-preset")
+                options.CameraPreset = option.RequireInt();
+            else if (flag == "--screenshot")
+            {
+                if (option.Value)
+                    options.ScreenshotPath = *option.Value;
+                else
+                    options.bScreenshotAutoPath = true;
+            }
+            else if (flag == "--report")
+            {
+                if (option.Value)
+                    options.ReportPath = *option.Value;
+                else
+                    options.bReportAutoPath = true;
+            }
+            else if (flag == "--strict-validation")
+            {
+                option.RequireNoValue();
+                options.bStrictValidation = true;
+            }
+            else if (flag == "--headless")
+            {
+                option.RequireNoValue();
+                options.bHeadless = true;
+            }
+            else if (flag == "--jobs")
+                options.JobCount = option.RequireInt();
             else
-                options.bScreenshotAutoPath = true;
-        }
-        else if (arg == "--report")
-        {
-            if (HasInlineValue(i))
-                options.ReportPath = RequireValue(i, "--report");
-            else
-                options.bReportAutoPath = true;
-        }
-        else if (arg == "--strict-validation")
-            options.bStrictValidation = true;
-        else if (arg == "--headless")
-            options.bHeadless = true;
-        else if (arg == "--jobs")
-            options.JobCount = RequireInt(i, "--jobs");
-        else
-        {
-            LogMsg(LogSeverity::Error, LogMain, "Unknown option: {}", arg);
-            ExitWithUsage(EXIT_FAILURE);
+            {
+                LogMsg(LogSeverity::Error, LogMain, "Unknown option: {}", flag);
+                ExitWithUsage(EXIT_FAILURE);
+            }
         }
     }
+    catch (const CommandLineError& e)
+    {
+        LogMsg(LogSeverity::Error, LogMain, "{}", e.what());
+        ExitWithUsage(EXIT_FAILURE);
+    }
+
     return options;
 }
 
 class App
 {
 public:
-    App(SDL_Window* pWindow, Options options, IJobSystem& jobSystem)
-        : m_pWindow(pWindow), m_Options(std::move(options)), m_JobSystem(jobSystem)
+    App(IPlatform& platform, const Paths& paths, Options options, IJobSystem& jobSystem)
+        : m_Platform(platform), m_Paths(paths), m_Options(std::move(options)),
+          m_JobSystem(jobSystem)
     {
     }
     ~App()
@@ -400,7 +334,7 @@ public:
     {
         Init();
 
-        SDL_ShowWindow(m_pWindow);
+        m_Platform.Show();
 
         while (!g_bShouldClose)
         {
@@ -511,7 +445,7 @@ private:
 
         if (!m_Options.ScenePath.empty())
         {
-            m_SceneGraph = XmlParser::LoadScene(m_Options.ScenePath);
+            m_SceneGraph = XmlParser::LoadScene(m_Paths.Content(m_Options.ScenePath).string());
             if (!m_SceneGraph)
             {
                 throw std::runtime_error("Failed to load scene: " + m_Options.ScenePath);
@@ -528,13 +462,15 @@ private:
         createInfo.Name = "Skybox";
         createInfo.Format = vk::Format::eR8G8B8A8Srgb;
 
-        const std::string skyboxRoot = "textures/skybox/";
-        createInfo.RightPath = skyboxRoot + "right.jpg";
-        createInfo.LeftPath = skyboxRoot + "left.jpg";
-        createInfo.TopPath = skyboxRoot + "top.jpg";
-        createInfo.BottomPath = skyboxRoot + "bottom.jpg";
-        createInfo.FrontPath = skyboxRoot + "front.jpg";
-        createInfo.BackPath = skyboxRoot + "back.jpg";
+        const auto skyboxFace = [this](std::string_view face)
+        { return m_Paths.Content("textures/skybox/" + std::string(face)).string(); };
+
+        createInfo.RightPath = skyboxFace("right.jpg");
+        createInfo.LeftPath = skyboxFace("left.jpg");
+        createInfo.TopPath = skyboxFace("top.jpg");
+        createInfo.BottomPath = skyboxFace("bottom.jpg");
+        createInfo.FrontPath = skyboxFace("front.jpg");
+        createInfo.BackPath = skyboxFace("back.jpg");
 
         m_Skybox = ResourceManager::Get()->LoadCubemap(createInfo);
 
@@ -596,7 +532,7 @@ private:
         initInfo.Allocator = nullptr;
         initInfo.CheckVkResultFn = nullptr;
 
-        ImGui_ImplSDL3_InitForVulkan(m_pWindow);
+        ImGui_ImplSDL3_InitForVulkan(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()));
         ImGui_ImplVulkan_Init(&initInfo);
     }
 
@@ -620,7 +556,7 @@ private:
         CreateTextureSampler();
 
         ResourceManager::Init(m_Device, m_PhysicalDevice, m_GenericCommandPool, m_GraphicsQueue,
-                              m_VmaAllocator);
+                              m_VmaAllocator, m_Paths);
         MaterialFactory::Init(m_Device, m_TextureSampler);
 
         CreatePipelines();
@@ -632,6 +568,7 @@ private:
 
         // TODO: read from scene
         CloudSystemCreateInfo cloudCreateInfo{.Device = m_Device,
+                                              .ContentPaths = m_Paths,
                                               .GlobalSetLayout = m_GlobalBufferSetLayout,
                                               .DepthSetLayout = m_DepthSetLayout,
                                               .CommandPool = m_GenericCommandPool,
@@ -784,15 +721,15 @@ private:
 
     void ShowCursor()
     {
-        SDL_WarpMouseInWindow(m_pWindow, static_cast<float>(m_SwapchainExtent.width / 2.f),
-                              static_cast<float>(m_SwapchainExtent.height / 2.f));
-        SDL_SetWindowRelativeMouseMode(m_pWindow, false);
+        m_Platform.WarpMouse(static_cast<float>(m_SwapchainExtent.width / 2.f),
+                             static_cast<float>(m_SwapchainExtent.height / 2.f));
+        m_Platform.SetRelativeMouseMode(false);
         m_bCursorVisible = true;
     }
 
     void HideCursor()
     {
-        SDL_SetWindowRelativeMouseMode(m_pWindow, true);
+        m_Platform.SetRelativeMouseMode(true);
         m_bCursorVisible = false;
     }
 
@@ -993,7 +930,7 @@ private:
             if (ImGui::Button("Load Scene"))
             {
                 IGFD::FileDialogConfig config;
-                config.path = "scenes/";
+                config.path = m_Paths.Content("scenes").string();
                 ImGuiFileDialog::Instance()->OpenDialog("LoadSceneDlg", "Choose Scene to Load",
                                                         ".map", config);
             }
@@ -1027,7 +964,7 @@ private:
             if (ImGui::Button("Save Scene"))
             {
                 IGFD::FileDialogConfig config;
-                config.path = "scenes/";
+                config.path = m_Paths.Content("scenes").string();
                 config.fileName = "new_scene.map";
                 ImGuiFileDialog::Instance()->OpenDialog("SaveSceneDlg", "Save Scene As", ".map",
                                                         config);
@@ -1240,7 +1177,8 @@ private:
         // which may differ from the one this app linked (and the instance
         // belongs to). Create the Metal surface directly via our Vulkan loader
         // instead.
-        SDL_MetalView metalView = SDL_Metal_CreateView(m_pWindow);
+        SDL_MetalView metalView =
+            SDL_Metal_CreateView(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()));
         if (!metalView)
             throw SDLException("Failed to create Metal view!");
 
@@ -1250,7 +1188,8 @@ private:
         m_Surface = m_Instance.createMetalSurfaceEXT(createInfo);
 #else
         VkSurfaceKHR rawSurface;
-        if (!SDL_Vulkan_CreateSurface(m_pWindow, *m_Instance, nullptr, &rawSurface))
+        if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()),
+                                      *m_Instance, nullptr, &rawSurface))
             throw SDLException("Failed to create Vulkan surface!");
 
         m_Surface = vk::raii::SurfaceKHR(m_Instance, rawSurface);
@@ -1347,7 +1286,9 @@ private:
         m_SwapchainSurfaceFormat = ChooseSwapchainFormat(formats);
         const std::vector<vk::PresentModeKHR> presentModes =
             m_PhysicalDevice.getSurfacePresentModesKHR(*m_Surface);
-        m_SwapchainExtent = ChooseSwapchainExtent(capabilities, m_pWindow);
+        const Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
+        m_SwapchainExtent = ChooseSwapchainExtent(
+            capabilities, vk::Extent2D{framebufferExtent.Width, framebufferExtent.Height});
 
         LogMsg(LogSeverity::Info, LogRenderer, "Swapchain Extent: {}x{}", m_SwapchainExtent.width,
                m_SwapchainExtent.height);
@@ -1437,7 +1378,7 @@ private:
 
         auto [opaqueLayout, opaquePipeline] =
             PipelineBuilder(m_Device)
-                .Shaders("shaders/opaque.spv")
+                .Shaders(m_Paths.Content("shaders/opaque.spv").string())
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(true, true, vk::CompareOp::eLess)
                 .ColorAttachments(std::array{m_OpaqueImageFormat}, std::array{attachmentState})
@@ -1492,7 +1433,7 @@ private:
 
         auto [transparentLayout, transparentPipeline] =
             PipelineBuilder(m_Device)
-                .Shaders("shaders/weightedBlendedOIT.spv")
+                .Shaders(m_Paths.Content("shaders/weightedBlendedOIT.spv").string())
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(true, false, vk::CompareOp::eLess)
                 .ColorAttachments(attachmentFormats, attachmentStates)
@@ -1521,7 +1462,7 @@ private:
 
         auto [compositeLayout, compositePipeline] =
             PipelineBuilder(m_Device)
-                .Shaders("shaders/composite.spv")
+                .Shaders(m_Paths.Content("shaders/composite.spv").string())
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(false, false, vk::CompareOp::eLess)
                 .ColorAttachments(std::array{m_SwapchainSurfaceFormat.format},
@@ -2010,11 +1951,12 @@ private:
     {
         LogMsg(LogSeverity::Info, LogRenderer, "Recreating swapchain and render images...");
 
-        int width, height;
-        SDL_GetWindowSizeInPixels(m_pWindow, &width, &height);
-        while (width == 0 || height == 0)
+        // Blocks while the window is minimised — a zero-sized framebuffer is
+        // not a legal swapchain extent.
+        Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
+        while (framebufferExtent.Width == 0 || framebufferExtent.Height == 0)
         {
-            SDL_GetWindowSizeInPixels(m_pWindow, &width, &height);
+            framebufferExtent = m_Platform.GetFramebufferExtent();
             SDL_Event event;
             SDL_WaitEvent(&event);
         }
@@ -2559,7 +2501,8 @@ private:
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
-    SDL_Window* m_pWindow = nullptr;
+    IPlatform& m_Platform;
+    const Paths& m_Paths;
     bool m_bIsFocused = true;
     bool m_bCursorVisible = true;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
@@ -2597,15 +2540,16 @@ int main(int argc, char** argv)
 
     Options options = ParseArgs(argc, argv);
 
-    // will be destroyed in reverse order of declaration
-    std::unique_ptr<SDL_Window, decltype(&ShutdownSDL)> pWindow(nullptr, &ShutdownSDL);
+    // will be destroyed in reverse order of declaration. The platform must
+    // outlive App: destroying it unloads the Vulkan library.
+    std::unique_ptr<SdlPlatform> pPlatform = nullptr;
+    std::unique_ptr<Paths> pPaths = nullptr;
     std::unique_ptr<IJobSystem> pJobSystem = nullptr;
     std::unique_ptr<App> pApp = nullptr;
 
     try
     {
-        InitSDL();
-        pWindow.reset(CreateSDLWindow());
+        pPlatform = std::make_unique<SdlPlatform>(WindowDesc{});
 
         if (options.JobCount == 0)
         {
@@ -2629,13 +2573,14 @@ int main(int argc, char** argv)
                    pJobSystem->WorkerCount());
         }
 
-        pApp = std::make_unique<App>(pWindow.get(), options, *pJobSystem);
+        pPaths = std::make_unique<Paths>(options.ContentRoot);
+
+        pApp = std::make_unique<App>(*pPlatform, *pPaths, options, *pJobSystem);
         pApp->Run();
     }
     catch (const SDLException& e)
     {
-        SDL_LogError(SDL_LOG_CATEGORY_ERROR, "SDL error: %s", e.what());
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "SDL Error", e.what(), nullptr);
+        SdlPlatform::ShowErrorMessageBox("SDL Error", e.what());
         LogMsg(LogSeverity::Error, LogSDL, "{}", e.what());
         return EXIT_FAILURE;
     }
@@ -2652,7 +2597,8 @@ int main(int argc, char** argv)
 
     pApp.reset();
     pJobSystem.reset();
-    pWindow.reset();
+    pPaths.reset();
+    pPlatform.reset();
 
     if (options.bStrictValidation && g_ValidationErrorCount.load(std::memory_order_relaxed) > 0)
     {

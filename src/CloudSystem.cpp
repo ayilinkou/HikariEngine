@@ -23,13 +23,13 @@ void CloudSystem::Init(const CloudSystemCreateInfo& createInfo)
     CreateNoiseTexture();
     CreateDescriptorPool();
     CreateDescriptorSetLayout();
-    CreatePipeline(createInfo.GlobalSetLayout, createInfo.DepthSetLayout);
+    CreatePipeline(createInfo.ContentPaths, createInfo.GlobalSetLayout, createInfo.DepthSetLayout);
     AllocateDescriptorSets();
     WriteDescriptorSets();
 
     CreateBakeDescriptorPool();
     CreateBakeDescriptorSetLayout();
-    CreateBakePipeline();
+    CreateBakePipeline(createInfo.ContentPaths);
     AllocateAndWriteBakeDescriptorSet();
     BakeNoiseTexture(createInfo.CommandPool, createInfo.ComputeQueue);
 }
@@ -89,7 +89,7 @@ void CloudSystem::CreateBakeDescriptorSetLayout()
     m_BakeSetLayout = vk::raii::DescriptorSetLayout(m_Device, layoutInfo);
 }
 
-void CloudSystem::CreatePipeline(vk::raii::DescriptorSetLayout& globalSetLayout,
+void CloudSystem::CreatePipeline(const Paths& paths, vk::raii::DescriptorSetLayout& globalSetLayout,
                                  vk::raii::DescriptorSetLayout& depthSetLayout)
 {
     std::array setLayouts = {*globalSetLayout, *depthSetLayout, *m_SetLayout};
@@ -99,7 +99,7 @@ void CloudSystem::CreatePipeline(vk::raii::DescriptorSetLayout& globalSetLayout,
                               .size = sizeof(CloudPushConstants)}};
 
     auto [layout, pipeline] = ComputePipelineBuilder(m_Device)
-                                  .Shader("shaders/clouds.comp.spv")
+                                  .Shader(paths.Content("shaders/clouds.comp.spv").string())
                                   .Layout(setLayouts, pushRanges)
                                   .DebugName("Clouds")
                                   .Build();
@@ -108,7 +108,7 @@ void CloudSystem::CreatePipeline(vk::raii::DescriptorSetLayout& globalSetLayout,
     m_Pipeline = std::move(pipeline);
 }
 
-void CloudSystem::CreateBakePipeline()
+void CloudSystem::CreateBakePipeline(const Paths& paths)
 {
     std::array<vk::DescriptorSetLayout, 1> setLayouts = {*m_BakeSetLayout};
     std::array<vk::PushConstantRange, 1> pushRanges = {
@@ -116,11 +116,12 @@ void CloudSystem::CreateBakePipeline()
                               .offset = 0,
                               .size = sizeof(BakeConstants)}};
 
-    auto [layout, pipeline] = ComputePipelineBuilder(m_Device)
-                                  .Shader("shaders/bakePerlinWorley.comp.spv")
-                                  .Layout(setLayouts, pushRanges)
-                                  .DebugName("Bake Perlin Worley")
-                                  .Build();
+    auto [layout, pipeline] =
+        ComputePipelineBuilder(m_Device)
+            .Shader(paths.Content("shaders/bakePerlinWorley.comp.spv").string())
+            .Layout(setLayouts, pushRanges)
+            .DebugName("Bake Perlin Worley")
+            .Build();
 
     m_BakePipelineLayout = std::move(layout);
     m_BakePipeline = std::move(pipeline);

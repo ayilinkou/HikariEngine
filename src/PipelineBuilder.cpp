@@ -1,5 +1,7 @@
 #include "PipelineBuilder.h"
 
+#include <platform/FileSystem.h>
+
 #include "Utility.h"
 
 PipelineBuilder::PipelineBuilder(vk::raii::Device& device) : m_Device(device) {}

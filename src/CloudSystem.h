@@ -3,12 +3,15 @@
 #include "glm/glm.hpp"
 #include "vulkan/vulkan_raii.hpp"
 
+#include <platform/Paths.h>
+
 #include "AllocatedImage.h"
 #include "Texture.h"
 
 struct CloudSystemCreateInfo
 {
     vk::raii::Device& Device;
+    const Paths& ContentPaths;
     vk::raii::DescriptorSetLayout& GlobalSetLayout;
     vk::raii::DescriptorSetLayout& DepthSetLayout;
     vk::raii::CommandPool& CommandPool;
@@ -59,9 +62,9 @@ private:
     void CreateNoiseTexture();
     void CreateDescriptorSetLayout();
     void CreateBakeDescriptorSetLayout();
-    void CreatePipeline(vk::raii::DescriptorSetLayout& globalSetLayout,
+    void CreatePipeline(const Paths& paths, vk::raii::DescriptorSetLayout& globalSetLayout,
                         vk::raii::DescriptorSetLayout& depthSetLayout);
-    void CreateBakePipeline();
+    void CreateBakePipeline(const Paths& paths);
     void CreateDescriptorPool();
     void CreateBakeDescriptorPool();
     void AllocateDescriptorSets();
