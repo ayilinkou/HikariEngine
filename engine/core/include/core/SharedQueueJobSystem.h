@@ -1,5 +1,10 @@
 #pragma once
 
+#include <cstdint>
+#include <functional>
+#include <future>
+#include <vector>
+
 #include <core/IJobSystem.h>
 #include <core/ThreadPool.h>
 

@@ -1,5 +1,9 @@
 #pragma once
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "Drawable.h"
 #include "SceneComponent.h"
 

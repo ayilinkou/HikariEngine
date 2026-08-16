@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <string>
+
 #include "vulkan/vulkan_raii.hpp"
 
 #include "AllocatedImage.h"

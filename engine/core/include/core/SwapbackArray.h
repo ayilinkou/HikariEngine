@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <ranges>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 // This class is a wrapper for std::vector which keeps all elements in a

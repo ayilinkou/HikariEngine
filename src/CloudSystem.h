@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <vector>
+
 #include "glm/glm.hpp"
 #include "vulkan/vulkan_raii.hpp"
 

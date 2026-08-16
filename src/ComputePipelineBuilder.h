@@ -2,6 +2,8 @@
 
 #include <span>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "vulkan/vulkan_raii.hpp"
 

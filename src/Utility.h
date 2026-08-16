@@ -1,6 +1,16 @@
 #pragma once
 
+#include <algorithm>
+#include <cstdint>
 #include <filesystem>
+#include <format>
+#include <limits>
+#include <ranges>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #include "vulkan/vulkan_raii.hpp"
 
