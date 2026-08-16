@@ -1,7 +1,14 @@
 #pragma once
 
+#include <condition_variable>
+#include <cstdint>
+#include <functional>
 #include <future>
+#include <memory>
+#include <mutex>
 #include <queue>
+#include <thread>
+#include <utility>
 #include <vector>
 
 // A plain shared-queue thread pool: N worker threads all pulling from one

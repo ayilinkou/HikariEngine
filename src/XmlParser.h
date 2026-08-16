@@ -1,5 +1,10 @@
 #pragma once
 
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <string_view>
+
 #include "Lights.h"
 #include "Model.h"
 #include "SceneGraph.h"

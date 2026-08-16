@@ -34,4 +34,14 @@ function(engine_module target)
   endif()
 
   add_library(Engine::${target} ALIAS ${target})
+
+  # Check this module's public headers, linking nothing but the module itself —
+  # so the check is bounded by exactly the dependencies declared above, and a
+  # header that reaches outside its layer fails to compile.
+  file(GLOB_RECURSE module_headers CONFIGURE_DEPENDS
+       ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h
+       ${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp)
+
+  engine_header_self_containment(${target} HEADERS ${module_headers}
+                                 LINK_LIBRARIES ${target})
 endfunction()

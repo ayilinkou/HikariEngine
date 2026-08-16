@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <future>
 #include <vector>

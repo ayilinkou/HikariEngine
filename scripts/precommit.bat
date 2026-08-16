@@ -12,6 +12,9 @@ echo Running precommit for %PRESET%...
 call build.bat "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 
+call scripts\header_check.bat "%PRESET%"
+if errorlevel 1 exit /b %errorlevel%
+
 call tests\scripts\build_tests.bat "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 

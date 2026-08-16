@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cstdint>
+#include <cstdio>
 #include <format>
 #include <string>
+#include <string_view>
 
 struct LogCategory
 {

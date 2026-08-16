@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "InstanceData.h"
 #include "Model.h"
 #include <core/SwapbackArray.h>

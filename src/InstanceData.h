@@ -1,5 +1,8 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
+
 #include "glm/glm.hpp"
 
 #include "vulkan/vulkan.hpp"

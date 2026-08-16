@@ -1,7 +1,10 @@
 #pragma once
 
 #include <concepts>
+#include <cstdint>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "LogicComponent.h"
 #include "SceneComponent.h"

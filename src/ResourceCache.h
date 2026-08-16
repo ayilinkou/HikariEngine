@@ -1,8 +1,10 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 
 template <typename T>

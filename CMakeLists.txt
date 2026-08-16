@@ -1,4 +1,5 @@
 include(cmake/Warnings.cmake)
+include(cmake/HeaderSelfContainment.cmake)
 include(cmake/EngineModule.cmake)
 
 cmake_minimum_required(VERSION 4.0)
@@ -135,6 +136,10 @@ if(NOT SLANGC_EXE)
   message(FATAL_ERROR "slangc not found!")
 endif()
 
+# Must exist before any engine_module() call, since each module attaches its
+# own header check to it.
+engine_header_self_containment_init()
+
 add_subdirectory(engine/core)
 add_subdirectory(engine/platform)
 
@@ -178,50 +183,37 @@ if(ENGINE_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-# test whether the project will still compile without a pch
-
-# TODO: make it work across different targets
-file(GLOB_RECURSE HEADER_SELF_CONTAINMENT_HEADERS CONFIGURE_DEPENDS
-     ${CMAKE_SOURCE_DIR}/src/*.h)
+# The application's own headers. Engine modules attach their own checks from
+# engine_module(), so this covers src/ only.
+file(GLOB_RECURSE APP_HEADERS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/*.h)
 
 # pch.h is deliberately excluded — it exists specifically to be force-included
 # ahead of everything else and isn't meant to stand alone.
-list(REMOVE_ITEM HEADER_SELF_CONTAINMENT_HEADERS ${CMAKE_SOURCE_DIR}/src/pch.h)
+list(REMOVE_ITEM APP_HEADERS ${CMAKE_SOURCE_DIR}/src/pch.h)
 
-# Generate one .cpp stub per header that does nothing but #include it. Compiling
-# via a stub (rather than compiling the .h directly as its own TU) avoids
-# "#pragma once in main file" warning.
-set(HEADER_CHECK_STUB_DIR ${CMAKE_BINARY_DIR}/header_self_containment)
-set(HEADER_SELF_CONTAINMENT_STUBS "")
-foreach(header ${HEADER_SELF_CONTAINMENT_HEADERS})
-  file(RELATIVE_PATH rel_header ${CMAKE_SOURCE_DIR}/src ${header})
-  string(REPLACE "/" "_" stub_name ${rel_header})
-  set(stub_file ${HEADER_CHECK_STUB_DIR}/${stub_name}.cpp)
-  file(WRITE ${stub_file} "#include \"${header}\"\n")
-  list(APPEND HEADER_SELF_CONTAINMENT_STUBS ${stub_file})
-endforeach()
-
-add_library(HeaderSelfContainment OBJECT EXCLUDE_FROM_ALL
-                                         ${HEADER_SELF_CONTAINMENT_HEADERS})
-
-target_link_libraries(
-  HeaderSelfContainment
-  PRIVATE Engine::Platform
-          SDL3::SDL3
-          Vulkan::Vulkan
-          GPUOpen::VulkanMemoryAllocator
-          glm::glm-header-only
-          assimp::assimp
-          imgui::imgui
-          pugixml::pugixml
-          ImGuiFileDialog)
-
-target_include_directories(HeaderSelfContainment PRIVATE src ${Stb_INCLUDE_DIR})
-
-target_compile_definitions(
-  HeaderSelfContainment
-  PRIVATE VULKAN_HPP_NO_STRUCT_CONSTRUCTORS GLM_FORCE_DEPTH_ZERO_TO_ONE
-          GLM_ENABLE_EXPERIMENTAL $<$<CONFIG:Debug>:DEBUG>)
+engine_header_self_containment(
+  App
+  HEADERS
+  ${APP_HEADERS}
+  LINK_LIBRARIES
+  Engine::Core
+  Engine::Platform
+  SDL3::SDL3
+  Vulkan::Vulkan
+  GPUOpen::VulkanMemoryAllocator
+  glm::glm-header-only
+  assimp::assimp
+  imgui::imgui
+  pugixml::pugixml
+  ImGuiFileDialog
+  INCLUDE_DIRECTORIES
+  src
+  ${Stb_INCLUDE_DIR}
+  COMPILE_DEFINITIONS
+  VULKAN_HPP_NO_STRUCT_CONSTRUCTORS
+  GLM_FORCE_DEPTH_ZERO_TO_ONE
+  GLM_ENABLE_EXPERIMENTAL
+  $<$<CONFIG:Debug>:DEBUG>)
 
 add_executable(VulkanApp)
 

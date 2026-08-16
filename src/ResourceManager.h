@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <string>
+
 #include "vk_mem_alloc.h"
 #include "vulkan/vulkan_raii.hpp"
 
