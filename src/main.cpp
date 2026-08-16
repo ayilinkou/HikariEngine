@@ -25,6 +25,7 @@
 #include <core/SharedQueueJobSystem.h>
 #include <core/Timer.h>
 
+#include <platform/CommandLine.h>
 #include <platform/IPlatform.h>
 #include <platform/Paths.h>
 #include <platform/SdlPlatform.h>
@@ -244,99 +245,71 @@ Options ParseArgs(int argc, char** argv)
 
     Options options;
 
-    auto RequireValue = [&](int& i, const char* flag) -> std::string
+    try
     {
-        if (i + 1 >= argc)
-        {
-            LogMsg(LogSeverity::Error, LogMain, "Missing value for {}", flag);
-            ExitWithUsage(EXIT_FAILURE);
-        }
-        return argv[++i];
-    };
+        // Named rather than a temporary in the range-init: Options() hands out
+        // a reference into the CommandLine, which C++20 would not keep alive
+        // for the duration of the loop.
+        const CommandLine commandLine(argc, argv);
 
-    auto RequireInt = [&](int& i, const char* flag) -> int
-    {
-        std::string value = RequireValue(i, flag);
-        try
+        for (const CommandLineOption& option : commandLine.Options())
         {
-            return std::stoi(value);
-        }
-        catch (const std::exception&)
-        {
-            LogMsg(LogSeverity::Error, LogMain, "Invalid integer value for {}: {}", flag, value);
-            ExitWithUsage(EXIT_FAILURE);
-        }
-    };
+            const std::string& flag = option.Flag;
 
-    auto RequireUint64 = [&](int& i, const char* flag) -> uint64_t
-    {
-        std::string value = RequireValue(i, flag);
-        try
-        {
-            if (!value.empty() && value[0] == '-')
-                throw std::invalid_argument("negative value");
-
-            size_t pos = 0;
-            uint64_t result = std::stoull(value, &pos);
-            if (pos != value.size())
-                throw std::invalid_argument("trailing characters");
-
-            return result;
-        }
-        catch (const std::exception&)
-        {
-            LogMsg(LogSeverity::Error, LogMain, "Invalid unsigned integer value for {}: {}", flag,
-                   value);
-            ExitWithUsage(EXIT_FAILURE);
-        }
-    };
-
-    // Returns true if the next token looks like a value rather than another
-    // flag.
-    auto HasInlineValue = [&](int i) -> bool
-    { return i + 1 < argc && !std::string_view(argv[i + 1]).starts_with("--"); };
-
-    for (int i = 1; i < argc; ++i)
-    {
-        std::string_view arg = argv[i];
-        if (arg == "--help" || arg == "-h")
-            ExitWithUsage(EXIT_SUCCESS);
-        else if (arg == "--content")
-            options.ContentRoot = RequireValue(i, "--content");
-        else if (arg == "--scene")
-            options.ScenePath = HasInlineValue(i) ? RequireValue(i, "--scene") : DEFAULT_SCENE;
-        else if (arg == "--frames")
-            options.Frames = HasInlineValue(i) ? RequireUint64(i, "--frames") : DEFAULT_FRAMES;
-        else if (arg == "--fixed-dt")
-            options.bFixedDt = true;
-        else if (arg == "--camera-preset")
-            options.CameraPreset = RequireInt(i, "--camera-preset");
-        else if (arg == "--screenshot")
-        {
-            if (HasInlineValue(i))
-                options.ScreenshotPath = RequireValue(i, "--screenshot");
+            if (flag == "--help" || flag == "-h")
+                ExitWithUsage(EXIT_SUCCESS);
+            else if (flag == "--content")
+                options.ContentRoot = option.RequireValue();
+            else if (flag == "--scene")
+                options.ScenePath = option.Value.value_or(DEFAULT_SCENE);
+            else if (flag == "--frames")
+                options.Frames = option.Value ? option.RequireUint64() : DEFAULT_FRAMES;
+            else if (flag == "--fixed-dt")
+            {
+                option.RequireNoValue();
+                options.bFixedDt = true;
+            }
+            else if (flag == "--camera-preset")
+                options.CameraPreset = option.RequireInt();
+            else if (flag == "--screenshot")
+            {
+                if (option.Value)
+                    options.ScreenshotPath = *option.Value;
+                else
+                    options.bScreenshotAutoPath = true;
+            }
+            else if (flag == "--report")
+            {
+                if (option.Value)
+                    options.ReportPath = *option.Value;
+                else
+                    options.bReportAutoPath = true;
+            }
+            else if (flag == "--strict-validation")
+            {
+                option.RequireNoValue();
+                options.bStrictValidation = true;
+            }
+            else if (flag == "--headless")
+            {
+                option.RequireNoValue();
+                options.bHeadless = true;
+            }
+            else if (flag == "--jobs")
+                options.JobCount = option.RequireInt();
             else
-                options.bScreenshotAutoPath = true;
-        }
-        else if (arg == "--report")
-        {
-            if (HasInlineValue(i))
-                options.ReportPath = RequireValue(i, "--report");
-            else
-                options.bReportAutoPath = true;
-        }
-        else if (arg == "--strict-validation")
-            options.bStrictValidation = true;
-        else if (arg == "--headless")
-            options.bHeadless = true;
-        else if (arg == "--jobs")
-            options.JobCount = RequireInt(i, "--jobs");
-        else
-        {
-            LogMsg(LogSeverity::Error, LogMain, "Unknown option: {}", arg);
-            ExitWithUsage(EXIT_FAILURE);
+            {
+                LogMsg(LogSeverity::Error, LogMain, "Unknown option: {}", flag);
+                ExitWithUsage(EXIT_FAILURE);
+            }
         }
     }
+    catch (const CommandLineError& e)
+    {
+        LogMsg(LogSeverity::Error, LogMain, "{}", e.what());
+        ExitWithUsage(EXIT_FAILURE);
+    }
+
     return options;
 }
 

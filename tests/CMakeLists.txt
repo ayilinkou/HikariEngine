@@ -8,4 +8,5 @@ target_compile_definitions(
   core_tests PRIVATE TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/")
 
 # Separate from core_tests so that Core's tests keep linking nothing but Core.
-engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp LIBS Engine::Platform)
+engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
+  unit/platform/CommandLineTests.cpp LIBS Engine::Platform)
