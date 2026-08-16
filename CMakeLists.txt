@@ -82,7 +82,6 @@ set(SOURCES
     src/Transform.cpp
     src/Node.cpp
     src/Mesh.cpp
-    src/ThreadPool.cpp
     src/CloudSystem.cpp
     src/XmlParser.cpp
     src/VMAImpl.cpp
@@ -140,22 +139,29 @@ add_subdirectory(engine/core)
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 if(CLANG_FORMAT_EXE)
-  file(GLOB_RECURSE FORMAT_SOURCES CONFIGURE_DEPENDS
-       ${CMAKE_SOURCE_DIR}/src/*.cpp ${CMAKE_SOURCE_DIR}/src/*.h
-       ${CMAKE_SOURCE_DIR}/src/*.hpp)
+  file(
+    GLOB_RECURSE
+    FORMAT_SOURCES
+    CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/src/*.cpp
+    ${CMAKE_SOURCE_DIR}/src/*.h
+    ${CMAKE_SOURCE_DIR}/src/*.hpp
+    ${CMAKE_SOURCE_DIR}/engine/*/include/*.h
+    ${CMAKE_SOURCE_DIR}/engine/*/include/*.hpp
+    ${CMAKE_SOURCE_DIR}/engine/*/src/*.cpp)
 
   add_custom_target(
     format
     COMMAND ${CLANG_FORMAT_EXE} -i ${FORMAT_SOURCES}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Running clang-format -i over src/"
+    COMMENT "Running clang-format -i over source files..."
     VERBATIM)
 
   add_custom_target(
     format-check
     COMMAND ${CLANG_FORMAT_EXE} --dry-run --Werror ${FORMAT_SOURCES}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Checking clang-format compliance over src/"
+    COMMENT "Checking clang-format compliance over source files..."
     VERBATIM)
 else()
   message(

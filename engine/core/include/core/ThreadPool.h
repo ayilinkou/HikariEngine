@@ -4,13 +4,18 @@
 #include <queue>
 #include <vector>
 
+// A plain shared-queue thread pool: N worker threads all pulling from one
+// mutex-protected job queue. Owned directly by SharedQueueJobSystem.
 class ThreadPool
 {
 public:
-    static ThreadPool* Get() { return s_Instance; }
+    explicit ThreadPool(uint32_t threadCount);
+    ~ThreadPool();
 
-    static void Init();
-    static void Shutdown();
+    ThreadPool(const ThreadPool&) = delete;
+    ThreadPool& operator=(const ThreadPool&) = delete;
+
+    uint32_t GetThreadCount() const { return static_cast<uint32_t>(m_Workers.size()); }
 
     // F&& is a forward reference. This allows the template to take both lvalues
     // and rvalues. std::forward then casts it back into the value category the
@@ -30,15 +35,9 @@ public:
     }
 
 private:
-    ThreadPool(uint32_t threadCount);
-    ~ThreadPool();
-
-private:
     std::vector<std::thread> m_Workers;
     std::queue<std::function<void()>> m_Jobs;
     std::mutex m_Mutex;
     std::condition_variable m_CV;
     bool m_Stopping = false;
-
-    inline static ThreadPool* s_Instance = nullptr;
 };
