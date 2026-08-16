@@ -15,4 +15,4 @@ else
   esac
 fi
 
-cmake --workflow --preset "$PRESET"
+ctest --test-dir "build/$PRESET" -L unit --output-on-failure

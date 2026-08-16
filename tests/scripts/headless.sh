@@ -15,4 +15,4 @@ else
   esac
 fi
 
-cmake --workflow --preset "$PRESET"
+./build/$PRESET/VulkanApp --report --screenshot --frames --fixed-dt --scene --camera-preset 1
