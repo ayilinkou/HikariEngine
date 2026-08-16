@@ -15,4 +15,4 @@ else
   esac
 fi
 
-cmake --workflow --preset "$PRESET"
+cmake --build build/$PRESET --target format
