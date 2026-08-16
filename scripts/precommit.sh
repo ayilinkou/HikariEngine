@@ -20,6 +20,6 @@ echo "Running precommit for $PRESET..."
 ./build.sh "$PRESET" && \
 tests/scripts/build_tests.sh "$PRESET" && \
 tests/scripts/run_unit_tests.sh "$PRESET" && \
-./format_check.sh "$PRESET" && \
+scripts/format_check.sh "$PRESET" && \
 
 echo "Precommit succeeded!"

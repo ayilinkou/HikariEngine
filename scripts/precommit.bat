@@ -18,7 +18,7 @@ if errorlevel 1 exit /b %errorlevel%
 call tests\scripts\run_unit_tests.bat "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 
-call format_check.bat "%PRESET%"
+call scripts\format_check.bat "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 
 echo Precommit succeeded!
