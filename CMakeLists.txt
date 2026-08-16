@@ -201,12 +201,15 @@ foreach(header ${HEADER_SELF_CONTAINMENT_HEADERS})
   list(APPEND HEADER_SELF_CONTAINMENT_STUBS ${stub_file})
 endforeach()
 
+# The stubs, not the headers: CMake classifies a .h as a header and never
+# compiles it, so passing the headers here made the target build nothing at all.
 add_library(HeaderSelfContainment OBJECT EXCLUDE_FROM_ALL
-                                         ${HEADER_SELF_CONTAINMENT_HEADERS})
+                                         ${HEADER_SELF_CONTAINMENT_STUBS})
 
 target_link_libraries(
   HeaderSelfContainment
-  PRIVATE Engine::Platform
+  PRIVATE Engine::Core
+          Engine::Platform
           SDL3::SDL3
           Vulkan::Vulkan
           GPUOpen::VulkanMemoryAllocator
