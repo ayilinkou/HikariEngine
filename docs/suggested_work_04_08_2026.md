@@ -129,46 +129,6 @@ in depth: an assimp scene can legitimately contain a mesh that no node reference
 
 ---
 
-## 1.11 — **P1** The cloud compute shader's depth read is not synchronised
-
-**Where**
-- `src/Utility.h:280-294` (the `eDepthAttachmentOptimal → eDepthReadOnlyOptimal` branch)
-- `src/main.cpp:1774-1777` (where that transition is recorded)
-- `src/shaders/clouds.comp.slang:4,76` (`depthTexture.Load`)
-
-**What**
-
-The barrier that makes the depth buffer readable specifies:
-
-```cpp
-barrier.dstStageMask  = eEarlyFragmentTests | eLateFragmentTests | eFragmentShader;
-barrier.dstAccessMask = eDepthStencilAttachmentRead | eShaderRead;
-```
-
-`eComputeShader` is missing from `dstStageMask`, but the very next command buffer
-(`frameData.CloudCommandBuffer`) samples that image from a **compute** shader.
-
-**Why it matters**
-
-Depth writes from the opaque pass are not guaranteed visible to the cloud dispatch.
-Clouds may be occluded against stale or partially-written depth — an intermittent,
-resolution-dependent artefact.
-
-**Fix**
-
-```cpp
-barrier.dstStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-                       vk::PipelineStageFlagBits2::eLateFragmentTests |
-                       vk::PipelineStageFlagBits2::eFragmentShader |
-                       vk::PipelineStageFlagBits2::eComputeShader;
-```
-
-`TransitionImageLayout`'s own comment (`src/Utility.h:233-234`) already says this
-if/else-if chain "is starting to not really make sense anymore". Agreed — see
-[2.3](#23--p2-replace-transitionimagelayout-with-an-explicit-barrier-struct).
-
----
-
 ## 1.14 — **P2** The skybox is loaded but never rendered
 
 **Where** `src/main.cpp:256-268` (load), `364-367` (unload)
@@ -282,48 +242,6 @@ src/
    `IRenderPass { void Record(FrameContext&); }` interface. This is what makes adding
    shadow maps or a depth prepass a bounded change instead of another 200 lines in
    `main.cpp`.
-
-## 2.5 — **P2** Headers are not self-contained
-
-Multiple headers compile only because `pch.h` is force-included into every TU by
-`target_precompile_headers(VulkanApp PRIVATE src/pch.h)`.
-
-Examples:
-
-| Header | Uses | Missing include |
-|---|---|---|
-| `SwapbackArray.h` | `std::ranges::find` | `<algorithm>` / `<ranges>` |
-| `Utility.h` | `std::ranges::find_if`, `std::clamp`, `SDL_Window`, `std::format` | `<algorithm>`, `SDL3/SDL.h`, `<format>` |
-| `Mesh.h` | `std::vector<Vertex>` in a signature | `<vector>` |
-| `Utility.h` | `vk::raii::*` | `vulkan/vulkan_raii.hpp` (only `vulkan.hpp` is included) |
-| `Entity.h` | `std::unique_ptr`, `std::vector`, `std::string` | `<memory>`, `<vector>`, `<string>` |
-
-**Why it matters**
-
-- The headers cannot be reused in a different target (a unit-test target, a tools
-  executable) without dragging in the whole PCH.
-- If someone reorders or trims `pch.h`, unrelated files break with confusing errors.
-- clangd/IntelliSense can report false errors depending on whether it picks up the
-  force-include.
-
-**Fix**
-
-Make every header compile standalone. A cheap way to enforce it going forward:
-
-```cmake
-# Optional check target: compiles every header on its own.
-file(GLOB_RECURSE all_headers ${CMAKE_CURRENT_LIST_DIR}/src/*.h)
-add_library(HeaderSelfContainmentCheck OBJECT EXCLUDE_FROM_ALL)
-target_sources(HeaderSelfContainmentCheck PRIVATE ${all_headers})
-set_source_files_properties(${all_headers} PROPERTIES LANGUAGE CXX)
-target_link_libraries(HeaderSelfContainmentCheck PRIVATE
-    SDL3::SDL3 Vulkan::Vulkan glm::glm-header-only assimp::assimp imgui::imgui)
-target_include_directories(HeaderSelfContainmentCheck PRIVATE src ${Stb_INCLUDE_DIR})
-# deliberately NO target_precompile_headers here
-```
-
-Keep the PCH for build speed on the real target — it is doing useful work there
-(`vulkan.hpp` alone is enormous). Just don't let it hide missing includes.
 
 ## 2.6 — **P2** Fixed limits that are too low, and fail loudly rather than gracefully
 
@@ -797,54 +715,6 @@ now select `/MP` for the Visual Studio generator vs
 `MSVC_DEBUG_INFORMATION_FORMAT "Embedded"` (`/Z7`) otherwise. Good. The following are
 still outstanding.
 
-## 5.2 — **P1** `ENABLE_SANITIZERS` passes GCC/Clang flags to MSVC
-
-**Where** `CMakeLists.txt:24-30`
-
-```cmake
-option(ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
-
-if(ENABLE_SANITIZERS)
-  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer
-                      -fno-sanitize-recover=undefined -g)
-  add_link_options(-fsanitize=address,undefined)
-endif()
-```
-
-Two problems:
-
-1. This block sits **before** `project()` (line 32), so no compiler has been detected yet
-   and `MSVC` is not defined. Guarding on it here is impossible.
-2. `cl.exe` does not accept any of these flags. MSVC's ASan is `/fsanitize=address` and
-   it has no UBSan.
-
-**Fix**
-
-Move the block after `project()` and branch:
-
-```cmake
-option(ENABLE_SANITIZERS "Enable ASan (and UBSan where supported)" OFF)
-
-if(ENABLE_SANITIZERS)
-  if(MSVC)
-    add_compile_options(/fsanitize=address /Zi)
-    # MSVC ASan requires the dynamic CRT and is incompatible with /RTC and /INCREMENTAL
-    add_link_options(/INCREMENTAL:NO)
-  else()
-    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer
-                        -fno-sanitize-recover=undefined -g)
-    add_link_options(-fsanitize=address,undefined)
-  endif()
-endif()
-```
-
-Given bugs [1.2](#12--p0-staging-buffers-request-the-wrong-memory-property-flags),
-[1.3](#13--p0-materialdetectblendmode-reads-an-uninitialised-float) and
-[1.5](#15--p0-modeldataregistermesh-hands-out-pointers-that-resize-invalidates), getting
-a sanitizer running is high value. If MSVC ASan proves awkward, a
-`ninja-asan-linux`/`ninja-asan-macos` preset used occasionally is enough — these bugs are
-platform-independent.
-
 ## 5.3 — **P2** `project(... LANGUAGES CXX)` — good; a few related notes
 
 `CMakeLists.txt:32-35` already restricts to `CXX`, which skips C compiler detection.
@@ -869,22 +739,6 @@ Remaining items in the same area:
     `Paths::Content()` helper that prefers an env var, then the executable's directory,
     then the source dir, removes a whole class of "works in VS, crashes from the
     terminal" reports.
-
-## 5.5 — **P2** `.clangd`, `.clang-format`, `.editorconfig`
-
-- **`.clangd`** — with `cl.exe`-generated `compile_commands.json`, clangd chokes on
-  MSVC-specific PCH flags. Add:
-  ```yaml
-  CompileFlags:
-    Remove: [/Yu*, /Fp*, /Yc*, /FI*]
-  ```
-  If the `compile_commands.json` symlink at the repo root can't be created (Windows
-  requires Developer Mode or admin for symlinks), point clangd at the build directory
-  instead with `--compile-commands-dir=build/ninja-debug`.
-- **`.clang-format`** — the codebase is already consistently 4-space, Allman braces,
-  80-column, `m_`/`s_`/`g_`/`b`-prefixed names. Codify it so the tab/space drift noted in
-  [2.7](#27--p3-smaller-code-quality-items) stops.
-- **`.editorconfig`** — trailing-whitespace and final-newline rules catch the rest.
 
 ## 5.6 — **P3** No tests, no CI
 
@@ -915,16 +769,8 @@ platform-specific breakage that currently only shows up when you switch machines
 Ordered so that each slice is independently shippable and low-risk, and so that the
 debugging tools land before the hard bugs.
 
-### Priority 1 — Turn on the tools (½ day)
-
-Do this first. It changes how expensive everything after it is.
-
-2. Fix the `ENABLE_SANITIZERS` MSVC branch ([5.2](#52--p1-enable_sanitizers-passes-gccclang-flags-to-msvc)); get one ASan-capable preset working somewhere.
-3. Add the Ninja/MSVC presets + `.clangd` so the LSP works ([5.3](#53--p2-project-languages-cxx--good-a-few-related-notes), [5.5](#55--p2-clangd-clang-format-editorconfig)).
-
 ### Priority 3 — Synchronisation and resize correctness (1 day)
 
-15. `eComputeShader` in the depth barrier ([1.11](#111--p1-the-cloud-compute-shaders-depth-read-is-not-synchronised)).
 17. Recreate sync objects on image-count change ([1.15](#115--p2-sync-objects-are-not-recreated-when-the-swapchain-image-count-changes)).
 
 ### Priority 4 — Model loading correctness (1–2 days)

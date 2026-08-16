@@ -58,8 +58,8 @@ The validation layers are the empirical check, not a substitute for the spec —
 validation run proves nothing was caught, not that the code is correct. Synchronization
 validation in particular is off by default and worth enabling when touching barriers.
 `grep`ping this repo for prior art is also not a source: `docs/suggested_work_04_08_2026.md`
-§1.11 (unsynchronised depth read in the cloud compute pass) and §1.15 (sync objects not
-recreated when the swapchain image count changes) are two known-wrong places to copy from.
+§1.15 (sync objects not recreated when the swapchain image count changes) is a known-wrong
+place to copy from, and §2.6's fixed ceilings abort rather than grow.
 
 **Never run git commands that change state.** No commits, branches, stashes, or pushes —
 even when a task feels finished. Reading (`git status`, `git log`, `git diff`) is fine.
@@ -72,8 +72,8 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 1 — Build hygiene | 7–11 | ✅ done (clang-format, sanitizer presets, Catch2 + CTest in CI) |
 | 2 — Header self-containment | 12–14 | ✅ done (`HeaderSelfContainment` target, enforced in CI) |
 | 3 — Core library | 15–19 | ✅ done (`Engine::Core`, `IJobSystem` injected into `App`) |
-| **4 — Platform library** | **20–23** | **in progress — step 20 done (`Engine::Platform`, `IPlatform`/`SdlPlatform`); ← next: 21 `Paths`, 22 `content/` root, 23 `CommandLine.h`** |
-| 5 — RHI extraction | 24–34 | not started |
+| 4 — Platform library | 20–23 | ✅ done (`Engine::Platform`, `Paths` + `content/` root, `CommandLine`) |
+| **5 — RHI extraction** | **24–34** | **← next: `engine/rhi`, batched uploads, growable descriptors** |
 | 6 — Headless capability | 35–40 | not started |
 | 7 — Engine shell + DI | 41–47 | not started — **CI goal met at step 47** |
 | 8+ — Frame graph, DOD, scalability | 48–76 | not started |
@@ -92,22 +92,34 @@ Requires `VULKAN_SDK` and `VCPKG_ROOT` to be set; `slangc` must be on `PATH`.
 ./build.sh ninja-release-linux      # or any preset
 cmake --workflow --preset ninja-debug-linux   # what build.sh wraps
 
-tests/scripts/build_tests.sh        # build the core_tests target only
+tests/scripts/build_tests.sh        # build the core_tests + platform_tests targets
 tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
 scripts/format.sh                   # clang-format -i over src/ and engine/
 scripts/format_check.sh             # dry-run, -Werror
+scripts/header_check.sh             # compile every header standalone, no PCH
 scripts/precommit.sh                # all of the above, in CI order
 ```
+
+`header_check.sh` builds the `HeaderSelfContainment` aggregate: one check target per layer
+(`_App` for `src/`, one per engine module), each linking only what that layer may link.
+`precommit.sh` runs it straight after the build, matching CI's ordering.
 
 Windows equivalents are the `.bat` files in `scripts/`. Build artifacts land in
 `build/<preset>/`; `compile_commands.json` is symlinked to the debug-linux build for clangd.
 
-Run the app from the **repo root** — asset paths are currently CWD-relative (fixed in step 22):
+Asset paths resolve against a content root, not the CWD, so the app runs from anywhere:
 
 ```bash
-./build/ninja-debug-linux/VulkanApp --scene scenes/test_scene.map
+./build/ninja-debug-linux/VulkanApp --scene scenes/test_scene.map   # content-relative
+./build/ninja-debug-linux/VulkanApp --content /path/to/content      # explicit root
 ./build/ninja-debug-linux/VulkanApp --help
 ```
+
+`Paths` (in `engine/platform`) resolves the root in priority order: `--content` →
+`VULKANAPP_CONTENT` → `<exe dir>/content` → `<source dir>/content`. An override given
+explicitly must exist — a mistyped `--content` fails rather than silently falling back.
+Paths handed to `Paths::Content()` are content-relative unless absolute, in which case they
+are used as given.
 
 ### Regression checking
 
@@ -131,14 +143,17 @@ Note `--headless` is parsed but not yet implemented (Stage 6); today this still 
 ## Repository layout
 
 ```
-src/           # the application — one class per file, plus main.cpp (App + everything unmoved)
-src/shaders/   # Slang source (.slang, .slangh); compiled to shaders/*.spv at build time
-engine/core/   # Engine::Core static lib — Log, Timer, MyMacros, SwapbackArray,
-               #   ThreadPool, IJobSystem + SerialJobSystem + SharedQueueJobSystem
-cmake/         # EngineModule.cmake (engine_module), Testing.cmake (engine_test), Warnings.cmake
-tests/unit/    # Catch2 tests, CTest label "unit"
-tests/support/ # shared test helpers (TestPaths.h, CaptureStream.h)
-scenes/ models/ textures/   # content; moves under content/ in step 22
+src/             # the application — one class per file, plus main.cpp (App + everything unmoved)
+src/shaders/     # Slang source (.slang, .slangh); compiled to content/shaders/*.spv at build time
+engine/core/     # Engine::Core static lib — Log, Timer, MyMacros, SwapbackArray,
+                 #   ThreadPool, IJobSystem + SerialJobSystem + SharedQueueJobSystem
+engine/platform/ # Engine::Platform static lib — IPlatform/SdlPlatform, Paths, FileSystem,
+                 #   CommandLine
+cmake/           # EngineModule.cmake (engine_module), Testing.cmake (engine_test),
+                 #   HeaderSelfContainment.cmake, Warnings.cmake
+tests/unit/      # Catch2 tests, CTest label "unit"
+tests/support/   # shared test helpers (TestPaths.h, CaptureStream.h)
+content/         # runtime content root — models/ scenes/ textures/ shaders/ (.spv is gitignored)
 ```
 
 ### Adding files
@@ -146,17 +161,20 @@ scenes/ models/ textures/   # content; moves under content/ in step 22
 Source lists are explicit, not globbed — a new `.cpp` will silently not build if you forget:
 
 - `src/*.cpp` → append to `SOURCES` in the root `CMakeLists.txt`.
-- `engine/core/src/*.cpp` → append to the `engine_module(Core SOURCES ...)` call in
-  `engine/core/CMakeLists.txt`.
-- `tests/unit/**/*.cpp` → append to the `engine_test(core_tests SOURCES ...)` call in
-  `tests/CMakeLists.txt`.
+- `engine/<module>/src/*.cpp` → append to that module's `engine_module(<Name> SOURCES ...)`
+  call in `engine/<module>/CMakeLists.txt`.
+- `tests/unit/**/*.cpp` → append to the matching `engine_test(...)` call in
+  `tests/CMakeLists.txt` — `core_tests` for `unit/core/`, `platform_tests` for
+  `unit/platform/`.
 
-Headers *are* globbed (into `HeaderSelfContainment` and the format targets), so a new header
-is checked automatically.
+Headers *are* globbed (into the header checks and the format targets), so a new header is
+checked automatically.
 
 A new engine module is `engine/<name>/` with `include/<name>/` + `src/`, one line of
 `engine_module(<Name> SOURCES ... LINK_LIBRARIES ...)`, and `add_subdirectory` in the root
 `CMakeLists.txt`. Header-only modules omit `SOURCES` and become INTERFACE libraries.
+`engine_module` also creates that module's `HeaderSelfContainment_<Name>` check, linking
+only the module itself — so a new module is header-checked with no extra wiring.
 
 ---
 
@@ -213,8 +231,12 @@ Other rules:
 
 - **One class per file, filename == class name.**
 - **Every header must be self-contained** — `#pragma once` and include what it uses.
-  `HeaderSelfContainment` compiles each `src/*.h` standalone with no PCH and CI fails on
-  breakage. `src/pch.h` is deliberately exempt.
+  `HeaderSelfContainment` compiles each `src/*.h` and each engine module's public headers
+  standalone with no PCH, one target per layer, and CI fails on breakage. `src/pch.h` is
+  deliberately exempt. Note that a local pass proves less than it looks: libstdc++ supplies
+  `<cstdint>`, `<string>` and friends transitively, so a header missing them still compiles
+  here and fails on MSVC or a newer libstdc++. Include what you use rather than relying on
+  the check.
 - **Warnings are errors** (`CMAKE_COMPILE_WARNING_AS_ERROR ON`, `-Wall -Wextra -Wpedantic
   -Wshadow` / `/W3`). A new warning breaks the build on all nine CI configs.
 - **Include style:** engine modules are included as `<core/Timer.h>`; `src/` files use
@@ -230,7 +252,7 @@ Other rules:
 
 - **`src/main.cpp` holds `App` and the whole renderer** (~2,600 lines). Grep before assuming
   something lives in its own file. Dismantling it is scheduled work, not incidental work.
-- **Shaders compile via `slangc` as a build step** into `shaders/*.spv` (gitignored). The
+- **Shaders compile via `slangc` as a build step** into `content/shaders/*.spv` (gitignored). The
   dependency tracking is coarse — every shader depends on every `.slangh`, so a header edit
   rebuilds all of them. Vertex/fragment entry points are `vertMain`/`fragMain`; compute is
   `main`, keyed off the `.comp.slang` suffix.
