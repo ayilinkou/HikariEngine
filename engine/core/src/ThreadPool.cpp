@@ -1,4 +1,4 @@
-#include "ThreadPool.h"
+#include <core/ThreadPool.h>
 
 #if defined(__linux__)
 #include <pthread.h>
@@ -43,9 +43,6 @@ ThreadPool::ThreadPool(uint32_t threadCount)
                     std::function<void()> job;
                     {
                         std::unique_lock lock(m_Mutex);
-
-                        // stop waiting if the instance is shutting down or if
-                        // there are jobs to be completed
                         m_CV.wait(lock, [this] { return m_Stopping || !m_Jobs.empty(); });
 
                         if (m_Stopping && m_Jobs.empty())
@@ -67,43 +64,10 @@ ThreadPool::~ThreadPool()
         m_Stopping = true;
     }
 
-    // wakes all threads
     m_CV.notify_all();
 
     for (auto& thread : m_Workers)
     {
         thread.join();
     }
-}
-
-void ThreadPool::Init()
-{
-    if (s_Instance)
-        throw std::runtime_error("Attempting to initialise ThreadPool instance "
-                                 "when instance is already initialised!");
-
-    // number of logical cores minus one (main thread)
-    const uint32_t hwThreadCount = std::thread::hardware_concurrency();
-    if (hwThreadCount == 0u)
-    {
-        LogMsg(LogSeverity::Warning, LogThreadPool,
-               "Failed to determine hardware "
-               "thread count! Thread pool will be initialised with 1 thread.");
-    }
-
-    const uint32_t poolThreadCount = hwThreadCount > 1u ? hwThreadCount - 1u : 1u;
-
-    LogMsg(LogSeverity::Info, LogThreadPool, "CPU thread count: {}", hwThreadCount);
-
-    s_Instance = new ThreadPool(poolThreadCount);
-}
-
-void ThreadPool::Shutdown()
-{
-    if (!s_Instance)
-        throw std::runtime_error("Attempting to shutdown ThreadPool instance "
-                                 "which is already null!");
-
-    delete s_Instance;
-    s_Instance = nullptr;
 }

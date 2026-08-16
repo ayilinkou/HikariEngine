@@ -14,13 +14,15 @@
 #include "PBRMaterial.h"
 #include "PipelineBuilder.h"
 #include "ResourceManager.h"
-#include "ThreadPool.h"
 #include "Utility.h"
 #include "Vertex.h"
 #include "VulkanAllocator.h"
 #include "XmlParser.h"
 
+#include <core/IJobSystem.h>
 #include <core/Log.h>
+#include <core/SerialJobSystem.h>
+#include <core/SharedQueueJobSystem.h>
 #include <core/Timer.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -49,8 +51,6 @@ inline void EnableAnsiColors()
     }
 }
 #endif
-
-#define MULTITHREADED_COMMAND_RECORDING 1
 
 constexpr uint32_t WIDTH = 1920u;
 constexpr uint32_t HEIGHT = 1080u;
@@ -209,6 +209,8 @@ struct Options
     bool bReportAutoPath = false;
     bool bStrictValidation = false; // exit non-zero on any validation error
     bool bHeadless = false;         // TODO
+    int JobCount =
+        -1; // -1 = default, 0 = SerialJobSystem, N>0 = SharedQueueJobSystem with N worker threads
 };
 
 // Hardcoded camera transforms selected via --camera-preset <N>, for
@@ -251,6 +253,8 @@ void PrintUsage()
                      "validation error occurred\n"
                      "  --headless              Run without a window "
                      "(reserved, not yet implemented)\n"
+                     "  --jobs <N>              Worker thread count (0 = SerialJobSystem, "
+                     "no threads; default = hardware_concurrency() - 1)\n"
                      "  --help                  Print this message and exit\n";
 }
 
@@ -365,6 +369,8 @@ Options ParseArgs(int argc, char** argv)
             options.bStrictValidation = true;
         else if (arg == "--headless")
             options.bHeadless = true;
+        else if (arg == "--jobs")
+            options.JobCount = RequireInt(i, "--jobs");
         else
         {
             LogMsg(LogSeverity::Error, LogMain, "Unknown option: {}", arg);
@@ -377,8 +383,10 @@ Options ParseArgs(int argc, char** argv)
 class App
 {
 public:
-    App() {}
-    App(SDL_Window* pWindow, Options options) : m_pWindow(pWindow), m_Options(std::move(options)) {}
+    App(SDL_Window* pWindow, Options options, IJobSystem& jobSystem)
+        : m_pWindow(pWindow), m_Options(std::move(options)), m_JobSystem(jobSystem)
+    {
+    }
     ~App()
     {
         if (!m_bShutdown && *m_Device)
@@ -500,8 +508,6 @@ private:
 
         InitVulkan();
         InitImGui();
-
-        ThreadPool::Init();
 
         if (!m_Options.ScenePath.empty())
         {
@@ -756,7 +762,6 @@ private:
 
         m_Skybox.reset();
         m_SceneGraph.reset();
-        ThreadPool::Shutdown();
         ShutdownImGui();
         MaterialFactory::Shutdown();
         ResourceManager::Shutdown();
@@ -890,12 +895,8 @@ private:
 
         {
             // Timer recordTimer("Command buffer recording");
-#if MULTITHREADED_COMMAND_RECORDING
-            ThreadPool* threadPool = ThreadPool::Get();
-            std::future<void> opaqueFuture =
-                threadPool->Submit([&] { RecordOpaqueCommandBuffer(); });
-            std::future<void> transparentFuture =
-                threadPool->Submit([&] { RecordTransparentCommandBuffer(); });
+            m_JobSystem.Submit([&] { RecordOpaqueCommandBuffer(); });
+            m_JobSystem.Submit([&] { RecordTransparentCommandBuffer(); });
 
             // these command buffers are very small and so likely faster to
             // record on main thread
@@ -905,17 +906,7 @@ private:
             RecordImGui(imageIndex);
             RecordSwapImageToPresentLayout(imageIndex, captureScreenshot);
 
-            opaqueFuture.get();
-            transparentFuture.get();
-#else
-            RecordSwapImageToDrawLayout(imageIndex);
-            RecordOpaqueCommandBuffer();
-            RecordTransparentCommandBuffer();
-            RecordCloudsCommandBuffer();
-            RecordCompositeCommandBuffer(imageIndex);
-            RecordImGui(imageIndex);
-            RecordSwapImageToPresentLayout(imageIndex, captureScreenshot);
-#endif
+            m_JobSystem.Wait();
         }
 
         // TODO: even when ImGui is not showing, it's being submitted
@@ -2581,6 +2572,8 @@ private:
     float m_DisplayFPS = 0.f;
     bool m_bShutdown = false;
 
+    IJobSystem& m_JobSystem;
+
     // Used in WriteReport()
     uint32_t m_OpaqueDrawCallCount = 0;
     uint32_t m_OpaqueBatchCount = 0;
@@ -2606,6 +2599,7 @@ int main(int argc, char** argv)
 
     // will be destroyed in reverse order of declaration
     std::unique_ptr<SDL_Window, decltype(&ShutdownSDL)> pWindow(nullptr, &ShutdownSDL);
+    std::unique_ptr<IJobSystem> pJobSystem = nullptr;
     std::unique_ptr<App> pApp = nullptr;
 
     try
@@ -2613,7 +2607,29 @@ int main(int argc, char** argv)
         InitSDL();
         pWindow.reset(CreateSDLWindow());
 
-        pApp = std::make_unique<App>(pWindow.get(), options);
+        if (options.JobCount == 0)
+        {
+            LogMsg(LogSeverity::Info, LogMain,
+                   "JobSystem selected: SerialJobSystem (no worker threads)");
+            pJobSystem = std::make_unique<SerialJobSystem>();
+        }
+        else if (options.JobCount > 0)
+        {
+            pJobSystem =
+                std::make_unique<SharedQueueJobSystem>(static_cast<uint32_t>(options.JobCount));
+            LogMsg(LogSeverity::Info, LogMain,
+                   "JobSystem selected: SharedQueueJobSystem ({} worker threads)",
+                   pJobSystem->WorkerCount());
+        }
+        else
+        {
+            pJobSystem = std::make_unique<SharedQueueJobSystem>();
+            LogMsg(LogSeverity::Info, LogMain,
+                   "JobSystem selected: SharedQueueJobSystem ({} worker threads)",
+                   pJobSystem->WorkerCount());
+        }
+
+        pApp = std::make_unique<App>(pWindow.get(), options, *pJobSystem);
         pApp->Run();
     }
     catch (const SDLException& e)
@@ -2635,6 +2651,7 @@ int main(int argc, char** argv)
     }
 
     pApp.reset();
+    pJobSystem.reset();
     pWindow.reset();
 
     if (options.bStrictValidation && g_ValidationErrorCount.load(std::memory_order_relaxed) > 0)
