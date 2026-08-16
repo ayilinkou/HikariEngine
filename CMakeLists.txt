@@ -136,6 +136,7 @@ if(NOT SLANGC_EXE)
 endif()
 
 add_subdirectory(engine/core)
+add_subdirectory(engine/platform)
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 if(CLANG_FORMAT_EXE)
@@ -230,6 +231,7 @@ target_sources(VulkanApp PRIVATE ${SOURCES})
 target_link_libraries(
   VulkanApp
   PRIVATE Engine::Core
+          Engine::Platform
           SDL3::SDL3
           Vulkan::Vulkan
           GPUOpen::VulkanMemoryAllocator

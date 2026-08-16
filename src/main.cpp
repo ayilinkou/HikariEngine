@@ -25,6 +25,9 @@
 #include <core/SharedQueueJobSystem.h>
 #include <core/Timer.h>
 
+#include <platform/IPlatform.h>
+#include <platform/SdlPlatform.h>
+
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
@@ -52,8 +55,6 @@ inline void EnableAnsiColors()
 }
 #endif
 
-constexpr uint32_t WIDTH = 1920u;
-constexpr uint32_t HEIGHT = 1080u;
 constexpr uint32_t MAX_INSTANCE_COUNT = 1024u;
 constexpr int NUM_FRAMES_IN_FLIGHT = 2;
 constexpr glm::vec3 SKY_COLOR = {0.4f, 0.8f, 1.f};
@@ -149,52 +150,6 @@ static VKAPI_ATTR vk::Bool32 VKAPI_CALL DebugCallback(
         // TODO: use this when needed
     }
     return vk::False;
-}
-
-class SDLException : public std::runtime_error
-{
-public:
-    SDLException(const std::string& message)
-        : std::runtime_error(std::format("{} {}", message, SDL_GetError()))
-    {
-    }
-};
-
-void InitSDL()
-{
-    if (!SDL_Init(SDL_INIT_VIDEO))
-        throw SDLException("Failed to initialise SDL!");
-
-    LogMsg(LogSeverity::Info, LogSDL, "SDL video driver: {}", SDL_GetCurrentVideoDriver());
-
-    if (!SDL_Vulkan_LoadLibrary(nullptr))
-        throw SDLException("Failed to load Vulkan library!");
-}
-
-SDL_Window* CreateSDLWindow()
-{
-    // hidden to hide the window while initialisation is taking place
-    SDL_WindowFlags flags =
-        SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_BORDERLESS;
-    SDL_Window* window = SDL_CreateWindow("Vulkan App", WIDTH, HEIGHT, flags);
-    if (window == nullptr)
-        throw SDLException("Failed to create window!");
-
-    SDL_SetWindowFullscreen(window, false);
-    return window;
-}
-
-void ShutdownSDL(SDL_Window* pWindow)
-{
-    if (pWindow)
-    {
-        SDL_WarpMouseInWindow(pWindow, 0.f, 0.f);
-        SDL_SetWindowRelativeMouseMode(pWindow, false);
-        SDL_DestroyWindow(pWindow);
-    }
-
-    SDL_Vulkan_UnloadLibrary();
-    SDL_Quit();
 }
 
 struct Options
@@ -383,8 +338,8 @@ Options ParseArgs(int argc, char** argv)
 class App
 {
 public:
-    App(SDL_Window* pWindow, Options options, IJobSystem& jobSystem)
-        : m_pWindow(pWindow), m_Options(std::move(options)), m_JobSystem(jobSystem)
+    App(IPlatform& platform, Options options, IJobSystem& jobSystem)
+        : m_Platform(platform), m_Options(std::move(options)), m_JobSystem(jobSystem)
     {
     }
     ~App()
@@ -400,7 +355,7 @@ public:
     {
         Init();
 
-        SDL_ShowWindow(m_pWindow);
+        m_Platform.Show();
 
         while (!g_bShouldClose)
         {
@@ -596,7 +551,7 @@ private:
         initInfo.Allocator = nullptr;
         initInfo.CheckVkResultFn = nullptr;
 
-        ImGui_ImplSDL3_InitForVulkan(m_pWindow);
+        ImGui_ImplSDL3_InitForVulkan(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()));
         ImGui_ImplVulkan_Init(&initInfo);
     }
 
@@ -784,15 +739,15 @@ private:
 
     void ShowCursor()
     {
-        SDL_WarpMouseInWindow(m_pWindow, static_cast<float>(m_SwapchainExtent.width / 2.f),
-                              static_cast<float>(m_SwapchainExtent.height / 2.f));
-        SDL_SetWindowRelativeMouseMode(m_pWindow, false);
+        m_Platform.WarpMouse(static_cast<float>(m_SwapchainExtent.width / 2.f),
+                             static_cast<float>(m_SwapchainExtent.height / 2.f));
+        m_Platform.SetRelativeMouseMode(false);
         m_bCursorVisible = true;
     }
 
     void HideCursor()
     {
-        SDL_SetWindowRelativeMouseMode(m_pWindow, true);
+        m_Platform.SetRelativeMouseMode(true);
         m_bCursorVisible = false;
     }
 
@@ -1240,7 +1195,8 @@ private:
         // which may differ from the one this app linked (and the instance
         // belongs to). Create the Metal surface directly via our Vulkan loader
         // instead.
-        SDL_MetalView metalView = SDL_Metal_CreateView(m_pWindow);
+        SDL_MetalView metalView =
+            SDL_Metal_CreateView(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()));
         if (!metalView)
             throw SDLException("Failed to create Metal view!");
 
@@ -1250,7 +1206,8 @@ private:
         m_Surface = m_Instance.createMetalSurfaceEXT(createInfo);
 #else
         VkSurfaceKHR rawSurface;
-        if (!SDL_Vulkan_CreateSurface(m_pWindow, *m_Instance, nullptr, &rawSurface))
+        if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()),
+                                      *m_Instance, nullptr, &rawSurface))
             throw SDLException("Failed to create Vulkan surface!");
 
         m_Surface = vk::raii::SurfaceKHR(m_Instance, rawSurface);
@@ -1347,7 +1304,9 @@ private:
         m_SwapchainSurfaceFormat = ChooseSwapchainFormat(formats);
         const std::vector<vk::PresentModeKHR> presentModes =
             m_PhysicalDevice.getSurfacePresentModesKHR(*m_Surface);
-        m_SwapchainExtent = ChooseSwapchainExtent(capabilities, m_pWindow);
+        const Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
+        m_SwapchainExtent = ChooseSwapchainExtent(
+            capabilities, vk::Extent2D{framebufferExtent.Width, framebufferExtent.Height});
 
         LogMsg(LogSeverity::Info, LogRenderer, "Swapchain Extent: {}x{}", m_SwapchainExtent.width,
                m_SwapchainExtent.height);
@@ -2010,11 +1969,12 @@ private:
     {
         LogMsg(LogSeverity::Info, LogRenderer, "Recreating swapchain and render images...");
 
-        int width, height;
-        SDL_GetWindowSizeInPixels(m_pWindow, &width, &height);
-        while (width == 0 || height == 0)
+        // Blocks while the window is minimised — a zero-sized framebuffer is
+        // not a legal swapchain extent.
+        Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
+        while (framebufferExtent.Width == 0 || framebufferExtent.Height == 0)
         {
-            SDL_GetWindowSizeInPixels(m_pWindow, &width, &height);
+            framebufferExtent = m_Platform.GetFramebufferExtent();
             SDL_Event event;
             SDL_WaitEvent(&event);
         }
@@ -2559,7 +2519,7 @@ private:
 
     static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
-    SDL_Window* m_pWindow = nullptr;
+    IPlatform& m_Platform;
     bool m_bIsFocused = true;
     bool m_bCursorVisible = true;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
@@ -2597,15 +2557,15 @@ int main(int argc, char** argv)
 
     Options options = ParseArgs(argc, argv);
 
-    // will be destroyed in reverse order of declaration
-    std::unique_ptr<SDL_Window, decltype(&ShutdownSDL)> pWindow(nullptr, &ShutdownSDL);
+    // will be destroyed in reverse order of declaration. The platform must
+    // outlive App: destroying it unloads the Vulkan library.
+    std::unique_ptr<SdlPlatform> pPlatform = nullptr;
     std::unique_ptr<IJobSystem> pJobSystem = nullptr;
     std::unique_ptr<App> pApp = nullptr;
 
     try
     {
-        InitSDL();
-        pWindow.reset(CreateSDLWindow());
+        pPlatform = std::make_unique<SdlPlatform>(WindowDesc{});
 
         if (options.JobCount == 0)
         {
@@ -2629,13 +2589,12 @@ int main(int argc, char** argv)
                    pJobSystem->WorkerCount());
         }
 
-        pApp = std::make_unique<App>(pWindow.get(), options, *pJobSystem);
+        pApp = std::make_unique<App>(*pPlatform, options, *pJobSystem);
         pApp->Run();
     }
     catch (const SDLException& e)
     {
-        SDL_LogError(SDL_LOG_CATEGORY_ERROR, "SDL error: %s", e.what());
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "SDL Error", e.what(), nullptr);
+        SdlPlatform::ShowErrorMessageBox("SDL Error", e.what());
         LogMsg(LogSeverity::Error, LogSDL, "{}", e.what());
         return EXIT_FAILURE;
     }
@@ -2652,7 +2611,7 @@ int main(int argc, char** argv)
 
     pApp.reset();
     pJobSystem.reset();
-    pWindow.reset();
+    pPlatform.reset();
 
     if (options.bStrictValidation && g_ValidationErrorCount.load(std::memory_order_relaxed) > 0)
     {
