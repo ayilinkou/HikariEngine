@@ -8,7 +8,7 @@ if not "%~1"=="" (
 )
 
 if not "%PRESET%"=="msvc" (
-    call "%~dp0envsetup.bat"
+    call "%~dp0scripts/envsetup.bat"
     if errorlevel 1 exit /b %errorlevel%
 )
 

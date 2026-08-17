@@ -18,7 +18,32 @@ if not defined VSPATH (
     exit /b 1
 )
 
-call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat"
+REM vcvars64.bat without -vcvars_ver pins to the toolset recorded in
+REM Microsoft.VCToolsVersion.v143.default.txt, which can lag behind the
+REM newest MSVC toolset installed side-by-side (Microsoft.VCToolsVersion.
+REM default.txt). vcpkg's own compiler detection always picks the latest
+REM installed toolset regardless of that pin. If the two disagree, packages
+REM vcpkg builds (e.g. Catch2) get compiled against a newer/older STL than
+REM the one this script sets up for the main build, causing unresolved
+REM external symbol linker errors (e.g. __std_search_1). Force the same
+REM "latest" toolset vcpkg uses so both stay in sync.
+set "VCVER="
+set /p VCVER=<"%VSPATH%\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
+
+REM Scripts like precommit.bat `call` several sub-scripts in the same cmd.exe
+REM session, and each of those calls this file. Once vcvars64.bat has already
+REM set up this exact toolset in the current session, skip re-running it —
+REM it's a no-op anyway, but it reprints the noisy "Developer Command Prompt"
+REM banner every time.
+if /i "%VCToolsVersion%"=="%VCVER%" (
+    exit /b 0
+)
+
+if defined VCVER (
+    call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=%VCVER%
+) else (
+    call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat"
+)
 if errorlevel 1 exit /b %errorlevel%
 
 exit /b 0
