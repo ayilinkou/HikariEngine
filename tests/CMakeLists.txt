@@ -1,5 +1,6 @@
 engine_test(core_tests SOURCES unit/core/SwapbackArrayTests.cpp
-  unit/core/LogTests.cpp unit/core/JobSystemTests.cpp LIBS Engine::Core)
+  unit/core/LogTests.cpp unit/core/JobSystemTests.cpp
+  unit/core/HandleTests.cpp LIBS Engine::Core)
 
 target_include_directories(core_tests
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
