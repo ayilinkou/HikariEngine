@@ -18,9 +18,9 @@ fi
 echo "Running precommit for $PRESET..."
 
 ./build.sh "$PRESET" && \
-scripts/header_check.sh "$PRESET" && \
+tests/scripts/header_check.sh "$PRESET" && \
 tests/scripts/build_tests.sh "$PRESET" && \
 tests/scripts/run_unit_tests.sh "$PRESET" && \
-scripts/format_check.sh "$PRESET" && \
+tests/scripts/format_check.sh "$PRESET" && \
 
 echo "Precommit succeeded!"

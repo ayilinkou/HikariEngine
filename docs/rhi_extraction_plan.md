@@ -418,10 +418,11 @@ enumerator, forgot the mapping" into a build failure on all nine CI configs. Do 
 
 ```bash
 scripts/precommit.sh                  # configure + build + header check + tests + format
-tests/scripts/headless.sh             # writes tests/screenshots/ + tests/reports/
+tests/scripts/baseline_test.sh        # writes tests/screenshots/ + tests/reports/
 ```
 
-then diff the report against `tests/baseline/report_14_08_2026_22_40_13.json`.
+then diff the report against the one in `tests/baseline/` (referred to by directory rather
+than filename, since re-capturing a baseline changes its timestamped name).
 `validationErrors` must be 0 and `drawCalls` / `batches` / `instances` must be identical
 unless the step's **Verify** line says otherwise. "It still builds" is not evidence.
 

@@ -101,9 +101,9 @@ cmake --workflow --preset ninja-debug-linux   # what build.sh wraps
 
 tests/scripts/build_tests.sh        # build the core_tests + platform_tests targets
 tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
+tests/scripts/header_check.sh       # compile every header standalone, no PCH
+tests/scripts/format_check.sh       # dry-run, -Werror
 scripts/format.sh                   # clang-format -i over src/ and engine/
-scripts/format_check.sh             # dry-run, -Werror
-scripts/header_check.sh             # compile every header standalone, no PCH
 scripts/precommit.sh                # all of the above, in CI order
 ```
 
@@ -111,8 +111,12 @@ scripts/precommit.sh                # all of the above, in CI order
 (`_App` for `src/`, one per engine module), each linking only what that layer may link.
 `precommit.sh` runs it straight after the build, matching CI's ordering.
 
-Windows equivalents are the `.bat` files in `scripts/`. Build artifacts land in
-`build/<preset>/`; `compile_commands.json` is symlinked to the debug-linux build for clangd.
+Everything that *verifies* the tree lives in `tests/scripts/`; `scripts/` holds the things
+that build or change it (`build.sh` at the root, `format.sh`, `precommit.sh`, and the
+Windows-only `envsetup.bat`). Each script has a `.bat` equivalent beside it. Scripts resolve
+`build/<preset>/` relative to the current directory, so run them from the repository root.
+Build artifacts land in `build/<preset>/`; `compile_commands.json` is symlinked to the
+debug-linux build for clangd.
 
 Asset paths resolve against a content root, not the CWD, so the app runs from anywhere:
 
@@ -130,12 +134,12 @@ are used as given.
 
 ### Regression checking
 
-`tests/scripts/headless.sh` runs the app with fixed timestep and a fixed camera, writing a
-PNG and a JSON report:
+`tests/scripts/baseline_test.sh` runs the app with fixed timestep and a fixed camera, writing
+a PNG and a JSON report:
 
 ```bash
-tests/scripts/headless.sh    # --scene (default scenes/test_scene.map) --frames (default 1000)
-                             # --fixed-dt --camera-preset 1 --screenshot --report
+tests/scripts/baseline_test.sh   # --scene (default scenes/test_scene.map) --frames (default 1000)
+                                 # --fixed-dt --camera-preset 1 --screenshot --report
 ```
 
 Output goes to `tests/screenshots/` and `tests/reports/` (both gitignored). Compare against

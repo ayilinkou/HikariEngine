@@ -24,7 +24,7 @@ if not "%PRESET%"=="msvc" (
 call build.bat "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 
-call scripts\header_check.bat "%PRESET%"
+call tests\scripts\header_check.bat "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 
 call tests\scripts\build_tests.bat "%PRESET%"
@@ -33,7 +33,7 @@ if errorlevel 1 exit /b %errorlevel%
 call tests\scripts\run_unit_tests.bat "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 
-call scripts\format_check.bat "%PRESET%"
+call tests\scripts\format_check.bat "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 
 echo Precommit succeeded!
