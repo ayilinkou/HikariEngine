@@ -6,7 +6,7 @@
 #include "glm/glm.hpp"
 
 #include "Material.h"
-#include "Texture.h"
+#include <rhi/vulkan/Texture.h>
 
 struct aiMaterial;
 

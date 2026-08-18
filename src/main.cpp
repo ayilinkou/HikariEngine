@@ -1,9 +1,6 @@
-#include "AllocatedImage.h"
-#include "Barrier.h"
 #include "Camera.h"
 #include "CloudSystem.h"
 #include "Common.h"
-#include "Cubemap.h"
 #include "Entity.h"
 #include "FrameData.h"
 #include "InstanceData.h"
@@ -12,11 +9,9 @@
 #include "Model.h"
 #include "ModelManager.h"
 #include "PBRMaterial.h"
-#include "PipelineBuilder.h"
 #include "ResourceManager.h"
 #include "Utility.h"
 #include "Vertex.h"
-#include "VulkanAllocator.h"
 #include "XmlParser.h"
 
 #include <core/IJobSystem.h>
@@ -29,6 +24,12 @@
 #include <platform/IPlatform.h>
 #include <platform/Paths.h>
 #include <platform/SdlPlatform.h>
+
+#include <rhi/vulkan/AllocatedImage.h>
+#include <rhi/vulkan/Barrier.h>
+#include <rhi/vulkan/Cubemap.h>
+#include <rhi/vulkan/PipelineBuilder.h>
+#include <rhi/vulkan/VulkanAllocator.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"

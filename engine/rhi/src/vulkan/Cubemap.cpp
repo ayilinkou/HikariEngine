@@ -1,4 +1,4 @@
-#include "Cubemap.h"
+#include <rhi/vulkan/Cubemap.h>
 
 Cubemap::Cubemap(AllocatedImage image, vk::raii::ImageView imageView,
                  const CubemapCreateInfo& createInfo)

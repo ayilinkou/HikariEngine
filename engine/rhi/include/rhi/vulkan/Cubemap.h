@@ -4,7 +4,7 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
-#include "AllocatedImage.h"
+#include <rhi/vulkan/AllocatedImage.h>
 
 struct CubemapCreateInfo
 {

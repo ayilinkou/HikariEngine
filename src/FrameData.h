@@ -2,8 +2,8 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
-#include "AllocatedBuffer.h"
-#include "Texture.h"
+#include <rhi/vulkan/AllocatedBuffer.h>
+#include <rhi/vulkan/Texture.h>
 
 struct FrameData
 {

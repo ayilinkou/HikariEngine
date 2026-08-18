@@ -1,4 +1,4 @@
-#include "AllocatedBuffer.h"
+#include <rhi/vulkan/AllocatedBuffer.h>
 
 AllocatedBuffer::AllocatedBuffer(VmaAllocator allocator, vk::Buffer buffer, VmaAllocation alloc,
                                  const VmaAllocationInfo& info)

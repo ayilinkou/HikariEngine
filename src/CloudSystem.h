@@ -8,8 +8,8 @@
 
 #include <platform/Paths.h>
 
-#include "AllocatedImage.h"
-#include "Texture.h"
+#include <rhi/vulkan/AllocatedImage.h>
+#include <rhi/vulkan/Texture.h>
 
 struct CloudSystemCreateInfo
 {

@@ -1,8 +1,8 @@
-#include "ComputePipelineBuilder.h"
+#include <rhi/vulkan/ComputePipelineBuilder.h>
 
 #include <platform/FileSystem.h>
 
-#include "Utility.h"
+#include <rhi/vulkan/DebugNames.h>
 
 ComputePipelineBuilder::ComputePipelineBuilder(vk::raii::Device& device) : m_Device(device) {}
 

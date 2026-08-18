@@ -447,7 +447,7 @@ are the ones later steps need to read.
 |---|---|
 | R1 — `core/Handle.h` + `core/HandlePool.h` | ✅ done |
 | R2 — `engine/rhi` skeleton and the neutral vocabulary | ✅ done |
-| R3 — Move the RHI leaf types | not started |
+| R3 — Move the RHI leaf types | ✅ done |
 | R4 — Dissolve `Utility.h` | not started |
 | R5 — Extract `Rhi::Device` | not started |
 | R6 — Enumerate all queue families | not started |
@@ -534,18 +534,43 @@ are the ones later steps need to read.
   avoids pre-empting that decision.
 - **Verify:** Headless report and screenshot identical to baseline. `src/` no longer contains
   those files.
+- **As built:** the move exposed one ordering problem and one silent-breakage hazard.
+  - **`SetVkDebugName` had to come along, out of R4.** Both pipeline builders call it, and it
+    lived in `src/Utility.h` — so moving them into the module would have left module code
+    depending on a header in `src/`, which is the dependency direction the whole stage exists
+    to prevent. R4's first bullet already specifies `rhi/vulkan/DebugNames.h` for exactly this
+    function, so that one piece was pulled forward verbatim; `src/Utility.h` now includes it
+    and R4 has correspondingly less to do. Nothing else in the moved set needed anything from
+    `Utility.h`.
+  - **The RHI target now defines `DEBUG` PUBLIC in Debug configs.** `SetVkDebugName` is a
+    template whose body is `#ifdef DEBUG`, so it is instantiated per calling translation unit.
+    Before this step every caller was in `VulkanApp`, which defines `DEBUG` itself, so they all
+    agreed. With callers now on both sides of the boundary, a module that did not define it
+    would instantiate an empty body while the application instantiated a real one — an ODR
+    violation whose only symptom is debug names going missing from some objects and not others,
+    invisible to the baseline report. Verified present on the module's compile flags.
+  - **There are now two files called `Barrier.h`**: `rhi/Barrier.h` (neutral, R2) and
+    `rhi/vulkan/Barrier.h` (the moved Vulkan presets). Nothing includes both and no type names
+    overlap, so confusing them is a compile error rather than a silent substitution. R8 deletes
+    the latter. The moved file carries a comment saying so.
+  - **`TextureBinding` (`Albedo`/`Normal`/`MetallicRoughness`) rode along inside `Texture.h`**
+    and is a material concept, not an RHI one. Left in place because R3 moves files verbatim
+    and Stage 7 relocates `Texture` wholesale anyway — but it should not acquire new users
+    while it sits here.
 - **Size:** M · **Needs:** R2 · **Was:** step 24
 
 ### R4 — Dissolve `Utility.h`
 
-- **Do:** Split its 322 lines by concern:
-  `rhi/vulkan/DebugNames.h` (`SetVkDebugName`), `rhi/vulkan/BufferUtil.h` (`CreateBuffer`,
-  `CopyBuffer`, `CreateStagedBuffer`), `rhi/vulkan/ImageUtil.h` (`CreateImage`,
-  `CreateImageView`, `CopyBufferToImage`, `CreateRenderTexture`), `rhi/vulkan/BarrierUtil.h`
-  (`RecordImageBarrier`), `rhi/vulkan/SwapchainSupport.h` (`ChooseSwapchainFormat`,
-  `ChoosePresentMode`, `ChooseSwapchainExtent`, `ChooseSwapMinImageCount`),
-  `rhi/vulkan/CommandBufferUtil.h` (`BeginSingleTimeCommand`, `EndSingleTimeCommand`).
+- **Do:** Split its remaining lines by concern:
+  `rhi/vulkan/BufferUtil.h` (`CreateBuffer`, `CopyBuffer`, `CreateStagedBuffer`),
+  `rhi/vulkan/ImageUtil.h` (`CreateImage`, `CreateImageView`, `CopyBufferToImage`,
+  `CreateRenderTexture`), `rhi/vulkan/BarrierUtil.h` (`RecordImageBarrier`),
+  `rhi/vulkan/SwapchainSupport.h` (`ChooseSwapchainFormat`, `ChoosePresentMode`,
+  `ChooseSwapchainExtent`, `ChooseSwapMinImageCount`), `rhi/vulkan/CommandBufferUtil.h`
+  (`BeginSingleTimeCommand`, `EndSingleTimeCommand`).
   Delete `FindMemoryType` (dead since VMA, and its own comment says so).
+- **Already done:** `rhi/vulkan/DebugNames.h` (`SetVkDebugName`) was pulled forward into R3,
+  which could not move the pipeline builders without it. `Utility.h` includes it today.
 - **Correction to Part IV step 25:** `EnsureParentDirectoryExists` and `EnsureExtension` are
   filesystem helpers with nothing to do with rendering. They go to
   `engine/platform/include/platform/FileSystem.h`, not to `rhi/`.

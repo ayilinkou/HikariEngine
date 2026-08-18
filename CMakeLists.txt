@@ -67,8 +67,6 @@ set(SOURCES
     src/main.cpp
     src/Model.cpp
     src/ModelData.cpp
-    src/Texture.cpp
-    src/Cubemap.cpp
     src/Camera.cpp
     src/Material.cpp
     src/PBRMaterial.cpp
@@ -84,12 +82,7 @@ set(SOURCES
     src/Node.cpp
     src/Mesh.cpp
     src/CloudSystem.cpp
-    src/XmlParser.cpp
-    src/VMAImpl.cpp
-    src/AllocatedBuffer.cpp
-    src/AllocatedImage.cpp
-    src/PipelineBuilder.cpp
-    src/ComputePipelineBuilder.cpp)
+    src/XmlParser.cpp)
 
 # On macOS the Vulkan validation layer only ships with the Vulkan SDK (vcpkg
 # ships none) and is selected at runtime via VK_LAYER_PATH. vcpkg's own

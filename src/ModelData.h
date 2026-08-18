@@ -6,11 +6,11 @@
 #include <unordered_map>
 #include <vector>
 
-#include "AllocatedBuffer.h"
 #include "Drawable.h"
 #include "Material.h"
 #include "Mesh.h"
 #include "Node.h"
+#include <rhi/vulkan/AllocatedBuffer.h>
 
 struct aiMaterial;
 

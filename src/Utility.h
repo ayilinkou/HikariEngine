@@ -14,28 +14,16 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
-#include "AllocatedBuffer.h"
-#include "AllocatedImage.h"
-#include "Barrier.h"
-#include "Texture.h"
+#include <rhi/vulkan/AllocatedBuffer.h>
+#include <rhi/vulkan/AllocatedImage.h>
+#include <rhi/vulkan/Barrier.h>
+#include <rhi/vulkan/DebugNames.h>
+#include <rhi/vulkan/Texture.h>
 
-template <typename T>
-inline void SetVkDebugName([[maybe_unused]] vk::raii::Device& device, [[maybe_unused]] T handle,
-                           [[maybe_unused]] vk::ObjectType objectType,
-                           [[maybe_unused]] const char* name)
-{
-#ifdef DEBUG
-    // convert vk:: C++ types into C types
-    // eg. vk::Image -> VkImage
-    using CType = decltype(static_cast<typename T::CType>(handle));
-
-    vk::DebugUtilsObjectNameInfoEXT nameInfo{
-        .objectType = objectType,
-        .objectHandle = reinterpret_cast<uint64_t>(static_cast<CType>(handle)),
-        .pObjectName = name};
-    device.setDebugUtilsObjectNameEXT(nameInfo);
-#endif
-}
+// SetVkDebugName moved to <rhi/vulkan/DebugNames.h> in R3, because the pipeline
+// builders moved into engine/rhi and needed it there. Included above so that the
+// call sites in this header and across src/ keep working unchanged; R4 dissolves
+// the rest of this file the same way.
 
 // Chooses an ideal swapchain format if available, if not picks the first
 // one.

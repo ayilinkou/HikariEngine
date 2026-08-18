@@ -4,6 +4,20 @@
 
 #include "vulkan/vulkan.hpp"
 
+// The Vulkan-typed barrier presets the renderer currently records, moved here
+// verbatim by R3.
+//
+// Note the near-namesake: <rhi/Barrier.h> is the *neutral* barrier vocabulary
+// (PipelineStage, AccessFlags, TextureLayout) that R2 added, and is unrelated to
+// this file beyond subject matter. Nothing includes both, and the type names do
+// not overlap, so mistaking one for the other is a compile error rather than a
+// silent substitution. R8 replaces this file with a neutral barrier API built on
+// that vocabulary, at which point the ambiguity goes away.
+//
+// These presets still use the legacy eTopOfPipe / eBottomOfPipe stages, which
+// synchronization2 deprecates in favour of eNone. R8 is where that gets
+// revisited; R3 changes no logic.
+
 struct AllocatedImage;
 
 struct ImageBarrierDesc

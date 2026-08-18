@@ -1,8 +1,21 @@
 engine_module(
   RHI
-  SOURCES src/vulkan/VulkanConversions.cpp
-  LINK_LIBRARIES Engine::Core Engine::Platform Vulkan::Vulkan
-                 GPUOpen::VulkanMemoryAllocator)
+  SOURCES
+  src/vulkan/VulkanConversions.cpp
+  src/vulkan/AllocatedBuffer.cpp
+  src/vulkan/AllocatedImage.cpp
+  src/vulkan/Texture.cpp
+  src/vulkan/Cubemap.cpp
+  src/vulkan/PipelineBuilder.cpp
+  src/vulkan/ComputePipelineBuilder.cpp
+  # The single translation unit that instantiates VMA. It has to live in exactly
+  # one target, and this is now the only one that owns Vulkan memory.
+  src/vulkan/VMAImpl.cpp
+  LINK_LIBRARIES
+  Engine::Core
+  Engine::Platform
+  Vulkan::Vulkan
+  GPUOpen::VulkanMemoryAllocator)
 
 # Backend sources include each other as "vulkan/VulkanConversions.h" — relative
 # to src/, not to the file doing the including — so the path reads the same from
@@ -16,6 +29,16 @@ target_include_directories(RHI PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # entirely. VulkanApp already sets it; PUBLIC here keeps every consumer of this
 # module — the app, the tests, and anything Stage 6+ adds — in agreement.
 target_compile_definitions(RHI PUBLIC VULKAN_HPP_NO_STRUCT_CONSTRUCTORS)
+
+# SetVkDebugName (rhi/vulkan/DebugNames.h) compiles to nothing without this, and
+# it is a template — so its body is instantiated in whichever translation unit
+# calls it. Before R3 every caller was in VulkanApp, which defines DEBUG itself,
+# so they all agreed. Now that callers exist on both sides of the module
+# boundary, PUBLIC is what keeps them agreeing: without it the module's own
+# sources would instantiate an empty body while the application instantiated a
+# real one, which is an ODR violation whose symptom is debug names silently
+# going missing from some objects and not others.
+target_compile_definitions(RHI PUBLIC $<$<CONFIG:Debug>:DEBUG>)
 
 if(MSVC)
   # The conversion tables rely on "switch with no default:" turning a forgotten

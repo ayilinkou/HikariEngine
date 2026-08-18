@@ -1,8 +1,8 @@
 #include "TextureLoader.h"
-#include "AllocatedBuffer.h"
-#include "AllocatedImage.h"
-#include "Barrier.h"
 #include "vulkan/vulkan.hpp"
+#include <rhi/vulkan/AllocatedBuffer.h>
+#include <rhi/vulkan/AllocatedImage.h>
+#include <rhi/vulkan/Barrier.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"

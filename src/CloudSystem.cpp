@@ -1,7 +1,7 @@
 #include "CloudSystem.h"
-#include "ComputePipelineBuilder.h"
 #include "Utility.h"
 #include <core/Log.h>
+#include <rhi/vulkan/ComputePipelineBuilder.h>
 
 inline constexpr LogCategory LogCloudSystem{"Cloud System"};
 

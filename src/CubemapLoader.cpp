@@ -1,13 +1,14 @@
 #include "CubemapLoader.h"
 
-#include "Barrier.h"
 #include "ResourceManager.h"
 #include "stb_image.h"
 
-#include "Cubemap.h"
 #include "Utility.h"
 #include "vulkan/vulkan.hpp"
 #include <core/Log.h>
+
+#include <rhi/vulkan/Barrier.h>
+#include <rhi/vulkan/Cubemap.h>
 
 constexpr LogCategory LogCubemapLoader("Cubemap Loader");
 
