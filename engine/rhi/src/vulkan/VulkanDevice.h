@@ -8,7 +8,10 @@
 
 #include <rhi/DeviceDesc.h>
 #include <rhi/IDevice.h>
+#include <rhi/RhiTypes.h>
 #include <rhi/vulkan/VulkanAllocator.h>
+
+#include "vulkan/QueueFamilies.h"
 
 namespace Rhi::Vulkan
 {
@@ -29,22 +32,24 @@ public:
     vk::raii::Device& GetDevice() { return m_Device; }
     vk::raii::SurfaceKHR& GetSurface() { return m_Surface; }
     vk::raii::Queue& GetGraphicsQueue() { return m_GraphicsQueue; }
-    uint32_t GetGraphicsQueueFamily() const { return m_GraphicsQueueFamily; }
     VmaAllocator GetAllocator() const { return m_Allocator; }
     uint32_t GetApiVersion() const { return kApiVersion; }
+
+    // The queue family serving `role`, or QueueFamilies::kInvalid when the
+    // device has none. Only the graphics family is backed by a created queue —
+    // compute and copy work is still submitted there, and the other families
+    // are known but idle.
+    uint32_t GetQueueFamily(QueueType role) const { return m_QueueFamilies.Get(role); }
 
 private:
     void CreateInstance(const DeviceDesc& desc);
     void SetupDebugMessenger(const DeviceDesc& desc);
     void CreateSurface(const DeviceRequirements& requirements);
     void PickPhysicalDevice(const DeviceRequirements& requirements);
-    void CreateLogicalDevice(const DeviceRequirements& requirements);
+    void FindQueueFamilies(const DeviceRequirements& requirements);
+    void CreateLogicalDevice();
 
     bool IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& device) const;
-
-    // Returns ~0u when no family qualifies.
-    uint32_t FindGraphicsQueueFamily(const vk::raii::PhysicalDevice& device,
-                                     bool bRequirePresent) const;
 
     // Called from the driver's debug callback, on whichever thread the driver
     // happens to be on.
@@ -52,10 +57,9 @@ private:
 
     // Static so that it has C linkage-compatible calling convention while still
     // reaching the members above; the instance arrives via pUserData.
-    static VKAPI_ATTR vk::Bool32 VKAPI_CALL
-    DebugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
-                  vk::DebugUtilsMessageTypeFlagsEXT type,
-                  const vk::DebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
+    static VKAPI_ATTR vk::Bool32 VKAPI_CALL DebugCallback(
+        vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type,
+        const vk::DebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
 
     // 1.4 rather than the 1.3 that IsPhysicalDeviceSuitable requires: the
     // instance-level version is a ceiling on what the loader will expose, while
@@ -74,7 +78,7 @@ private:
     VulkanAllocator m_Allocator{};
     vk::raii::Queue m_GraphicsQueue = nullptr;
 
-    uint32_t m_GraphicsQueueFamily = ~0u;
+    QueueFamilies m_QueueFamilies;
 
     DeviceCaps m_Caps{};
 

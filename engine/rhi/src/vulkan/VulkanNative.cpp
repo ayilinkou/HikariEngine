@@ -29,7 +29,7 @@ NativeDevice GetNative(IDevice& device)
                         .PhysicalDevice = *vulkanDevice.GetPhysicalDevice(),
                         .Device = *vulkanDevice.GetDevice(),
                         .GraphicsQueue = *vulkanDevice.GetGraphicsQueue(),
-                        .GraphicsQueueFamily = vulkanDevice.GetGraphicsQueueFamily(),
+                        .GraphicsQueueFamily = vulkanDevice.GetQueueFamily(QueueType::Graphics),
                         .ApiVersion = vulkanDevice.GetApiVersion()};
 }
 
@@ -55,7 +55,7 @@ vk::raii::Queue& GetGraphicsQueue(IDevice& device)
 
 uint32_t GetGraphicsQueueFamily(IDevice& device)
 {
-    return AsVulkan(device).GetGraphicsQueueFamily();
+    return AsVulkan(device).GetQueueFamily(QueueType::Graphics);
 }
 
 VmaAllocator GetAllocator(IDevice& device)

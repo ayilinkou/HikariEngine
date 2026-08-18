@@ -586,9 +586,13 @@ private:
                                               .GlobalSetLayout = m_GlobalBufferSetLayout,
                                               .DepthSetLayout = m_DepthSetLayout,
                                               .CommandPool = m_GenericCommandPool,
-                                              .ComputeQueue =
-                                                  m_GraphicsQueue, // TODO: find and store a
-                                                                   // dedicated compute queue
+                                              // The device reports whether an async compute
+                                              // queue exists (DeviceCaps::
+                                              // bHasDedicatedComputeQueue); moving the cloud
+                                              // dispatches onto it needs them to own their own
+                                              // submission and cross-queue synchronization
+                                              // first, so they share the graphics queue.
+                                              .ComputeQueue = m_GraphicsQueue,
                                               .SwapchainWidth = m_SwapchainExtent.width,
                                               .SwapchainHeight = m_SwapchainExtent.height,
                                               .FramesInFlight = NUM_FRAMES_IN_FLIGHT,

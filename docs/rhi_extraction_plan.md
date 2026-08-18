@@ -480,7 +480,7 @@ are the ones later steps need to read.
 | R3 — Move the RHI leaf types | ✅ done |
 | R4 — Dissolve `Utility.h` | ✅ done |
 | R5 — Extract `Rhi::Device` | ✅ done |
-| R6 — Enumerate all queue families | not started |
+| R6 — Enumerate all queue families | ✅ done |
 | R7 — `Rhi::Diagnostics` | not started |
 | R8 — `Rhi::ICommandList` and the neutral barrier API | not started |
 | R9 — Buffers become handles | not started |
@@ -704,6 +704,42 @@ are the ones later steps need to read.
   information half of the dedicated-compute-queue `TODO` at `main.cpp:576` (Part IV cites
   `main.cpp:400` and `main.cpp:2173` for this; both line numbers are stale, and only the
   compute one still exists as a comment).
+- **As built:** the selection rule is more than the step's one-line description, and the
+  reason is that it cannot be checked on the machine it was written on.
+  - **The rules are a pure function in `src/vulkan/QueueFamilies.{h,cpp}`, unit-tested.** The
+    layouts that decide whether the rule is right — a transfer-only DMA family, a graphics
+    family that omits compute, two graphics families of which only one presents — are all
+    absent from this development machine, so testing on real hardware tests one arrangement
+    out of many. `SelectQueueFamilies` therefore takes the family list as data and returns a
+    `QueueFamilies`, with present support arriving as a `PresentSupportFn` callback because
+    that is the one part needing a surface. `tests/unit/rhi/QueueFamilyTests.cpp` covers the
+    arrangements this GPU does not have.
+  - **"Dedicated" is resolved by preferring the narrowest family, not by R12's one-line
+    test.** R12's note describes it as "supports `Copy` but not `Graphics`", which is
+    ambiguous on any GPU exposing both an async compute family and a DMA family — both
+    qualify, and taking the first would put uploads on the compute engine. The implemented
+    rule adds a tie-break: among non-graphics candidates, prefer the one advertising the
+    fewest of graphics/compute/copy. Ancillary bits (sparse binding, protected, video) are
+    deliberately not counted, or a video family advertising transfer would outrank a
+    transfer-only one. **R12 should use `GetQueueFamily(QueueType::Copy)` rather than
+    re-deriving the family.**
+  - **Every role always resolves to a usable family.** Compute and Copy fall back to the
+    graphics family rather than reporting "absent", so R12 does not need a fallback at the
+    call site; `IsDedicated()` is the separate question of whether that fallback happened.
+    The one exception is Compute on a graphics family that omits compute, which stays
+    `kInvalid` rather than pointing at a queue that would fail at submission.
+  - **No queues are created for the new families.** `VkDeviceQueueCreateInfo` still asks for
+    one queue from the graphics family only, because the step reports rather than uses, and
+    an unused queue is one the driver schedules for nothing. That makes creating the queue
+    part of R12's work, not a detail it can assume: `vkGetDeviceQueue` on a family that was
+    never requested is invalid, not merely useless.
+  - **The neutral half is two `DeviceCaps` flags**, `bHasDedicatedComputeQueue` and
+    `bHasDedicatedCopyQueue`, rather than a new `IDevice` virtual — `DeviceCaps` already is
+    "what the device turned out to be able to do", and the flags describe the device rather
+    than where work is submitted. Family indices stay backend-side:
+    `VulkanDevice::GetQueueFamily(QueueType)` replaced `GetGraphicsQueueFamily()`, and the
+    escape hatch did not grow — `VulkanNative.h` still exposes only the graphics family,
+    which is all ImGui and the command pools ask for.
 - **Size:** S · **Needs:** R5 · **Was:** step 27
 
 ### R7 — `Rhi::Diagnostics`

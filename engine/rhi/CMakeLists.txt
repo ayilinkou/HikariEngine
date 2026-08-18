@@ -2,6 +2,7 @@ engine_module(
   RHI
   SOURCES
   src/vulkan/VulkanConversions.cpp
+  src/vulkan/QueueFamilies.cpp
   src/vulkan/VulkanDevice.cpp
   src/vulkan/VulkanNative.cpp
   src/vulkan/AllocatedBuffer.cpp

@@ -74,5 +74,17 @@ struct DeviceCaps
     // False when the device was created without presentation support, whether
     // because it was not asked for or because nothing suitable was found.
     bool bPresentSupported = false;
+
+    // Whether the device exposes a queue for this kind of work that is separate
+    // from the graphics queue — an async compute engine and a DMA engine, in
+    // hardware terms. False means the graphics queue is the only one available
+    // for it: always capable of the work, but unable to overlap it with
+    // rendering.
+    //
+    // These describe the device, not where the RHI currently submits. Both are
+    // false on an integrated GPU exposing a single universal family, which is
+    // the case the rest of the engine has to keep working for.
+    bool bHasDedicatedComputeQueue = false;
+    bool bHasDedicatedCopyQueue = false;
 };
 } // namespace Rhi

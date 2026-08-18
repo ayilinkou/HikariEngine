@@ -7,6 +7,7 @@
 #include <limits>
 #include <ranges>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -25,6 +26,16 @@ namespace
 constexpr LogCategory LogRhi("RHI");
 
 constexpr const char* kValidationLayerName = "VK_LAYER_KHRONOS_validation";
+
+// "family 1 (dedicated)", "family 0", or "none", for the startup log.
+std::string DescribeFamily(const QueueFamilies& families, QueueType role)
+{
+    const uint32_t index = families.Get(role);
+    if (index == QueueFamilies::kInvalid)
+        return "none";
+
+    return std::format("family {}{}", index, families.IsDedicated(role) ? " (dedicated)" : "");
+}
 } // namespace
 
 VulkanDevice::VulkanDevice(const DeviceDesc& desc)
@@ -35,13 +46,16 @@ VulkanDevice::VulkanDevice(const DeviceDesc& desc)
     SetupDebugMessenger(desc);
     CreateSurface(desc.Requirements);
     PickPhysicalDevice(desc.Requirements);
-    CreateLogicalDevice(desc.Requirements);
+    FindQueueFamilies(desc.Requirements);
+    CreateLogicalDevice();
 
     m_Allocator = VulkanAllocator(m_Instance, m_PhysicalDevice, m_Device, kApiVersion);
 
     // Vulkan's clip space has Y pointing down relative to what GLM produces.
     m_Caps.bFlipClipSpaceY = true;
     m_Caps.bPresentSupported = desc.Requirements.bPresent;
+    m_Caps.bHasDedicatedComputeQueue = m_QueueFamilies.IsDedicated(QueueType::Compute);
+    m_Caps.bHasDedicatedCopyQueue = m_QueueFamilies.IsDedicated(QueueType::Copy);
 }
 
 void VulkanDevice::WaitIdle()
@@ -294,38 +308,51 @@ void VulkanDevice::PickPhysicalDevice(const DeviceRequirements& requirements)
     m_PhysicalDevice = *deviceIt;
 }
 
-uint32_t VulkanDevice::FindGraphicsQueueFamily(const vk::raii::PhysicalDevice& device,
-                                               bool bRequirePresent) const
+void VulkanDevice::FindQueueFamilies(const DeviceRequirements& requirements)
 {
-    const std::vector<vk::QueueFamilyProperties> qfProperties = device.getQueueFamilyProperties();
+    LogMsg(LogSeverity::Info, LogRhi, "FindQueueFamilies()");
 
-    for (size_t qfpIndex = 0; qfpIndex < qfProperties.size(); qfpIndex++)
+    const std::vector<vk::QueueFamilyProperties> families =
+        m_PhysicalDevice.getQueueFamilyProperties();
+
+    // Presentation is a property of a (family, surface) pair rather than a queue
+    // capability, so it has to be queried — and only where there is a surface to
+    // query against, since a null one is not a valid argument.
+    const PresentSupportFn presentSupported = [this](uint32_t index)
+    { return static_cast<bool>(m_PhysicalDevice.getSurfaceSupportKHR(index, m_Surface)); };
+
+    for (uint32_t index = 0; index < families.size(); index++)
     {
-        const auto index = static_cast<uint32_t>(qfpIndex);
+        const char* presentNote = "";
+        if (*m_Surface)
+            presentNote = presentSupported(index) ? ", present" : ", no present";
 
-        if (!FamilySupports(qfProperties[qfpIndex].queueFlags, QueueType::Graphics))
-            continue;
-
-        if (bRequirePresent && !device.getSurfaceSupportKHR(index, m_Surface))
-            continue;
-
-        return index;
+        LogMsg(LogSeverity::Info, LogRhi, "Family {}: {} queue(s), {}{}", index,
+               families[index].queueCount, vk::to_string(families[index].queueFlags), presentNote);
     }
 
-    return ~0u;
+    m_QueueFamilies = SelectQueueFamilies(families, presentSupported, requirements.bPresent);
+
+    if (m_QueueFamilies.Graphics == QueueFamilies::kInvalid)
+        throw std::runtime_error(requirements.bPresent
+                                     ? "Could not find a queue for graphics and presenting!"
+                                     : "Could not find a queue for graphics!");
+
+    LogMsg(LogSeverity::Info, LogRhi, "Graphics: {}. Compute: {}. Copy: {}.",
+           DescribeFamily(m_QueueFamilies, QueueType::Graphics),
+           DescribeFamily(m_QueueFamilies, QueueType::Compute),
+           DescribeFamily(m_QueueFamilies, QueueType::Copy));
 }
 
-void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
+void VulkanDevice::CreateLogicalDevice()
 {
     LogMsg(LogSeverity::Info, LogRhi, "CreateLogicalDevice()");
 
-    m_GraphicsQueueFamily = FindGraphicsQueueFamily(m_PhysicalDevice, requirements.bPresent);
-
-    if (m_GraphicsQueueFamily == ~0u)
-        throw std::runtime_error("Could not find a queue for graphics and presenting!");
-
+    // Only the graphics family gets a queue. A compute or copy family that is
+    // never submitted to would be a queue the driver has to schedule for
+    // nothing, so each one is created by the step that starts using it.
     float queuePriority = 0.5f;
-    vk::DeviceQueueCreateInfo queueCreateInfo{.queueFamilyIndex = m_GraphicsQueueFamily,
+    vk::DeviceQueueCreateInfo queueCreateInfo{.queueFamilyIndex = m_QueueFamilies.Graphics,
                                               .queueCount = 1,
                                               .pQueuePriorities = &queuePriority};
 
@@ -357,7 +384,7 @@ void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
 
     m_Device = vk::raii::Device(m_PhysicalDevice, deviceCreateInfo);
     SetVkDebugName(m_Device, *m_Device, vk::ObjectType::eDevice, "Device");
-    m_GraphicsQueue = vk::raii::Queue(m_Device, m_GraphicsQueueFamily, 0);
+    m_GraphicsQueue = vk::raii::Queue(m_Device, m_QueueFamilies.Graphics, 0);
     SetVkDebugName(m_Device, *m_GraphicsQueue, vk::ObjectType::eQueue, "Graphics Queue");
 
     // Setting debug names for objects which were created before the device was
