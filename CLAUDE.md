@@ -255,8 +255,26 @@ Other rules:
   `"Header.h"` quotes for siblings and `"lib/Header.h"` for third-party.
 - **Errors:** exceptions for unrecoverable init failures; asset loading and parsing should
   log and skip rather than unwind through the frame loop.
+- **RHI naming follows D3D12, not Vulkan**, wherever the two APIs name the same concept
+  differently — `Copy` not `Transfer`, `CommandList` not `CommandBuffer`, `Pixel` not
+  `Fragment`, `UnorderedAccess` not `Storage`. This applies to the Vulkan-side helpers too, so
+  that a Vulkan term appearing in an interface reads as a mistake rather than as normal. Where
+  only one API has the concept at all, its term stands. Utility headers under `rhi/vulkan/`
+  take a uniform `Util` suffix (`BufferUtil.h`, `CommandListUtil.h`). Rationale and the full
+  list: RHI plan D13.
 - Comments in this codebase explain *why* (non-obvious platform quirks, ABI hazards,
   boundary-condition rules). Match that — do not narrate what the code already says.
+- **The reasoning belongs in the source, not in a doc.** If a decision is non-obvious enough to
+  need explaining, explain it where the code is, so the reader finds it without knowing a doc
+  exists. Point at a doc only when the full argument is genuinely too long to sit in a comment
+  — and even then, put the conclusion and the one-line reason inline and cite the doc for the
+  detail, so the comment still stands on its own if the doc is retired.
+- **Comments must not outlive what they describe.** When finishing a piece of work, delete the
+  comments that pointed forward to it ("split out by R4", "R8 will replace this"). Keep such a
+  comment only if it still tells the reader something they need, and then rewrite it to stand
+  on its own: state the constraint or the rationale directly rather than citing a plan step or
+  a doc, because those get retired once the work lands. Comments about genuinely outstanding
+  work are fine, and should describe the intended end state rather than the ticket number.
 
 ---
 

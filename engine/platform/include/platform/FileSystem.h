@@ -1,9 +1,11 @@
 #pragma once
 
+#include <filesystem>
 #include <format>
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 inline std::vector<char> ReadFile(const std::string filename)
@@ -20,4 +22,30 @@ inline std::vector<char> ReadFile(const std::string filename)
     file.close();
 
     return buffer;
+}
+
+// Creates the directories leading up to `path`, so that writing to it succeeds
+// even on a first run. Does nothing if `path` has no parent.
+inline void EnsureParentDirectoryExists(std::string_view path)
+{
+    std::filesystem::path p(path);
+    if (p.has_parent_path())
+    {
+        std::error_code ec;
+        std::filesystem::create_directories(p.parent_path(), ec);
+        if (ec)
+        {
+            throw std::runtime_error(std::format("Failed to create directory {}: {}",
+                                                 p.parent_path().string(), ec.message()));
+        }
+    }
+}
+
+// Forces `path` to end in `ext`, replacing any extension already there.
+inline std::string EnsureExtension(const std::string& path, const std::string& ext)
+{
+    std::filesystem::path p(path);
+    if (p.extension() != ext)
+        p.replace_extension(ext);
+    return p.string();
 }

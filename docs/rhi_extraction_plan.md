@@ -315,6 +315,36 @@ but two rules start applying now:
 The `add_slang_shader_target` function in the root `CMakeLists.txt` will need a target
 parameter when D3D12 lands. Not now.
 
+### D13 — Where the two APIs disagree on a name, use D3D12's
+
+The neutral vocabulary has to pick one word for every concept the two backends name
+differently. It picks D3D12's, consistently, including for the Vulkan-side helpers.
+
+The reason is asymmetry of harm. Vulkan is the backend that exists today, so its terms are
+the ones already in the codebase and in the reader's head — a Vulkan name in neutral code
+reads as natural and is therefore easy to leave in place by accident, right up until a second
+backend makes it wrong. A D3D12 name in neutral code is mildly unfamiliar, which is exactly
+what makes it obvious that the surrounding code is *meant* to be backend-neutral. The
+unfamiliarity is doing work.
+
+Consequences already in the tree:
+
+| Concept | Vulkan | D3D12 | Chosen |
+|---|---|---|---|
+| Copy queue role | transfer | copy | `QueueType::Copy` |
+| Recorded command container | command buffer | command list | `CommandListUtil.h` |
+| Fragment shader stage | fragment | pixel | `PipelineStage::PixelStage` |
+| Read-write shader resource | storage | unordered access | `AccessFlags::UnorderedAccess` |
+
+This applies to *names*, not semantics. `FamilySupports` still encodes Vulkan's queue-family
+capability rules because that is what the Vulkan backend has to obey; only the word "Copy" is
+borrowed. Where Vulkan has a concept D3D12 lacks entirely, or vice versa, there is nothing to
+reconcile and the owning API's term stands.
+
+Utility headers in `rhi/vulkan/` take a `Util` suffix uniformly (`BufferUtil.h`, `ImageUtil.h`,
+`BarrierUtil.h`, `CommandListUtil.h`, `SwapchainUtil.h`) so that "is this a type or a bag of
+free functions" is answerable from the filename.
+
 ---
 
 ## 3. Module layout
@@ -448,7 +478,7 @@ are the ones later steps need to read.
 | R1 — `core/Handle.h` + `core/HandlePool.h` | ✅ done |
 | R2 — `engine/rhi` skeleton and the neutral vocabulary | ✅ done |
 | R3 — Move the RHI leaf types | ✅ done |
-| R4 — Dissolve `Utility.h` | not started |
+| R4 — Dissolve `Utility.h` | ✅ done |
 | R5 — Extract `Rhi::Device` | not started |
 | R6 — Enumerate all queue families | not started |
 | R7 — `Rhi::Diagnostics` | not started |
@@ -564,17 +594,33 @@ are the ones later steps need to read.
 - **Do:** Split its remaining lines by concern:
   `rhi/vulkan/BufferUtil.h` (`CreateBuffer`, `CopyBuffer`, `CreateStagedBuffer`),
   `rhi/vulkan/ImageUtil.h` (`CreateImage`, `CreateImageView`, `CopyBufferToImage`,
-  `CreateRenderTexture`), `rhi/vulkan/BarrierUtil.h` (`RecordImageBarrier`),
-  `rhi/vulkan/SwapchainSupport.h` (`ChooseSwapchainFormat`, `ChoosePresentMode`,
-  `ChooseSwapchainExtent`, `ChooseSwapMinImageCount`), `rhi/vulkan/CommandBufferUtil.h`
+  `CreateRenderTexture`),   `rhi/vulkan/BarrierUtil.h` (`RecordImageBarrier`),
+  `rhi/vulkan/SwapchainUtil.h` (`ChooseSwapchainFormat`, `ChoosePresentMode`,
+  `ChooseSwapchainExtent`, `ChooseSwapMinImageCount`), `rhi/vulkan/CommandListUtil.h`
   (`BeginSingleTimeCommand`, `EndSingleTimeCommand`).
   Delete `FindMemoryType` (dead since VMA, and its own comment says so).
 - **Already done:** `rhi/vulkan/DebugNames.h` (`SetVkDebugName`) was pulled forward into R3,
-  which could not move the pipeline builders without it. `Utility.h` includes it today.
+  which could not move the pipeline builders without it.
 - **Correction to Part IV step 25:** `EnsureParentDirectoryExists` and `EnsureExtension` are
   filesystem helpers with nothing to do with rendering. They go to
   `engine/platform/include/platform/FileSystem.h`, not to `rhi/`.
 - **Verify:** Headless report identical. `src/Utility.h` no longer exists.
+- **As built:** the split landed as specified, with the two filenames above corrected from what
+  this section originally said (`SwapchainSupport.h` → `SwapchainUtil.h` for suffix consistency,
+  `CommandBufferUtil.h` → `CommandListUtil.h` per D13). Three things worth recording.
+  - **`FindMemoryType` was genuinely dead** — deleted rather than moved, as planned. Confirmed
+    by search: the only occurrence in the tree was its own definition. Its comment ("shouldn't
+    need to use this anymore since I am now using VMA") had been right for a while.
+  - **Every consumer now includes what it uses.** `Utility.h` had become a de facto umbrella
+    header: it pulled in `AllocatedBuffer.h`, `AllocatedImage.h`, `Barrier.h`, `Texture.h` and
+    `DebugNames.h`, so files got those types without asking. Splitting it exposed that, and the
+    seven former includers were given explicit includes for the types they name rather than the
+    minimum needed to compile. Two of them — `PBRMaterial.cpp` and `MaterialFactory.cpp` —
+    turned out to want nothing from `Utility.h` but `SetVkDebugName`.
+  - **`BufferUtil` and `ImageUtil` still take a raw `VmaAllocator`.** Unchanged from before the
+    split, and deliberately not tidied here: R5 moves allocator ownership into the device, at
+    which point these become members rather than free functions and the parameter disappears.
+    Changing the signature now would be churn against a shape that is about to be replaced.
 - **Size:** M · **Needs:** R3 · **Was:** step 25
 
 ### R5 — Extract `Rhi::Device`

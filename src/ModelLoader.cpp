@@ -7,8 +7,9 @@
 #include "MaterialFactory.h"
 #include "ModelData.h"
 #include "Node.h"
-#include "Utility.h"
 #include "Vertex.h"
+
+#include <rhi/vulkan/BufferUtil.h>
 
 ModelLoader::ModelLoader(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
                          vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,

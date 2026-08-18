@@ -3,11 +3,14 @@
 #include <rhi/vulkan/AllocatedBuffer.h>
 #include <rhi/vulkan/AllocatedImage.h>
 #include <rhi/vulkan/Barrier.h>
+#include <rhi/vulkan/BarrierUtil.h>
+#include <rhi/vulkan/BufferUtil.h>
+#include <rhi/vulkan/CommandListUtil.h>
+#include <rhi/vulkan/ImageUtil.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-#include "Utility.h"
 #include <core/Log.h>
 
 constexpr LogCategory LogTextureLoader("Texture Loader");

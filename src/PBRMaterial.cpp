@@ -3,7 +3,8 @@
 #include "assimp/material.h"
 
 #include "ResourceManager.h"
-#include "Utility.h"
+
+#include <rhi/vulkan/DebugNames.h>
 
 PBRMaterial::PBRMaterial(vk::raii::Device& device, vk::raii::DescriptorPool& descriptorPool,
                          vk::raii::DescriptorSetLayout& setLayout, vk::raii::Sampler& sampler,

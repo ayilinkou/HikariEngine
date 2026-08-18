@@ -32,12 +32,11 @@ target_compile_definitions(RHI PUBLIC VULKAN_HPP_NO_STRUCT_CONSTRUCTORS)
 
 # SetVkDebugName (rhi/vulkan/DebugNames.h) compiles to nothing without this, and
 # it is a template — so its body is instantiated in whichever translation unit
-# calls it. Before R3 every caller was in VulkanApp, which defines DEBUG itself,
-# so they all agreed. Now that callers exist on both sides of the module
-# boundary, PUBLIC is what keeps them agreeing: without it the module's own
-# sources would instantiate an empty body while the application instantiated a
-# real one, which is an ODR violation whose symptom is debug names silently
-# going missing from some objects and not others.
+# calls it. Callers exist both inside this module and in the application, so
+# PUBLIC is what keeps the two agreeing: without it the module's own sources
+# would instantiate an empty body while the application instantiated a real one,
+# which is an ODR violation whose symptom is debug names silently going missing
+# from some objects and not others.
 target_compile_definitions(RHI PUBLIC $<$<CONFIG:Debug>:DEBUG>)
 
 if(MSVC)

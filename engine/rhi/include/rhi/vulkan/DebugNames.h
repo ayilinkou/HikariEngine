@@ -7,11 +7,6 @@
 // Attaches a human-readable name to a Vulkan object, so that validation
 // messages and capture tools name it instead of printing a handle value.
 //
-// Extracted from src/Utility.h ahead of R4, because it is the only thing the
-// pipeline builders needed from that header and they could not move into this
-// module while depending on a header in src/ — the app depends on the engine,
-// never the reverse. R4 dissolves the rest of Utility.h alongside this.
-//
 // Compiles to nothing unless DEBUG is defined, which is why the RHI target
 // defines it PUBLIC in Debug configurations. That is load-bearing rather than
 // tidy: this is a template, so its body is instantiated in whichever

@@ -3,12 +3,17 @@
 #include "ResourceManager.h"
 #include "stb_image.h"
 
-#include "Utility.h"
 #include "vulkan/vulkan.hpp"
 #include <core/Log.h>
 
+#include <rhi/vulkan/AllocatedBuffer.h>
+#include <rhi/vulkan/AllocatedImage.h>
 #include <rhi/vulkan/Barrier.h>
+#include <rhi/vulkan/BarrierUtil.h>
+#include <rhi/vulkan/BufferUtil.h>
+#include <rhi/vulkan/CommandListUtil.h>
 #include <rhi/vulkan/Cubemap.h>
+#include <rhi/vulkan/ImageUtil.h>
 
 constexpr LogCategory LogCubemapLoader("Cubemap Loader");
 

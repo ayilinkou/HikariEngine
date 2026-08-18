@@ -10,7 +10,6 @@
 #include "ModelManager.h"
 #include "PBRMaterial.h"
 #include "ResourceManager.h"
-#include "Utility.h"
 #include "Vertex.h"
 #include "XmlParser.h"
 
@@ -21,14 +20,22 @@
 #include <core/Timer.h>
 
 #include <platform/CommandLine.h>
+#include <platform/FileSystem.h>
 #include <platform/IPlatform.h>
 #include <platform/Paths.h>
 #include <platform/SdlPlatform.h>
 
+#include <rhi/vulkan/AllocatedBuffer.h>
 #include <rhi/vulkan/AllocatedImage.h>
 #include <rhi/vulkan/Barrier.h>
+#include <rhi/vulkan/BarrierUtil.h>
+#include <rhi/vulkan/BufferUtil.h>
 #include <rhi/vulkan/Cubemap.h>
+#include <rhi/vulkan/DebugNames.h>
+#include <rhi/vulkan/ImageUtil.h>
 #include <rhi/vulkan/PipelineBuilder.h>
+#include <rhi/vulkan/SwapchainUtil.h>
+#include <rhi/vulkan/Texture.h>
 #include <rhi/vulkan/VulkanAllocator.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
