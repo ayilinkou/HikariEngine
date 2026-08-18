@@ -148,7 +148,9 @@ if(CLANG_FORMAT_EXE)
     ${CMAKE_SOURCE_DIR}/src/*.hpp
     ${CMAKE_SOURCE_DIR}/engine/*/include/*.h
     ${CMAKE_SOURCE_DIR}/engine/*/include/*.hpp
-    ${CMAKE_SOURCE_DIR}/engine/*/src/*.cpp)
+    ${CMAKE_SOURCE_DIR}/engine/*/src/*.cpp
+    ${CMAKE_SOURCE_DIR}/engine/*/src/*.h
+    ${CMAKE_SOURCE_DIR}/engine/*/src/*.hpp)
 
   add_custom_target(
     format
