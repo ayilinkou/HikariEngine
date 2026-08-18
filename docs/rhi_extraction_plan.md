@@ -479,7 +479,7 @@ are the ones later steps need to read.
 | R2 — `engine/rhi` skeleton and the neutral vocabulary | ✅ done |
 | R3 — Move the RHI leaf types | ✅ done |
 | R4 — Dissolve `Utility.h` | ✅ done |
-| R5 — Extract `Rhi::Device` | not started |
+| R5 — Extract `Rhi::Device` | ✅ done |
 | R6 — Enumerate all queue families | not started |
 | R7 — `Rhi::Diagnostics` | not started |
 | R8 — `Rhi::ICommandList` and the neutral barrier API | not started |
@@ -636,6 +636,56 @@ are the ones later steps need to read.
 - **Verify:** Compare the startup log line-for-line against a saved baseline: same physical
   device, same queue index, same swapchain image count, same validation output. Headless
   report identical.
+- **As built:** four departures from the plan above, two of them forced by ownership order,
+  plus two notes on things that changed during implementation.
+  - **The window handle crosses the boundary, not the surface.** The plan had `App` create the
+    surface and pass it to `CreateDevice` as an opaque handle. That cannot work as written: the
+    surface is created *from* the instance, and the instance is now owned by the device, so
+    `App` has nothing to create a surface with until after the call it was supposed to feed.
+    The alternatives were a two-phase device init or a surface-factory callback; both are more
+    machinery than the problem deserves. Instead `DeviceRequirements` carries an opaque
+    `void* NativeWindowHandle` and the device makes the surface itself, macOS branch and all.
+    The Metal path is the reason this matters rather than being a coin toss — recreating it
+    from a raw instance handle would need the plain (non-RAII) dispatcher, which `vk::raii`
+    does not initialise, on the one platform this cannot be tested on. Stage 6's headless flip
+    is `bPresent = false` plus a null handle, which is simpler than it would have been.
+  - **Device creation moved into `App`'s constructor.** The renderer holds `vk::raii::Device&`
+    and friends in about a hundred places, and the cheapest way to keep those call sites
+    untouched is reference members — which must be bound in the initialiser list, which means
+    the device has to exist by then. The consequence is visible in the log: the five device
+    lines now print *before* `[main] Init()` rather than inside `InitVulkan()`. It also
+    required moving `m_Platform`/`m_Paths`/`m_Options` to the top of the member list, since
+    `MakeDeviceDesc()` reads them and members initialise in declaration order.
+  - **`VulkanNative.h` has two tiers, not one.** D9's `NativeDevice` (raw handles, for ImGui)
+    is there as specified, but the renderer also still *creates* Vulkan objects — swapchain,
+    pipelines, descriptor sets — which raw handles cannot do. So the header also exposes
+    `GetDevice`/`GetPhysicalDevice`/`GetSurface`/`GetGraphicsQueue`/`GetAllocator` returning
+    the RAII wrappers. This is a much wider hole than D9 describes, and the honest framing is
+    that it is a *staging area*: R9–R11 delete callers from it, and R17 should find only the
+    ImGui tier left. Worth counting the callers at R17 rather than assuming.
+  - **Validation counting is a callback, not a global.** `DebugCallback` moved into
+    `VulkanDevice`, where it can no longer see `main.cpp`'s counters. `DeviceDesc` therefore
+    carries `OnDiagnosticMessage`, and the app supplies a function that logs and increments.
+    That is R7's seam arriving early in miniature, and it keeps the message text
+    byte-identical.
+  - **The log category for those five lines is now `[RHI]`, not `[Renderer]`.** Deliberate:
+    they are no longer emitted by the renderer. It is the only intended difference in the
+    startup log.
+  - **The severity mapping was initially put in the wrong file.** `ToVkSeverity` first went into
+    an anonymous namespace in `VulkanDevice.cpp`, which breaks the rule `VulkanConversions.h`
+    states about itself: every neutral↔Vulkan mapping lives there and nowhere else, precisely so
+    that the tests can reach it. Moved, with `FromVk` added alongside. It is the one mapping
+    where `FromVk` is deliberately many-to-one — `eVerbose` and `eInfo` both collapse to `Info`,
+    because the neutral scale has no verbose tier and dropping those messages instead would
+    silently lose the driver's most detailed output.
+- **Verified deliberately:** the baseline reports zero validation errors *and* zero warnings, so
+  it does not exercise the diagnostic path at all — a miswired callback would have been
+  invisible to every automated check. Confirmed by hand instead, by naming the graphics queue
+  with `ObjectType::eBuffer`: the message arrived with the same `Type: {...}. Msg: ...` text
+  under `[Validation Layer]`, the error counter reached the run report, and
+  `--strict-validation` exited 1. Then reverted. Three unit tests now cover the enum mapping and
+  the ascending-value ordering that the threshold comparison depends on, which is the part the
+  hand check could not repeat cheaply.
 - **Size:** L · **Needs:** R4 · **Was:** step 26
 
 ### R6 — Enumerate all queue families

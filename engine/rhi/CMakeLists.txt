@@ -2,6 +2,8 @@ engine_module(
   RHI
   SOURCES
   src/vulkan/VulkanConversions.cpp
+  src/vulkan/VulkanDevice.cpp
+  src/vulkan/VulkanNative.cpp
   src/vulkan/AllocatedBuffer.cpp
   src/vulkan/AllocatedImage.cpp
   src/vulkan/Texture.cpp

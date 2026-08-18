@@ -2,6 +2,7 @@
 
 #include <rhi/Barrier.h>
 #include <rhi/BufferDesc.h>
+#include <rhi/DeviceDesc.h>
 #include <rhi/RhiTypes.h>
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
@@ -445,4 +446,46 @@ TEST_CASE("Descs default to something inert rather than something plausible", "[
     REQUIRE(sampler.AddressV == AddressMode::Repeat);
     REQUIRE(sampler.AddressW == AddressMode::Repeat);
     REQUIRE_FALSE(sampler.bCompareEnable);
+}
+
+TEST_CASE("Diagnostic severities map to the Vulkan tier of the same name", "[RhiConversions]")
+{
+    REQUIRE(ToVk(DiagnosticSeverity::Info) == vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo);
+    REQUIRE(ToVk(DiagnosticSeverity::Warning) ==
+            vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning);
+    REQUIRE(ToVk(DiagnosticSeverity::Error) == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
+
+    // Every neutral severity survives the round trip. Asserted in this direction
+    // only: the reverse does not hold for eVerbose, which is the next case.
+    for (const DiagnosticSeverity severity :
+         {DiagnosticSeverity::Info, DiagnosticSeverity::Warning, DiagnosticSeverity::Error})
+        REQUIRE(FromVk(ToVk(severity)) == severity);
+}
+
+TEST_CASE("A verbose Vulkan message is reported as Info, not dropped", "[RhiConversions]")
+{
+    // The neutral scale has no verbose tier. The mapping must collapse it into
+    // Info rather than treating it as unknown: a caller that asked for Info-level
+    // diagnostics silently losing the driver's most detailed messages is a
+    // debugging trap, and the run report would show zero of them.
+    REQUIRE(FromVk(vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose) ==
+            DiagnosticSeverity::Info);
+    REQUIRE(FromVk(vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo) == DiagnosticSeverity::Info);
+}
+
+TEST_CASE("Severity ordering is preserved, so it can be used as a threshold",
+          "[RhiConversions]")
+{
+    // The debug callback filters with `severity < ToVk(minimum)`, which is only
+    // correct if the Vulkan enumerator values ascend with seriousness. The
+    // specification says they do; this pins it, because the failure mode is
+    // silent — an inverted comparison would either drop every message or drop
+    // none, and the baseline run produces no diagnostics either way.
+    REQUIRE(ToVk(DiagnosticSeverity::Info) < ToVk(DiagnosticSeverity::Warning));
+    REQUIRE(ToVk(DiagnosticSeverity::Warning) < ToVk(DiagnosticSeverity::Error));
+
+    // Verbose sits below the lowest neutral severity, so a minimum of Info
+    // filters it out.
+    REQUIRE(vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose <
+            ToVk(DiagnosticSeverity::Info));
 }

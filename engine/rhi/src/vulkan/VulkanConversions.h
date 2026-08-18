@@ -8,6 +8,7 @@
 
 #include <rhi/Barrier.h>
 #include <rhi/BufferDesc.h>
+#include <rhi/DeviceDesc.h>
 #include <rhi/RhiTypes.h>
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
@@ -85,6 +86,19 @@ BorderColor FromVk(vk::BorderColor color);
 
 VmaMemoryParams ToVk(MemoryAccess access);
 MemoryAccess FromVk(const VmaMemoryParams& params);
+
+// Diagnostic severity, both ways. This is the one pair where FromVk is
+// many-to-one and exists anyway: Vulkan's eVerbose and eInfo both collapse to
+// Info, because the neutral scale deliberately has no verbose tier and nothing
+// treats the two differently. That makes ToVk(FromVk(eVerbose)) == eInfo rather
+// than eVerbose, which is intended rather than a lossy accident — so the
+// round-trip test asserts it in the one direction that holds.
+//
+// ToVk is needed because the severity is also used as a *threshold*: the
+// specification orders the enumerator values verbose < info < warning < error,
+// so a `>=` against the converted minimum filters messages correctly.
+vk::DebugUtilsMessageSeverityFlagBitsEXT ToVk(DiagnosticSeverity severity);
+DiagnosticSeverity FromVk(vk::DebugUtilsMessageSeverityFlagBitsEXT severity);
 
 // Whether a queue family advertising `familyCapabilities` (from
 // VkQueueFamilyProperties::queueFlags) can serve `role`.

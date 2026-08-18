@@ -467,6 +467,44 @@ MemoryAccess FromVk(const VmaMemoryParams& params)
                     static_cast<uint32_t>(params.Usage), static_cast<uint32_t>(params.Flags)));
 }
 
+vk::DebugUtilsMessageSeverityFlagBitsEXT ToVk(DiagnosticSeverity severity)
+{
+    switch (severity)
+    {
+        case DiagnosticSeverity::Info:
+            return vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo;
+        case DiagnosticSeverity::Warning:
+            return vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning;
+        case DiagnosticSeverity::Error:
+            return vk::DebugUtilsMessageSeverityFlagBitsEXT::eError;
+    }
+
+    throw std::runtime_error(std::format("Rhi::Vulkan::ToVk: unhandled Rhi::DiagnosticSeverity {}.",
+                                         static_cast<uint32_t>(severity)));
+}
+
+DiagnosticSeverity FromVk(vk::DebugUtilsMessageSeverityFlagBitsEXT severity)
+{
+    switch (severity)
+    {
+        // Verbose has no neutral counterpart and collapses into Info. Dropping
+        // it instead would silently discard messages a caller asked to see.
+        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose:
+        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo:
+            return DiagnosticSeverity::Info;
+        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning:
+            return DiagnosticSeverity::Warning;
+        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eError:
+            return DiagnosticSeverity::Error;
+    }
+
+    // Reached only if a future Vulkan version adds a severity bit. Treated as an
+    // error rather than thrown on: this runs inside the driver's callback, where
+    // an exception would propagate through C code, and losing a message is
+    // better than that.
+    return DiagnosticSeverity::Error;
+}
+
 bool FamilySupports(vk::QueueFlags familyCapabilities, QueueType role)
 {
     // "Any of", not "all of" — see the header. A dedicated transfer family has

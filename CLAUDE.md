@@ -262,6 +262,12 @@ Other rules:
   only one API has the concept at all, its term stands. Utility headers under `rhi/vulkan/`
   take a uniform `Util` suffix (`BufferUtil.h`, `CommandListUtil.h`). Rationale and the full
   list: RHI plan D13.
+- **`[[nodiscard]]` only where discarding causes real harm** — a leak, a bug, or wasted work.
+  Returning a loaded resource, a RAII handle that would be destroyed immediately, or an owning
+  pointer qualifies; a plain getter does not. `engine/core` and `engine/platform` have none, and
+  `src/`'s handful are all on loaders that return something the caller must keep. Marking
+  trivial accessors trains the reader to skip the attribute, which costs its value on the calls
+  that need it.
 - Comments in this codebase explain *why* (non-obvious platform quirks, ABI hazards,
   boundary-condition rules). Match that — do not narrate what the code already says.
 - **The reasoning belongs in the source, not in a doc.** If a decision is non-obvious enough to

@@ -25,6 +25,8 @@
 #include <platform/Paths.h>
 #include <platform/SdlPlatform.h>
 
+#include <rhi/DeviceDesc.h>
+#include <rhi/IDevice.h>
 #include <rhi/vulkan/AllocatedBuffer.h>
 #include <rhi/vulkan/AllocatedImage.h>
 #include <rhi/vulkan/Barrier.h>
@@ -36,7 +38,7 @@
 #include <rhi/vulkan/PipelineBuilder.h>
 #include <rhi/vulkan/SwapchainUtil.h>
 #include <rhi/vulkan/Texture.h>
-#include <rhi/vulkan/VulkanAllocator.h>
+#include <rhi/vulkan/VulkanNative.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -117,49 +119,34 @@ struct GlobalBuffer
     float Time;
 };
 
-std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
-
 #ifdef NDEBUG
 constexpr bool bEnableValidationLayers = false;
 #else
 constexpr bool bEnableValidationLayers = true;
 #endif
 
-vk::DebugUtilsMessageSeverityFlagBitsEXT validationSeverityThreshold =
-    vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo;
-
-static VKAPI_ATTR vk::Bool32 VKAPI_CALL DebugCallback(
-    vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type,
-    const vk::DebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData)
+// Routes the RHI's validation messages into the log and the counters the run
+// report reads. Called from the driver's debug callback, so it may run on any
+// thread — which is why the counters are atomic.
+void HandleRhiDiagnostic(Rhi::DiagnosticSeverity severity, std::string_view message)
 {
-    if (severity < validationSeverityThreshold)
-        return vk::False;
-
-    LogSeverity logSeverity;
+    LogSeverity logSeverity = LogSeverity::Info;
     switch (severity)
     {
-        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose:
-        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo:
+        case Rhi::DiagnosticSeverity::Info:
             logSeverity = LogSeverity::Info;
             break;
-        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning:
+        case Rhi::DiagnosticSeverity::Warning:
             logSeverity = LogSeverity::Warning;
             g_ValidationWarningCount.fetch_add(1, std::memory_order_relaxed);
             break;
-        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eError:
+        case Rhi::DiagnosticSeverity::Error:
             logSeverity = LogSeverity::Error;
             g_ValidationErrorCount.fetch_add(1, std::memory_order_relaxed);
             break;
     }
 
-    LogMsg(logSeverity, LogValidationLayer, "Type: {}. Msg: {}", to_string(type).c_str(),
-           pCallbackData->pMessage);
-
-    if (pUserData)
-    {
-        // TODO: use this when needed
-    }
-    return vk::False;
+    LogMsg(logSeverity, LogValidationLayer, "{}", message);
 }
 
 struct Options
@@ -326,7 +313,13 @@ class App
 public:
     App(IPlatform& platform, const Paths& paths, Options options, IJobSystem& jobSystem)
         : m_Platform(platform), m_Paths(paths), m_Options(std::move(options)),
-          m_JobSystem(jobSystem)
+          m_JobSystem(jobSystem), m_RhiDevice(Rhi::CreateDevice(MakeDeviceDesc())),
+          m_PhysicalDevice(Rhi::Vulkan::GetPhysicalDevice(*m_RhiDevice)),
+          m_Device(Rhi::Vulkan::GetDevice(*m_RhiDevice)),
+          m_Surface(Rhi::Vulkan::GetSurface(*m_RhiDevice)),
+          m_GraphicsQueue(Rhi::Vulkan::GetGraphicsQueue(*m_RhiDevice)),
+          m_VmaAllocator(Rhi::Vulkan::GetAllocator(*m_RhiDevice)),
+          m_QueueIndex(Rhi::Vulkan::GetGraphicsQueueFamily(*m_RhiDevice))
     {
     }
     ~App()
@@ -441,6 +434,20 @@ public:
     }
 
 private:
+    // Called from the constructor's initialiser list, so it may only touch
+    // members declared above m_RhiDevice.
+    [[nodiscard]] Rhi::DeviceDesc MakeDeviceDesc() const
+    {
+        Rhi::DeviceDesc desc;
+        desc.ApplicationName = "Vulkan App";
+        desc.bEnableValidation = bEnableValidationLayers;
+        desc.MinDiagnosticSeverity = Rhi::DiagnosticSeverity::Info;
+        desc.OnDiagnosticMessage = &HandleRhiDiagnostic;
+        desc.Requirements.bPresent = true;
+        desc.Requirements.NativeWindowHandle = m_Platform.GetNativeWindowHandle();
+        return desc;
+    }
+
     void Init()
     {
         LogMsg(LogSeverity::Info, LogMain, "Init()");
@@ -521,13 +528,18 @@ private:
             .colorAttachmentCount = 1u,
             .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format};
 
+        // The one place that is allowed to hold raw Vulkan handles from the RHI:
+        // ImGui's backend takes them by value and there is no neutral shape for
+        // that, short of wrapping ImGui itself.
+        const Rhi::Vulkan::NativeDevice native = Rhi::Vulkan::GetNative(*m_RhiDevice);
+
         ImGui_ImplVulkan_InitInfo initInfo = {};
-        initInfo.ApiVersion = m_APIVersion;
-        initInfo.Instance = *m_Instance;
-        initInfo.PhysicalDevice = *m_PhysicalDevice;
-        initInfo.Device = *m_Device;
-        initInfo.QueueFamily = m_QueueIndex;
-        initInfo.Queue = *m_GraphicsQueue;
+        initInfo.ApiVersion = native.ApiVersion;
+        initInfo.Instance = native.Instance;
+        initInfo.PhysicalDevice = native.PhysicalDevice;
+        initInfo.Device = native.Device;
+        initInfo.QueueFamily = native.GraphicsQueueFamily;
+        initInfo.Queue = native.GraphicsQueue;
         initInfo.DescriptorPool = VK_NULL_HANDLE;
         initInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
         initInfo.MinImageCount = m_MinImageCount;
@@ -548,14 +560,8 @@ private:
     {
         LogMsg(LogSeverity::Info, LogRenderer, "InitVulkan()");
 
-        CreateInstance();
-        SetupDebugMessenger();
-        CreateSurface();
-        PickPhysicalDevice();
-        CreateLogicalDevice();
-
-        m_VmaAllocator = VulkanAllocator(m_Instance, m_PhysicalDevice, m_Device, m_APIVersion);
-
+        // The device itself was created in the constructor, so that every member
+        // below can assume it exists.
         CreateSwapchain();
         CreateSwapchainImageViews();
         CreateDepthResources();
@@ -1001,286 +1007,6 @@ private:
         ImGui::End();
 
         ImGui::Render();
-    }
-
-    void CreateInstance()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "CreateInstance()");
-
-        constexpr vk::ApplicationInfo appInfo{.pApplicationName = "Vulkan App",
-                                              .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
-                                              .pEngineName = "No Engine",
-                                              .engineVersion = VK_MAKE_VERSION(1, 0, 0),
-                                              .apiVersion = m_APIVersion};
-
-        // extensions
-        Uint32 countInstanceExtensions;
-        const char* const* instanceExtensions =
-            SDL_Vulkan_GetInstanceExtensions(&countInstanceExtensions);
-
-        if (countInstanceExtensions == 0)
-            throw std::runtime_error("No available instance extensions found!");
-
-        std::vector<const char*> requiredExtensions(countInstanceExtensions);
-        memcpy(requiredExtensions.data(), instanceExtensions,
-               countInstanceExtensions * sizeof(const char*));
-        requiredExtensions.push_back(vk::EXTDebugUtilsExtensionName);
-
-#if defined(__APPLE__)
-        // MoltenVK is a portability driver. On macOS the Vulkan loader
-        // requires the app to explicitly opt into enumerating portability
-        // drivers, otherwise vkCreateInstance fails with
-        // VK_ERROR_INCOMPATIBLE_DRIVER.
-        requiredExtensions.push_back(vk::KHRPortabilityEnumerationExtensionName);
-        // Required so we can build the swapchain surface via
-        // VK_EXT_metal_surface (SDL_Vulkan_CreateSurface is unreliable on
-        // macOS).
-        requiredExtensions.push_back(vk::EXTMetalSurfaceExtensionName);
-#endif
-
-        auto extensionProperties = m_Context.enumerateInstanceExtensionProperties();
-
-        // VK_EXT_layer_settings is implemented by layers (e.g.
-        // VK_LAYER_KHRONOS_validation), not by the loader, so it never appears
-        // in vkEnumerateInstanceExtensionProperties(nullptr). It takes effect
-        // purely through the VkLayerSettingsCreateInfoEXT pNext chain below;
-        // the gate for attaching it is whether the validation layer is enabled,
-        // not whether the extension happens to be enumerated.
-        auto unsupportedExtensionIt = std::ranges::find_if(
-            requiredExtensions,
-            [&extensionProperties](auto const& requiredExtension)
-            {
-                return std::ranges::none_of(
-                    extensionProperties, [requiredExtension](auto const& extensionProperty)
-                    { return strcmp(extensionProperty.extensionName, requiredExtension) == 0; });
-            });
-
-        if (unsupportedExtensionIt != requiredExtensions.end())
-            throw std::runtime_error("Required extension not supported: " +
-                                     std::string(*unsupportedExtensionIt));
-
-        // layers
-        std::vector<const char*> requiredLayers;
-        if (bEnableValidationLayers)
-        {
-            requiredLayers.assign(validationLayers.begin(), validationLayers.end());
-        }
-
-        auto layerProperties = m_Context.enumerateInstanceLayerProperties();
-
-        auto unsupportedLayerIt = std::ranges::find_if(
-            requiredLayers,
-            [&layerProperties](auto const& requiredLayer)
-            {
-                return std::ranges::none_of(
-                    layerProperties, [requiredLayer](auto const& layerProperty)
-                    { return strcmp(layerProperty.layerName, requiredLayer) == 0; });
-            });
-
-        if (unsupportedLayerIt != requiredLayers.end())
-            throw std::runtime_error("Required layer not supported: " +
-                                     std::string(*unsupportedLayerIt));
-
-        const vk::Bool32 bSyncValEnabled = VK_TRUE;
-        const vk::Bool32 bBestPracticesValEnabled = VK_TRUE;
-
-        std::array<vk::LayerSettingEXT, 2> settings = {
-            vk::LayerSettingEXT{.pLayerName = "VK_LAYER_KHRONOS_validation",
-                                .pSettingName = "validate_sync",
-                                .type = vk::LayerSettingTypeEXT::eBool32,
-                                .valueCount = 1,
-                                .pValues = &bSyncValEnabled},
-            vk::LayerSettingEXT{.pLayerName = "VK_LAYER_KHRONOS_validation",
-                                .pSettingName = "validate_best_practices",
-                                .type = vk::LayerSettingTypeEXT::eBool32,
-                                .valueCount = 1,
-                                .pValues = &bBestPracticesValEnabled},
-        };
-
-        vk::LayerSettingsCreateInfoEXT layerSettingsInfo{
-            .settingCount = static_cast<uint32_t>(settings.size()), .pSettings = settings.data()};
-
-        vk::InstanceCreateInfo createInfo{
-            .pNext = bEnableValidationLayers ? &layerSettingsInfo : nullptr,
-#if defined(__APPLE__)
-            .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,
-#endif
-            .pApplicationInfo = &appInfo,
-            .enabledLayerCount = (uint32_t)requiredLayers.size(),
-            .ppEnabledLayerNames = requiredLayers.data(),
-            .enabledExtensionCount = (uint32_t)requiredExtensions.size(),
-            .ppEnabledExtensionNames = requiredExtensions.data()};
-
-        m_Instance = vk::raii::Instance(m_Context, createInfo);
-    }
-
-    void SetupDebugMessenger()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "SetupDebugMessenger()");
-
-        if (!bEnableValidationLayers)
-            return;
-
-        vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(
-            vk::DebugUtilsMessageSeverityFlagBitsEXT::eError |
-            vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-            vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo);
-        vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(
-            vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
-            vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance);
-
-        vk::DebugUtilsMessengerCreateInfoEXT createInfo{.messageSeverity = severityFlags,
-                                                        .messageType = messageTypeFlags,
-                                                        .pfnUserCallback = &DebugCallback};
-
-        m_DebugMessenger = m_Instance.createDebugUtilsMessengerEXT(createInfo);
-    }
-
-    bool IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& device)
-    {
-        auto properties = device.getProperties();
-
-        bool bSupportsVulkan13 = properties.apiVersion >= vk::ApiVersion13;
-
-        auto queueFamilies = device.getQueueFamilyProperties();
-        bool bSupportsGraphicsQ =
-            std::ranges::any_of(queueFamilies, [](const auto& qfp)
-                                { return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics); });
-
-        std::vector<const char*> requiredExtensions = {vk::KHRSwapchainExtensionName,
-                                                       vk::EXTDescriptorIndexingExtensionName};
-        auto availableExtensions = device.enumerateDeviceExtensionProperties();
-        bool bSupportsAllExtensions = std::ranges::all_of(
-            requiredExtensions,
-            [&availableExtensions](const auto& requiredExtension)
-            {
-                return std::ranges::any_of(
-                    availableExtensions, [requiredExtension](const auto& availableExtension)
-                    { return strcmp(availableExtension.extensionName, requiredExtension) == 0; });
-            });
-
-        auto features =
-            device.getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features,
-                                vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
-        bool bSupportsAllFeatures =
-            features.get<vk::PhysicalDeviceFeatures2>().features.samplerAnisotropy &&
-            features.get<vk::PhysicalDeviceFeatures2>().features.independentBlend &&
-            features.get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
-            features.get<vk::PhysicalDeviceVulkan13Features>().synchronization2 &&
-            features.get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
-
-        if (bSupportsVulkan13 && bSupportsGraphicsQ && bSupportsAllExtensions &&
-            bSupportsAllFeatures)
-            return true;
-        return false;
-    }
-
-    void CreateSurface()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "CreateSurface()");
-
-#if defined(__APPLE__)
-        // SDL_Vulkan_CreateSurface can crash on macOS because SDL resolves the
-        // surface-creation function pointer through its own Vulkan loader,
-        // which may differ from the one this app linked (and the instance
-        // belongs to). Create the Metal surface directly via our Vulkan loader
-        // instead.
-        SDL_MetalView metalView =
-            SDL_Metal_CreateView(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()));
-        if (!metalView)
-            throw SDLException("Failed to create Metal view!");
-
-        void* metalLayer = SDL_Metal_GetLayer(metalView);
-        vk::MetalSurfaceCreateInfoEXT createInfo{.pLayer = metalLayer};
-
-        m_Surface = m_Instance.createMetalSurfaceEXT(createInfo);
-#else
-        VkSurfaceKHR rawSurface;
-        if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()),
-                                      *m_Instance, nullptr, &rawSurface))
-            throw SDLException("Failed to create Vulkan surface!");
-
-        m_Surface = vk::raii::SurfaceKHR(m_Instance, rawSurface);
-#endif
-    }
-
-    void PickPhysicalDevice()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "PickPhysicalDevice()");
-
-        auto devices = m_Instance.enumeratePhysicalDevices();
-        const auto deviceIt = std::ranges::find_if(devices, [&](const auto& device)
-                                                   { return IsPhysicalDeviceSuitable(device); });
-
-        if (deviceIt == devices.end())
-            throw std::runtime_error("Failed to find a suitable GPU!");
-
-        m_PhysicalDevice = *deviceIt;
-    }
-
-    void CreateLogicalDevice()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "CreateLogicalDevice()");
-
-        std::vector<vk::QueueFamilyProperties> qfProperties =
-            m_PhysicalDevice.getQueueFamilyProperties();
-
-        for (size_t qfpIndex = 0; qfpIndex < qfProperties.size(); qfpIndex++)
-        {
-            if ((qfProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) !=
-                    static_cast<vk::QueueFlags>(0) &&
-                m_PhysicalDevice.getSurfaceSupportKHR(static_cast<uint32_t>(qfpIndex), m_Surface))
-
-            {
-                m_QueueIndex = static_cast<uint32_t>(qfpIndex);
-                break;
-            }
-        }
-
-        if (m_QueueIndex == std::numeric_limits<uint32_t>::max())
-            throw std::runtime_error("Could not find a queue for graphics and presenting!");
-
-        float queuePriority = 0.5f;
-        vk::DeviceQueueCreateInfo queueCreateInfo{
-            .queueFamilyIndex = m_QueueIndex, .queueCount = 1, .pQueuePriorities = &queuePriority};
-
-        vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
-                           vk::PhysicalDeviceVulkan13Features,
-                           vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
-                           vk::PhysicalDeviceDescriptorIndexingFeaturesEXT>
-            featureChain = {{.features = {.independentBlend = true, .samplerAnisotropy = true}},
-                            {.shaderDrawParameters = true},
-                            {.synchronization2 = true, .dynamicRendering = true},
-                            {.extendedDynamicState = true},
-                            {.descriptorBindingPartiallyBound = true}};
-
-        std::vector<const char*> requiredDeviceExtensions = {vk::KHRSwapchainExtensionName};
-
-#if defined(__APPLE__)
-        // MoltenVK exposes VK_KHR_portability_subset and requires it to be
-        // enabled on the logical device; otherwise device creation has
-        // undefined behaviour and can crash.
-        requiredDeviceExtensions.push_back(vk::KHRPortabilitySubsetExtensionName);
-#endif
-
-        vk::DeviceCreateInfo deviceCreateInfo{
-            .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
-            .queueCreateInfoCount = 1,
-            .pQueueCreateInfos = &queueCreateInfo,
-            .enabledExtensionCount = (uint32_t)requiredDeviceExtensions.size(),
-            .ppEnabledExtensionNames = requiredDeviceExtensions.data()};
-
-        m_Device = vk::raii::Device(m_PhysicalDevice, deviceCreateInfo);
-        SetVkDebugName(m_Device, *m_Device, vk::ObjectType::eDevice, "Device");
-        m_GraphicsQueue = vk::raii::Queue(m_Device, m_QueueIndex, 0);
-        SetVkDebugName(m_Device, *m_GraphicsQueue, vk::ObjectType::eQueue, "Graphics Queue");
-
-        // Setting debug names for objects which were created before the device
-        // was created.
-        SetVkDebugName(m_Device, *m_Instance, vk::ObjectType::eInstance, "Instance");
-        SetVkDebugName(m_Device, *m_PhysicalDevice, vk::ObjectType::ePhysicalDevice,
-                       "Physical Device");
-        SetVkDebugName(m_Device, *m_Surface, vk::ObjectType::eSurfaceKHR, "Surface");
     }
 
     void CreateSwapchain()
@@ -2081,7 +1807,12 @@ private:
         glm::mat4 proj = m_Camera->GetProjMatrix();
         // GLM was designed for OpenGL, which has its Y coordinate in clip
         // space inverted. Compensate for this by scaling here.
-        proj[1][1] *= -1.f;
+        //
+        // Driven by the device capability rather than by the build, because
+        // whether this is needed is a property of the graphics API: Vulkan wants
+        // it, D3D12 does not. This is the only site permitted to apply it.
+        if (m_RhiDevice->GetCaps().bFlipClipSpaceY)
+            proj[1][1] *= -1.f;
         m_GlobalBuffer.CamData.Proj = glm::transpose(proj);
         m_GlobalBuffer.CamData.NearPlane = m_Camera->GetNearPlane();
         m_GlobalBuffer.CamData.FarPlane = m_Camera->GetFarPlane();
@@ -2456,18 +2187,30 @@ private:
     }
 
 private:
-    vk::raii::Context m_Context;
-    vk::raii::Instance m_Instance = nullptr;
-    vk::raii::DebugUtilsMessengerEXT m_DebugMessenger = nullptr;
-    vk::raii::SurfaceKHR m_Surface = nullptr;
-    vk::raii::PhysicalDevice m_PhysicalDevice = nullptr;
-    vk::raii::Device m_Device = nullptr;
+    // Declared first because the device's creation reads them, and members are
+    // initialised in declaration order.
+    IPlatform& m_Platform;
+    const Paths& m_Paths;
+    Options m_Options;
+    IJobSystem& m_JobSystem;
 
-    // must be destroyed before the device and after all resources that had
-    // memory allocated using this allocator
-    VulkanAllocator m_VmaAllocator{};
+    // Owns the instance, debug messenger, surface, physical and logical devices,
+    // graphics queue and the VMA allocator. Declared ahead of every GPU resource
+    // below so that it is destroyed after all of them — the ordering the old
+    // hand-arranged member list was maintaining by hand.
+    std::unique_ptr<Rhi::IDevice> m_RhiDevice;
 
-    vk::raii::Queue m_GraphicsQueue = nullptr;
+    // Borrowed from m_RhiDevice, which outlives them. References rather than
+    // copies so that the ~100 call sites still read as they did, and so that
+    // there is exactly one owner. Each of these disappears as the corresponding
+    // resource type moves behind IDevice.
+    vk::raii::PhysicalDevice& m_PhysicalDevice;
+    vk::raii::Device& m_Device;
+    vk::raii::SurfaceKHR& m_Surface;
+    vk::raii::Queue& m_GraphicsQueue;
+    VmaAllocator m_VmaAllocator;
+    uint32_t m_QueueIndex;
+
     vk::raii::SwapchainKHR m_Swapchain = nullptr;
     vk::raii::PipelineLayout m_OpaquePipelineLayout = nullptr;
     vk::raii::PipelineLayout m_TransparentPipelineLayout = nullptr;
@@ -2495,7 +2238,6 @@ private:
     vk::Extent2D m_SwapchainExtent;
     std::vector<vk::Image> m_SwapImages;
     std::vector<vk::raii::ImageView> m_SwapImageViews;
-    uint32_t m_QueueIndex = ~0;
     uint32_t m_MinImageCount = 0;
 
     std::array<FrameData, NUM_FRAMES_IN_FLIGHT> m_Frames;
@@ -2507,23 +2249,17 @@ private:
     std::shared_ptr<Cubemap> m_Skybox = nullptr;
     std::unique_ptr<CloudSystem> m_CloudSystem = nullptr;
 
-    static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
-    IPlatform& m_Platform;
-    const Paths& m_Paths;
     bool m_bIsFocused = true;
     bool m_bCursorVisible = true;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_LastTime;
-    Options m_Options;
     uint64_t m_FrameCounter = 0;
     float m_RunTime = 0.f;
     float m_DeltaTime = 0.f;
     float m_DisplayFrameTime = 0.f;
     float m_DisplayFPS = 0.f;
     bool m_bShutdown = false;
-
-    IJobSystem& m_JobSystem;
 
     // Used in WriteReport()
     uint32_t m_OpaqueDrawCallCount = 0;
