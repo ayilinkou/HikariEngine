@@ -142,6 +142,7 @@ engine_header_self_containment_init()
 
 add_subdirectory(engine/core)
 add_subdirectory(engine/platform)
+add_subdirectory(engine/rhi)
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 if(CLANG_FORMAT_EXE)
@@ -198,6 +199,7 @@ engine_header_self_containment(
   LINK_LIBRARIES
   Engine::Core
   Engine::Platform
+  Engine::RHI
   SDL3::SDL3
   Vulkan::Vulkan
   GPUOpen::VulkanMemoryAllocator
@@ -225,6 +227,7 @@ target_link_libraries(
   VulkanApp
   PRIVATE Engine::Core
           Engine::Platform
+          Engine::RHI
           SDL3::SDL3
           Vulkan::Vulkan
           GPUOpen::VulkanMemoryAllocator

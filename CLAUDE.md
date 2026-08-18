@@ -80,7 +80,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 2 — Header self-containment | 12–14 | ✅ done (`HeaderSelfContainment` target, enforced in CI) |
 | 3 — Core library | 15–19 | ✅ done (`Engine::Core`, `IJobSystem` injected into `App`) |
 | 4 — Platform library | 20–23 | ✅ done (`Engine::Platform`, `Paths` + `content/` root, `CommandLine`) |
-| **5 — RHI extraction** | **R1–R17** | **← next: `engine/rhi` with a backend-neutral API, handle-based resources, batched uploads, growable descriptors. Planned in `docs/rhi_extraction_plan.md`, which supersedes Part IV steps 24–34.** |
+| **5 — RHI extraction** | **R1–R17** | **← in progress. `engine/rhi` with a backend-neutral API, handle-based resources, batched uploads, growable descriptors. Planned in `docs/rhi_extraction_plan.md`, which supersedes Part IV steps 24–34 and holds the per-step progress table.** |
 | 6 — Headless capability | 35–40 | not started |
 | 7 — Engine shell + DI | 41–47 | not started — **CI goal met at step 47** |
 | 8+ — Frame graph, DOD, scalability | 48–76 | not started |
@@ -102,6 +102,7 @@ cmake --workflow --preset ninja-debug-linux   # what build.sh wraps
 tests/scripts/build_tests.sh        # build the core_tests + platform_tests targets
 tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
 tests/scripts/header_check.sh       # compile every header standalone, no PCH
+tests/scripts/rhi_boundary_check.sh # no Vulkan/VMA in engine/rhi's neutral headers
 tests/scripts/format_check.sh       # dry-run, -Werror
 scripts/format.sh                   # clang-format -i over src/ and engine/
 scripts/precommit.sh                # all of the above, in CI order

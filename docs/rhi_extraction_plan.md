@@ -5,7 +5,7 @@
 > for what to keep and what to throw away.
 
 **Created:** 16 August 2026 · **Supersedes:** `architecture_plan.md` Part IV,
-steps 24–34 · **Status:** not started
+steps 24–34 · **Status:** in progress — see the [progress table](#progress)
 
 ---
 
@@ -15,7 +15,7 @@ steps 24–34 · **Status:** not started
 2. [Design decisions](#2-design-decisions)
 3. [Module layout](#3-module-layout)
 4. [How the boundary is enforced](#4-how-the-boundary-is-enforced)
-5. [The step sequence](#5-the-step-sequence)
+5. [The step sequence](#5-the-step-sequence) — [progress table](#progress)
 6. [Mapping back to Part IV](#6-mapping-back-to-part-iv)
 7. [Out of scope](#7-out-of-scope)
 8. [D3D12 readiness checklist](#8-d3d12-readiness-checklist)
@@ -148,8 +148,8 @@ namespace Rhi
 {
 enum class PipelineStage : uint32_t   // → VkPipelineStageFlags2 / D3D12_BARRIER_SYNC
 {
-    None = 0, Draw = 1 << 0, VertexShading = 1 << 1, PixelShading = 1 << 2,
-    ComputeShading = 1 << 3, DepthStencil = 1 << 4, RenderTarget = 1 << 5,
+    None = 0, Draw = 1 << 0, VertexStage = 1 << 1, PixelStage = 1 << 2,
+    ComputeStage = 1 << 3, DepthStencil = 1 << 4, RenderTarget = 1 << 5,
     Copy = 1 << 6, Resolve = 1 << 7, AllGraphics = 1 << 8, All = 1 << 9,
 };
 
@@ -433,6 +433,36 @@ unless the step's **Verify** line says otherwise. "It still builds" is not evide
 Sizes use Part IV's scale: XS < 1h · S 1–3h · M ½–1 day · L 2–4 days.
 Every step ends with a compiling, running application.
 
+### Progress
+
+**This table is the authority on what is done.** Update it in the same commit as the step.
+`CLAUDE.md`'s stage table is coarse (Stage 5 as a whole) and deliberately does not repeat
+per-step status, so there is only one place to change.
+
+Where the as-built result differs from the step's **Do** text — because implementing it
+revealed something the plan got wrong — the step carries an **As built** note. Those notes
+are the ones later steps need to read.
+
+| Step | Status |
+|---|---|
+| R1 — `core/Handle.h` + `core/HandlePool.h` | ✅ done |
+| R2 — `engine/rhi` skeleton and the neutral vocabulary | ✅ done |
+| R3 — Move the RHI leaf types | not started |
+| R4 — Dissolve `Utility.h` | not started |
+| R5 — Extract `Rhi::Device` | not started |
+| R6 — Enumerate all queue families | not started |
+| R7 — `Rhi::Diagnostics` | not started |
+| R8 — `Rhi::ICommandList` and the neutral barrier API | not started |
+| R9 — Buffers become handles | not started |
+| R10 — Textures, views and samplers become handles | not started |
+| R11 — `UploadContext` — batch transfers | not started |
+| R12 — Use the dedicated transfer queue | not started |
+| R13 — Growable `DescriptorAllocator` | not started |
+| R14 — Growable instance buffer | not started |
+| R15 — `PipelineCache` | not started |
+| R16 — First GPU tests | not started |
+| R17 — Seal the boundary and update the docs | not started |
+
 ### R1 — `core/Handle.h` + `core/HandlePool.h`
 
 - **Do:** Add `Handle<Tag>` exactly as specified in architecture plan §11.1
@@ -444,20 +474,52 @@ Every step ends with a compiling, running application.
 - **Why now:** D2. It is CPU-only, so it is testable before any GPU code depends on it.
 - **Verify:** `ctest -L unit` passes with the new tests. Application untouched, so the
   headless report must be byte-identical to the baseline.
+- **As built:** `Handle` gained `FromIndexAndGeneration()` so `HandlePool` never open-codes
+  the bit layout, and `kMaxIndex = kIndexMask - 1` so that no valid handle can collide with
+  `kInvalid` (index `0xFFFFFF` at generation `0xFF` *is* `kInvalid`). §11.1's `MeshHandle` /
+  `MaterialHandle` / `TextureHandle` / `EntityHandle` aliases were **not** added: a global
+  `TextureHandle` in `Core` is the collision D0 warns about, and R2/R9/R10 declare those
+  under `Rhi::` instead.
 - **Size:** S · **Needs:** —
 
 ### R2 — `engine/rhi` skeleton and the neutral vocabulary
 
 - **Do:** Create the module with `engine_module(RHI ...)`, `add_subdirectory`, and both
-  header checks from §4 including `scripts/rhi_boundary_check.sh` wired into
-  `scripts/precommit.sh`. Add `RhiTypes.h`, `Handles.h`, `Barrier.h`, `BufferDesc.h`,
-  `TextureDesc.h`, `SamplerDesc.h`, and `src/vulkan/VulkanConversions.{h,cpp}` with
-  `ToVk`/`FromVk` for every enumerator. Add `tests/unit/rhi/ConversionTests.cpp` in a new
-  `rhi_tests` target (CPU-only — no device is created) asserting round-trips.
+  header checks from §4 including `rhi_boundary_check.sh` wired into `scripts/precommit.sh`.
+  Add `RhiTypes.h`, `Handles.h`, `Barrier.h`, `BufferDesc.h`, `TextureDesc.h`,
+  `SamplerDesc.h`, and `src/vulkan/VulkanConversions.{h,cpp}` with `ToVk`/`FromVk` for every
+  enumerator. Add `tests/unit/rhi/ConversionTests.cpp` in a new `rhi_tests` target
+  (CPU-only — no device is created) asserting round-trips.
 - **Note:** nothing uses any of this yet. That is intentional: the vocabulary is in place
   before the first type moves, so moved code can be converted in the same step it lands.
-- **Verify:** `HeaderSelfContainment` and `rhi_boundary_check.sh` pass. `ctest -L unit`
-  passes. Headless report identical to baseline.
+- **Verify:** `HeaderSelfContainment` and `rhi_boundary_check` pass. `ctest -L unit` passes.
+  Headless report identical to baseline.
+- **As built:** four departures, each with a consequence for a later step:
+  - **`FromVk` exists only where the mapping is one-to-one.** `PipelineStage`, `AccessFlags`,
+    `TextureLayout` and the usage/aspect flag enums are `ToVk`-only, because one neutral value
+    can expand to several Vulkan values (`DepthStencil` is both fragment-test stages) or two
+    neutral values can share one (`Common` and `UnorderedAccess` are both `eGeneral`). Where
+    `FromVk` does exist it is *derived* from `ToVk` by search, not hand-written twice.
+  - **`Format` omits `D16UnormS8Uint`.** D11 requires a DXGI equivalent and there is none —
+    `dxgiformat.h` offers stencil only with 24-bit unorm or 32-bit float depth. It is
+    currently the last candidate in `FindDepthFormat` (`main.cpp:2278`), so **R10 must drop it
+    from that list or accept a promotion to `D24UnormS8Uint`.** Vertex-attribute formats are
+    also absent, since vertex input stays Vulkan-side until Stage 8 (D8).
+  - **`QueueType` is tested with a predicate, not a bit mapping.** `FamilySupports(flags, role)`
+    replaces what would have been `ToVk(QueueType)`. The spec lets a graphics or compute family
+    omit `VK_QUEUE_TRANSFER_BIT` while still being able to copy, so `Copy` is satisfied by any
+    of `eTransfer`/`eGraphics`/`eCompute` — an "any of" test, which a caller handed a raw mask
+    would likely write as "all of". There is no reverse mapping: a universal family serves all
+    three roles, so "which role is this family" has no single answer.
+  - **The boundary check is `cmake/RhiBoundaryCheck.cmake`** with thin `.sh`/`.bat` wrappers
+    in `tests/scripts/`, not a shell grep in `scripts/`. It strips comments before matching,
+    because §4's literal pattern would reject this document's own specimen comments
+    (`// → VkPipelineStageFlags2`). It bans a *dependency*, not a mention.
+
+  Also: §4's claim that the exhaustive-switch mechanism "fails the build on all nine CI
+  configurations" was **false as written** — MSVC's C4062 is a level-4 warning that `/W3`
+  leaves off, so the RHI target now sets `/w14062` explicitly. Verified by adding an unmapped
+  enumerator and watching MSVC fail.
 - **Size:** M · **Needs:** R1
 
 ### R3 — Move the RHI leaf types
@@ -510,6 +572,13 @@ Every step ends with a compiling, running application.
 - **Do:** In `VulkanDevice`, find graphics+present, dedicated compute and dedicated transfer
   families; log all of them; expose them as `QueueType` (D6). **Keep using the graphics queue
   everywhere** — this step discovers and reports only.
+- **Use** `Rhi::Vulkan::FamilySupports(familyFlags, role)` to test a family rather than
+  comparing `queueFlags` yourself. R2 found that the spec lets a graphics or compute family
+  omit `VK_QUEUE_TRANSFER_BIT` while still being able to copy, so a plain
+  `flags & eTransfer` test would reject a capable family on any driver that takes that option;
+  `FamilySupports` encapsulates the "any of these capabilities" rule so the call site cannot
+  get it wrong. "Dedicated transfer" is the narrower, separate test — supports `Copy` but not
+  `Graphics` — and is R12's concern, not this step's.
 - **Verify:** Log lists the families the GPU exposes. Headless report identical. Resolves the
   information half of the dedicated-compute-queue `TODO` at `main.cpp:576` (Part IV cites
   `main.cpp:400` and `main.cpp:2173` for this; both line numbers are stale, and only the
@@ -559,6 +628,11 @@ Every step ends with a compiling, running application.
   `src/Texture.h` and `src/Cubemap.h` become thin asset-side wrappers holding a handle plus
   their name/path/create-info, so `ResourceCache` and `MaterialFactory` keep working
   unchanged until Stage 7.
+- **Decide first:** `FindDepthFormat` (`main.cpp:2278`) currently ends its candidate list with
+  `eD16UnormS8Uint`, which `Rhi::Format` deliberately does not carry — there is no DXGI
+  equivalent (R2's as-built note). Either drop that candidate or map it to
+  `D24UnormS8Uint`. Doing neither means the conversion throws on whatever hardware falls
+  through to it.
 - **Verify:** Headless report identical, screenshot identical. Live-texture count 0 at
   shutdown.
 - **Size:** L · **Needs:** R9
