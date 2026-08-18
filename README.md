@@ -20,6 +20,7 @@ This project requires CMake, vcpkg and the Vulkan SDK to be installed. Please ma
 cmake --workflow generate-sln
 cmake --workflow ninja-debug-linux
 cmake --workflow ninja-release-macos
+cmake --workflow ninja-asan-windows
 ```
 
 Otherwise you can manually set the `CMAKE_TOOLCHAIN_FILE` variable yourself like this:
@@ -35,19 +36,12 @@ You can generate a Visual Studio solution into the `build` folder by running the
 cmake --preset msvc
 ```
 
-Or you can manually specify which generator you want to use.
+To build the debug config using ninja, just run the `build.bat` script.
 ```Terminal
-cmake -B build -G "Visual Studio 17 2022"
+build.bat
 ```
 
-### Linux
-
-To build the debug config, just run the `build.sh` script.
-```Terminal
-./build.sh
-```
-
-### macOS (Apple Silicon) (Experimental)
+### Linux and macOS (Apple Silicon, Experimental)
 
 To build the debug config, just run the `build.sh` script.
 ```Terminal
