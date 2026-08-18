@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./build.sh)",
+      "Bash(./build.sh *)",
+      "Bash(cmake --preset *)",
+      "Bash(cmake --workflow --preset *)",
+      "Bash(cmake --build build/*)",
+      "Bash(ninja -C build/*)",
+      "Bash(ctest --test-dir build/*)",
+      "Bash(clang-format *)",
+
+      "Bash(scripts/*.sh)",
+      "Bash(scripts/*.bat)",
+      "Bash(tests/scripts/*.sh)",
+      "Bash(tests/scripts/*.bat)",
+
+      "Bash(./build/*)",
+
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git ls-files *)",
+      "Bash(git rev-list *)",
+      "Bash(git check-ignore *)"
+    ]
+  }
+}

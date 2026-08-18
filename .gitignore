@@ -7,3 +7,5 @@ content/models/sponza/**
 tests/screenshots/
 tests/reports/
 Testing/
+.claude/settings.local.json
+CLAUDE.local.md
