@@ -79,7 +79,8 @@ public:
     // caller has a reason to want a different number.
     static constexpr size_t kCaptureCapacity = 64;
 
-    explicit Diagnostics(Desc desc = {});
+    Diagnostics() : Diagnostics(Desc{}) {}
+    explicit Diagnostics(Desc desc);
 
     Diagnostics(const Diagnostics&) = delete;
     Diagnostics& operator=(const Diagnostics&) = delete;
