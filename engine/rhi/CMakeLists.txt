@@ -33,6 +33,21 @@ target_include_directories(RHI PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # module — the app, the tests, and anything Stage 6+ adds — in agreement.
 target_compile_definitions(RHI PUBLIC VULKAN_HPP_NO_STRUCT_CONSTRUCTORS)
 
+# vk::MetalSurfaceCreateInfoEXT / vk::EXTMetalSurfaceExtensionName and
+# vk::KHRPortabilitySubsetExtensionName only exist in vulkan.hpp when these are
+# defined, because VK_EXT_metal_surface and VK_KHR_portability_subset are both
+# "beta"/provisional extensions. VulkanDevice.cpp (CreateInstance/CreateSurface)
+# uses them directly for macOS surface creation, and every RHI header that
+# reaches vulkan.hpp/vulkan_raii.hpp does so with no macro guard of its own — so
+# this has to be set before any of them are included, for every translation
+# unit in the module, not just VulkanDevice.cpp. PUBLIC for the same ODR reason
+# as VULKAN_HPP_NO_STRUCT_CONSTRUCTORS above: the app also includes these
+# headers and must agree with the module on what they expand to.
+if(APPLE)
+  target_compile_definitions(RHI PUBLIC VK_USE_PLATFORM_METAL_EXT
+                                         VK_ENABLE_BETA_EXTENSIONS)
+endif()
+
 # SetVkDebugName (rhi/vulkan/DebugNames.h) compiles to nothing without this, and
 # it is a template — so its body is instantiated in whichever translation unit
 # calls it. Callers exist both inside this module and in the application, so

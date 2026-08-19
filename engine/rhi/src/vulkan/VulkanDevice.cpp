@@ -12,6 +12,9 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
+#if defined(__APPLE__)
+#include <SDL3/SDL_metal.h>
+#endif
 
 #include <core/Log.h>
 
