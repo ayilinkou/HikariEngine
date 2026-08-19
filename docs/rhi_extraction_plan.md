@@ -485,7 +485,7 @@ are the ones later steps need to read.
 | R6 — Enumerate all queue families | ✅ done |
 | R7 — `Rhi::Diagnostics` | ✅ done |
 | R8 — `Rhi::ICommandList` and the neutral barrier API | ⚠️ barrier API done; `ICommandList` deferred — see **As built** |
-| R9 — Buffers become handles | not started |
+| R9 — Buffers become handles | ✅ done |
 | R10 — Textures, views and samplers become handles | not started |
 | R11 — `UploadContext` — batch transfers | not started |
 | R12 — Use the dedicated transfer queue | not started |
@@ -878,6 +878,40 @@ are the ones later steps need to read.
 - **Verify:** Headless report identical. Live-buffer count logged at shutdown is 0 — the
   first thing the handle model buys.
 - **Size:** L · **Needs:** R8
+- **As built:** done, and the shutdown log reads `Device destroyed with 0 live buffers.` The
+  report is byte-identical to the baseline, and a capture taken at the same resolution as a
+  pre-R9 one is pixel-identical, so nothing about rendering moved.
+
+  Five things differ from the **Do** text, four of them forced:
+
+  - **`GetMappedData(BufferHandle)`, not `Map`/`Unmap`.** `ToVk(MemoryAccess)` already commits
+    every host-visible allocation to `VMA_ALLOCATION_CREATE_MAPPED_BIT`, so the pointer is
+    valid from creation to destruction whatever the API says. A Map/Unmap pair would be a
+    fiction: `Unmap` would either do nothing or invalidate the pointer the per-frame uniform
+    and instance buffers hold across frames. D3D12 maps UPLOAD/READBACK heaps persistently
+    too, so nothing portable is given up.
+  - **`Rhi::Vulkan::GetBuffer(IDevice&, BufferHandle)` had to be added** to `VulkanNative.h`.
+    `vkCmdBindVertexBuffers`, `vkCmdBindIndexBuffer`, `vkCmdCopyBufferToImage` and
+    `VkDescriptorBufferInfo` all take a `VkBuffer`, and all four still happen in `src/` — draw
+    recording until Stage 8, descriptor writes until bindless. It is listed in the one file
+    that counts the leaks, and it retires with those call sites rather than needing its own
+    step.
+  - **`MeshBatch` carries `BufferHandle`, not `vk::Buffer`** (`src/InstanceData.h`), so the
+    resolve happens at the bind site rather than being stored. Unplanned, and a boundary win:
+    it takes a Vulkan type out of a struct that Stage 9's `FrameSnapshot` is descended from.
+  - **`CreateStagedBuffer` and `CopyBuffer` moved into `namespace Rhi::Vulkan`** and now speak
+    handles, rather than being folded into `IDevice`. R11's `UploadContext` is what replaces
+    them; designing that here would have meant writing it twice. They still drain the queue
+    per call.
+  - **Debug names fold into `BufferDesc::DebugName`.** Every creation site previously paired a
+    `SetVkDebugName` with a `vmaSetAllocationName`; the device now does both, and the sites
+    lost two lines each.
+
+  `ModelLoader` no longer needs a `VmaAllocator` at all. `TextureLoader` and `CubemapLoader`
+  keep theirs for image creation only, which is what R10 takes. `UniqueHandle` covers the
+  scope-local staging buffers exactly as D2 predicted, and has six CPU-only tests
+  (`tests/unit/rhi/UniqueHandleTests.cpp`) built on a recording `IDevice` stub — move
+  transfer, overwrite-on-assign, `Release`, and double-`Reset`.
 
 ### R10 — Textures, views and samplers become handles
 

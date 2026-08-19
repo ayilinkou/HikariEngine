@@ -2,7 +2,8 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
-#include <rhi/vulkan/AllocatedBuffer.h>
+#include <rhi/Handles.h>
+#include <rhi/UniqueHandle.h>
 #include <rhi/vulkan/Texture.h>
 
 struct FrameData
@@ -30,6 +31,6 @@ struct FrameData
     Texture AccumTexture;
     Texture RevealageTexture;
     Texture DepthTexture;
-    AllocatedBuffer GlobalBuffer;
-    AllocatedBuffer InstanceBuffer;
+    Rhi::UniqueHandle<Rhi::BufferHandle> GlobalBuffer;
+    Rhi::UniqueHandle<Rhi::BufferHandle> InstanceBuffer;
 };

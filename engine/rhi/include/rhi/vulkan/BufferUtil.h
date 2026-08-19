@@ -2,74 +2,76 @@
 
 #include <cstring>
 #include <stdexcept>
+#include <string>
 
-#include "vk_mem_alloc.h"
 #include "vulkan/vulkan_raii.hpp"
 
-#include <rhi/vulkan/AllocatedBuffer.h>
+#include <rhi/BufferDesc.h>
+#include <rhi/Handles.h>
+#include <rhi/IDevice.h>
+#include <rhi/UniqueHandle.h>
 #include <rhi/vulkan/CommandListUtil.h>
+#include <rhi/vulkan/VulkanNative.h>
 
-// VMA-backed buffer creation and staged uploads.
+// Staged uploads, for the callers that need a device-local buffer filled from
+// CPU data.
 //
-// These take the raw VmaAllocator rather than VulkanAllocator&, because
-// VulkanAllocator converts implicitly and the callers hold both kinds. Once the
-// device owns the allocator these become members of it and the parameter goes
-// away.
-
-[[nodiscard]] inline AllocatedBuffer CreateBuffer(VmaAllocator allocator, vk::DeviceSize size,
-                                                  vk::BufferUsageFlags bufferUsage,
-                                                  VmaMemoryUsage memoryUsage,
-                                                  VmaAllocationCreateFlags allocFlags = 0)
+// Every one of these submits on its own and drains the queue, which is why they
+// are load-time only. An upload context that records many copies behind one
+// fence is what should replace them; until it exists, do not call these from
+// inside the frame loop.
+namespace Rhi::Vulkan
 {
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = static_cast<VkDeviceSize>(size);
-    bufferInfo.usage = static_cast<VkBufferUsageFlags>(bufferUsage);
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VmaAllocationCreateInfo allocInfo{};
-    allocInfo.usage = memoryUsage;
-    allocInfo.flags = allocFlags;
-
-    VkBuffer rawBuffer;
-    VmaAllocation allocation;
-    VmaAllocationInfo allocationInfo;
-
-    vk::Result result = static_cast<vk::Result>(vmaCreateBuffer(
-        allocator, &bufferInfo, &allocInfo, &rawBuffer, &allocation, &allocationInfo));
-
-    if (result != vk::Result::eSuccess)
-        throw std::runtime_error("Failed to create buffer via VMA!");
-
-    return AllocatedBuffer(allocator, vk::Buffer(rawBuffer), allocation, allocationInfo);
+// Records a buffer-to-buffer copy, submits it, and waits for it to finish.
+inline void CopyBuffer(IDevice& device, vk::raii::CommandPool& commandPool,
+                       vk::raii::Queue& transferQueue, BufferHandle source,
+                       BufferHandle destination, vk::DeviceSize size)
+{
+    vk::raii::Device& vkDevice = GetDevice(device);
+    vk::raii::CommandBuffer cmd = BeginSingleTimeCommand(vkDevice, commandPool);
+    cmd.copyBuffer(GetBuffer(device, source), GetBuffer(device, destination),
+                   vk::BufferCopy{0, 0, size});
+    EndSingleTimeCommand(cmd, transferQueue);
 }
 
-inline void CopyBuffer(vk::raii::Device& device, vk::raii::CommandPool& commandPool,
-                       vk::raii::Queue& transferQueue, vk::Buffer srcBuffer, vk::Buffer dstBuffer,
-                       vk::DeviceSize size)
+// Creates a device-local buffer holding `pData`, by way of a staging buffer
+// that is destroyed before returning.
+//
+// The staging buffer is held in a UniqueHandle rather than destroyed by hand
+// because the copy can throw: the handle model puts the release on the caller,
+// and this is exactly the scope-local case where that is a liability rather
+// than a feature (plan D2).
+[[nodiscard]] inline BufferHandle CreateStagedBuffer(IDevice& device,
+                                                     vk::raii::CommandPool& commandPool,
+                                                     vk::raii::Queue& transferQueue,
+                                                     vk::DeviceSize bufferSize, BufferUsage usage,
+                                                     const void* pData, std::string debugName = {})
 {
-    vk::raii::CommandBuffer commandCopyBuffer = BeginSingleTimeCommand(device, commandPool);
-    commandCopyBuffer.copyBuffer(srcBuffer, dstBuffer, vk::BufferCopy{0, 0, size});
-    EndSingleTimeCommand(commandCopyBuffer, transferQueue);
-}
+    if (pData == nullptr)
+        throw std::runtime_error("CreateStagedBuffer: no source data.");
 
-[[nodiscard]] inline AllocatedBuffer
-CreateStagedBuffer(VmaAllocator allocator, vk::raii::Device& device,
-                   vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                   vk::DeviceSize bufferSize, vk::BufferUsageFlags usage, void* pData)
-{
-    AllocatedBuffer stagingBuffer = CreateBuffer(
-        allocator, bufferSize, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+    UniqueHandle<BufferHandle> staging(
+        device, device.CreateBuffer(BufferDesc{.Size = bufferSize,
+                                               .Usage = BufferUsage::CopySrc,
+                                               .Access = MemoryAccess::CpuToGpu,
+                                               .DebugName = debugName.empty()
+                                                                ? std::string("Staging Buffer")
+                                                                : debugName + " Staging"}));
 
-    memcpy(stagingBuffer.AllocationInfo.pMappedData, pData, static_cast<size_t>(bufferSize));
+    void* pMapped = device.GetMappedData(staging.Get());
+    if (pMapped == nullptr)
+        throw std::runtime_error("CreateStagedBuffer: staging buffer is not host-visible.");
 
-    AllocatedBuffer gpuBuffer =
-        CreateBuffer(allocator, bufferSize, usage | vk::BufferUsageFlagBits::eTransferDst,
-                     VMA_MEMORY_USAGE_AUTO);
+    memcpy(pMapped, pData, static_cast<size_t>(bufferSize));
 
-    CopyBuffer(device, commandPool, transferQueue, vk::Buffer(stagingBuffer.Buffer),
-               vk::Buffer(gpuBuffer.Buffer), bufferSize);
+    const BufferHandle gpuBuffer =
+        device.CreateBuffer(BufferDesc{.Size = bufferSize,
+                                       .Usage = usage | BufferUsage::CopyDst,
+                                       .Access = MemoryAccess::GpuOnly,
+                                       .DebugName = std::move(debugName)});
+
+    CopyBuffer(device, commandPool, transferQueue, staging.Get(), gpuBuffer, bufferSize);
 
     return gpuBuffer;
 }
+} // namespace Rhi::Vulkan

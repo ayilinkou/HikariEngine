@@ -5,6 +5,7 @@
 #include "vk_mem_alloc.h"
 #include "vulkan/vulkan_raii.hpp"
 
+#include <rhi/Handles.h>
 #include <rhi/IDevice.h>
 
 // The one sanctioned way to get a Vulkan handle out of an IDevice.
@@ -49,4 +50,13 @@ vk::raii::SurfaceKHR& GetSurface(IDevice& device);
 vk::raii::Queue& GetGraphicsQueue(IDevice& device);
 uint32_t GetGraphicsQueueFamily(IDevice& device);
 VmaAllocator GetAllocator(IDevice& device);
+
+// The buffer a handle names, or a null vk::Buffer if the handle is stale.
+//
+// Wider than it looks, and the narrowest thing that works today: the renderer
+// still records draws and writes descriptor sets itself, and vkCmdBindVertexBuffers,
+// vkCmdBindIndexBuffer, vkCmdCopyBufferToImage and VkDescriptorBufferInfo all
+// take a VkBuffer. Every one of those call sites moves behind ICommandList or a
+// neutral descriptor model later; this goes away with the last of them.
+vk::Buffer GetBuffer(IDevice& device, BufferHandle handle);
 } // namespace Rhi::Vulkan

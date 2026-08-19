@@ -61,9 +61,100 @@ VulkanDevice::VulkanDevice(const DeviceDesc& desc)
     m_Caps.bHasDedicatedCopyQueue = m_QueueFamilies.IsDedicated(QueueType::Copy);
 }
 
+VulkanDevice::~VulkanDevice()
+{
+    // A buffer still alive here was never destroyed. It is not a crash — the
+    // pool frees the allocation on its way out, and it is declared after the
+    // allocator so that happens in the right order — but it is a leak for as
+    // long as the device ran, and the whole point of routing resources through
+    // handles is that the count is knowable. Reported rather than asserted so
+    // that a shutdown already unwinding from an error is not made worse.
+    const uint32_t liveBuffers = m_Buffers.Size();
+    if (liveBuffers == 0u)
+    {
+        LogMsg(LogSeverity::Info, LogRhi, "Device destroyed with 0 live buffers.");
+    }
+    else
+    {
+        LogMsg(LogSeverity::Warning, LogRhi,
+               "Device destroyed with {} buffer(s) still alive — each is a resource whose owner "
+               "never released it.",
+               liveBuffers);
+    }
+}
+
 void VulkanDevice::WaitIdle()
 {
     m_Device.waitIdle();
+}
+
+BufferHandle VulkanDevice::CreateBuffer(const BufferDesc& desc)
+{
+    if (desc.Size == 0u)
+        throw std::runtime_error("Rhi::IDevice::CreateBuffer: a buffer must have a non-zero size.");
+
+    const VmaMemoryParams memoryParams = ToVk(desc.Access);
+
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = static_cast<VkDeviceSize>(desc.Size);
+    bufferInfo.usage = static_cast<VkBufferUsageFlags>(ToVk(desc.Usage));
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = memoryParams.Usage;
+    allocInfo.flags = memoryParams.Flags;
+
+    VkBuffer rawBuffer = VK_NULL_HANDLE;
+    VmaAllocation allocation = nullptr;
+    VmaAllocationInfo allocationInfo{};
+
+    const vk::Result result = static_cast<vk::Result>(vmaCreateBuffer(
+        m_Allocator, &bufferInfo, &allocInfo, &rawBuffer, &allocation, &allocationInfo));
+
+    if (result != vk::Result::eSuccess)
+    {
+        throw std::runtime_error(std::format("Rhi::IDevice::CreateBuffer: VMA failed to allocate "
+                                             "'{}' ({} bytes): {}.",
+                                             desc.DebugName, desc.Size, vk::to_string(result)));
+    }
+
+    if (!desc.DebugName.empty())
+    {
+        SetVkDebugName(m_Device, vk::Buffer(rawBuffer), vk::ObjectType::eBuffer,
+                       desc.DebugName.c_str());
+        // Names the allocation as well as the buffer, because VMA's own leak
+        // and budget dumps report allocations, not Vulkan objects.
+        vmaSetAllocationName(m_Allocator, allocation, desc.DebugName.c_str());
+    }
+
+    return m_Buffers.Create(m_Allocator, vk::Buffer(rawBuffer), allocation, allocationInfo);
+}
+
+void VulkanDevice::Destroy(BufferHandle handle)
+{
+    if (m_Buffers.Release(handle))
+        return;
+
+    // Either a double destroy or a handle outliving what it named. Both are the
+    // bug the generation counter exists to catch, so neither is silently
+    // ignored — but neither is fatal either, since the slot is already free.
+    ReportDiagnostic(DiagnosticSeverity::Error,
+                     std::format("Rhi::IDevice::Destroy(BufferHandle): handle {:#010x} is stale or "
+                                 "was never valid; it may have been destroyed already.",
+                                 handle.Value));
+}
+
+void* VulkanDevice::GetMappedData(BufferHandle handle)
+{
+    const VulkanBuffer* pBuffer = m_Buffers.Get(handle);
+    return pBuffer ? pBuffer->AllocationInfo.pMappedData : nullptr;
+}
+
+vk::Buffer VulkanDevice::GetBuffer(BufferHandle handle) const
+{
+    const VulkanBuffer* pBuffer = m_Buffers.Get(handle);
+    return pBuffer ? pBuffer->Buffer : vk::Buffer{};
 }
 
 void VulkanDevice::ReportDiagnostic(DiagnosticSeverity severity, std::string_view message) const

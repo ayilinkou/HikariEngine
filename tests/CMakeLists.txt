@@ -13,7 +13,8 @@ engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
   unit/platform/CommandLineTests.cpp LIBS Engine::Platform)
 
 engine_test(rhi_tests SOURCES unit/rhi/ConversionTests.cpp
-  unit/rhi/DiagnosticsTests.cpp unit/rhi/QueueFamilyTests.cpp LIBS Engine::RHI)
+  unit/rhi/DiagnosticsTests.cpp unit/rhi/QueueFamilyTests.cpp
+  unit/rhi/UniqueHandleTests.cpp LIBS Engine::RHI)
 
 # The conversion tables and the queue-family selection live in src/vulkan/, not
 # in the module's public include path — they are backend-internal by design

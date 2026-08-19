@@ -10,7 +10,8 @@
 #include "Material.h"
 #include "Mesh.h"
 #include "Node.h"
-#include <rhi/vulkan/AllocatedBuffer.h>
+#include <rhi/Handles.h>
+#include <rhi/UniqueHandle.h>
 
 struct aiMaterial;
 
@@ -19,14 +20,14 @@ class ModelData
 public:
     ModelData(const std::string& path, std::vector<std::unique_ptr<Material>> materials,
               uint32_t meshCount);
-    void Init(AllocatedBuffer vertexBuffer, AllocatedBuffer indexBuffer,
-              std::unique_ptr<Node> rootNode);
+    void Init(Rhi::UniqueHandle<Rhi::BufferHandle> vertexBuffer,
+              Rhi::UniqueHandle<Rhi::BufferHandle> indexBuffer, std::unique_ptr<Node> rootNode);
 
     Mesh* RegisterMesh(aiMesh* mesh, uint32_t meshIndex, const glm::mat4& localTransform,
                        std::vector<Vertex>& vertices, std::vector<uint32_t>& indices);
 
-    vk::Buffer GetVertexBuffer() const { return m_VertexBuffer.Buffer; }
-    vk::Buffer GetIndexBuffer() const { return m_IndexBuffer.Buffer; }
+    Rhi::BufferHandle GetVertexBuffer() const { return m_VertexBuffer.Get(); }
+    Rhi::BufferHandle GetIndexBuffer() const { return m_IndexBuffer.Get(); }
 
     const std::vector<Drawable>& GetDrawables() const { return m_Drawables; }
 
@@ -39,8 +40,8 @@ private:
 
     std::unique_ptr<Node> m_RootNode = nullptr;
 
-    AllocatedBuffer m_VertexBuffer;
-    AllocatedBuffer m_IndexBuffer;
+    Rhi::UniqueHandle<Rhi::BufferHandle> m_VertexBuffer;
+    Rhi::UniqueHandle<Rhi::BufferHandle> m_IndexBuffer;
 
     std::vector<Drawable> m_Drawables;
 

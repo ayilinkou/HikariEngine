@@ -6,13 +6,18 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
+#include <core/HandlePool.h>
+
+#include <rhi/BufferDesc.h>
 #include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
+#include <rhi/Handles.h>
 #include <rhi/IDevice.h>
 #include <rhi/RhiTypes.h>
 #include <rhi/vulkan/VulkanAllocator.h>
 
 #include "vulkan/QueueFamilies.h"
+#include "vulkan/VulkanBuffer.h"
 
 namespace Rhi::Vulkan
 {
@@ -20,10 +25,20 @@ class VulkanDevice final : public IDevice
 {
 public:
     explicit VulkanDevice(const DeviceDesc& desc);
+    ~VulkanDevice() override;
 
     const DeviceCaps& GetCaps() const override { return m_Caps; }
     Diagnostics& GetDiagnostics() override { return *m_pDiagnostics; }
     void WaitIdle() override;
+
+    BufferHandle CreateBuffer(const BufferDesc& desc) override;
+    void Destroy(BufferHandle handle) override;
+    void* GetMappedData(BufferHandle handle) override;
+    uint32_t GetLiveBufferCount() const override { return m_Buffers.Size(); }
+
+    // The buffer behind `handle`, or a null vk::Buffer if it is stale. Backs
+    // Rhi::Vulkan::GetBuffer() in <rhi/vulkan/VulkanNative.h>.
+    vk::Buffer GetBuffer(BufferHandle handle) const;
 
     // Everything below is reachable only through <rhi/vulkan/VulkanNative.h>,
     // which is the one sanctioned way for code outside this module to see a
@@ -89,6 +104,12 @@ private:
     vk::raii::Device m_Device = nullptr;
     VulkanAllocator m_Allocator{};
     vk::raii::Queue m_GraphicsQueue = nullptr;
+
+    // After the allocator, so that every buffer is destroyed before the
+    // allocator that owns their memory. Releasing a slot frees its VulkanBuffer,
+    // so this is also what makes an un-destroyed buffer merely a leak reported
+    // at shutdown rather than a crash during it.
+    HandlePool<VulkanBuffer, BufferTag> m_Buffers;
 
     QueueFamilies m_QueueFamilies;
 

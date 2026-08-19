@@ -26,10 +26,12 @@
 #include <platform/SdlPlatform.h>
 
 #include <rhi/BarrierPresets.h>
+#include <rhi/BufferDesc.h>
 #include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
+#include <rhi/Handles.h>
 #include <rhi/IDevice.h>
-#include <rhi/vulkan/AllocatedBuffer.h>
+#include <rhi/UniqueHandle.h>
 #include <rhi/vulkan/AllocatedImage.h>
 #include <rhi/vulkan/BarrierUtil.h>
 #include <rhi/vulkan/BufferUtil.h>
@@ -599,8 +601,8 @@ private:
         CreateCommandPools();
         CreateTextureSampler();
 
-        ResourceManager::Init(m_Device, m_PhysicalDevice, m_GenericCommandPool, m_GraphicsQueue,
-                              m_VmaAllocator, m_Paths);
+        ResourceManager::Init(*m_RhiDevice, m_Device, m_PhysicalDevice, m_GenericCommandPool,
+                              m_GraphicsQueue, m_VmaAllocator, m_Paths);
         MaterialFactory::Init(m_Device, m_TextureSampler);
 
         CreatePipelines();
@@ -735,8 +737,8 @@ private:
             static_cast<vk::DeviceSize>(width) * height * bytesPerPixel;
 
         // The swapchain format is BGRA; swizzle to RGBA before writing.
-        const auto* src =
-            static_cast<const uint8_t*>(m_ScreenshotStagingBuffer.AllocationInfo.pMappedData);
+        const auto* src = static_cast<const uint8_t*>(
+            m_RhiDevice->GetMappedData(m_ScreenshotStagingBuffer.Get()));
         std::vector<uint8_t> pixels(static_cast<size_t>(bufferSize));
         for (size_t i = 0; i < static_cast<size_t>(width) * height; i++)
         {
@@ -893,10 +895,12 @@ private:
         {
             const vk::DeviceSize bufferSize =
                 static_cast<vk::DeviceSize>(m_SwapchainExtent.width) * m_SwapchainExtent.height * 4;
-            m_ScreenshotStagingBuffer = CreateBuffer(
-                m_VmaAllocator, bufferSize, vk::BufferUsageFlagBits::eTransferDst,
-                VMA_MEMORY_USAGE_AUTO,
-                VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+            m_ScreenshotStagingBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
+                *m_RhiDevice,
+                m_RhiDevice->CreateBuffer(Rhi::BufferDesc{.Size = bufferSize,
+                                                          .Usage = Rhi::BufferUsage::CopyDst,
+                                                          .Access = Rhi::MemoryAccess::GpuToCpu,
+                                                          .DebugName = "Screenshot Staging"}));
             m_bScreenshotBufferReady = true;
         }
 
@@ -1477,7 +1481,8 @@ private:
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_OpaquePipelineLayout, 0,
                                *frame.GlobalBufferDescriptorSet, nullptr);
 
-        cmd.bindVertexBuffers(1, frame.InstanceBuffer.Buffer, {0});
+        cmd.bindVertexBuffers(1, Rhi::Vulkan::GetBuffer(*m_RhiDevice, frame.InstanceBuffer.Get()),
+                              {0});
 
         vk::CullModeFlags cullMode = vk::CullModeFlagBits::eBack;
 
@@ -1496,8 +1501,9 @@ private:
                 cullMode = requiredCullMode;
             }
 
-            cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
-            cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);
+            cmd.bindVertexBuffers(0, Rhi::Vulkan::GetBuffer(*m_RhiDevice, batch.VertexBuffer), {0});
+            cmd.bindIndexBuffer(Rhi::Vulkan::GetBuffer(*m_RhiDevice, batch.IndexBuffer), 0,
+                                vk::IndexType::eUint32);
             cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_OpaquePipelineLayout, 1,
                                    batch.pMaterial->GetDescriptorSet(), nullptr);
             cmd.pushConstants<PBRMaterial::MaterialData>(
@@ -1580,15 +1586,17 @@ private:
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_TransparentPipelineLayout, 0,
                                *frame.GlobalBufferDescriptorSet, nullptr);
 
-        cmd.bindVertexBuffers(1, frame.InstanceBuffer.Buffer, {0});
+        cmd.bindVertexBuffers(1, Rhi::Vulkan::GetBuffer(*m_RhiDevice, frame.InstanceBuffer.Get()),
+                              {0});
 
         // per mesh batch
         const std::vector<MeshBatch>& batches = ModelManager::Get()->GetTransparentBatches();
         uint32_t instanceCount = 0;
         for (const MeshBatch& batch : batches)
         {
-            cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
-            cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);
+            cmd.bindVertexBuffers(0, Rhi::Vulkan::GetBuffer(*m_RhiDevice, batch.VertexBuffer), {0});
+            cmd.bindIndexBuffer(Rhi::Vulkan::GetBuffer(*m_RhiDevice, batch.IndexBuffer), 0,
+                                vk::IndexType::eUint32);
             cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_TransparentPipelineLayout, 1,
                                    batch.pMaterial->GetDescriptorSet(), nullptr);
             cmd.pushConstants<PBRMaterial::MaterialData>(
@@ -1654,8 +1662,10 @@ private:
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_CompositePipelineLayout, 0u,
                                descriptorSets, nullptr);
 
-        cmd.bindVertexBuffers(0u, m_QuadVertexBuffer.Buffer, {0});
-        cmd.bindIndexBuffer(m_QuadIndexBuffer.Buffer, 0u, vk::IndexType::eUint32);
+        cmd.bindVertexBuffers(0u, Rhi::Vulkan::GetBuffer(*m_RhiDevice, m_QuadVertexBuffer.Get()),
+                              {0});
+        cmd.bindIndexBuffer(Rhi::Vulkan::GetBuffer(*m_RhiDevice, m_QuadIndexBuffer.Get()), 0u,
+                            vk::IndexType::eUint32);
 
         constexpr uint32_t QUAD_INDEX_COUNT = 6u;
         cmd.drawIndexed(QUAD_INDEX_COUNT, 1u, 0u, 0, 0u);
@@ -1733,8 +1743,9 @@ private:
                                      .layerCount = 1},
                 .imageOffset = {0, 0, 0},
                 .imageExtent = {m_SwapchainExtent.width, m_SwapchainExtent.height, 1}};
-            cmd.copyImageToBuffer(m_SwapImages[imageIndex], vk::ImageLayout::eTransferSrcOptimal,
-                                  m_ScreenshotStagingBuffer.Buffer, region);
+            cmd.copyImageToBuffer(
+                m_SwapImages[imageIndex], vk::ImageLayout::eTransferSrcOptimal,
+                Rhi::Vulkan::GetBuffer(*m_RhiDevice, m_ScreenshotStagingBuffer.Get()), region);
 
             m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
                 *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::CopySrcToPresent());
@@ -1876,17 +1887,12 @@ private:
 
         for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
-            AllocatedBuffer globalBuffer =
-                CreateBuffer(m_VmaAllocator, size, vk::BufferUsageFlagBits::eUniformBuffer,
-                             VMA_MEMORY_USAGE_AUTO,
-                             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                                 VMA_ALLOCATION_CREATE_MAPPED_BIT);
-            SetVkDebugName(m_Device, globalBuffer.Buffer, vk::ObjectType::eBuffer,
-                           std::format("Global Buffer Frame {}", i).c_str());
-            vmaSetAllocationName(m_VmaAllocator, globalBuffer.Allocation,
-                                 std::format("Global Buffer Memory Frame {}", i).c_str());
-
-            m_Frames[i].GlobalBuffer = std::move(globalBuffer);
+            m_Frames[i].GlobalBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
+                *m_RhiDevice, m_RhiDevice->CreateBuffer(Rhi::BufferDesc{
+                                  .Size = size,
+                                  .Usage = Rhi::BufferUsage::Uniform,
+                                  .Access = Rhi::MemoryAccess::CpuToGpu,
+                                  .DebugName = std::format("Global Buffer Frame {}", i)}));
         }
 
         m_GlobalBuffer.SkyColor = SKY_COLOR;
@@ -1934,7 +1940,7 @@ private:
                 m_SceneGraph->DirLights[dirLightCount]->GetData();
         }
 
-        memcpy(m_Frames[frameIndex].GlobalBuffer.AllocationInfo.pMappedData, &m_GlobalBuffer,
+        memcpy(m_RhiDevice->GetMappedData(m_Frames[frameIndex].GlobalBuffer.Get()), &m_GlobalBuffer,
                sizeof(m_GlobalBuffer));
     }
 
@@ -2014,7 +2020,9 @@ private:
                            std::format("Main Descriptor Set Frame {}", i).c_str());
 
             vk::DescriptorBufferInfo bufferInfo{
-                .buffer = frame.GlobalBuffer.Buffer, .offset = 0, .range = sizeof(GlobalBuffer)};
+                .buffer = Rhi::Vulkan::GetBuffer(*m_RhiDevice, frame.GlobalBuffer.Get()),
+                .offset = 0,
+                .range = sizeof(GlobalBuffer)};
 
             std::array globalDescriptorWrites = {
                 vk::WriteDescriptorSet{.dstSet = frame.GlobalBufferDescriptorSet,
@@ -2129,16 +2137,12 @@ private:
         vk::DeviceSize size = sizeof(InstanceData) * MAX_INSTANCE_COUNT;
         for (int i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
-            AllocatedBuffer buffer = CreateBuffer(
-                m_VmaAllocator, size, vk::BufferUsageFlagBits::eVertexBuffer, VMA_MEMORY_USAGE_AUTO,
-                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                    VMA_ALLOCATION_CREATE_MAPPED_BIT);
-            SetVkDebugName(m_Device, buffer.Buffer, vk::ObjectType::eBuffer,
-                           std::format("Instance Buffer Frame {}", i).c_str());
-            vmaSetAllocationName(m_VmaAllocator, buffer.Allocation,
-                                 std::format("Instance Buffer Memory Frame {}", i).c_str());
-
-            m_Frames[i].InstanceBuffer = std::move(buffer);
+            m_Frames[i].InstanceBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
+                *m_RhiDevice, m_RhiDevice->CreateBuffer(Rhi::BufferDesc{
+                                  .Size = size,
+                                  .Usage = Rhi::BufferUsage::Vertex,
+                                  .Access = Rhi::MemoryAccess::CpuToGpu,
+                                  .DebugName = std::format("Instance Buffer Frame {}", i)}));
         }
     }
 
@@ -2151,8 +2155,8 @@ private:
         if (instanceDatas.size() > MAX_INSTANCE_COUNT)
             throw std::runtime_error("Max instance count exceeded!");
 
-        memcpy(m_Frames[frameIndex].InstanceBuffer.AllocationInfo.pMappedData, instanceDatas.data(),
-               sizeof(InstanceData) * instanceDatas.size());
+        memcpy(m_RhiDevice->GetMappedData(m_Frames[frameIndex].InstanceBuffer.Get()),
+               instanceDatas.data(), sizeof(InstanceData) * instanceDatas.size());
     }
 
     void CreateRenderTargets()
@@ -2194,17 +2198,19 @@ private:
 
         assert(vertices.size() == 4);
 
-        m_QuadVertexBuffer =
-            CreateStagedBuffer(m_VmaAllocator, m_Device, m_GenericCommandPool, m_GraphicsQueue,
-                               sizeof(vertices[0]) * vertices.size(),
-                               vk::BufferUsageFlagBits::eVertexBuffer, vertices.data());
+        m_QuadVertexBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
+            *m_RhiDevice, Rhi::Vulkan::CreateStagedBuffer(
+                              *m_RhiDevice, m_GenericCommandPool, m_GraphicsQueue,
+                              sizeof(vertices[0]) * vertices.size(), Rhi::BufferUsage::Vertex,
+                              vertices.data(), "Quad Vertex Buffer"));
 
         std::array<uint32_t, 6> indices = {0, 1, 2, 0, 2, 3};
 
-        m_QuadIndexBuffer =
-            CreateStagedBuffer(m_VmaAllocator, m_Device, m_GenericCommandPool, m_GraphicsQueue,
-                               sizeof(indices[0]) * indices.size(),
-                               vk::BufferUsageFlagBits::eIndexBuffer, indices.data());
+        m_QuadIndexBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
+            *m_RhiDevice, Rhi::Vulkan::CreateStagedBuffer(
+                              *m_RhiDevice, m_GenericCommandPool, m_GraphicsQueue,
+                              sizeof(indices[0]) * indices.size(), Rhi::BufferUsage::Index,
+                              indices.data(), "Quad Index Buffer"));
     }
 
     void UpdateCompositeDescriptorSet()
@@ -2329,8 +2335,8 @@ private:
     static constexpr vk::Format m_OpaqueImageFormat = vk::Format::eR16G16B16A16Sfloat;
     static constexpr vk::Format m_AccumImageFormat = vk::Format::eR16G16B16A16Sfloat;
     static constexpr vk::Format m_RevealageImageFormat = vk::Format::eR8Unorm;
-    AllocatedBuffer m_QuadVertexBuffer;
-    AllocatedBuffer m_QuadIndexBuffer;
+    Rhi::UniqueHandle<Rhi::BufferHandle> m_QuadVertexBuffer;
+    Rhi::UniqueHandle<Rhi::BufferHandle> m_QuadIndexBuffer;
 
     vk::SurfaceFormatKHR m_SwapchainSurfaceFormat;
     vk::Extent2D m_SwapchainExtent;
@@ -2380,7 +2386,7 @@ private:
     uint32_t m_TransparentBatchCount = 0;
     uint32_t m_TransparentInstanceCount = 0;
     std::vector<float> m_FrameTimesMs;
-    AllocatedBuffer m_ScreenshotStagingBuffer;
+    Rhi::UniqueHandle<Rhi::BufferHandle> m_ScreenshotStagingBuffer;
     bool m_bScreenshotBufferReady = false;
 };
 

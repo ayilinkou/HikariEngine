@@ -1,17 +1,19 @@
-#include <rhi/vulkan/AllocatedBuffer.h>
+#include "vulkan/VulkanBuffer.h"
 
-AllocatedBuffer::AllocatedBuffer(VmaAllocator allocator, vk::Buffer buffer, VmaAllocation alloc,
-                                 const VmaAllocationInfo& info)
+namespace Rhi::Vulkan
+{
+VulkanBuffer::VulkanBuffer(VmaAllocator allocator, vk::Buffer buffer, VmaAllocation alloc,
+                           const VmaAllocationInfo& info)
     : Buffer(buffer), Allocation(alloc), AllocationInfo(info), Allocator(allocator)
 {
 }
 
-AllocatedBuffer::AllocatedBuffer(AllocatedBuffer&& other) noexcept
+VulkanBuffer::VulkanBuffer(VulkanBuffer&& other) noexcept
 {
     *this = std::move(other);
 }
 
-AllocatedBuffer& AllocatedBuffer::operator=(AllocatedBuffer&& other) noexcept
+VulkanBuffer& VulkanBuffer::operator=(VulkanBuffer&& other) noexcept
 {
     if (this != &other)
     {
@@ -27,8 +29,9 @@ AllocatedBuffer& AllocatedBuffer::operator=(AllocatedBuffer&& other) noexcept
     return *this;
 }
 
-void AllocatedBuffer::Destroy()
+void VulkanBuffer::Destroy()
 {
     if (Buffer && Allocation)
         vmaDestroyBuffer(Allocator, Buffer, Allocation);
 }
+} // namespace Rhi::Vulkan

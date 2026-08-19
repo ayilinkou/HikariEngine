@@ -62,4 +62,9 @@ VmaAllocator GetAllocator(IDevice& device)
 {
     return AsVulkan(device).GetAllocator();
 }
+
+vk::Buffer GetBuffer(IDevice& device, BufferHandle handle)
+{
+    return AsVulkan(device).GetBuffer(handle);
+}
 } // namespace Rhi::Vulkan
