@@ -26,6 +26,7 @@
 #include <platform/SdlPlatform.h>
 
 #include <rhi/DeviceDesc.h>
+#include <rhi/Diagnostics.h>
 #include <rhi/IDevice.h>
 #include <rhi/vulkan/AllocatedBuffer.h>
 #include <rhi/vulkan/AllocatedImage.h>
@@ -72,6 +73,7 @@ constexpr int NUM_FRAMES_IN_FLIGHT = 2;
 constexpr glm::vec3 SKY_COLOR = {0.4f, 0.8f, 1.f};
 
 constexpr LogCategory LogValidationLayer("Validation Layer");
+constexpr LogCategory LogDiagnostics("Diagnostics");
 constexpr LogCategory LogSDL("SDL");
 constexpr LogCategory LogWindow("Window");
 constexpr LogCategory LogMain("main");
@@ -79,8 +81,6 @@ constexpr LogCategory LogRenderer("Renderer");
 constexpr LogCategory LogImGui("InitImGui");
 
 std::atomic<bool> g_bShouldClose = false;
-std::atomic<uint64_t> g_ValidationErrorCount = 0;
-std::atomic<uint64_t> g_ValidationWarningCount = 0;
 
 void HandleSIGINT(int)
 {
@@ -125,9 +125,10 @@ constexpr bool bEnableValidationLayers = false;
 constexpr bool bEnableValidationLayers = true;
 #endif
 
-// Routes the RHI's validation messages into the log and the counters the run
-// report reads. Called from the driver's debug callback, so it may run on any
-// thread — which is why the counters are atomic.
+// Routes the RHI's validation messages into the log. Rhi::Diagnostics has
+// already counted and captured the message by the time this runs; this decides
+// only how it is presented. Called from the driver's debug callback, so it may
+// run on any thread.
 void HandleRhiDiagnostic(Rhi::DiagnosticSeverity severity, std::string_view message)
 {
     LogSeverity logSeverity = LogSeverity::Info;
@@ -138,11 +139,9 @@ void HandleRhiDiagnostic(Rhi::DiagnosticSeverity severity, std::string_view mess
             break;
         case Rhi::DiagnosticSeverity::Warning:
             logSeverity = LogSeverity::Warning;
-            g_ValidationWarningCount.fetch_add(1, std::memory_order_relaxed);
             break;
         case Rhi::DiagnosticSeverity::Error:
             logSeverity = LogSeverity::Error;
-            g_ValidationErrorCount.fetch_add(1, std::memory_order_relaxed);
             break;
     }
 
@@ -161,7 +160,8 @@ struct Options
     std::string ReportPath; // write a JSON run report to this path
     bool bReportAutoPath = false;
     bool bStrictValidation = false; // exit non-zero on any validation error
-    bool bHeadless = false;         // TODO
+    Rhi::ValidationPolicy ValidationPolicy = Rhi::ValidationPolicy::Count;
+    bool bHeadless = false; // TODO
     int JobCount =
         -1; // -1 = default, 0 = SerialJobSystem, N>0 = SharedQueueJobSystem with N worker threads
 };
@@ -205,6 +205,8 @@ void PrintUsage()
                      "exiting\n"
                      "  --strict-validation     Exit non-zero if any Vulkan "
                      "validation error occurred\n"
+                     "  --validation-policy <p> ignore | count | failfast "
+                     "(default: count; failfast aborts on the first error)\n"
                      "  --headless              Run without a window "
                      "(reserved, not yet implemented)\n"
                      "  --jobs <N>              Worker thread count (0 = SerialJobSystem, "
@@ -285,6 +287,22 @@ Options ParseArgs(int argc, char** argv)
                 option.RequireNoValue();
                 options.bStrictValidation = true;
             }
+            else if (flag == "--validation-policy")
+            {
+                const std::string value = option.RequireValue();
+                if (value == "ignore")
+                    options.ValidationPolicy = Rhi::ValidationPolicy::Ignore;
+                else if (value == "count")
+                    options.ValidationPolicy = Rhi::ValidationPolicy::Count;
+                else if (value == "failfast")
+                    options.ValidationPolicy = Rhi::ValidationPolicy::FailFast;
+                else
+                {
+                    LogMsg(LogSeverity::Error, LogMain,
+                           "--validation-policy expects ignore, count or failfast, got: {}", value);
+                    ExitWithUsage(EXIT_FAILURE);
+                }
+            }
             else if (flag == "--headless")
             {
                 option.RequireNoValue();
@@ -305,15 +323,28 @@ Options ParseArgs(int argc, char** argv)
         ExitWithUsage(EXIT_FAILURE);
     }
 
+    // Ignore stops errors ever being counted, so --strict-validation would pass
+    // a run that had them. Rejected rather than silently preferred either way:
+    // in CI that combination reads as "validation is enforced" and is not.
+    if (options.bStrictValidation && options.ValidationPolicy == Rhi::ValidationPolicy::Ignore)
+    {
+        LogMsg(LogSeverity::Error, LogMain,
+               "--strict-validation cannot be combined with --validation-policy ignore: "
+               "no errors would be counted for it to act on");
+        ExitWithUsage(EXIT_FAILURE);
+    }
+
     return options;
 }
 
 class App
 {
 public:
-    App(IPlatform& platform, const Paths& paths, Options options, IJobSystem& jobSystem)
+    App(IPlatform& platform, const Paths& paths, Options options, IJobSystem& jobSystem,
+        Rhi::Diagnostics& diagnostics)
         : m_Platform(platform), m_Paths(paths), m_Options(std::move(options)),
-          m_JobSystem(jobSystem), m_RhiDevice(Rhi::CreateDevice(MakeDeviceDesc())),
+          m_JobSystem(jobSystem), m_Diagnostics(diagnostics),
+          m_RhiDevice(Rhi::CreateDevice(MakeDeviceDesc())),
           m_PhysicalDevice(Rhi::Vulkan::GetPhysicalDevice(*m_RhiDevice)),
           m_Device(Rhi::Vulkan::GetDevice(*m_RhiDevice)),
           m_Surface(Rhi::Vulkan::GetSurface(*m_RhiDevice)),
@@ -441,8 +472,7 @@ private:
         Rhi::DeviceDesc desc;
         desc.ApplicationName = "Vulkan App";
         desc.bEnableValidation = bEnableValidationLayers;
-        desc.MinDiagnosticSeverity = Rhi::DiagnosticSeverity::Info;
-        desc.OnDiagnosticMessage = &HandleRhiDiagnostic;
+        desc.pDiagnostics = &m_Diagnostics;
         desc.Requirements.bPresent = true;
         desc.Requirements.NativeWindowHandle = m_Platform.GetNativeWindowHandle();
         return desc;
@@ -609,8 +639,8 @@ private:
         const std::string DEFAULT_PATH = "tests/reports/report_";
         EnsureParentDirectoryExists(DEFAULT_PATH);
 
-        uint64_t validationErrors = g_ValidationErrorCount.load(std::memory_order_relaxed);
-        uint64_t validationWarnings = g_ValidationWarningCount.load(std::memory_order_relaxed);
+        uint64_t validationErrors = m_Diagnostics.ErrorCount();
+        uint64_t validationWarnings = m_Diagnostics.WarningCount();
         uint32_t drawCalls = m_OpaqueDrawCallCount + m_TransparentDrawCallCount;
         uint32_t batches = m_OpaqueBatchCount + m_TransparentBatchCount;
         uint32_t instances = m_OpaqueInstanceCount + m_TransparentInstanceCount;
@@ -2198,6 +2228,10 @@ private:
     Options m_Options;
     IJobSystem& m_JobSystem;
 
+    // Owned by main() rather than by the device, because the counts are read for
+    // --strict-validation after the device has been destroyed.
+    Rhi::Diagnostics& m_Diagnostics;
+
     // Owns the instance, debug messenger, surface, physical and logical devices,
     // graphics queue and the VMA allocator. Declared ahead of every GPU resource
     // below so that it is destroyed after all of them — the ordering the old
@@ -2288,6 +2322,14 @@ int main(int argc, char** argv)
 
     Options options = ParseArgs(argc, argv);
 
+    // Declared before pApp so that it outlives the device reporting into it, and
+    // so its counters are still readable for the --strict-validation check
+    // below, which runs after everything has been torn down.
+    Rhi::Diagnostics diagnostics(
+        Rhi::Diagnostics::Desc{.Policy = options.ValidationPolicy,
+                               .MinSeverity = Rhi::DiagnosticSeverity::Info,
+                               .OnMessage = &HandleRhiDiagnostic});
+
     // will be destroyed in reverse order of declaration. The platform must
     // outlive App: destroying it unloads the Vulkan library.
     std::unique_ptr<SdlPlatform> pPlatform = nullptr;
@@ -2323,7 +2365,7 @@ int main(int argc, char** argv)
 
         pPaths = std::make_unique<Paths>(options.ContentRoot);
 
-        pApp = std::make_unique<App>(*pPlatform, *pPaths, options, *pJobSystem);
+        pApp = std::make_unique<App>(*pPlatform, *pPaths, options, *pJobSystem, diagnostics);
         pApp->Run();
     }
     catch (const SDLException& e)
@@ -2348,11 +2390,33 @@ int main(int argc, char** argv)
     pPaths.reset();
     pPlatform.reset();
 
-    if (options.bStrictValidation && g_ValidationErrorCount.load(std::memory_order_relaxed) > 0)
+    // Everything above is destroyed by this point, so this covers teardown
+    // messages too — which is where the interesting ones tend to be, since a
+    // resource freed while still in use is only detectable at destruction.
+    const uint64_t validationErrors = diagnostics.ErrorCount();
+    const uint64_t validationWarnings = diagnostics.WarningCount();
+
+    if (validationErrors > 0 || validationWarnings > 0)
     {
-        LogMsg(LogSeverity::Error, LogMain,
-               "Strict validation failed: {} validation error(s) occurred",
-               g_ValidationErrorCount.load(std::memory_order_relaxed));
+        LogMsg(LogSeverity::Warning, LogDiagnostics, "{} error(s), {} warning(s)", validationErrors,
+               validationWarnings);
+
+        const std::vector<std::string> recent = diagnostics.RecentMessages();
+        const uint64_t dropped = diagnostics.DroppedMessageCount();
+        if (dropped > 0)
+            LogMsg(LogSeverity::Warning, LogDiagnostics,
+                   "  last {} message(s), {} earlier one(s) dropped:", recent.size(), dropped);
+        else
+            LogMsg(LogSeverity::Warning, LogDiagnostics, "  {} message(s):", recent.size());
+
+        for (const std::string& message : recent)
+            LogMsg(LogSeverity::Warning, LogDiagnostics, "    {}", message);
+    }
+
+    if (options.bStrictValidation && validationErrors > 0)
+    {
+        LogMsg(LogSeverity::Error, LogDiagnostics,
+               "Strict validation failed: {} validation error(s) occurred", validationErrors);
         return EXIT_FAILURE;
     }
 

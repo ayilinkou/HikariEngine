@@ -3,6 +3,7 @@
 #include <memory>
 
 #include <rhi/DeviceDesc.h>
+#include <rhi/Diagnostics.h>
 
 namespace Rhi
 {
@@ -25,6 +26,10 @@ public:
     IDevice& operator=(IDevice&&) = delete;
 
     virtual const DeviceCaps& GetCaps() const = 0;
+
+    // The device's validation counters and policy. Always valid: a device given
+    // no Diagnostics creates its own rather than returning null.
+    virtual Diagnostics& GetDiagnostics() = 0;
 
     // Blocks until the device has finished everything submitted to it. A
     // shutdown and resize tool, not a synchronisation primitive — anything in

@@ -1,6 +1,7 @@
 engine_module(
   RHI
   SOURCES
+  src/Diagnostics.cpp
   src/vulkan/VulkanConversions.cpp
   src/vulkan/QueueFamilies.cpp
   src/vulkan/VulkanDevice.cpp

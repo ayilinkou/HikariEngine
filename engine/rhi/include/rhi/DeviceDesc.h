@@ -1,9 +1,8 @@
 #pragma once
 
-#include <cstdint>
-#include <functional>
 #include <string>
-#include <string_view>
+
+#include <rhi/Diagnostics.h>
 
 namespace Rhi
 {
@@ -25,16 +24,6 @@ struct DeviceRequirements
     void* NativeWindowHandle = nullptr;
 };
 
-// Deliberately coarser than any one backend's validation severity scale. The
-// backends have more levels than this (Vulkan adds a verbose tier below Info),
-// and mapping those down loses nothing a caller acts on differently.
-enum class DiagnosticSeverity : uint8_t
-{
-    Info,
-    Warning,
-    Error,
-};
-
 struct DeviceDesc
 {
     std::string ApplicationName = "VulkanApp";
@@ -45,17 +34,15 @@ struct DeviceDesc
     // the caller decides rather than this defaulting to the build type.
     bool bEnableValidation = false;
 
-    // Messages below this are dropped before the callback is invoked.
-    DiagnosticSeverity MinDiagnosticSeverity = DiagnosticSeverity::Info;
-
-    // Invoked from the backend's debug callback, which means it can be called
-    // from any thread the driver chooses and re-entrantly during a device call.
-    // Keep implementations short and thread-safe.
+    // Where the backend reports validation messages. Not owned, and must outlive
+    // the device: the debug messenger is destroyed after the logical device and
+    // the allocator, so messages arrive during teardown. The caller also usually
+    // wants the counts after the device is gone — a non-zero exit for
+    // --strict-validation is decided once everything has been torn down.
     //
-    // The message is already composed; the caller's job is to route it. Taking
-    // a callback rather than owning a logger keeps this module free of any
-    // opinion about how the application reports things.
-    std::function<void(DiagnosticSeverity, std::string_view)> OnDiagnosticMessage;
+    // Null is allowed and means the device makes its own, so that GetDiagnostics()
+    // is always valid; a caller that never reads the counts need not care.
+    Diagnostics* pDiagnostics = nullptr;
 };
 
 // What a device turned out to be able to do, as opposed to what was asked of

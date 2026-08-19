@@ -1,12 +1,13 @@
 #pragma once
 
 #include <cstdint>
-#include <functional>
+#include <memory>
 #include <string_view>
 
 #include "vulkan/vulkan_raii.hpp"
 
 #include <rhi/DeviceDesc.h>
+#include <rhi/Diagnostics.h>
 #include <rhi/IDevice.h>
 #include <rhi/RhiTypes.h>
 #include <rhi/vulkan/VulkanAllocator.h>
@@ -21,6 +22,7 @@ public:
     explicit VulkanDevice(const DeviceDesc& desc);
 
     const DeviceCaps& GetCaps() const override { return m_Caps; }
+    Diagnostics& GetDiagnostics() override { return *m_pDiagnostics; }
     void WaitIdle() override;
 
     // Everything below is reachable only through <rhi/vulkan/VulkanNative.h>,
@@ -69,6 +71,16 @@ private:
     // Declaration order is destruction order reversed, and both matter here.
     // The allocator sits after the device so that it is destroyed first, and the
     // surface after the instance that has to outlive it.
+    //
+    // Diagnostics comes first of all, because m_DebugMessenger below is
+    // destroyed second-to-last and the driver reports validation messages
+    // raised while the allocator and the logical device are being torn down.
+    // Anything the callback touches has to still be alive at that point.
+    std::unique_ptr<Diagnostics> m_OwnedDiagnostics;
+
+    // Either the caller's or m_OwnedDiagnostics; never null after construction.
+    Diagnostics* m_pDiagnostics = nullptr;
+
     vk::raii::Context m_Context;
     vk::raii::Instance m_Instance = nullptr;
     vk::raii::DebugUtilsMessengerEXT m_DebugMessenger = nullptr;
@@ -81,10 +93,5 @@ private:
     QueueFamilies m_QueueFamilies;
 
     DeviceCaps m_Caps{};
-
-    // Copied rather than referenced: the callback outlives the DeviceDesc the
-    // caller passed in, which is routinely a temporary.
-    std::function<void(DiagnosticSeverity, std::string_view)> m_OnDiagnosticMessage;
-    DiagnosticSeverity m_MinDiagnosticSeverity = DiagnosticSeverity::Info;
 };
 } // namespace Rhi::Vulkan

@@ -2,7 +2,7 @@
 
 #include <rhi/Barrier.h>
 #include <rhi/BufferDesc.h>
-#include <rhi/DeviceDesc.h>
+#include <rhi/Diagnostics.h>
 #include <rhi/RhiTypes.h>
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>

@@ -229,7 +229,7 @@ Naming, as used throughout the codebase:
 | Types, functions, methods | PascalCase | `CloudSystem`, `RecordDispatch` |
 | Public/struct data members | PascalCase | `Options::ScenePath`, `LightData::Position` |
 | Private members | `m_` + PascalCase | `m_SwapchainExtent` |
-| Statics / globals | `s_` / `g_` | `s_Instance`, `g_ValidationErrorCount` |
+| Statics / globals | `s_` / `g_` | `s_Instance`, `g_bShouldClose` |
 | Locals, parameters | camelCase | `frameIndex`, `createInfo` |
 | `constexpr` constants | `kPascalCase` or `UPPER_SNAKE` | `kCameraPresets`, `MAX_INSTANCE_COUNT` |
 | Booleans | `b` prefix | `bFixedDt`, `m_bCursorVisible` |

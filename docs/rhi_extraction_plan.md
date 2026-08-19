@@ -365,13 +365,16 @@ engine/rhi/
 │   ├── ICommandList.h              # barriers + copies in Stage 5; draws in Stage 8
 │   ├── UploadContext.h             # batched staging, one fence
 │   ├── PipelineCache.h             # opaque blob on disk
-│   └── Diagnostics.h               # validation policy + counters
+│   └── Diagnostics.h               # DiagnosticSeverity, ValidationPolicy, counters, capture
 │
 ├── include/rhi/vulkan/             # TRANSITIONAL + the sanctioned escape hatch (D9)
 │   ├── VulkanNative.h              # survives Stage 5 — ImGui/editor only
 │   ├── PipelineBuilder.h           # stays Vulkan-shaped through Stage 5 (D8)
 │   ├── ComputePipelineBuilder.h
 │   └── DescriptorAllocator.h       # deliberately Vulkan-only (D7)
+│
+├── src/                            # backend-neutral implementation
+│   └── Diagnostics.cpp             # counting/policy/capture: no backend in it (R7)
 │
 └── src/vulkan/
     ├── VulkanDevice.{h,cpp}        # instance, messenger, physical, logical, queues, VMA
@@ -380,7 +383,6 @@ engine/rhi/
     ├── VulkanBuffer.h  VulkanTexture.h     # pool payloads; may use vk::raii freely
     ├── VulkanUploadContext.cpp
     ├── VulkanPipelineCache.cpp
-    ├── VulkanDiagnostics.cpp
     ├── VMAImpl.cpp                 # moved from src/
     └── PipelineBuilder.cpp  ComputePipelineBuilder.cpp  DescriptorAllocator.cpp
 ```
@@ -481,7 +483,7 @@ are the ones later steps need to read.
 | R4 — Dissolve `Utility.h` | ✅ done |
 | R5 — Extract `Rhi::Device` | ✅ done |
 | R6 — Enumerate all queue families | ✅ done |
-| R7 — `Rhi::Diagnostics` | not started |
+| R7 — `Rhi::Diagnostics` | ✅ done |
 | R8 — `Rhi::ICommandList` and the neutral barrier API | not started |
 | R9 — Buffers become handles | not started |
 | R10 — Textures, views and samplers become handles | not started |
@@ -750,6 +752,59 @@ are the ones later steps need to read.
   `g_ValidationErrorCount` working for the run report until Stage 7 moves it.
 - **Verify:** `--strict-validation` still exits non-zero on an injected error. `FailFast`
   aborts at the first error with the message printed. Headless report identical.
+- **As built:** three departures from the plan above, one of them a bug the step exposed.
+  - **`Diagnostics` is injected by the application, not owned by the device.** The **Do**
+    text says "owned by the device", which cannot work as written: `main` reads the error
+    count for `--strict-validation` *after* `pApp.reset()` has destroyed the App and with it
+    the device. So `main` owns a `Rhi::Diagnostics` declared before `pApp`, constructor-injects
+    it into `App` (a fifth parameter, alongside `IPlatform`/`IJobSystem`), and `DeviceDesc`
+    carries a non-owning `Diagnostics*`. The pointer may be null, in which case the device
+    creates its own, so `IDevice::GetDiagnostics()` is never invalid — Stage 6's headless
+    tests can create a device without caring about counters. Note this also means the
+    `--strict-validation` check now covers teardown messages, which the run report does not:
+    `WriteReport()` runs before `Shutdown()` and always did, which is what keeps the report
+    comparable to the committed baseline.
+  - **The counting/policy/capture code is neutral — `src/Diagnostics.cpp`, not
+    `src/vulkan/VulkanDiagnostics.cpp`** as §3's tree had it. Nothing about incrementing a
+    counter, comparing a threshold or keeping a ring of recent strings is backend-specific,
+    and putting it outside `src/vulkan/` is what lets `tests/unit/rhi/DiagnosticsTests.cpp`
+    reach it with no device and no ICD. That matters more here than the file location
+    suggests: R5 already recorded that the baseline run produces zero errors *and* zero
+    warnings, so a clean automated run proves nothing about this path, and the unit tests are
+    the only repeatable coverage it has. §3's tree gained a neutral `src/` section
+    accordingly. `VulkanDevice` keeps only the parts that are genuinely Vulkan — the
+    messenger, and `DebugCallback` translating a `VkDebugUtilsMessengerCallbackDataEXT` into
+    a neutral severity plus a string.
+  - **The globals are gone, rather than kept until Stage 7.** The **Do** text says keep
+    `g_ValidationErrorCount` working for the run report; there was no reason to, since the
+    report's JSON keys are unchanged and `App` already holds the `Diagnostics` reference it
+    needs. `CLAUDE.md`'s naming table cited `g_ValidationErrorCount` as its example of a
+    global and now cites `g_bShouldClose`.
+  - **The old callback was being invoked after its own destruction.** `m_OnDiagnosticMessage`
+    was the *first* member of `VulkanDevice` declared, so the first destroyed, while
+    `m_DebugMessenger` is declared second and destroyed second-to-last — after the allocator
+    and the logical device. Any validation message raised during device teardown therefore
+    called a destroyed `std::function`. It never misbehaved because the stored callable was a
+    plain function pointer sitting in the small-object buffer, so the bytes outlived the
+    object. The replacement members are declared *above* `m_Context` for exactly this reason,
+    and the ordering comment there now says so — a fallback `unique_ptr<Diagnostics>` in the
+    old position would have reproduced the same bug with a real destructor behind it.
+  - **`--validation-policy <ignore|count|failfast>`** was added, defaulting to `count`, so
+    `FailFast` is reachable without recompiling. `--strict-validation` combined with `ignore`
+    is rejected at parse time: nothing would be counted, so the run would exit 0 with errors
+    on the ground while reading in CI as "validation is enforced".
+  - **The messenger's severity flags are derived from `MinSeverity`** so the driver filters
+    before the callback. The callback keeps its own threshold check as well, because that is
+    what avoids paying `std::format` for a message about to be discarded. Verbose is never
+    requested: it collapses to `Info` on the neutral scale, so asking for it would multiply
+    message volume with nothing a caller could distinguish.
+- **Verified deliberately:** precommit green (121 unit tests, 9 of them new); the baseline
+  report is byte-identical and the screenshot hash matches. Then, because none of that
+  touches the diagnostic path, the R5 hand check was repeated — graphics queue named with
+  `ObjectType::eBuffer` — confirming the message text is unchanged, the error reaches the run
+  report, `--strict-validation` exits 1, `--validation-policy failfast` aborts at the first
+  error with the message printed and before `Init()` completes, `ignore` reports nothing, and
+  both malformed-flag cases are rejected. Then reverted.
 - **Size:** S · **Needs:** R5 · **Was:** step 28
 
 ### R8 — `Rhi::ICommandList` and the neutral barrier API

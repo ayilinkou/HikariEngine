@@ -42,8 +42,8 @@ std::string DescribeFamily(const QueueFamilies& families, QueueType role)
 } // namespace
 
 VulkanDevice::VulkanDevice(const DeviceDesc& desc)
-    : m_OnDiagnosticMessage(desc.OnDiagnosticMessage),
-      m_MinDiagnosticSeverity(desc.MinDiagnosticSeverity)
+    : m_OwnedDiagnostics(desc.pDiagnostics ? nullptr : std::make_unique<Diagnostics>()),
+      m_pDiagnostics(desc.pDiagnostics ? desc.pDiagnostics : m_OwnedDiagnostics.get())
 {
     CreateInstance(desc);
     SetupDebugMessenger(desc);
@@ -68,8 +68,7 @@ void VulkanDevice::WaitIdle()
 
 void VulkanDevice::ReportDiagnostic(DiagnosticSeverity severity, std::string_view message) const
 {
-    if (m_OnDiagnosticMessage)
-        m_OnDiagnosticMessage(severity, message);
+    m_pDiagnostics->Report(severity, message);
 }
 
 VKAPI_ATTR vk::Bool32 VKAPI_CALL VulkanDevice::DebugCallback(
@@ -80,9 +79,11 @@ VKAPI_ATTR vk::Bool32 VKAPI_CALL VulkanDevice::DebugCallback(
     if (!device)
         return vk::False;
 
+    // Filtered here as well as by the messenger's severity flags, so that a
+    // message destined to be dropped does not pay for the std::format below.
     // The comparison is on the raw bit values, which the specification orders
     // verbose < info < warning < error, so this reads as a threshold.
-    if (severity < ToVk(device->m_MinDiagnosticSeverity))
+    if (severity < ToVk(device->m_pDiagnostics->MinSeverity()))
         return vk::False;
 
     device->ReportDiagnostic(FromVk(severity), std::format("Type: {}. Msg: {}", vk::to_string(type),
@@ -207,10 +208,17 @@ void VulkanDevice::SetupDebugMessenger(const DeviceDesc& desc)
     if (!desc.bEnableValidation)
         return;
 
+    // Ask the driver only for what the threshold admits, so the filtering
+    // happens before the callback rather than inside it. Verbose is never
+    // requested: it collapses to Info on the neutral scale, and asking for it
+    // would multiply the message volume for nothing a caller can distinguish.
     vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(
-        vk::DebugUtilsMessageSeverityFlagBitsEXT::eError |
-        vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-        vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo);
+        vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
+    if (m_pDiagnostics->MinSeverity() <= DiagnosticSeverity::Warning)
+        severityFlags |= vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning;
+    if (m_pDiagnostics->MinSeverity() <= DiagnosticSeverity::Info)
+        severityFlags |= vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo;
+
     vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(
         vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
         vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance);
