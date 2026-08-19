@@ -6,10 +6,10 @@
 			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
 		</model>
 	</entity>
-	<entitty name="Dir Light">
+	<entity name="Dir Light">
 		<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
 		<light type="1" intensity="1" direction="0.408248 -0.816497 0.408248" color="1 1 1" />
-	</entitty>
+	</entity>
 	<entity name="Point Light">
 		<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
 		<light type="0" intensity="20" position="0 1 0" color="1 0 0" />
