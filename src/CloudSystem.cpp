@@ -1,5 +1,7 @@
 #include "CloudSystem.h"
 #include <core/Log.h>
+#include <rhi/BarrierPresets.h>
+#include <rhi/vulkan/BarrierUtil.h>
 #include <rhi/vulkan/CommandListUtil.h>
 #include <rhi/vulkan/ComputePipelineBuilder.h>
 #include <rhi/vulkan/DebugNames.h>
@@ -230,28 +232,15 @@ void CloudSystem::WriteDescriptorSets()
     }
 }
 
-void CloudSystem::RecordDispatch(vk::raii::CommandBuffer& cmd, uint32_t frameIndex,
-                                 vk::raii::DescriptorSet& globalSet,
-                                 vk::raii::DescriptorSet& depthSet)
+Rhi::BarrierCounts CloudSystem::RecordDispatch(vk::raii::CommandBuffer& cmd, uint32_t frameIndex,
+                                               vk::raii::DescriptorSet& globalSet,
+                                               vk::raii::DescriptorSet& depthSet)
 {
     cmd.begin({});
 
-    vk::ImageMemoryBarrier2 toGeneral{
-        .srcStageMask = vk::PipelineStageFlagBits2::eTopOfPipe,
-        .srcAccessMask = vk::AccessFlagBits2::eNone,
-        .dstStageMask = vk::PipelineStageFlagBits2::eComputeShader,
-        .dstAccessMask = vk::AccessFlagBits2::eShaderWrite,
-        .oldLayout = vk::ImageLayout::eUndefined,
-        .newLayout = vk::ImageLayout::eGeneral,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = m_OutputTextures[frameIndex].GetImage(),
-        .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-    };
-
-    vk::DependencyInfo toGeneralDependencyInfo{.imageMemoryBarrierCount = 1u,
-                                               .pImageMemoryBarriers = &toGeneral};
-    cmd.pipelineBarrier2(toGeneralDependencyInfo);
+    Rhi::BarrierCounts barrierCounts =
+        Rhi::Vulkan::RecordBarrier(*cmd, m_OutputTextures[frameIndex].GetImage(),
+                                   Rhi::BarrierPresets::UndefinedToUnorderedAccess());
 
     cmd.bindPipeline(vk::PipelineBindPoint::eCompute, *m_Pipeline);
     std::array<vk::DescriptorSet, 3> sets = {*globalSet, *depthSet, *m_DescriptorSets[frameIndex]};
@@ -262,24 +251,13 @@ void CloudSystem::RecordDispatch(vk::raii::CommandBuffer& cmd, uint32_t frameInd
 
     cmd.dispatch((m_OutputWidth + 7) / 8, (m_OutputHeight + 7) / 8, 1);
 
-    vk::ImageMemoryBarrier2 toRead{
-        .srcStageMask = vk::PipelineStageFlagBits2::eComputeShader,
-        .srcAccessMask = vk::AccessFlagBits2::eShaderWrite,
-        .dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader,
-        .dstAccessMask = vk::AccessFlagBits2::eShaderRead,
-        .oldLayout = vk::ImageLayout::eGeneral,
-        .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = m_OutputTextures[frameIndex].GetImage(),
-        .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-    };
-
-    vk::DependencyInfo toReadDependencyInfo{.imageMemoryBarrierCount = 1u,
-                                            .pImageMemoryBarriers = &toRead};
-    cmd.pipelineBarrier2(toReadDependencyInfo);
+    barrierCounts +=
+        Rhi::Vulkan::RecordBarrier(*cmd, m_OutputTextures[frameIndex].GetImage(),
+                                   Rhi::BarrierPresets::UnorderedAccessToShaderResource());
 
     cmd.end();
+
+    return barrierCounts;
 }
 
 void CloudSystem::CreateNoiseTexture()
@@ -320,20 +298,8 @@ void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
 
     vk::raii::CommandBuffer cmd = BeginSingleTimeCommand(m_Device, commandPool);
 
-    vk::ImageMemoryBarrier2 toGeneral{
-        .srcStageMask = vk::PipelineStageFlagBits2::eTopOfPipe,
-        .srcAccessMask = vk::AccessFlagBits2::eNone,
-        .dstStageMask = vk::PipelineStageFlagBits2::eComputeShader,
-        .dstAccessMask = vk::AccessFlagBits2::eShaderWrite,
-        .oldLayout = vk::ImageLayout::eUndefined,
-        .newLayout = vk::ImageLayout::eGeneral,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = m_PerlinWorleyImage.Image,
-        .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-    };
-    vk::DependencyInfo dep1{.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &toGeneral};
-    cmd.pipelineBarrier2(dep1);
+    Rhi::Vulkan::RecordBarrier(*cmd, m_PerlinWorleyImage,
+                               Rhi::BarrierPresets::UndefinedToUnorderedAccess());
 
     cmd.bindPipeline(vk::PipelineBindPoint::eCompute, *m_BakePipeline);
     cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute, *m_BakePipelineLayout, 0,
@@ -346,20 +312,11 @@ void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
     cmd.dispatch(s_NOISE_RES / 4, s_NOISE_RES / 4,
                  s_NOISE_RES / 4); // matches numthreads(4,4,4)
 
-    vk::ImageMemoryBarrier2 toRead{
-        .srcStageMask = vk::PipelineStageFlagBits2::eComputeShader,
-        .srcAccessMask = vk::AccessFlagBits2::eShaderWrite,
-        .dstStageMask = vk::PipelineStageFlagBits2::eComputeShader,
-        .dstAccessMask = vk::AccessFlagBits2::eShaderRead,
-        .oldLayout = vk::ImageLayout::eGeneral,
-        .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = m_PerlinWorleyImage.Image,
-        .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-    };
-    vk::DependencyInfo dep2{.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &toRead};
-    cmd.pipelineBarrier2(dep2);
+    // The bake's result is read by another dispatch, not by the main pass, so
+    // the destination stage is compute rather than the preset's default.
+    Rhi::Vulkan::RecordBarrier(
+        *cmd, m_PerlinWorleyImage,
+        Rhi::BarrierPresets::UnorderedAccessToShaderResource(Rhi::PipelineStage::ComputeStage));
 
     // TODO: move to a read only image
     EndSingleTimeCommand(cmd, computeQueue);

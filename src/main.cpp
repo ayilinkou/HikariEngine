@@ -25,12 +25,12 @@
 #include <platform/Paths.h>
 #include <platform/SdlPlatform.h>
 
+#include <rhi/BarrierPresets.h>
 #include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/IDevice.h>
 #include <rhi/vulkan/AllocatedBuffer.h>
 #include <rhi/vulkan/AllocatedImage.h>
-#include <rhi/vulkan/Barrier.h>
 #include <rhi/vulkan/BarrierUtil.h>
 #include <rhi/vulkan/BufferUtil.h>
 #include <rhi/vulkan/Cubemap.h>
@@ -634,6 +634,20 @@ private:
         CreateQuadBuffers();
     }
 
+    // The stamp that names the auto-pathed files of one capture.
+    //
+    // Taken when the first of those files is written and reused by the rest, so
+    // that a screenshot and the report describing the same moment share a name
+    // — asking the clock separately puts them a second apart whenever the two
+    // writes straddle a second boundary.
+    const std::string& CaptureTimestamp()
+    {
+        if (m_CaptureTimestamp.empty())
+            m_CaptureTimestamp = GenerateTimestamp();
+
+        return m_CaptureTimestamp;
+    }
+
     void WriteReport()
     {
         const std::string DEFAULT_PATH = "tests/reports/report_";
@@ -644,6 +658,12 @@ private:
         uint32_t drawCalls = m_OpaqueDrawCallCount + m_TransparentDrawCallCount;
         uint32_t batches = m_OpaqueBatchCount + m_TransparentBatchCount;
         uint32_t instances = m_OpaqueInstanceCount + m_TransparentInstanceCount;
+        // The last frame's counts, as the draw call and batch numbers above also
+        // are. Worth knowing when comparing two reports: --screenshot captures
+        // on the final frame, and the copy it inserts costs one extra barrier
+        // and one extra call, so a captured run legitimately reads one higher
+        // than an uncaptured one.
+        Rhi::BarrierCounts barrierCounts = FrameBarrierCounts();
 
         float meanFrameTimeMs = 0.f;
         float p99FrameTimeMs = 0.f;
@@ -663,7 +683,7 @@ private:
         }
 
         std::string path =
-            m_Options.bReportAutoPath ? DEFAULT_PATH + GenerateTimestamp() : m_Options.ReportPath;
+            m_Options.bReportAutoPath ? DEFAULT_PATH + CaptureTimestamp() : m_Options.ReportPath;
         path = EnsureExtension(path, ".json");
         std::ofstream file(path);
         if (!file.is_open())
@@ -679,6 +699,8 @@ private:
              << "  \"drawCalls\": " << drawCalls << ",\n"
              << "  \"batches\": " << batches << ",\n"
              << "  \"instances\": " << instances << ",\n"
+             << "  \"barriers\": " << barrierCounts.Barriers << ",\n"
+             << "  \"barrierCalls\": " << barrierCounts.Calls << ",\n"
              << "  \"meanFrameTimeMs\": " << meanFrameTimeMs << ",\n"
              << "  \"p99FrameTimeMs\": " << p99FrameTimeMs << "\n"
              << "}\n";
@@ -724,7 +746,7 @@ private:
             pixels[i * 4 + 3] = src[i * 4 + 3]; // A <- A
         }
 
-        std::string path = m_Options.bScreenshotAutoPath ? DEFAULT_PATH + GenerateTimestamp()
+        std::string path = m_Options.bScreenshotAutoPath ? DEFAULT_PATH + CaptureTimestamp()
                                                          : m_Options.ScreenshotPath;
         path = EnsureExtension(path, ".png");
         const int writeResult =
@@ -880,6 +902,8 @@ private:
 
         {
             // Timer recordTimer("Command buffer recording");
+            m_MainThreadBarrierCounts = {};
+
             m_JobSystem.Submit([&] { RecordOpaqueCommandBuffer(); });
             m_JobSystem.Submit([&] { RecordTransparentCommandBuffer(); });
 
@@ -892,6 +916,7 @@ private:
             RecordSwapImageToPresentLayout(imageIndex, captureScreenshot);
 
             m_JobSystem.Wait();
+            LogBarrierCounts();
         }
 
         // TODO: even when ImGui is not showing, it's being submitted
@@ -1377,6 +1402,33 @@ private:
         }
     }
 
+    // What the frame's three recording threads produced between them. Summed on
+    // demand rather than accumulated into one member, because two of the three
+    // are written from job threads.
+    Rhi::BarrierCounts FrameBarrierCounts() const
+    {
+        Rhi::BarrierCounts total = m_OpaqueBarrierCounts;
+        total += m_TransparentBarrierCounts;
+        total += m_MainThreadBarrierCounts;
+        return total;
+    }
+
+    // Reports the frame's barrier counts the first time they are seen and
+    // whenever they change afterwards. Logging them every frame would drown the
+    // log, and never logging them would make a change in the barriers — the
+    // easiest thing to get wrong here and the hardest to see — invisible
+    // between runs of the report.
+    void LogBarrierCounts()
+    {
+        const Rhi::BarrierCounts counts = FrameBarrierCounts();
+        if (counts == m_LoggedBarrierCounts)
+            return;
+
+        LogMsg(LogSeverity::Info, LogRenderer, "Barriers recorded this frame: {} over {} calls",
+               counts.Barriers, counts.Calls);
+        m_LoggedBarrierCounts = counts;
+    }
+
     void RecordOpaqueCommandBuffer()
     {
         FrameData& frame = m_Frames[m_FrameIndex];
@@ -1386,10 +1438,13 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        RecordImageBarrier(cmd, frame.DepthTexture.GetImage(),
-                           Barriers::UndefinedToDepthAttachment());
-        RecordImageBarrier(cmd, frame.OpaqueTexture.GetImage(),
-                           Barriers::UndefinedToColorAttachment());
+        const std::array openingBarriers{
+            Rhi::Vulkan::ImageBarrier{.Image = frame.DepthTexture.GetImage(),
+                                      .Barrier =
+                                          Rhi::BarrierPresets::UndefinedToDepthStencilWrite()},
+            Rhi::Vulkan::ImageBarrier{.Image = frame.OpaqueTexture.GetImage(),
+                                      .Barrier = Rhi::BarrierPresets::UndefinedToRenderTarget()}};
+        m_OpaqueBarrierCounts = Rhi::Vulkan::RecordBarriers(*cmd, openingBarriers);
 
         vk::ClearValue clearColor = vk::ClearColorValue(SKY_COLOR.r, SKY_COLOR.g, SKY_COLOR.b, 1.f);
         vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.f, 0);
@@ -1466,9 +1521,9 @@ private:
         FrameData& frame = m_Frames[m_FrameIndex];
         frame.CloudCommandPool.reset();
 
-        m_CloudSystem->RecordDispatch(frame.CloudCommandBuffer, m_FrameIndex,
-                                      frame.GlobalBufferDescriptorSet,
-                                      frame.DepthBufferDescriptorSet);
+        m_MainThreadBarrierCounts += m_CloudSystem->RecordDispatch(
+            frame.CloudCommandBuffer, m_FrameIndex, frame.GlobalBufferDescriptorSet,
+            frame.DepthBufferDescriptorSet);
     }
 
     void RecordTransparentCommandBuffer()
@@ -1480,12 +1535,15 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        RecordImageBarrier(cmd, frame.AccumTexture.GetImage(),
-                           Barriers::UndefinedToColorAttachment());
-        RecordImageBarrier(cmd, frame.RevealageTexture.GetImage(),
-                           Barriers::UndefinedToColorAttachment());
-        RecordImageBarrier(cmd, frame.DepthTexture.GetImage(),
-                           Barriers::DepthAttachmentToShaderRead());
+        const std::array openingBarriers{
+            Rhi::Vulkan::ImageBarrier{.Image = frame.AccumTexture.GetImage(),
+                                      .Barrier = Rhi::BarrierPresets::UndefinedToRenderTarget()},
+            Rhi::Vulkan::ImageBarrier{.Image = frame.RevealageTexture.GetImage(),
+                                      .Barrier = Rhi::BarrierPresets::UndefinedToRenderTarget()},
+            Rhi::Vulkan::ImageBarrier{
+                .Image = frame.DepthTexture.GetImage(),
+                .Barrier = Rhi::BarrierPresets::DepthStencilWriteToShaderResource()}};
+        m_TransparentBarrierCounts = Rhi::Vulkan::RecordBarriers(*cmd, openingBarriers);
 
         vk::ClearValue accumClearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 0.f);
         vk::ClearValue revealageClearColor = vk::ClearColorValue(1.f, 0.f, 0.f, 0.f);
@@ -1558,12 +1616,17 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        RecordImageBarrier(cmd, frame.OpaqueTexture.GetImage(),
-                           Barriers::ColorAttachmentToShaderRead());
-        RecordImageBarrier(cmd, frame.AccumTexture.GetImage(),
-                           Barriers::ColorAttachmentToShaderRead());
-        RecordImageBarrier(cmd, frame.RevealageTexture.GetImage(),
-                           Barriers::ColorAttachmentToShaderRead());
+        const std::array openingBarriers{
+            Rhi::Vulkan::ImageBarrier{.Image = frame.OpaqueTexture.GetImage(),
+                                      .Barrier =
+                                          Rhi::BarrierPresets::RenderTargetToShaderResource()},
+            Rhi::Vulkan::ImageBarrier{.Image = frame.AccumTexture.GetImage(),
+                                      .Barrier =
+                                          Rhi::BarrierPresets::RenderTargetToShaderResource()},
+            Rhi::Vulkan::ImageBarrier{.Image = frame.RevealageTexture.GetImage(),
+                                      .Barrier =
+                                          Rhi::BarrierPresets::RenderTargetToShaderResource()}};
+        m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarriers(*cmd, openingBarriers);
 
         vk::ClearValue clearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 1.f);
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
@@ -1609,15 +1672,10 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        constexpr ImageBarrierDesc barrierDesc{
-            .srcStage = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            .srcAccess = vk::AccessFlagBits2::eColorAttachmentWrite,
-            .dstStage = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            .dstAccess = vk::AccessFlagBits2::eColorAttachmentRead,
-            .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
-            .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
-            .aspect = vk::ImageAspectFlagBits::eColor};
-        RecordImageBarrier(cmd, m_SwapImages[imageIndex], barrierDesc);
+        // ImGui draws over the composited frame with loadOp eLoad, so the
+        // composite pass's writes have to be visible to this pass's load.
+        m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
+            *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::PreserveRenderTarget());
 
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
             .imageView = m_SwapImageViews[imageIndex],
@@ -1646,8 +1704,8 @@ private:
         vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].DrawLayoutCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
-        RecordImageBarrier(cmd, m_SwapImages[imageIndex],
-                           Barriers::AcquiredSwapchainToColorAttachment());
+        m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
+            *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::AcquiredSwapchainToRenderTarget());
         cmd.end();
     }
 
@@ -1661,9 +1719,9 @@ private:
         if (captureScreenshot)
         {
             // Copy out the composited frame while it is still safely between
-            // acquire and present (see ColorAttachmentToTransferSrc()).
-            RecordImageBarrier(cmd, m_SwapImages[imageIndex],
-                               Barriers::ColorAttachmentToTransferSrc());
+            // acquire and present (see RenderTargetToCopySrc()).
+            m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
+                *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::RenderTargetToCopySrc());
 
             const vk::BufferImageCopy region{
                 .bufferOffset = 0,
@@ -1678,11 +1736,13 @@ private:
             cmd.copyImageToBuffer(m_SwapImages[imageIndex], vk::ImageLayout::eTransferSrcOptimal,
                                   m_ScreenshotStagingBuffer.Buffer, region);
 
-            RecordImageBarrier(cmd, m_SwapImages[imageIndex], Barriers::TransferSrcToPresent());
+            m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
+                *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::CopySrcToPresent());
         }
         else
         {
-            RecordImageBarrier(cmd, m_SwapImages[imageIndex], Barriers::ColorAttachmentToPresent());
+            m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
+                *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::RenderTargetToPresent());
         }
 
         cmd.end();
@@ -2298,6 +2358,19 @@ private:
     float m_DisplayFrameTime = 0.f;
     float m_DisplayFPS = 0.f;
     bool m_bShutdown = false;
+
+    // Empty until the first auto-pathed file of a capture is written. See
+    // CaptureTimestamp().
+    std::string m_CaptureTimestamp;
+
+    // Barriers recorded for the current frame, split by the thread that records
+    // them: the opaque and transparent passes are recorded on job threads, so
+    // each owns its own counters rather than sharing one set. Everything else
+    // is recorded on the main thread and shares the third.
+    Rhi::BarrierCounts m_OpaqueBarrierCounts;
+    Rhi::BarrierCounts m_TransparentBarrierCounts;
+    Rhi::BarrierCounts m_MainThreadBarrierCounts;
+    Rhi::BarrierCounts m_LoggedBarrierCounts;
 
     // Used in WriteReport()
     uint32_t m_OpaqueDrawCallCount = 0;

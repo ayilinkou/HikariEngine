@@ -6,9 +6,9 @@
 #include "vulkan/vulkan.hpp"
 #include <core/Log.h>
 
+#include <rhi/BarrierPresets.h>
 #include <rhi/vulkan/AllocatedBuffer.h>
 #include <rhi/vulkan/AllocatedImage.h>
-#include <rhi/vulkan/Barrier.h>
 #include <rhi/vulkan/BarrierUtil.h>
 #include <rhi/vulkan/BufferUtil.h>
 #include <rhi/vulkan/CommandListUtil.h>
@@ -130,11 +130,13 @@ std::shared_ptr<Cubemap> CubemapLoader::Load(const CubemapCreateInfo& createInfo
                          std::format("{} Cubemap Device allocation", createInfo.Name).c_str());
 
     auto cmd = BeginSingleTimeCommand(m_Device, m_CommandPool);
-    RecordImageBarrier(cmd, cubemapImage.Image, Barriers::UndefinedToTransferDst(faceCount));
+    Rhi::Vulkan::RecordBarrier(*cmd, cubemapImage.Image,
+                               Rhi::BarrierPresets::UndefinedToCopyDst(faceCount));
     CopyBufferToImage(cmd, stagingBuffer.Buffer, cubemapImage.Image,
                       static_cast<uint32_t>(faceData.Width), static_cast<uint32_t>(faceData.Height),
                       faceCount);
-    RecordImageBarrier(cmd, cubemapImage.Image, Barriers::TransferDstToShaderRead(faceCount));
+    Rhi::Vulkan::RecordBarrier(*cmd, cubemapImage.Image,
+                               Rhi::BarrierPresets::CopyDstToShaderResource(faceCount));
     EndSingleTimeCommand(cmd, m_TransferQueue);
 
     vk::raii::ImageView imageView =

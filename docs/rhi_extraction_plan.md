@@ -484,7 +484,7 @@ are the ones later steps need to read.
 | R5 — Extract `Rhi::Device` | ✅ done |
 | R6 — Enumerate all queue families | ✅ done |
 | R7 — `Rhi::Diagnostics` | ✅ done |
-| R8 — `Rhi::ICommandList` and the neutral barrier API | not started |
+| R8 — `Rhi::ICommandList` and the neutral barrier API | ⚠️ barrier API done; `ICommandList` deferred — see **As built** |
 | R9 — Buffers become handles | not started |
 | R10 — Textures, views and samplers become handles | not started |
 | R11 — `UploadContext` — batch transfers | not started |
@@ -821,6 +821,52 @@ are the ones later steps need to read.
   validation enabled** (`validate_sync` is already on at `main.cpp:1076`). Barrier count per
   frame logged and sane.
 - **Size:** M · **Needs:** R5
+- **As built:** the barrier half landed; `ICommandList` did not, because **this step is
+  ordered too early for it**. Every method the step lists — `Barrier`, `CopyBuffer`,
+  `CopyBufferToTexture`, `CopyTextureToBuffer` — has to name a resource, and the only
+  neutral way to name one is the `BufferHandle`/`TextureHandle` that R9 and R10 introduce.
+  A neutral interface written before them could only take `vk::Buffer`/`vk::Image`, which is
+  the leak the interface exists to prevent; declaring handle-typed methods that nothing can
+  call yet would be worse still. **The interface and its three copy methods belong at the end
+  of R10**, where the call sites they replace are being rewritten anyway. Nothing else
+  depends on the ordering: R11's `UploadContext` needs R9 and R10 regardless.
+
+  What did land, and is the whole of the neutral vocabulary being *used* rather than merely
+  declared:
+
+  - `Rhi::TextureBarrier` in `rhi/Barrier.h` — the neutral (stage, access, layout) triple
+    plus aspect and subresource range, deliberately without a resource. Separating the
+    description from the resource is what lets the presets be constants; when R10 lands, the
+    handle becomes a field on it.
+  - `rhi/BarrierPresets.h` — all of the old `rhi/vulkan/Barrier.h` presets re-expressed
+    neutrally and renamed per D13 (`UndefinedToCopyDst`, `RenderTargetToShaderResource`, …),
+    plus `PreserveRenderTarget` for the load-op dependency that was written inline in
+    `RecordImGui`, and `UndefinedToUnorderedAccess` / `UnorderedAccessToShaderResource` for
+    the four barriers `CloudSystem` was hand-writing. `rhi/vulkan/Barrier.h` is deleted, and
+    with it the near-namesake hazard its own header comment described.
+  - `Rhi::Vulkan::RecordBarriers` (`rhi/vulkan/BarrierUtil.h`, now with a `.cpp` because the
+    conversion tables are module-private) batches a span into one `pipelineBarrier2`,
+    resolving the old `TODO`. Per frame: 13 barriers, in 8 calls rather than 13.
+  - **`AccessFlags::RenderTargetRead` had to be added**, so D4's list is one enumerator short
+    of as-built. A colour attachment is read whenever blending is on or a pass loads instead
+    of clearing, and the ImGui pass does exactly that; there was no neutral way to say it.
+    It collapses onto `D3D12_BARRIER_ACCESS_RENDER_TARGET` with `RenderTargetWrite`, the same
+    many-to-one shape `UnorderedAccess` already has.
+  - The neutral mapping moves two depth transitions from the separate depth-only layouts to
+    the combined depth/stencil ones, while `beginRendering` and the depth descriptor still
+    name the separate ones. That is correct, not tolerated: the specification defines the
+    combined layouts as *equivalent* to the separate pair, which is why the pre-existing
+    mismatch between `UndefinedToDepthAttachment` and `DepthAttachmentToShaderRead` was never
+    a validation error either. Cited in `ToVk(TextureLayout)`.
+  - The per-frame count the step asks for is **two** numbers, `barriers` and `barrierCalls`,
+    both logged on change and both added to the run report. One without the other says
+    nothing useful: a barrier count cannot distinguish one call carrying three barriers from
+    three carrying one each, which is exactly what this step changed. `Rhi::BarrierCounts`
+    carries the pair, `CloudSystem::RecordDispatch` returns it so the cloud pass is included,
+    and the two threaded record functions keep their own rather than sharing one set.
+  - **The committed baseline report is two fields short of what the app now writes.** Its
+    other fields are unchanged and still compare exactly; regenerate
+    `tests/baseline/report_*.json` when convenient so a plain `diff` is clean again.
 
 ### R9 — Buffers become handles
 
@@ -845,6 +891,14 @@ are the ones later steps need to read.
   equivalent (R2's as-built note). Either drop that candidate or map it to
   `D24UnormS8Uint`. Doing neither means the conversion throws on whatever hardware falls
   through to it.
+- **Also, carried over from R8:** add `Rhi::ICommandList` — `Begin`/`End`, `Barrier` over a
+  span of `TextureBarrier`, and `CopyBuffer` / `CopyBufferToTexture` / `CopyTextureToBuffer` —
+  with `VulkanCommandList` over `vk::CommandBuffer` behind it. R8 deferred it because every
+  one of those methods names a resource and handles did not exist yet; here they do. The
+  handle moves into `TextureBarrier`, and `Rhi::Vulkan::ImageBarrier` and the free
+  `RecordBarrier` functions in `rhi/vulkan/BarrierUtil.h` go away, since the barrier call
+  sites in `App`, the loaders and `CloudSystem` are being rewritten for handles regardless.
+  Draw/bind/viewport recording still stays on the raw `vk::CommandBuffer` until Stage 8.
 - **Verify:** Headless report identical, screenshot identical. Live-texture count 0 at
   shutdown.
 - **Size:** L · **Needs:** R9

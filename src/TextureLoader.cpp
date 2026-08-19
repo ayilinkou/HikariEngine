@@ -1,8 +1,8 @@
 #include "TextureLoader.h"
 #include "vulkan/vulkan.hpp"
+#include <rhi/BarrierPresets.h>
 #include <rhi/vulkan/AllocatedBuffer.h>
 #include <rhi/vulkan/AllocatedImage.h>
-#include <rhi/vulkan/Barrier.h>
 #include <rhi/vulkan/BarrierUtil.h>
 #include <rhi/vulkan/BufferUtil.h>
 #include <rhi/vulkan/CommandListUtil.h>
@@ -95,10 +95,10 @@ std::shared_ptr<Texture> TextureLoader::CreateTextureFromPixels(stbi_uc* pixels,
     vmaSetAllocationName(m_Allocator, image.Allocation, std::format("{} Allocation", path).c_str());
 
     auto cmd = BeginSingleTimeCommand(m_Device, m_CommandPool);
-    RecordImageBarrier(cmd, image, Barriers::UndefinedToTransferDst());
+    Rhi::Vulkan::RecordBarrier(*cmd, image, Rhi::BarrierPresets::UndefinedToCopyDst());
     CopyBufferToImage(cmd, stagingBuffer.Buffer, image.Image, static_cast<uint32_t>(width),
                       static_cast<uint32_t>(height));
-    RecordImageBarrier(cmd, image, Barriers::TransferDstToShaderRead());
+    Rhi::Vulkan::RecordBarrier(*cmd, image, Rhi::BarrierPresets::CopyDstToShaderResource());
     EndSingleTimeCommand(cmd, m_TransferQueue);
 
     vk::raii::ImageView imageView = CreateImageView(m_Device, image.Image, vk::ImageViewType::e2D,

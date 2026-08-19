@@ -331,6 +331,7 @@ TEST_CASE("Every AccessFlags bit maps to a non-empty Vulkan access mask", "[RhiC
     REQUIRE(ToVk(AccessFlags::VertexBufferRead) == vk::AccessFlagBits2::eVertexAttributeRead);
     REQUIRE(ToVk(AccessFlags::IndexBufferRead) == vk::AccessFlagBits2::eIndexRead);
     REQUIRE(ToVk(AccessFlags::ConstantBufferRead) == vk::AccessFlagBits2::eUniformRead);
+    REQUIRE(ToVk(AccessFlags::RenderTargetRead) == vk::AccessFlagBits2::eColorAttachmentRead);
     REQUIRE(ToVk(AccessFlags::RenderTargetWrite) == vk::AccessFlagBits2::eColorAttachmentWrite);
     REQUIRE(ToVk(AccessFlags::DepthStencilWrite) ==
             vk::AccessFlagBits2::eDepthStencilAttachmentWrite);

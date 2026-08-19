@@ -135,6 +135,8 @@ vk::AccessFlags2 ToVkBit(AccessFlags access)
             return vk::AccessFlagBits2::eShaderStorageRead |
                    vk::AccessFlagBits2::eShaderStorageWrite;
 
+        case AccessFlags::RenderTargetRead:
+            return vk::AccessFlagBits2::eColorAttachmentRead;
         case AccessFlags::RenderTargetWrite:
             return vk::AccessFlagBits2::eColorAttachmentWrite;
         case AccessFlags::DepthStencilRead:
@@ -551,6 +553,17 @@ vk::ImageLayout ToVk(TextureLayout layout)
         // be, since a layout arrives here without one. If a depth-only layout ever
         // turns out to matter for a specific transition, that wants a format-aware
         // overload rather than a second neutral enumerator.
+        //
+        // Load-bearing detail, because the renderer still names the depth-only
+        // layouts where it begins rendering and where it writes a descriptor,
+        // and a barrier's old layout must be the layout the image is actually
+        // in: the two spellings are not merely both legal, they are the same
+        // layout. The specification says of DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        // "It is equivalent to VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL and
+        // VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL", and the same of
+        // DEPTH_STENCIL_READ_ONLY_OPTIMAL against the read-only pair (Vulkan
+        // specification, Image Layouts). So mixing the spellings across a
+        // transition is correct rather than tolerated.
         case TextureLayout::DepthStencilWrite:
             return vk::ImageLayout::eDepthStencilAttachmentOptimal;
         case TextureLayout::DepthStencilRead:

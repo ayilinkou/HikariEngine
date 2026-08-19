@@ -3,6 +3,7 @@ engine_module(
   SOURCES
   src/Diagnostics.cpp
   src/vulkan/VulkanConversions.cpp
+  src/vulkan/BarrierUtil.cpp
   src/vulkan/QueueFamilies.cpp
   src/vulkan/VulkanDevice.cpp
   src/vulkan/VulkanNative.cpp

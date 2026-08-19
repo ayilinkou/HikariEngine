@@ -88,19 +88,20 @@ enum class AccessFlags : uint32_t
     ConstantBufferRead = 1 << 2,
     ShaderRead = 1 << 3,
     UnorderedAccess = 1 << 4,
-    RenderTargetWrite = 1 << 5,
-    DepthStencilRead = 1 << 6,
-    DepthStencilWrite = 1 << 7,
-    CopySrc = 1 << 8,
-    CopyDst = 1 << 9,
+    RenderTargetRead = 1 << 5,
+    RenderTargetWrite = 1 << 6,
+    DepthStencilRead = 1 << 7,
+    DepthStencilWrite = 1 << 8,
+    CopySrc = 1 << 9,
+    CopyDst = 1 << 10,
 };
 RHI_DEFINE_FLAG_OPERATORS(AccessFlags)
 
 inline constexpr std::array kAllAccessFlags{
-    AccessFlags::VertexBufferRead, AccessFlags::IndexBufferRead,   AccessFlags::ConstantBufferRead,
-    AccessFlags::ShaderRead,       AccessFlags::UnorderedAccess,   AccessFlags::RenderTargetWrite,
-    AccessFlags::DepthStencilRead, AccessFlags::DepthStencilWrite, AccessFlags::CopySrc,
-    AccessFlags::CopyDst,
+    AccessFlags::VertexBufferRead,  AccessFlags::IndexBufferRead,  AccessFlags::ConstantBufferRead,
+    AccessFlags::ShaderRead,        AccessFlags::UnorderedAccess,  AccessFlags::RenderTargetRead,
+    AccessFlags::RenderTargetWrite, AccessFlags::DepthStencilRead, AccessFlags::DepthStencilWrite,
+    AccessFlags::CopySrc,           AccessFlags::CopyDst,
 };
 
 // -> VkImageLayout / D3D12_BARRIER_LAYOUT
@@ -154,4 +155,62 @@ constexpr TextureAspect DefaultAspect(Format format)
     return HasStencilComponent(format) ? (TextureAspect::Depth | TextureAspect::Stencil)
                                        : TextureAspect::Depth;
 }
+
+// One texture transition: what must finish, what may then begin, and the layout
+// the texture moves between.
+//
+// Deliberately says nothing about *which* texture. A barrier is a description
+// of work, and separating it from the resource is what lets the presets in
+// <rhi/BarrierPresets.h> be constants rather than functions of a resource. The
+// backend pairs the two when it records.
+//
+// The src half describes work already submitted, the dst half work not yet
+// recorded — so the defaults are the pair that synchronizes nothing, and every
+// preset sets all four.
+struct TextureBarrier
+{
+    PipelineStage SrcStage = PipelineStage::None;
+    AccessFlags SrcAccess = AccessFlags::None;
+    PipelineStage DstStage = PipelineStage::None;
+    AccessFlags DstAccess = AccessFlags::None;
+
+    TextureLayout OldLayout = TextureLayout::Undefined;
+    TextureLayout NewLayout = TextureLayout::Undefined;
+
+    TextureAspect Aspect = TextureAspect::Color;
+
+    // The subresources the barrier covers. A texture with more than one layer
+    // or mip needs every one of them named, since a layout is a property of a
+    // subresource rather than of the whole texture — transitioning layer 0 of a
+    // cubemap and then using all six is a validation error at best and reads
+    // uninitialized memory at worst.
+    uint32_t BaseMip = 0u;
+    uint32_t MipCount = 1u;
+    uint32_t BaseLayer = 0u;
+    uint32_t LayerCount = 1u;
+};
+
+// How much barrier work a stretch of recording produced: the barriers
+// themselves, and the number of commands they were issued in.
+//
+// Both, because neither alone says what it appears to. A barrier count cannot
+// tell one command carrying three barriers from three commands carrying one
+// each — and that difference is the whole point of grouping them, since each
+// command is a separate execution dependency. A call count says nothing about
+// how much was transitioned. Watching the pair is what makes a regression in
+// either visible.
+struct BarrierCounts
+{
+    uint32_t Barriers = 0u;
+    uint32_t Calls = 0u;
+
+    constexpr BarrierCounts& operator+=(const BarrierCounts& other)
+    {
+        Barriers += other.Barriers;
+        Calls += other.Calls;
+        return *this;
+    }
+
+    constexpr bool operator==(const BarrierCounts&) const = default;
+};
 } // namespace Rhi
