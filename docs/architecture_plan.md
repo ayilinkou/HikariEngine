@@ -2342,7 +2342,7 @@ validation errors".
 | [DONE] Guard `DirLights[0]` when `DirLightCount == 0` (currently NaNs) | `clouds.comp.slang:106` | XS |
 | Epsilon on `dir.y` instead of `== 0.f` | `clouds.comp.slang:24,96` | XS |
 | Hoist sun-slab setup inside `if (density > 0)` | `clouds.comp.slang:119` | XS |
-| Delete unused `VS_Out::Color : TEXCOORD1` interpolator | `opaque.slang:56`, `weightedBlendedOIT.slang:55` | XS |
+| [DONE] Delete unused `VS_Out::Color : TEXCOORD1` interpolator | `opaque.slang:56`, `weightedBlendedOIT.slang:55` | XS |
 | Delete dead `transmit` arithmetic | `weightedBlendedOIT.slang:178` | XS |
 | `surface.slangh` to de-duplicate ~130 lines across the two surface shaders | `shaders/` | M |
 | Split `pbr.slangh` into `brdf`/`tonemap`/`phase` | `shaders/` | S |

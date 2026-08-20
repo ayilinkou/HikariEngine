@@ -52,7 +52,6 @@ struct VS_Out
 {
 	float4 Pos : SV_Position;
 	float3 WorldPos : TEXCOORD0;
-	float3 Color : TEXCOORD1;
 	float2 TexCoord : TEXCOORD2;
 	float3 Normal : TEXCOORD3;
 	float4 Tangent : TEXCOORD4;
