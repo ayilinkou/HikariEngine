@@ -314,7 +314,7 @@ function(add_slang_shader_target target)
       COMMAND ${CMAKE_COMMAND} -E make_directory ${output_dir}
       COMMAND
         ${SLANGC_EXE} ${shader} -target spirv -profile spirv_1_4
-        -emit-spirv-directly -fvk-use-entrypoint-name ${entry_points} -o
+        -emit-spirv-directly -warnings-as-errors all -fvk-use-entrypoint-name ${entry_points} -o
         ${output_file} $<IF:$<CONFIG:Debug>,-g1,-g0>
         $<IF:$<CONFIG:Debug>,-O0,-O3>
       DEPENDS ${shader} ${shader_headers}
