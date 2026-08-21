@@ -222,6 +222,19 @@ number in the run report.
 Formatting is enforced by `.clang-format` (LLVM base, Allman braces, 4-space indent, 100
 columns, left-aligned `*`/`&`) — run `scripts/format.sh` rather than hand-matching.
 
+**The clang-format version is pinned in `.clang-format-version`, and it matters.**
+clang-format's output is not stable across major versions — the same `.clang-format` gives
+different results from clang-format 18 and 22, with no option that reconciles them. Left to
+whatever is on `PATH`, the nine CI configurations run three different clang-formats and
+disagree with each other. CI installs the pin; CMake warns at configure time if the local
+one differs and tells you what to install:
+
+```bash
+pip install clang-format==$(cat .clang-format-version)
+```
+
+Bumping the pin means editing that file and reformatting the whole tree in the same commit.
+
 Naming, as used throughout the codebase:
 
 | Kind | Style | Example |

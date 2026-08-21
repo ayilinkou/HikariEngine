@@ -52,9 +52,29 @@ jobs:
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
 
-      - name: Install clang-format (macOS only)
-        if: runner.os == 'macOS'
-        run: brew install clang-format
+      # The pinned clang-format, ahead of any the runner image already ships.
+      # clang-format's output is not stable across major versions, so leaving
+      # this to PATH means the Ubuntu, macOS and Windows images each run a
+      # different one — which is how a commit passes two OSes and fails the
+      # third on formatting alone. The version comes from .clang-format-version,
+      # the same file CMake checks against.
+      - name: Set up Python for clang-format
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned clang-format
+        shell: bash
+        run: |
+          version="$(tr -d '[:space:]' < .clang-format-version)"
+          python -m pip install --quiet "clang-format==${version}"
+          # Python prints its scripts directory in the native form each OS's
+          # PATH expects, which avoids hand-converting paths on Windows. Entries
+          # written to GITHUB_PATH are prepended, so this wins over the
+          # clang-format the runner image already has (/usr/bin/clang-format on
+          # Ubuntu is a different major version).
+          python -c "import sysconfig; print(sysconfig.get_path('scripts'))" >> "$GITHUB_PATH"
+          clang-format --version
 
       - name: Install Ninja via Homebrew (macOS only)
         if: runner.os == 'macOS'
