@@ -487,7 +487,7 @@ are the ones later steps need to read.
 | R8 — `Rhi::ICommandList` and the neutral barrier API | ✅ done (barriers here; `ICommandList` landed in R10 — see **As built**) |
 | R9 — Buffers become handles | ✅ done |
 | R10 — Textures, views and samplers become handles | ✅ done |
-| R11 — `UploadContext` — batch transfers | not started |
+| R11 — `UploadContext` — batch transfers | ✅ done |
 | R12 — Use the dedicated transfer queue | not started |
 | R13 — Growable `DescriptorAllocator` | not started |
 | R14 — Growable instance buffer | not started |
@@ -1025,6 +1025,74 @@ are the ones later steps need to read.
 - **Verify:** **Time a Sponza load before and after** with `core/Timer.h`. Sponza performs
   ~70 full GPU drains today; expect a large reduction. Headless report identical.
 - **Size:** L · **Needs:** R6, R10 · **Was:** step 29
+- **As built:** done. Submissions for a Sponza load went **74 → 5**; the headless report is
+  byte-identical to the baseline and the capture is pixel-identical.
+
+  **The wall-clock expectation in the Verify line was wrong, and it is worth correcting
+  rather than quietly meeting.** Before touching anything, the old path was instrumented to
+  time its own drains: 71 submissions cost **44 ms of a 5.1 s load** — 0.9%. Sponza loads in
+  5.1–5.2 s before and 5.1–5.3 s after, which is run-to-run noise. Nearly all of that 5 s is
+  stb_image decoding and Assimp parsing, and no amount of batching touches either.
+
+  So the value of this step is not the clock, and pretending otherwise would set up R12 to
+  be judged against a number it also will not move. What it actually buys:
+
+  - **A drain of the whole queue becomes a wait on one fence.** `vkQueueWaitIdle` is defined
+    as a fence per outstanding submission plus `vkWaitForFences`, so this was always the
+    bluntest available synchronisation. It only looked free because nothing else is running
+    while a scene loads — and the ImGui "Load Scene" button already breaks that assumption
+    once, and threaded loading would break it permanently.
+  - **It is the step R12 needs.** Moving uploads to a dedicated transfer queue is a change
+    to one submission site, not seventy.
+  - **Peak staging memory is now bounded and visible.** Sponza stages 380 MiB in total; the
+    old path never held more than one resource's worth at a time, so batching without a cap
+    would have turned that into a 380 MiB spike. `UploadContextDesc::StagingBudget` (128 MiB)
+    is what keeps both properties, and it is the reason a Sponza load is 5 submissions rather
+    than 2.
+
+  Four things worth recording beyond the **Do** text:
+
+  - **A texture is uploaded whole or not at all.** `UploadTexture` takes a span of every
+    subresource in one call, which looks like a convenience and is actually a correctness
+    requirement: the context transitions a texture from `Undefined`, which permits the driver
+    to discard its contents, so a cubemap whose faces straddled a budget flush would have the
+    first batch's faces thrown away by the second. Taking them together makes that
+    unexpressible. `TextureUpload` therefore carries the data and *no* staging offset — the
+    caller does not own the staging buffer, so it cannot have one — which is why it is not
+    `BufferTextureCopyRegion`.
+  - **`ResourceManager` flushes at the outermost load, via a depth-counting RAII scope.** The
+    nesting is what makes the batching work at all: loading a model loads its textures through
+    the same class, so a flush per public call would put every texture back in its own
+    submission. It also makes "a resource `ResourceManager` hands back is on the GPU" true by
+    construction. Its destructor swallows and logs a failed flush, because throwing there
+    during a failed load's unwind would terminate the process.
+  - **No barrier is needed between an upload and the submission that reads it**, and this is
+    a specification guarantee, not an assumption inherited from the old code. A fence signal's
+    first access scope is "all memory access performed by the device" (Vulkan 1.4, *Fences*),
+    which makes the copies available; the next queue submission's second access scope is
+    likewise all device access (*Host Write Ordering Guarantees*), which makes them visible to
+    everything in it. Cited at the submit site so nobody adds a redundant barrier later.
+  - **The upload pool uses the graphics family**, because a command buffer may only be
+    submitted to a queue of its pool's family and the graphics queue is still the only one the
+    device creates. R12 changes the pool and the submit together, and brings the ownership
+    transfer with it.
+
+  `rhi/vulkan/BufferUtil.h` is deleted — `CreateStagedBuffer` and `CopyBuffer` were exactly
+  what this replaces — and the three loaders lost their command pool and queue references,
+  leaving them holding an `IDevice&` and an `IUploadContext&`. `rhi/vulkan/CommandListUtil.h`
+  survives: `CloudSystem::BakeNoiseTexture` still uses it, and that is a dispatch rather than
+  an upload, so it stays on the single-shot path until Stage 8.
+
+  Verified beyond the baseline: the budget path was stressed by temporarily setting
+  `StagingBudget` to 1 byte, which forces every upload into its own batch (22 submissions for
+  22 resources) and exercises the split logic and the context's reuse across flushes — output
+  stayed pixel-identical. Validation errors stayed at 0 with synchronization validation on,
+  and the device still reports 0 live resources at shutdown.
+
+  Not tested by unit tests: the context is backend code with no neutral logic to isolate, and
+  R16 already plans the GPU tests that cover it — buffer and image upload round-trips, and the
+  cubemap-face test. `UploadStats` exists so those can assert on submission counts rather than
+  on log lines.
 
 ### R12 — Use the dedicated transfer queue
 

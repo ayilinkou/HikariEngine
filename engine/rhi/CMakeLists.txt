@@ -9,6 +9,7 @@ engine_module(
   src/vulkan/VulkanBuffer.cpp
   src/vulkan/VulkanTexture.cpp
   src/vulkan/VulkanCommandList.cpp
+  src/vulkan/VulkanUploadContext.cpp
   src/vulkan/PipelineBuilder.cpp
   src/vulkan/ComputePipelineBuilder.cpp
   # The single translation unit that instantiates VMA. It has to live in exactly

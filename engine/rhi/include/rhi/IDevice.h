@@ -10,6 +10,7 @@
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
 #include <rhi/TextureViewDesc.h>
+#include <rhi/UploadContext.h>
 
 namespace Rhi
 {
@@ -104,6 +105,17 @@ public:
     virtual uint32_t GetLiveTextureCount() const = 0;
     virtual uint32_t GetLiveTextureViewCount() const = 0;
     virtual uint32_t GetLiveSamplerCount() const = 0;
+
+    // --- Uploads ---
+    //
+    // A context owns a command allocator, a fence and the staging buffers it has
+    // in flight, which is why it is an object rather than a device method taking
+    // data: the batching it exists for has to live somewhere across calls.
+    //
+    // Contexts are independent of one another, so a second loading thread takes
+    // a second context rather than sharing one (see IUploadContext).
+    [[nodiscard]] virtual std::unique_ptr<IUploadContext>
+    CreateUploadContext(const UploadContextDesc& desc) = 0;
 
 protected:
     IDevice() = default;

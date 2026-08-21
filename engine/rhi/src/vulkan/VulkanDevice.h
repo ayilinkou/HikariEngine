@@ -17,6 +17,7 @@
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
 #include <rhi/TextureViewDesc.h>
+#include <rhi/UploadContext.h>
 #include <rhi/vulkan/VulkanAllocator.h>
 
 #include "vulkan/QueueFamilies.h"
@@ -52,6 +53,9 @@ public:
     uint32_t GetLiveTextureCount() const override { return m_Textures.Size(); }
     uint32_t GetLiveTextureViewCount() const override { return m_TextureViews.Size(); }
     uint32_t GetLiveSamplerCount() const override { return m_Samplers.Size(); }
+
+    [[nodiscard]] std::unique_ptr<IUploadContext>
+    CreateUploadContext(const UploadContextDesc& desc) override;
 
     // Gives an image the device did not allocate a pool slot, so that barriers,
     // views and copies can name it by handle like any other texture. Destroying

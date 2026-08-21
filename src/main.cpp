@@ -41,7 +41,7 @@
 #include <rhi/TextureDesc.h>
 #include <rhi/TextureViewDesc.h>
 #include <rhi/UniqueHandle.h>
-#include <rhi/vulkan/BufferUtil.h>
+#include <rhi/UploadContext.h>
 #include <rhi/vulkan/DebugNames.h>
 #include <rhi/vulkan/PipelineBuilder.h>
 #include <rhi/vulkan/SwapchainUtil.h>
@@ -604,7 +604,10 @@ private:
         CreateCommandPools();
         CreateTextureSampler();
 
-        ResourceManager::Init(*m_RhiDevice, m_GenericCommandPool, m_GraphicsQueue, m_Paths);
+        m_UploadContext = m_RhiDevice->CreateUploadContext(
+            Rhi::UploadContextDesc{.DebugName = "Asset Upload Context"});
+
+        ResourceManager::Init(*m_RhiDevice, *m_UploadContext, m_Paths);
         MaterialFactory::Init(*m_RhiDevice, m_TextureSampler.Get());
 
         CreatePipelines();
@@ -2204,19 +2207,29 @@ private:
 
         assert(vertices.size() == 4);
 
-        m_QuadVertexBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
-            *m_RhiDevice, Rhi::Vulkan::CreateStagedBuffer(
-                              *m_RhiDevice, m_GenericCommandPool, m_GraphicsQueue,
-                              sizeof(vertices[0]) * vertices.size(), Rhi::BufferUsage::Vertex,
-                              vertices.data(), "Quad Vertex Buffer"));
-
         std::array<uint32_t, 6> indices = {0, 1, 2, 0, 2, 3};
 
-        m_QuadIndexBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
-            *m_RhiDevice, Rhi::Vulkan::CreateStagedBuffer(
-                              *m_RhiDevice, m_GenericCommandPool, m_GraphicsQueue,
-                              sizeof(indices[0]) * indices.size(), Rhi::BufferUsage::Index,
-                              indices.data(), "Quad Index Buffer"));
+        const auto createUploaded =
+            [this](Rhi::BufferUsage usage, auto& contents, const char* debugName)
+        {
+            Rhi::UniqueHandle<Rhi::BufferHandle> buffer(
+                *m_RhiDevice, m_RhiDevice->CreateBuffer(
+                                  Rhi::BufferDesc{.Size = std::span(contents).size_bytes(),
+                                                  .Usage = usage | Rhi::BufferUsage::CopyDst,
+                                                  .Access = Rhi::MemoryAccess::GpuOnly,
+                                                  .DebugName = debugName}));
+
+            m_UploadContext->UploadBuffer(buffer.Get(), 0u, std::as_bytes(std::span(contents)));
+            return buffer;
+        };
+
+        m_QuadVertexBuffer =
+            createUploaded(Rhi::BufferUsage::Vertex, vertices, "Quad Vertex Buffer");
+        m_QuadIndexBuffer = createUploaded(Rhi::BufferUsage::Index, indices, "Quad Index Buffer");
+
+        // Not routed through ResourceManager, so nothing else is going to flush
+        // these.
+        m_UploadContext->Flush();
     }
 
     void UpdateCompositeDescriptorSet()
@@ -2309,6 +2322,11 @@ private:
     // below so that it is destroyed after all of them — the ordering the old
     // hand-arranged member list was maintaining by hand.
     std::unique_ptr<Rhi::IDevice> m_RhiDevice;
+
+    // After the device and before every resource that is loaded through it: the
+    // context holds staging buffers of its own, and destroying it after the
+    // device would release them into nothing.
+    std::unique_ptr<Rhi::IUploadContext> m_UploadContext;
 
     // Borrowed from m_RhiDevice, which outlives them. References rather than
     // copies so that the ~100 call sites still read as they did, and so that

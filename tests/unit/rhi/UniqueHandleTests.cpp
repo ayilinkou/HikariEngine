@@ -5,6 +5,7 @@
 #include <rhi/IDevice.h>
 #include <rhi/UniqueHandle.h>
 
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -63,6 +64,11 @@ public:
     void Destroy(SamplerHandle handle) override { DestroyedSamplers.push_back(handle); }
 
     const TextureDesc* GetTextureDesc(TextureHandle) const override { return nullptr; }
+
+    std::unique_ptr<IUploadContext> CreateUploadContext(const UploadContextDesc&) override
+    {
+        return nullptr;
+    }
 
     uint32_t GetLiveTextureCount() const override
     {

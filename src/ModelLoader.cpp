@@ -9,21 +9,21 @@
 #include "Node.h"
 #include "Vertex.h"
 
-#include <rhi/vulkan/BufferUtil.h>
+#include <rhi/UniqueHandle.h>
 
-ModelLoader::ModelLoader(Rhi::IDevice& rhiDevice, vk::raii::CommandPool& commandPool,
-                         vk::raii::Queue& transferQueue)
-    : m_RhiDevice(rhiDevice), m_CommandPool(commandPool), m_TransferQueue(transferQueue)
+#include <span>
+
+ModelLoader::ModelLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
+    : m_RhiDevice(rhiDevice), m_UploadContext(uploadContext)
 {
 }
 
-void ModelLoader::Init(Rhi::IDevice& rhiDevice, vk::raii::CommandPool& commandPool,
-                       vk::raii::Queue& transferQueue)
+void ModelLoader::Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
 {
     if (s_Instance)
         throw std::runtime_error("ModelLoader singleton is already initialised!");
 
-    s_Instance = new ModelLoader(rhiDevice, commandPool, transferQueue);
+    s_Instance = new ModelLoader(rhiDevice, uploadContext);
 }
 
 void ModelLoader::Shutdown()
@@ -61,19 +61,23 @@ std::shared_ptr<ModelData> ModelLoader::Load(const std::string& path)
     if (vertices.empty() || indices.empty())
         throw std::runtime_error(std::format("Model {} loaded with no vertices or indices!", path));
 
-    vk::DeviceSize vertexBufSize = sizeof(vertices[0]) * vertices.size();
-    Rhi::UniqueHandle<Rhi::BufferHandle> vertexBuffer(
-        m_RhiDevice,
-        Rhi::Vulkan::CreateStagedBuffer(m_RhiDevice, m_CommandPool, m_TransferQueue, vertexBufSize,
-                                        Rhi::BufferUsage::Vertex, vertices.data(),
-                                        std::format("{} Vertex Buffer", path)));
+    const auto createUploaded = [&](Rhi::BufferUsage usage, auto& contents, const char* what)
+    {
+        Rhi::UniqueHandle<Rhi::BufferHandle> buffer(
+            m_RhiDevice, m_RhiDevice.CreateBuffer(Rhi::BufferDesc{
+                             .Size = std::span(contents).size_bytes(),
+                             .Usage = usage | Rhi::BufferUsage::CopyDst,
+                             .Access = Rhi::MemoryAccess::GpuOnly,
+                             .DebugName = std::format("{} {} Buffer", path, what)}));
 
-    vk::DeviceSize indexBufSize = sizeof(indices[0]) * indices.size();
-    Rhi::UniqueHandle<Rhi::BufferHandle> indexBuffer(
-        m_RhiDevice,
-        Rhi::Vulkan::CreateStagedBuffer(m_RhiDevice, m_CommandPool, m_TransferQueue, indexBufSize,
-                                        Rhi::BufferUsage::Index, indices.data(),
-                                        std::format("{} Index Buffer", path)));
+        m_UploadContext.UploadBuffer(buffer.Get(), 0u, std::as_bytes(std::span(contents)));
+        return buffer;
+    };
+
+    Rhi::UniqueHandle<Rhi::BufferHandle> vertexBuffer =
+        createUploaded(Rhi::BufferUsage::Vertex, vertices, "Vertex");
+    Rhi::UniqueHandle<Rhi::BufferHandle> indexBuffer =
+        createUploaded(Rhi::BufferUsage::Index, indices, "Index");
 
     pModelData->Init(std::move(vertexBuffer), std::move(indexBuffer), std::move(rootNode));
 

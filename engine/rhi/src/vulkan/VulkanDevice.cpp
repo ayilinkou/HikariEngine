@@ -21,6 +21,7 @@
 #include <rhi/vulkan/DebugNames.h>
 
 #include "vulkan/VulkanConversions.h"
+#include "vulkan/VulkanUploadContext.h"
 
 namespace Rhi::Vulkan
 {
@@ -407,6 +408,11 @@ vk::Sampler VulkanDevice::GetSampler(SamplerHandle handle) const
 {
     const VulkanSampler* pSampler = m_Samplers.Get(handle);
     return pSampler ? *pSampler->Sampler : vk::Sampler{};
+}
+
+std::unique_ptr<IUploadContext> VulkanDevice::CreateUploadContext(const UploadContextDesc& desc)
+{
+    return std::make_unique<VulkanUploadContext>(*this, desc);
 }
 
 void VulkanDevice::ReportStaleHandle(std::string_view what) const

@@ -4,30 +4,23 @@
 #include "ResourceManager.h"
 #include "stb_image.h"
 
-#include "vulkan/vulkan.hpp"
 #include <core/Log.h>
 
-#include <rhi/BarrierPresets.h>
-#include <rhi/ICommandList.h>
-#include <rhi/UniqueHandle.h>
-#include <rhi/vulkan/CommandListUtil.h>
-#include <rhi/vulkan/VulkanNative.h>
+#include <span>
 
 constexpr LogCategory LogCubemapLoader("Cubemap Loader");
 
-CubemapLoader::CubemapLoader(Rhi::IDevice& rhiDevice, vk::raii::CommandPool& commandPool,
-                             vk::raii::Queue& transferQueue)
-    : m_RhiDevice(rhiDevice), m_CommandPool(commandPool), m_TransferQueue(transferQueue)
+CubemapLoader::CubemapLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
+    : m_RhiDevice(rhiDevice), m_UploadContext(uploadContext)
 {
 }
 
-void CubemapLoader::Init(Rhi::IDevice& rhiDevice, vk::raii::CommandPool& commandPool,
-                         vk::raii::Queue& transferQueue)
+void CubemapLoader::Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
 {
     if (s_Instance)
         throw std::runtime_error("CubemapLoader singleton is already initialised!");
 
-    s_Instance = new CubemapLoader(rhiDevice, commandPool, transferQueue);
+    s_Instance = new CubemapLoader(rhiDevice, uploadContext);
 }
 
 void CubemapLoader::Shutdown()
@@ -89,38 +82,30 @@ std::shared_ptr<Cubemap> CubemapLoader::Load(const CubemapCreateInfo& createInfo
     const uint32_t width = static_cast<uint32_t>(faceData.Width);
     const uint32_t height = static_cast<uint32_t>(faceData.Height);
     const uint64_t faceSize = static_cast<uint64_t>(width) * height * 4u;
-    const uint64_t totalSize = faceSize * faceCount;
-
-    Rhi::UniqueHandle<Rhi::BufferHandle> stagingBuffer(
-        m_RhiDevice, m_RhiDevice.CreateBuffer(Rhi::BufferDesc{
-                         .Size = totalSize,
-                         .Usage = Rhi::BufferUsage::CopySrc,
-                         .Access = Rhi::MemoryAccess::CpuToGpu,
-                         .DebugName = std::format("{} Cubemap Staging", createInfo.Name)}));
-
-    // Vulkan ensures that these CPU writes are visible to the GPU before
-    // the command buffer starts executing.
-    uint8_t* dst = static_cast<uint8_t*>(m_RhiDevice.GetMappedData(stagingBuffer.Get()));
-    for (size_t i = 0; i < faceCount; i++)
-    {
-        memcpy(dst + i * faceSize, faceData.Pixels[i], faceSize);
-        stbi_image_free(faceData.Pixels[i]);
-        faceData.Pixels[i] = nullptr;
-    }
 
     auto cubemap = std::make_shared<Cubemap>(m_RhiDevice, createInfo, Rhi::Extent2D{width, height});
 
-    vk::raii::CommandBuffer cmd =
-        BeginSingleTimeCommand(Rhi::Vulkan::GetDevice(m_RhiDevice), m_CommandPool);
-    std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(m_RhiDevice, *cmd);
+    // One upload naming all six layers, not six uploads: a texture has to reach
+    // the context whole, or a staging-budget flush landing between two faces
+    // would discard the ones already written (see IUploadContext::UploadTexture).
+    // Packing them into one staging buffer is the context's job now, which is
+    // why the faces are handed over as they were decoded.
+    std::array<Rhi::TextureUpload, faceCount> faces;
+    for (uint32_t i = 0; i < faceCount; i++)
+    {
+        faces[i] = Rhi::TextureUpload{
+            .Data = std::span(reinterpret_cast<const std::byte*>(faceData.Pixels[i]), faceSize),
+            .BaseLayer = i,
+            .Extent = {width, height, 1u}};
+    }
 
-    list->Barrier(Rhi::BarrierPresets::UndefinedToCopyDst(faceCount).On(cubemap->GetHandle()));
-    list->CopyBufferToTexture(
-        stagingBuffer.Get(), cubemap->GetHandle(),
-        Rhi::BufferTextureCopyRegion{.LayerCount = faceCount, .Extent = {width, height, 1u}});
-    list->Barrier(Rhi::BarrierPresets::CopyDstToShaderResource(faceCount).On(cubemap->GetHandle()));
+    m_UploadContext.UploadTexture(cubemap->GetHandle(), faces);
 
-    EndSingleTimeCommand(cmd, m_TransferQueue);
+    for (size_t i = 0; i < faceCount; i++)
+    {
+        stbi_image_free(faceData.Pixels[i]);
+        faceData.Pixels[i] = nullptr;
+    }
 
     return cubemap;
 }
