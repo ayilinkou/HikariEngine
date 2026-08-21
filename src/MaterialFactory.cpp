@@ -1,7 +1,7 @@
 #include "MaterialFactory.h"
 
-#include "Utility.h"
 #include <core/Log.h>
+#include <rhi/vulkan/DebugNames.h>
 
 constexpr LogCategory LogMaterialFactory("Material Factory");
 

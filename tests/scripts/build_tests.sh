@@ -15,4 +15,4 @@ else
   esac
 fi
 
-cmake --build "build/$PRESET" --target core_tests platform_tests
+cmake --build "build/$PRESET" --target core_tests platform_tests rhi_tests

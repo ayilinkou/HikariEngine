@@ -67,8 +67,6 @@ set(SOURCES
     src/main.cpp
     src/Model.cpp
     src/ModelData.cpp
-    src/Texture.cpp
-    src/Cubemap.cpp
     src/Camera.cpp
     src/Material.cpp
     src/PBRMaterial.cpp
@@ -84,12 +82,7 @@ set(SOURCES
     src/Node.cpp
     src/Mesh.cpp
     src/CloudSystem.cpp
-    src/XmlParser.cpp
-    src/VMAImpl.cpp
-    src/AllocatedBuffer.cpp
-    src/AllocatedImage.cpp
-    src/PipelineBuilder.cpp
-    src/ComputePipelineBuilder.cpp)
+    src/XmlParser.cpp)
 
 # On macOS the Vulkan validation layer only ships with the Vulkan SDK (vcpkg
 # ships none) and is selected at runtime via VK_LAYER_PATH. vcpkg's own
@@ -137,6 +130,7 @@ engine_header_self_containment_init()
 
 add_subdirectory(engine/core)
 add_subdirectory(engine/platform)
+add_subdirectory(engine/rhi)
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 if(CLANG_FORMAT_EXE)
@@ -149,7 +143,9 @@ if(CLANG_FORMAT_EXE)
     ${CMAKE_SOURCE_DIR}/src/*.hpp
     ${CMAKE_SOURCE_DIR}/engine/*/include/*.h
     ${CMAKE_SOURCE_DIR}/engine/*/include/*.hpp
-    ${CMAKE_SOURCE_DIR}/engine/*/src/*.cpp)
+    ${CMAKE_SOURCE_DIR}/engine/*/src/*.cpp
+    ${CMAKE_SOURCE_DIR}/engine/*/src/*.h
+    ${CMAKE_SOURCE_DIR}/engine/*/src/*.hpp)
 
   add_custom_target(
     format
@@ -193,6 +189,7 @@ engine_header_self_containment(
   LINK_LIBRARIES
   Engine::Core
   Engine::Platform
+  Engine::RHI
   SDL3::SDL3
   Vulkan::Vulkan
   GPUOpen::VulkanMemoryAllocator
@@ -220,6 +217,7 @@ target_link_libraries(
   VulkanApp
   PRIVATE Engine::Core
           Engine::Platform
+          Engine::RHI
           SDL3::SDL3
           Vulkan::Vulkan
           GPUOpen::VulkanMemoryAllocator

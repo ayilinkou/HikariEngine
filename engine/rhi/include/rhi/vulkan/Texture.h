@@ -5,7 +5,7 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
-#include "AllocatedImage.h"
+#include <rhi/vulkan/AllocatedImage.h>
 
 enum TextureBinding : uint8_t
 {

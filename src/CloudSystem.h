@@ -8,8 +8,9 @@
 
 #include <platform/Paths.h>
 
-#include "AllocatedImage.h"
-#include "Texture.h"
+#include <rhi/Barrier.h>
+#include <rhi/vulkan/AllocatedImage.h>
+#include <rhi/vulkan/Texture.h>
 
 struct CloudSystemCreateInfo
 {
@@ -49,8 +50,11 @@ private:
 public:
     CloudSystem(CloudSystemCreateInfo createInfo);
 
-    void RecordDispatch(vk::raii::CommandBuffer& cmd, uint32_t frameIndex,
-                        vk::raii::DescriptorSet& globalSet, vk::raii::DescriptorSet& depthSet);
+    // Returns the barriers recorded, so the caller can account for them in the
+    // frame's totals.
+    Rhi::BarrierCounts RecordDispatch(vk::raii::CommandBuffer& cmd, uint32_t frameIndex,
+                                      vk::raii::DescriptorSet& globalSet,
+                                      vk::raii::DescriptorSet& depthSet);
     void Resize(uint32_t width, uint32_t height);
 
     vk::ImageView GetImageView(uint8_t frameIndex)

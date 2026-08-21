@@ -1,19 +1,21 @@
 #include "ResourceManager.h"
 
-#include "Cubemap.h"
 #include "CubemapLoader.h"
 #include "ModelData.h"
 #include "ModelLoader.h"
 #include "ModelManager.h"
-#include "Texture.h"
 #include "TextureLoader.h"
 #include <core/Log.h>
 #include <core/MyMacros.h>
 
+#include <rhi/vulkan/Cubemap.h>
+#include <rhi/vulkan/Texture.h>
+
 inline constexpr LogCategory LogResourceManager{"Resource Manager"};
 constexpr std::string_view fallbackTexturePrefix = "FallbackTexture";
 
-void ResourceManager::Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
+void ResourceManager::Init(Rhi::IDevice& rhiDevice, vk::raii::Device& device,
+                           vk::raii::PhysicalDevice& physicalDevice,
                            vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
                            VmaAllocator allocator, const Paths& paths)
 {
@@ -23,9 +25,9 @@ void ResourceManager::Init(vk::raii::Device& device, vk::raii::PhysicalDevice& p
         throw std::runtime_error("ResourceManager singleton has already been initialised!");
 
     s_Instance = new ResourceManager(paths);
-    TextureLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
-    CubemapLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
-    ModelLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
+    TextureLoader::Init(rhiDevice, device, physicalDevice, commandPool, transferQueue, allocator);
+    CubemapLoader::Init(rhiDevice, device, physicalDevice, commandPool, transferQueue, allocator);
+    ModelLoader::Init(rhiDevice, device, physicalDevice, commandPool, transferQueue);
     ModelManager::Init();
 }
 

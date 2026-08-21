@@ -80,7 +80,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 2 — Header self-containment | 12–14 | ✅ done (`HeaderSelfContainment` target, enforced in CI) |
 | 3 — Core library | 15–19 | ✅ done (`Engine::Core`, `IJobSystem` injected into `App`) |
 | 4 — Platform library | 20–23 | ✅ done (`Engine::Platform`, `Paths` + `content/` root, `CommandLine`) |
-| **5 — RHI extraction** | **R1–R17** | **← next: `engine/rhi` with a backend-neutral API, handle-based resources, batched uploads, growable descriptors. Planned in `docs/rhi_extraction_plan.md`, which supersedes Part IV steps 24–34.** |
+| **5 — RHI extraction** | **R1–R17** | **← in progress. `engine/rhi` with a backend-neutral API, handle-based resources, batched uploads, growable descriptors. Planned in `docs/rhi_extraction_plan.md`, which supersedes Part IV steps 24–34 and holds the per-step progress table.** |
 | 6 — Headless capability | 35–40 | not started |
 | 7 — Engine shell + DI | 41–47 | not started — **CI goal met at step 47** |
 | 8+ — Frame graph, DOD, scalability | 48–76 | not started |
@@ -102,6 +102,7 @@ cmake --workflow --preset ninja-debug-linux   # what build.sh wraps
 tests/scripts/build_tests.sh        # build the core_tests + platform_tests targets
 tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
 tests/scripts/header_check.sh       # compile every header standalone, no PCH
+tests/scripts/rhi_boundary_check.sh # no Vulkan/VMA in engine/rhi's neutral headers
 tests/scripts/format_check.sh       # dry-run, -Werror
 scripts/format.sh                   # clang-format -i over src/ and engine/
 scripts/precommit.sh                # all of the above, in CI order
@@ -228,7 +229,7 @@ Naming, as used throughout the codebase:
 | Types, functions, methods | PascalCase | `CloudSystem`, `RecordDispatch` |
 | Public/struct data members | PascalCase | `Options::ScenePath`, `LightData::Position` |
 | Private members | `m_` + PascalCase | `m_SwapchainExtent` |
-| Statics / globals | `s_` / `g_` | `s_Instance`, `g_ValidationErrorCount` |
+| Statics / globals | `s_` / `g_` | `s_Instance`, `g_bShouldClose` |
 | Locals, parameters | camelCase | `frameIndex`, `createInfo` |
 | `constexpr` constants | `kPascalCase` or `UPPER_SNAKE` | `kCameraPresets`, `MAX_INSTANCE_COUNT` |
 | Booleans | `b` prefix | `bFixedDt`, `m_bCursorVisible` |
@@ -254,8 +255,32 @@ Other rules:
   `"Header.h"` quotes for siblings and `"lib/Header.h"` for third-party.
 - **Errors:** exceptions for unrecoverable init failures; asset loading and parsing should
   log and skip rather than unwind through the frame loop.
+- **RHI naming follows D3D12, not Vulkan**, wherever the two APIs name the same concept
+  differently — `Copy` not `Transfer`, `CommandList` not `CommandBuffer`, `Pixel` not
+  `Fragment`, `UnorderedAccess` not `Storage`. This applies to the Vulkan-side helpers too, so
+  that a Vulkan term appearing in an interface reads as a mistake rather than as normal. Where
+  only one API has the concept at all, its term stands. Utility headers under `rhi/vulkan/`
+  take a uniform `Util` suffix (`BufferUtil.h`, `CommandListUtil.h`). Rationale and the full
+  list: RHI plan D13.
+- **`[[nodiscard]]` only where discarding causes real harm** — a leak, a bug, or wasted work.
+  Returning a loaded resource, a RAII handle that would be destroyed immediately, or an owning
+  pointer qualifies; a plain getter does not. `engine/core` and `engine/platform` have none, and
+  `src/`'s handful are all on loaders that return something the caller must keep. Marking
+  trivial accessors trains the reader to skip the attribute, which costs its value on the calls
+  that need it.
 - Comments in this codebase explain *why* (non-obvious platform quirks, ABI hazards,
   boundary-condition rules). Match that — do not narrate what the code already says.
+- **The reasoning belongs in the source, not in a doc.** If a decision is non-obvious enough to
+  need explaining, explain it where the code is, so the reader finds it without knowing a doc
+  exists. Point at a doc only when the full argument is genuinely too long to sit in a comment
+  — and even then, put the conclusion and the one-line reason inline and cite the doc for the
+  detail, so the comment still stands on its own if the doc is retired.
+- **Comments must not outlive what they describe.** When finishing a piece of work, delete the
+  comments that pointed forward to it ("split out by R4", "R8 will replace this"). Keep such a
+  comment only if it still tells the reader something they need, and then rewrite it to stand
+  on its own: state the constraint or the rationale directly rather than citing a plan step or
+  a doc, because those get retired once the work lands. Comments about genuinely outstanding
+  work are fine, and should describe the intended end state rather than the ticket number.
 
 ---
 

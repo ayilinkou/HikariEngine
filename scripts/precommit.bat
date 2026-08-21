@@ -27,6 +27,9 @@ if errorlevel 1 exit /b %errorlevel%
 call tests\scripts\header_check.bat "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 
+call tests\scripts\rhi_boundary_check.bat
+if errorlevel 1 exit /b %errorlevel%
+
 call tests\scripts\build_tests.bat "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 

@@ -1,4 +1,4 @@
-#include "AllocatedImage.h"
+#include <rhi/vulkan/AllocatedImage.h>
 
 AllocatedImage::AllocatedImage(VmaAllocator allocator, vk::Image image, VmaAllocation alloc)
     : Image(image), Allocation(alloc), Allocator(allocator)

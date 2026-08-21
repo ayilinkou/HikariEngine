@@ -1,9 +1,6 @@
-#include "AllocatedImage.h"
-#include "Barrier.h"
 #include "Camera.h"
 #include "CloudSystem.h"
 #include "Common.h"
-#include "Cubemap.h"
 #include "Entity.h"
 #include "FrameData.h"
 #include "InstanceData.h"
@@ -12,11 +9,8 @@
 #include "Model.h"
 #include "ModelManager.h"
 #include "PBRMaterial.h"
-#include "PipelineBuilder.h"
 #include "ResourceManager.h"
-#include "Utility.h"
 #include "Vertex.h"
-#include "VulkanAllocator.h"
 #include "XmlParser.h"
 
 #include <core/IJobSystem.h>
@@ -26,9 +20,28 @@
 #include <core/Timer.h>
 
 #include <platform/CommandLine.h>
+#include <platform/FileSystem.h>
 #include <platform/IPlatform.h>
 #include <platform/Paths.h>
 #include <platform/SdlPlatform.h>
+
+#include <rhi/BarrierPresets.h>
+#include <rhi/BufferDesc.h>
+#include <rhi/DeviceDesc.h>
+#include <rhi/Diagnostics.h>
+#include <rhi/Handles.h>
+#include <rhi/IDevice.h>
+#include <rhi/UniqueHandle.h>
+#include <rhi/vulkan/AllocatedImage.h>
+#include <rhi/vulkan/BarrierUtil.h>
+#include <rhi/vulkan/BufferUtil.h>
+#include <rhi/vulkan/Cubemap.h>
+#include <rhi/vulkan/DebugNames.h>
+#include <rhi/vulkan/ImageUtil.h>
+#include <rhi/vulkan/PipelineBuilder.h>
+#include <rhi/vulkan/SwapchainUtil.h>
+#include <rhi/vulkan/Texture.h>
+#include <rhi/vulkan/VulkanNative.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -62,6 +75,7 @@ constexpr int NUM_FRAMES_IN_FLIGHT = 2;
 constexpr glm::vec3 SKY_COLOR = {0.4f, 0.8f, 1.f};
 
 constexpr LogCategory LogValidationLayer("Validation Layer");
+constexpr LogCategory LogDiagnostics("Diagnostics");
 constexpr LogCategory LogSDL("SDL");
 constexpr LogCategory LogWindow("Window");
 constexpr LogCategory LogMain("main");
@@ -69,8 +83,6 @@ constexpr LogCategory LogRenderer("Renderer");
 constexpr LogCategory LogImGui("InitImGui");
 
 std::atomic<bool> g_bShouldClose = false;
-std::atomic<uint64_t> g_ValidationErrorCount = 0;
-std::atomic<uint64_t> g_ValidationWarningCount = 0;
 
 void HandleSIGINT(int)
 {
@@ -109,49 +121,33 @@ struct GlobalBuffer
     float Time;
 };
 
-std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
-
 #ifdef NDEBUG
 constexpr bool bEnableValidationLayers = false;
 #else
 constexpr bool bEnableValidationLayers = true;
 #endif
 
-vk::DebugUtilsMessageSeverityFlagBitsEXT validationSeverityThreshold =
-    vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo;
-
-static VKAPI_ATTR vk::Bool32 VKAPI_CALL DebugCallback(
-    vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type,
-    const vk::DebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData)
+// Routes the RHI's validation messages into the log. Rhi::Diagnostics has
+// already counted and captured the message by the time this runs; this decides
+// only how it is presented. Called from the driver's debug callback, so it may
+// run on any thread.
+void HandleRhiDiagnostic(Rhi::DiagnosticSeverity severity, std::string_view message)
 {
-    if (severity < validationSeverityThreshold)
-        return vk::False;
-
-    LogSeverity logSeverity;
+    LogSeverity logSeverity = LogSeverity::Info;
     switch (severity)
     {
-        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose:
-        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo:
+        case Rhi::DiagnosticSeverity::Info:
             logSeverity = LogSeverity::Info;
             break;
-        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning:
+        case Rhi::DiagnosticSeverity::Warning:
             logSeverity = LogSeverity::Warning;
-            g_ValidationWarningCount.fetch_add(1, std::memory_order_relaxed);
             break;
-        case vk::DebugUtilsMessageSeverityFlagBitsEXT::eError:
+        case Rhi::DiagnosticSeverity::Error:
             logSeverity = LogSeverity::Error;
-            g_ValidationErrorCount.fetch_add(1, std::memory_order_relaxed);
             break;
     }
 
-    LogMsg(logSeverity, LogValidationLayer, "Type: {}. Msg: {}", to_string(type).c_str(),
-           pCallbackData->pMessage);
-
-    if (pUserData)
-    {
-        // TODO: use this when needed
-    }
-    return vk::False;
+    LogMsg(logSeverity, LogValidationLayer, "{}", message);
 }
 
 struct Options
@@ -166,7 +162,8 @@ struct Options
     std::string ReportPath; // write a JSON run report to this path
     bool bReportAutoPath = false;
     bool bStrictValidation = false; // exit non-zero on any validation error
-    bool bHeadless = false;         // TODO
+    Rhi::ValidationPolicy ValidationPolicy = Rhi::ValidationPolicy::Count;
+    bool bHeadless = false; // TODO
     int JobCount =
         -1; // -1 = default, 0 = SerialJobSystem, N>0 = SharedQueueJobSystem with N worker threads
 };
@@ -210,6 +207,8 @@ void PrintUsage()
                      "exiting\n"
                      "  --strict-validation     Exit non-zero if any Vulkan "
                      "validation error occurred\n"
+                     "  --validation-policy <p> ignore | count | failfast "
+                     "(default: count; failfast aborts on the first error)\n"
                      "  --headless              Run without a window "
                      "(reserved, not yet implemented)\n"
                      "  --jobs <N>              Worker thread count (0 = SerialJobSystem, "
@@ -290,6 +289,22 @@ Options ParseArgs(int argc, char** argv)
                 option.RequireNoValue();
                 options.bStrictValidation = true;
             }
+            else if (flag == "--validation-policy")
+            {
+                const std::string value = option.RequireValue();
+                if (value == "ignore")
+                    options.ValidationPolicy = Rhi::ValidationPolicy::Ignore;
+                else if (value == "count")
+                    options.ValidationPolicy = Rhi::ValidationPolicy::Count;
+                else if (value == "failfast")
+                    options.ValidationPolicy = Rhi::ValidationPolicy::FailFast;
+                else
+                {
+                    LogMsg(LogSeverity::Error, LogMain,
+                           "--validation-policy expects ignore, count or failfast, got: {}", value);
+                    ExitWithUsage(EXIT_FAILURE);
+                }
+            }
             else if (flag == "--headless")
             {
                 option.RequireNoValue();
@@ -310,15 +325,34 @@ Options ParseArgs(int argc, char** argv)
         ExitWithUsage(EXIT_FAILURE);
     }
 
+    // Ignore stops errors ever being counted, so --strict-validation would pass
+    // a run that had them. Rejected rather than silently preferred either way:
+    // in CI that combination reads as "validation is enforced" and is not.
+    if (options.bStrictValidation && options.ValidationPolicy == Rhi::ValidationPolicy::Ignore)
+    {
+        LogMsg(LogSeverity::Error, LogMain,
+               "--strict-validation cannot be combined with --validation-policy ignore: "
+               "no errors would be counted for it to act on");
+        ExitWithUsage(EXIT_FAILURE);
+    }
+
     return options;
 }
 
 class App
 {
 public:
-    App(IPlatform& platform, const Paths& paths, Options options, IJobSystem& jobSystem)
+    App(IPlatform& platform, const Paths& paths, Options options, IJobSystem& jobSystem,
+        Rhi::Diagnostics& diagnostics)
         : m_Platform(platform), m_Paths(paths), m_Options(std::move(options)),
-          m_JobSystem(jobSystem)
+          m_JobSystem(jobSystem), m_Diagnostics(diagnostics),
+          m_RhiDevice(Rhi::CreateDevice(MakeDeviceDesc())),
+          m_PhysicalDevice(Rhi::Vulkan::GetPhysicalDevice(*m_RhiDevice)),
+          m_Device(Rhi::Vulkan::GetDevice(*m_RhiDevice)),
+          m_Surface(Rhi::Vulkan::GetSurface(*m_RhiDevice)),
+          m_GraphicsQueue(Rhi::Vulkan::GetGraphicsQueue(*m_RhiDevice)),
+          m_VmaAllocator(Rhi::Vulkan::GetAllocator(*m_RhiDevice)),
+          m_QueueIndex(Rhi::Vulkan::GetGraphicsQueueFamily(*m_RhiDevice))
     {
     }
     ~App()
@@ -433,6 +467,19 @@ public:
     }
 
 private:
+    // Called from the constructor's initialiser list, so it may only touch
+    // members declared above m_RhiDevice.
+    [[nodiscard]] Rhi::DeviceDesc MakeDeviceDesc() const
+    {
+        Rhi::DeviceDesc desc;
+        desc.ApplicationName = "Vulkan App";
+        desc.bEnableValidation = bEnableValidationLayers;
+        desc.pDiagnostics = &m_Diagnostics;
+        desc.Requirements.bPresent = true;
+        desc.Requirements.NativeWindowHandle = m_Platform.GetNativeWindowHandle();
+        return desc;
+    }
+
     void Init()
     {
         LogMsg(LogSeverity::Info, LogMain, "Init()");
@@ -513,13 +560,18 @@ private:
             .colorAttachmentCount = 1u,
             .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format};
 
+        // The one place that is allowed to hold raw Vulkan handles from the RHI:
+        // ImGui's backend takes them by value and there is no neutral shape for
+        // that, short of wrapping ImGui itself.
+        const Rhi::Vulkan::NativeDevice native = Rhi::Vulkan::GetNative(*m_RhiDevice);
+
         ImGui_ImplVulkan_InitInfo initInfo = {};
-        initInfo.ApiVersion = m_APIVersion;
-        initInfo.Instance = *m_Instance;
-        initInfo.PhysicalDevice = *m_PhysicalDevice;
-        initInfo.Device = *m_Device;
-        initInfo.QueueFamily = m_QueueIndex;
-        initInfo.Queue = *m_GraphicsQueue;
+        initInfo.ApiVersion = native.ApiVersion;
+        initInfo.Instance = native.Instance;
+        initInfo.PhysicalDevice = native.PhysicalDevice;
+        initInfo.Device = native.Device;
+        initInfo.QueueFamily = native.GraphicsQueueFamily;
+        initInfo.Queue = native.GraphicsQueue;
         initInfo.DescriptorPool = VK_NULL_HANDLE;
         initInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
         initInfo.MinImageCount = m_MinImageCount;
@@ -540,14 +592,8 @@ private:
     {
         LogMsg(LogSeverity::Info, LogRenderer, "InitVulkan()");
 
-        CreateInstance();
-        SetupDebugMessenger();
-        CreateSurface();
-        PickPhysicalDevice();
-        CreateLogicalDevice();
-
-        m_VmaAllocator = VulkanAllocator(m_Instance, m_PhysicalDevice, m_Device, m_APIVersion);
-
+        // The device itself was created in the constructor, so that every member
+        // below can assume it exists.
         CreateSwapchain();
         CreateSwapchainImageViews();
         CreateDepthResources();
@@ -555,8 +601,8 @@ private:
         CreateCommandPools();
         CreateTextureSampler();
 
-        ResourceManager::Init(m_Device, m_PhysicalDevice, m_GenericCommandPool, m_GraphicsQueue,
-                              m_VmaAllocator, m_Paths);
+        ResourceManager::Init(*m_RhiDevice, m_Device, m_PhysicalDevice, m_GenericCommandPool,
+                              m_GraphicsQueue, m_VmaAllocator, m_Paths);
         MaterialFactory::Init(m_Device, m_TextureSampler);
 
         CreatePipelines();
@@ -572,9 +618,13 @@ private:
                                               .GlobalSetLayout = m_GlobalBufferSetLayout,
                                               .DepthSetLayout = m_DepthSetLayout,
                                               .CommandPool = m_GenericCommandPool,
-                                              .ComputeQueue =
-                                                  m_GraphicsQueue, // TODO: find and store a
-                                                                   // dedicated compute queue
+                                              // The device reports whether an async compute
+                                              // queue exists (DeviceCaps::
+                                              // bHasDedicatedComputeQueue); moving the cloud
+                                              // dispatches onto it needs them to own their own
+                                              // submission and cross-queue synchronization
+                                              // first, so they share the graphics queue.
+                                              .ComputeQueue = m_GraphicsQueue,
                                               .SwapchainWidth = m_SwapchainExtent.width,
                                               .SwapchainHeight = m_SwapchainExtent.height,
                                               .FramesInFlight = NUM_FRAMES_IN_FLIGHT,
@@ -586,16 +636,36 @@ private:
         CreateQuadBuffers();
     }
 
+    // The stamp that names the auto-pathed files of one capture.
+    //
+    // Taken when the first of those files is written and reused by the rest, so
+    // that a screenshot and the report describing the same moment share a name
+    // — asking the clock separately puts them a second apart whenever the two
+    // writes straddle a second boundary.
+    const std::string& CaptureTimestamp()
+    {
+        if (m_CaptureTimestamp.empty())
+            m_CaptureTimestamp = GenerateTimestamp();
+
+        return m_CaptureTimestamp;
+    }
+
     void WriteReport()
     {
         const std::string DEFAULT_PATH = "tests/reports/report_";
         EnsureParentDirectoryExists(DEFAULT_PATH);
 
-        uint64_t validationErrors = g_ValidationErrorCount.load(std::memory_order_relaxed);
-        uint64_t validationWarnings = g_ValidationWarningCount.load(std::memory_order_relaxed);
+        uint64_t validationErrors = m_Diagnostics.ErrorCount();
+        uint64_t validationWarnings = m_Diagnostics.WarningCount();
         uint32_t drawCalls = m_OpaqueDrawCallCount + m_TransparentDrawCallCount;
         uint32_t batches = m_OpaqueBatchCount + m_TransparentBatchCount;
         uint32_t instances = m_OpaqueInstanceCount + m_TransparentInstanceCount;
+        // The last frame's counts, as the draw call and batch numbers above also
+        // are. Worth knowing when comparing two reports: --screenshot captures
+        // on the final frame, and the copy it inserts costs one extra barrier
+        // and one extra call, so a captured run legitimately reads one higher
+        // than an uncaptured one.
+        Rhi::BarrierCounts barrierCounts = FrameBarrierCounts();
 
         float meanFrameTimeMs = 0.f;
         float p99FrameTimeMs = 0.f;
@@ -615,7 +685,7 @@ private:
         }
 
         std::string path =
-            m_Options.bReportAutoPath ? DEFAULT_PATH + GenerateTimestamp() : m_Options.ReportPath;
+            m_Options.bReportAutoPath ? DEFAULT_PATH + CaptureTimestamp() : m_Options.ReportPath;
         path = EnsureExtension(path, ".json");
         std::ofstream file(path);
         if (!file.is_open())
@@ -631,6 +701,8 @@ private:
              << "  \"drawCalls\": " << drawCalls << ",\n"
              << "  \"batches\": " << batches << ",\n"
              << "  \"instances\": " << instances << ",\n"
+             << "  \"barriers\": " << barrierCounts.Barriers << ",\n"
+             << "  \"barrierCalls\": " << barrierCounts.Calls << ",\n"
              << "  \"meanFrameTimeMs\": " << meanFrameTimeMs << ",\n"
              << "  \"p99FrameTimeMs\": " << p99FrameTimeMs << "\n"
              << "}\n";
@@ -665,8 +737,8 @@ private:
             static_cast<vk::DeviceSize>(width) * height * bytesPerPixel;
 
         // The swapchain format is BGRA; swizzle to RGBA before writing.
-        const auto* src =
-            static_cast<const uint8_t*>(m_ScreenshotStagingBuffer.AllocationInfo.pMappedData);
+        const auto* src = static_cast<const uint8_t*>(
+            m_RhiDevice->GetMappedData(m_ScreenshotStagingBuffer.Get()));
         std::vector<uint8_t> pixels(static_cast<size_t>(bufferSize));
         for (size_t i = 0; i < static_cast<size_t>(width) * height; i++)
         {
@@ -676,7 +748,7 @@ private:
             pixels[i * 4 + 3] = src[i * 4 + 3]; // A <- A
         }
 
-        std::string path = m_Options.bScreenshotAutoPath ? DEFAULT_PATH + GenerateTimestamp()
+        std::string path = m_Options.bScreenshotAutoPath ? DEFAULT_PATH + CaptureTimestamp()
                                                          : m_Options.ScreenshotPath;
         path = EnsureExtension(path, ".png");
         const int writeResult =
@@ -823,15 +895,19 @@ private:
         {
             const vk::DeviceSize bufferSize =
                 static_cast<vk::DeviceSize>(m_SwapchainExtent.width) * m_SwapchainExtent.height * 4;
-            m_ScreenshotStagingBuffer = CreateBuffer(
-                m_VmaAllocator, bufferSize, vk::BufferUsageFlagBits::eTransferDst,
-                VMA_MEMORY_USAGE_AUTO,
-                VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+            m_ScreenshotStagingBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
+                *m_RhiDevice,
+                m_RhiDevice->CreateBuffer(Rhi::BufferDesc{.Size = bufferSize,
+                                                          .Usage = Rhi::BufferUsage::CopyDst,
+                                                          .Access = Rhi::MemoryAccess::GpuToCpu,
+                                                          .DebugName = "Screenshot Staging"}));
             m_bScreenshotBufferReady = true;
         }
 
         {
             // Timer recordTimer("Command buffer recording");
+            m_MainThreadBarrierCounts = {};
+
             m_JobSystem.Submit([&] { RecordOpaqueCommandBuffer(); });
             m_JobSystem.Submit([&] { RecordTransparentCommandBuffer(); });
 
@@ -844,6 +920,7 @@ private:
             RecordSwapImageToPresentLayout(imageIndex, captureScreenshot);
 
             m_JobSystem.Wait();
+            LogBarrierCounts();
         }
 
         // TODO: even when ImGui is not showing, it's being submitted
@@ -993,286 +1070,6 @@ private:
         ImGui::End();
 
         ImGui::Render();
-    }
-
-    void CreateInstance()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "CreateInstance()");
-
-        constexpr vk::ApplicationInfo appInfo{.pApplicationName = "Vulkan App",
-                                              .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
-                                              .pEngineName = "No Engine",
-                                              .engineVersion = VK_MAKE_VERSION(1, 0, 0),
-                                              .apiVersion = m_APIVersion};
-
-        // extensions
-        Uint32 countInstanceExtensions;
-        const char* const* instanceExtensions =
-            SDL_Vulkan_GetInstanceExtensions(&countInstanceExtensions);
-
-        if (countInstanceExtensions == 0)
-            throw std::runtime_error("No available instance extensions found!");
-
-        std::vector<const char*> requiredExtensions(countInstanceExtensions);
-        memcpy(requiredExtensions.data(), instanceExtensions,
-               countInstanceExtensions * sizeof(const char*));
-        requiredExtensions.push_back(vk::EXTDebugUtilsExtensionName);
-
-#if defined(__APPLE__)
-        // MoltenVK is a portability driver. On macOS the Vulkan loader
-        // requires the app to explicitly opt into enumerating portability
-        // drivers, otherwise vkCreateInstance fails with
-        // VK_ERROR_INCOMPATIBLE_DRIVER.
-        requiredExtensions.push_back(vk::KHRPortabilityEnumerationExtensionName);
-        // Required so we can build the swapchain surface via
-        // VK_EXT_metal_surface (SDL_Vulkan_CreateSurface is unreliable on
-        // macOS).
-        requiredExtensions.push_back(vk::EXTMetalSurfaceExtensionName);
-#endif
-
-        auto extensionProperties = m_Context.enumerateInstanceExtensionProperties();
-
-        // VK_EXT_layer_settings is implemented by layers (e.g.
-        // VK_LAYER_KHRONOS_validation), not by the loader, so it never appears
-        // in vkEnumerateInstanceExtensionProperties(nullptr). It takes effect
-        // purely through the VkLayerSettingsCreateInfoEXT pNext chain below;
-        // the gate for attaching it is whether the validation layer is enabled,
-        // not whether the extension happens to be enumerated.
-        auto unsupportedExtensionIt = std::ranges::find_if(
-            requiredExtensions,
-            [&extensionProperties](auto const& requiredExtension)
-            {
-                return std::ranges::none_of(
-                    extensionProperties, [requiredExtension](auto const& extensionProperty)
-                    { return strcmp(extensionProperty.extensionName, requiredExtension) == 0; });
-            });
-
-        if (unsupportedExtensionIt != requiredExtensions.end())
-            throw std::runtime_error("Required extension not supported: " +
-                                     std::string(*unsupportedExtensionIt));
-
-        // layers
-        std::vector<const char*> requiredLayers;
-        if (bEnableValidationLayers)
-        {
-            requiredLayers.assign(validationLayers.begin(), validationLayers.end());
-        }
-
-        auto layerProperties = m_Context.enumerateInstanceLayerProperties();
-
-        auto unsupportedLayerIt = std::ranges::find_if(
-            requiredLayers,
-            [&layerProperties](auto const& requiredLayer)
-            {
-                return std::ranges::none_of(
-                    layerProperties, [requiredLayer](auto const& layerProperty)
-                    { return strcmp(layerProperty.layerName, requiredLayer) == 0; });
-            });
-
-        if (unsupportedLayerIt != requiredLayers.end())
-            throw std::runtime_error("Required layer not supported: " +
-                                     std::string(*unsupportedLayerIt));
-
-        const vk::Bool32 bSyncValEnabled = VK_TRUE;
-        const vk::Bool32 bBestPracticesValEnabled = VK_TRUE;
-
-        std::array<vk::LayerSettingEXT, 2> settings = {
-            vk::LayerSettingEXT{.pLayerName = "VK_LAYER_KHRONOS_validation",
-                                .pSettingName = "validate_sync",
-                                .type = vk::LayerSettingTypeEXT::eBool32,
-                                .valueCount = 1,
-                                .pValues = &bSyncValEnabled},
-            vk::LayerSettingEXT{.pLayerName = "VK_LAYER_KHRONOS_validation",
-                                .pSettingName = "validate_best_practices",
-                                .type = vk::LayerSettingTypeEXT::eBool32,
-                                .valueCount = 1,
-                                .pValues = &bBestPracticesValEnabled},
-        };
-
-        vk::LayerSettingsCreateInfoEXT layerSettingsInfo{
-            .settingCount = static_cast<uint32_t>(settings.size()), .pSettings = settings.data()};
-
-        vk::InstanceCreateInfo createInfo{
-            .pNext = bEnableValidationLayers ? &layerSettingsInfo : nullptr,
-#if defined(__APPLE__)
-            .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,
-#endif
-            .pApplicationInfo = &appInfo,
-            .enabledLayerCount = (uint32_t)requiredLayers.size(),
-            .ppEnabledLayerNames = requiredLayers.data(),
-            .enabledExtensionCount = (uint32_t)requiredExtensions.size(),
-            .ppEnabledExtensionNames = requiredExtensions.data()};
-
-        m_Instance = vk::raii::Instance(m_Context, createInfo);
-    }
-
-    void SetupDebugMessenger()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "SetupDebugMessenger()");
-
-        if (!bEnableValidationLayers)
-            return;
-
-        vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(
-            vk::DebugUtilsMessageSeverityFlagBitsEXT::eError |
-            vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-            vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo);
-        vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(
-            vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
-            vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance);
-
-        vk::DebugUtilsMessengerCreateInfoEXT createInfo{.messageSeverity = severityFlags,
-                                                        .messageType = messageTypeFlags,
-                                                        .pfnUserCallback = &DebugCallback};
-
-        m_DebugMessenger = m_Instance.createDebugUtilsMessengerEXT(createInfo);
-    }
-
-    bool IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& device)
-    {
-        auto properties = device.getProperties();
-
-        bool bSupportsVulkan13 = properties.apiVersion >= vk::ApiVersion13;
-
-        auto queueFamilies = device.getQueueFamilyProperties();
-        bool bSupportsGraphicsQ =
-            std::ranges::any_of(queueFamilies, [](const auto& qfp)
-                                { return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics); });
-
-        std::vector<const char*> requiredExtensions = {vk::KHRSwapchainExtensionName,
-                                                       vk::EXTDescriptorIndexingExtensionName};
-        auto availableExtensions = device.enumerateDeviceExtensionProperties();
-        bool bSupportsAllExtensions = std::ranges::all_of(
-            requiredExtensions,
-            [&availableExtensions](const auto& requiredExtension)
-            {
-                return std::ranges::any_of(
-                    availableExtensions, [requiredExtension](const auto& availableExtension)
-                    { return strcmp(availableExtension.extensionName, requiredExtension) == 0; });
-            });
-
-        auto features =
-            device.getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features,
-                                vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
-        bool bSupportsAllFeatures =
-            features.get<vk::PhysicalDeviceFeatures2>().features.samplerAnisotropy &&
-            features.get<vk::PhysicalDeviceFeatures2>().features.independentBlend &&
-            features.get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
-            features.get<vk::PhysicalDeviceVulkan13Features>().synchronization2 &&
-            features.get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
-
-        if (bSupportsVulkan13 && bSupportsGraphicsQ && bSupportsAllExtensions &&
-            bSupportsAllFeatures)
-            return true;
-        return false;
-    }
-
-    void CreateSurface()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "CreateSurface()");
-
-#if defined(__APPLE__)
-        // SDL_Vulkan_CreateSurface can crash on macOS because SDL resolves the
-        // surface-creation function pointer through its own Vulkan loader,
-        // which may differ from the one this app linked (and the instance
-        // belongs to). Create the Metal surface directly via our Vulkan loader
-        // instead.
-        SDL_MetalView metalView =
-            SDL_Metal_CreateView(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()));
-        if (!metalView)
-            throw SDLException("Failed to create Metal view!");
-
-        void* metalLayer = SDL_Metal_GetLayer(metalView);
-        vk::MetalSurfaceCreateInfoEXT createInfo{.pLayer = metalLayer};
-
-        m_Surface = m_Instance.createMetalSurfaceEXT(createInfo);
-#else
-        VkSurfaceKHR rawSurface;
-        if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()),
-                                      *m_Instance, nullptr, &rawSurface))
-            throw SDLException("Failed to create Vulkan surface!");
-
-        m_Surface = vk::raii::SurfaceKHR(m_Instance, rawSurface);
-#endif
-    }
-
-    void PickPhysicalDevice()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "PickPhysicalDevice()");
-
-        auto devices = m_Instance.enumeratePhysicalDevices();
-        const auto deviceIt = std::ranges::find_if(devices, [&](const auto& device)
-                                                   { return IsPhysicalDeviceSuitable(device); });
-
-        if (deviceIt == devices.end())
-            throw std::runtime_error("Failed to find a suitable GPU!");
-
-        m_PhysicalDevice = *deviceIt;
-    }
-
-    void CreateLogicalDevice()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "CreateLogicalDevice()");
-
-        std::vector<vk::QueueFamilyProperties> qfProperties =
-            m_PhysicalDevice.getQueueFamilyProperties();
-
-        for (size_t qfpIndex = 0; qfpIndex < qfProperties.size(); qfpIndex++)
-        {
-            if ((qfProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) !=
-                    static_cast<vk::QueueFlags>(0) &&
-                m_PhysicalDevice.getSurfaceSupportKHR(static_cast<uint32_t>(qfpIndex), m_Surface))
-
-            {
-                m_QueueIndex = static_cast<uint32_t>(qfpIndex);
-                break;
-            }
-        }
-
-        if (m_QueueIndex == std::numeric_limits<uint32_t>::max())
-            throw std::runtime_error("Could not find a queue for graphics and presenting!");
-
-        float queuePriority = 0.5f;
-        vk::DeviceQueueCreateInfo queueCreateInfo{
-            .queueFamilyIndex = m_QueueIndex, .queueCount = 1, .pQueuePriorities = &queuePriority};
-
-        vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
-                           vk::PhysicalDeviceVulkan13Features,
-                           vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
-                           vk::PhysicalDeviceDescriptorIndexingFeaturesEXT>
-            featureChain = {{.features = {.independentBlend = true, .samplerAnisotropy = true}},
-                            {.shaderDrawParameters = true},
-                            {.synchronization2 = true, .dynamicRendering = true},
-                            {.extendedDynamicState = true},
-                            {.descriptorBindingPartiallyBound = true}};
-
-        std::vector<const char*> requiredDeviceExtensions = {vk::KHRSwapchainExtensionName};
-
-#if defined(__APPLE__)
-        // MoltenVK exposes VK_KHR_portability_subset and requires it to be
-        // enabled on the logical device; otherwise device creation has
-        // undefined behaviour and can crash.
-        requiredDeviceExtensions.push_back(vk::KHRPortabilitySubsetExtensionName);
-#endif
-
-        vk::DeviceCreateInfo deviceCreateInfo{
-            .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
-            .queueCreateInfoCount = 1,
-            .pQueueCreateInfos = &queueCreateInfo,
-            .enabledExtensionCount = (uint32_t)requiredDeviceExtensions.size(),
-            .ppEnabledExtensionNames = requiredDeviceExtensions.data()};
-
-        m_Device = vk::raii::Device(m_PhysicalDevice, deviceCreateInfo);
-        SetVkDebugName(m_Device, *m_Device, vk::ObjectType::eDevice, "Device");
-        m_GraphicsQueue = vk::raii::Queue(m_Device, m_QueueIndex, 0);
-        SetVkDebugName(m_Device, *m_GraphicsQueue, vk::ObjectType::eQueue, "Graphics Queue");
-
-        // Setting debug names for objects which were created before the device
-        // was created.
-        SetVkDebugName(m_Device, *m_Instance, vk::ObjectType::eInstance, "Instance");
-        SetVkDebugName(m_Device, *m_PhysicalDevice, vk::ObjectType::ePhysicalDevice,
-                       "Physical Device");
-        SetVkDebugName(m_Device, *m_Surface, vk::ObjectType::eSurfaceKHR, "Surface");
     }
 
     void CreateSwapchain()
@@ -1609,6 +1406,33 @@ private:
         }
     }
 
+    // What the frame's three recording threads produced between them. Summed on
+    // demand rather than accumulated into one member, because two of the three
+    // are written from job threads.
+    Rhi::BarrierCounts FrameBarrierCounts() const
+    {
+        Rhi::BarrierCounts total = m_OpaqueBarrierCounts;
+        total += m_TransparentBarrierCounts;
+        total += m_MainThreadBarrierCounts;
+        return total;
+    }
+
+    // Reports the frame's barrier counts the first time they are seen and
+    // whenever they change afterwards. Logging them every frame would drown the
+    // log, and never logging them would make a change in the barriers — the
+    // easiest thing to get wrong here and the hardest to see — invisible
+    // between runs of the report.
+    void LogBarrierCounts()
+    {
+        const Rhi::BarrierCounts counts = FrameBarrierCounts();
+        if (counts == m_LoggedBarrierCounts)
+            return;
+
+        LogMsg(LogSeverity::Info, LogRenderer, "Barriers recorded this frame: {} over {} calls",
+               counts.Barriers, counts.Calls);
+        m_LoggedBarrierCounts = counts;
+    }
+
     void RecordOpaqueCommandBuffer()
     {
         FrameData& frame = m_Frames[m_FrameIndex];
@@ -1618,10 +1442,13 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        RecordImageBarrier(cmd, frame.DepthTexture.GetImage(),
-                           Barriers::UndefinedToDepthAttachment());
-        RecordImageBarrier(cmd, frame.OpaqueTexture.GetImage(),
-                           Barriers::UndefinedToColorAttachment());
+        const std::array openingBarriers{
+            Rhi::Vulkan::ImageBarrier{.Image = frame.DepthTexture.GetImage(),
+                                      .Barrier =
+                                          Rhi::BarrierPresets::UndefinedToDepthStencilWrite()},
+            Rhi::Vulkan::ImageBarrier{.Image = frame.OpaqueTexture.GetImage(),
+                                      .Barrier = Rhi::BarrierPresets::UndefinedToRenderTarget()}};
+        m_OpaqueBarrierCounts = Rhi::Vulkan::RecordBarriers(*cmd, openingBarriers);
 
         vk::ClearValue clearColor = vk::ClearColorValue(SKY_COLOR.r, SKY_COLOR.g, SKY_COLOR.b, 1.f);
         vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.f, 0);
@@ -1654,7 +1481,8 @@ private:
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_OpaquePipelineLayout, 0,
                                *frame.GlobalBufferDescriptorSet, nullptr);
 
-        cmd.bindVertexBuffers(1, frame.InstanceBuffer.Buffer, {0});
+        cmd.bindVertexBuffers(1, Rhi::Vulkan::GetBuffer(*m_RhiDevice, frame.InstanceBuffer.Get()),
+                              {0});
 
         vk::CullModeFlags cullMode = vk::CullModeFlagBits::eBack;
 
@@ -1673,8 +1501,9 @@ private:
                 cullMode = requiredCullMode;
             }
 
-            cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
-            cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);
+            cmd.bindVertexBuffers(0, Rhi::Vulkan::GetBuffer(*m_RhiDevice, batch.VertexBuffer), {0});
+            cmd.bindIndexBuffer(Rhi::Vulkan::GetBuffer(*m_RhiDevice, batch.IndexBuffer), 0,
+                                vk::IndexType::eUint32);
             cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_OpaquePipelineLayout, 1,
                                    batch.pMaterial->GetDescriptorSet(), nullptr);
             cmd.pushConstants<PBRMaterial::MaterialData>(
@@ -1698,9 +1527,9 @@ private:
         FrameData& frame = m_Frames[m_FrameIndex];
         frame.CloudCommandPool.reset();
 
-        m_CloudSystem->RecordDispatch(frame.CloudCommandBuffer, m_FrameIndex,
-                                      frame.GlobalBufferDescriptorSet,
-                                      frame.DepthBufferDescriptorSet);
+        m_MainThreadBarrierCounts += m_CloudSystem->RecordDispatch(
+            frame.CloudCommandBuffer, m_FrameIndex, frame.GlobalBufferDescriptorSet,
+            frame.DepthBufferDescriptorSet);
     }
 
     void RecordTransparentCommandBuffer()
@@ -1712,12 +1541,15 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        RecordImageBarrier(cmd, frame.AccumTexture.GetImage(),
-                           Barriers::UndefinedToColorAttachment());
-        RecordImageBarrier(cmd, frame.RevealageTexture.GetImage(),
-                           Barriers::UndefinedToColorAttachment());
-        RecordImageBarrier(cmd, frame.DepthTexture.GetImage(),
-                           Barriers::DepthAttachmentToShaderRead());
+        const std::array openingBarriers{
+            Rhi::Vulkan::ImageBarrier{.Image = frame.AccumTexture.GetImage(),
+                                      .Barrier = Rhi::BarrierPresets::UndefinedToRenderTarget()},
+            Rhi::Vulkan::ImageBarrier{.Image = frame.RevealageTexture.GetImage(),
+                                      .Barrier = Rhi::BarrierPresets::UndefinedToRenderTarget()},
+            Rhi::Vulkan::ImageBarrier{
+                .Image = frame.DepthTexture.GetImage(),
+                .Barrier = Rhi::BarrierPresets::DepthStencilWriteToShaderResource()}};
+        m_TransparentBarrierCounts = Rhi::Vulkan::RecordBarriers(*cmd, openingBarriers);
 
         vk::ClearValue accumClearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 0.f);
         vk::ClearValue revealageClearColor = vk::ClearColorValue(1.f, 0.f, 0.f, 0.f);
@@ -1754,15 +1586,17 @@ private:
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_TransparentPipelineLayout, 0,
                                *frame.GlobalBufferDescriptorSet, nullptr);
 
-        cmd.bindVertexBuffers(1, frame.InstanceBuffer.Buffer, {0});
+        cmd.bindVertexBuffers(1, Rhi::Vulkan::GetBuffer(*m_RhiDevice, frame.InstanceBuffer.Get()),
+                              {0});
 
         // per mesh batch
         const std::vector<MeshBatch>& batches = ModelManager::Get()->GetTransparentBatches();
         uint32_t instanceCount = 0;
         for (const MeshBatch& batch : batches)
         {
-            cmd.bindVertexBuffers(0, batch.VertexBuffer, {0});
-            cmd.bindIndexBuffer(batch.IndexBuffer, 0, vk::IndexType::eUint32);
+            cmd.bindVertexBuffers(0, Rhi::Vulkan::GetBuffer(*m_RhiDevice, batch.VertexBuffer), {0});
+            cmd.bindIndexBuffer(Rhi::Vulkan::GetBuffer(*m_RhiDevice, batch.IndexBuffer), 0,
+                                vk::IndexType::eUint32);
             cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_TransparentPipelineLayout, 1,
                                    batch.pMaterial->GetDescriptorSet(), nullptr);
             cmd.pushConstants<PBRMaterial::MaterialData>(
@@ -1790,12 +1624,17 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        RecordImageBarrier(cmd, frame.OpaqueTexture.GetImage(),
-                           Barriers::ColorAttachmentToShaderRead());
-        RecordImageBarrier(cmd, frame.AccumTexture.GetImage(),
-                           Barriers::ColorAttachmentToShaderRead());
-        RecordImageBarrier(cmd, frame.RevealageTexture.GetImage(),
-                           Barriers::ColorAttachmentToShaderRead());
+        const std::array openingBarriers{
+            Rhi::Vulkan::ImageBarrier{.Image = frame.OpaqueTexture.GetImage(),
+                                      .Barrier =
+                                          Rhi::BarrierPresets::RenderTargetToShaderResource()},
+            Rhi::Vulkan::ImageBarrier{.Image = frame.AccumTexture.GetImage(),
+                                      .Barrier =
+                                          Rhi::BarrierPresets::RenderTargetToShaderResource()},
+            Rhi::Vulkan::ImageBarrier{.Image = frame.RevealageTexture.GetImage(),
+                                      .Barrier =
+                                          Rhi::BarrierPresets::RenderTargetToShaderResource()}};
+        m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarriers(*cmd, openingBarriers);
 
         vk::ClearValue clearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 1.f);
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
@@ -1823,8 +1662,10 @@ private:
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_CompositePipelineLayout, 0u,
                                descriptorSets, nullptr);
 
-        cmd.bindVertexBuffers(0u, m_QuadVertexBuffer.Buffer, {0});
-        cmd.bindIndexBuffer(m_QuadIndexBuffer.Buffer, 0u, vk::IndexType::eUint32);
+        cmd.bindVertexBuffers(0u, Rhi::Vulkan::GetBuffer(*m_RhiDevice, m_QuadVertexBuffer.Get()),
+                              {0});
+        cmd.bindIndexBuffer(Rhi::Vulkan::GetBuffer(*m_RhiDevice, m_QuadIndexBuffer.Get()), 0u,
+                            vk::IndexType::eUint32);
 
         constexpr uint32_t QUAD_INDEX_COUNT = 6u;
         cmd.drawIndexed(QUAD_INDEX_COUNT, 1u, 0u, 0, 0u);
@@ -1841,15 +1682,10 @@ private:
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
 
-        constexpr ImageBarrierDesc barrierDesc{
-            .srcStage = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            .srcAccess = vk::AccessFlagBits2::eColorAttachmentWrite,
-            .dstStage = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            .dstAccess = vk::AccessFlagBits2::eColorAttachmentRead,
-            .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
-            .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
-            .aspect = vk::ImageAspectFlagBits::eColor};
-        RecordImageBarrier(cmd, m_SwapImages[imageIndex], barrierDesc);
+        // ImGui draws over the composited frame with loadOp eLoad, so the
+        // composite pass's writes have to be visible to this pass's load.
+        m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
+            *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::PreserveRenderTarget());
 
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
             .imageView = m_SwapImageViews[imageIndex],
@@ -1878,8 +1714,8 @@ private:
         vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].DrawLayoutCommandBuffer;
         vk::CommandBufferBeginInfo beginInfo{};
         cmd.begin(beginInfo);
-        RecordImageBarrier(cmd, m_SwapImages[imageIndex],
-                           Barriers::AcquiredSwapchainToColorAttachment());
+        m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
+            *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::AcquiredSwapchainToRenderTarget());
         cmd.end();
     }
 
@@ -1893,9 +1729,9 @@ private:
         if (captureScreenshot)
         {
             // Copy out the composited frame while it is still safely between
-            // acquire and present (see ColorAttachmentToTransferSrc()).
-            RecordImageBarrier(cmd, m_SwapImages[imageIndex],
-                               Barriers::ColorAttachmentToTransferSrc());
+            // acquire and present (see RenderTargetToCopySrc()).
+            m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
+                *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::RenderTargetToCopySrc());
 
             const vk::BufferImageCopy region{
                 .bufferOffset = 0,
@@ -1907,14 +1743,17 @@ private:
                                      .layerCount = 1},
                 .imageOffset = {0, 0, 0},
                 .imageExtent = {m_SwapchainExtent.width, m_SwapchainExtent.height, 1}};
-            cmd.copyImageToBuffer(m_SwapImages[imageIndex], vk::ImageLayout::eTransferSrcOptimal,
-                                  m_ScreenshotStagingBuffer.Buffer, region);
+            cmd.copyImageToBuffer(
+                m_SwapImages[imageIndex], vk::ImageLayout::eTransferSrcOptimal,
+                Rhi::Vulkan::GetBuffer(*m_RhiDevice, m_ScreenshotStagingBuffer.Get()), region);
 
-            RecordImageBarrier(cmd, m_SwapImages[imageIndex], Barriers::TransferSrcToPresent());
+            m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
+                *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::CopySrcToPresent());
         }
         else
         {
-            RecordImageBarrier(cmd, m_SwapImages[imageIndex], Barriers::ColorAttachmentToPresent());
+            m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
+                *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::RenderTargetToPresent());
         }
 
         cmd.end();
@@ -2048,17 +1887,12 @@ private:
 
         for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
-            AllocatedBuffer globalBuffer =
-                CreateBuffer(m_VmaAllocator, size, vk::BufferUsageFlagBits::eUniformBuffer,
-                             VMA_MEMORY_USAGE_AUTO,
-                             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                                 VMA_ALLOCATION_CREATE_MAPPED_BIT);
-            SetVkDebugName(m_Device, globalBuffer.Buffer, vk::ObjectType::eBuffer,
-                           std::format("Global Buffer Frame {}", i).c_str());
-            vmaSetAllocationName(m_VmaAllocator, globalBuffer.Allocation,
-                                 std::format("Global Buffer Memory Frame {}", i).c_str());
-
-            m_Frames[i].GlobalBuffer = std::move(globalBuffer);
+            m_Frames[i].GlobalBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
+                *m_RhiDevice, m_RhiDevice->CreateBuffer(Rhi::BufferDesc{
+                                  .Size = size,
+                                  .Usage = Rhi::BufferUsage::Uniform,
+                                  .Access = Rhi::MemoryAccess::CpuToGpu,
+                                  .DebugName = std::format("Global Buffer Frame {}", i)}));
         }
 
         m_GlobalBuffer.SkyColor = SKY_COLOR;
@@ -2073,7 +1907,12 @@ private:
         glm::mat4 proj = m_Camera->GetProjMatrix();
         // GLM was designed for OpenGL, which has its Y coordinate in clip
         // space inverted. Compensate for this by scaling here.
-        proj[1][1] *= -1.f;
+        //
+        // Driven by the device capability rather than by the build, because
+        // whether this is needed is a property of the graphics API: Vulkan wants
+        // it, D3D12 does not. This is the only site permitted to apply it.
+        if (m_RhiDevice->GetCaps().bFlipClipSpaceY)
+            proj[1][1] *= -1.f;
         m_GlobalBuffer.CamData.Proj = glm::transpose(proj);
         m_GlobalBuffer.CamData.NearPlane = m_Camera->GetNearPlane();
         m_GlobalBuffer.CamData.FarPlane = m_Camera->GetFarPlane();
@@ -2101,7 +1940,7 @@ private:
                 m_SceneGraph->DirLights[dirLightCount]->GetData();
         }
 
-        memcpy(m_Frames[frameIndex].GlobalBuffer.AllocationInfo.pMappedData, &m_GlobalBuffer,
+        memcpy(m_RhiDevice->GetMappedData(m_Frames[frameIndex].GlobalBuffer.Get()), &m_GlobalBuffer,
                sizeof(m_GlobalBuffer));
     }
 
@@ -2181,7 +2020,9 @@ private:
                            std::format("Main Descriptor Set Frame {}", i).c_str());
 
             vk::DescriptorBufferInfo bufferInfo{
-                .buffer = frame.GlobalBuffer.Buffer, .offset = 0, .range = sizeof(GlobalBuffer)};
+                .buffer = Rhi::Vulkan::GetBuffer(*m_RhiDevice, frame.GlobalBuffer.Get()),
+                .offset = 0,
+                .range = sizeof(GlobalBuffer)};
 
             std::array globalDescriptorWrites = {
                 vk::WriteDescriptorSet{.dstSet = frame.GlobalBufferDescriptorSet,
@@ -2296,16 +2137,12 @@ private:
         vk::DeviceSize size = sizeof(InstanceData) * MAX_INSTANCE_COUNT;
         for (int i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
-            AllocatedBuffer buffer = CreateBuffer(
-                m_VmaAllocator, size, vk::BufferUsageFlagBits::eVertexBuffer, VMA_MEMORY_USAGE_AUTO,
-                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                    VMA_ALLOCATION_CREATE_MAPPED_BIT);
-            SetVkDebugName(m_Device, buffer.Buffer, vk::ObjectType::eBuffer,
-                           std::format("Instance Buffer Frame {}", i).c_str());
-            vmaSetAllocationName(m_VmaAllocator, buffer.Allocation,
-                                 std::format("Instance Buffer Memory Frame {}", i).c_str());
-
-            m_Frames[i].InstanceBuffer = std::move(buffer);
+            m_Frames[i].InstanceBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
+                *m_RhiDevice, m_RhiDevice->CreateBuffer(Rhi::BufferDesc{
+                                  .Size = size,
+                                  .Usage = Rhi::BufferUsage::Vertex,
+                                  .Access = Rhi::MemoryAccess::CpuToGpu,
+                                  .DebugName = std::format("Instance Buffer Frame {}", i)}));
         }
     }
 
@@ -2318,8 +2155,8 @@ private:
         if (instanceDatas.size() > MAX_INSTANCE_COUNT)
             throw std::runtime_error("Max instance count exceeded!");
 
-        memcpy(m_Frames[frameIndex].InstanceBuffer.AllocationInfo.pMappedData, instanceDatas.data(),
-               sizeof(InstanceData) * instanceDatas.size());
+        memcpy(m_RhiDevice->GetMappedData(m_Frames[frameIndex].InstanceBuffer.Get()),
+               instanceDatas.data(), sizeof(InstanceData) * instanceDatas.size());
     }
 
     void CreateRenderTargets()
@@ -2361,17 +2198,19 @@ private:
 
         assert(vertices.size() == 4);
 
-        m_QuadVertexBuffer =
-            CreateStagedBuffer(m_VmaAllocator, m_Device, m_GenericCommandPool, m_GraphicsQueue,
-                               sizeof(vertices[0]) * vertices.size(),
-                               vk::BufferUsageFlagBits::eVertexBuffer, vertices.data());
+        m_QuadVertexBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
+            *m_RhiDevice, Rhi::Vulkan::CreateStagedBuffer(
+                              *m_RhiDevice, m_GenericCommandPool, m_GraphicsQueue,
+                              sizeof(vertices[0]) * vertices.size(), Rhi::BufferUsage::Vertex,
+                              vertices.data(), "Quad Vertex Buffer"));
 
         std::array<uint32_t, 6> indices = {0, 1, 2, 0, 2, 3};
 
-        m_QuadIndexBuffer =
-            CreateStagedBuffer(m_VmaAllocator, m_Device, m_GenericCommandPool, m_GraphicsQueue,
-                               sizeof(indices[0]) * indices.size(),
-                               vk::BufferUsageFlagBits::eIndexBuffer, indices.data());
+        m_QuadIndexBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
+            *m_RhiDevice, Rhi::Vulkan::CreateStagedBuffer(
+                              *m_RhiDevice, m_GenericCommandPool, m_GraphicsQueue,
+                              sizeof(indices[0]) * indices.size(), Rhi::BufferUsage::Index,
+                              indices.data(), "Quad Index Buffer"));
     }
 
     void UpdateCompositeDescriptorSet()
@@ -2448,18 +2287,34 @@ private:
     }
 
 private:
-    vk::raii::Context m_Context;
-    vk::raii::Instance m_Instance = nullptr;
-    vk::raii::DebugUtilsMessengerEXT m_DebugMessenger = nullptr;
-    vk::raii::SurfaceKHR m_Surface = nullptr;
-    vk::raii::PhysicalDevice m_PhysicalDevice = nullptr;
-    vk::raii::Device m_Device = nullptr;
+    // Declared first because the device's creation reads them, and members are
+    // initialised in declaration order.
+    IPlatform& m_Platform;
+    const Paths& m_Paths;
+    Options m_Options;
+    IJobSystem& m_JobSystem;
 
-    // must be destroyed before the device and after all resources that had
-    // memory allocated using this allocator
-    VulkanAllocator m_VmaAllocator{};
+    // Owned by main() rather than by the device, because the counts are read for
+    // --strict-validation after the device has been destroyed.
+    Rhi::Diagnostics& m_Diagnostics;
 
-    vk::raii::Queue m_GraphicsQueue = nullptr;
+    // Owns the instance, debug messenger, surface, physical and logical devices,
+    // graphics queue and the VMA allocator. Declared ahead of every GPU resource
+    // below so that it is destroyed after all of them — the ordering the old
+    // hand-arranged member list was maintaining by hand.
+    std::unique_ptr<Rhi::IDevice> m_RhiDevice;
+
+    // Borrowed from m_RhiDevice, which outlives them. References rather than
+    // copies so that the ~100 call sites still read as they did, and so that
+    // there is exactly one owner. Each of these disappears as the corresponding
+    // resource type moves behind IDevice.
+    vk::raii::PhysicalDevice& m_PhysicalDevice;
+    vk::raii::Device& m_Device;
+    vk::raii::SurfaceKHR& m_Surface;
+    vk::raii::Queue& m_GraphicsQueue;
+    VmaAllocator m_VmaAllocator;
+    uint32_t m_QueueIndex;
+
     vk::raii::SwapchainKHR m_Swapchain = nullptr;
     vk::raii::PipelineLayout m_OpaquePipelineLayout = nullptr;
     vk::raii::PipelineLayout m_TransparentPipelineLayout = nullptr;
@@ -2480,14 +2335,13 @@ private:
     static constexpr vk::Format m_OpaqueImageFormat = vk::Format::eR16G16B16A16Sfloat;
     static constexpr vk::Format m_AccumImageFormat = vk::Format::eR16G16B16A16Sfloat;
     static constexpr vk::Format m_RevealageImageFormat = vk::Format::eR8Unorm;
-    AllocatedBuffer m_QuadVertexBuffer;
-    AllocatedBuffer m_QuadIndexBuffer;
+    Rhi::UniqueHandle<Rhi::BufferHandle> m_QuadVertexBuffer;
+    Rhi::UniqueHandle<Rhi::BufferHandle> m_QuadIndexBuffer;
 
     vk::SurfaceFormatKHR m_SwapchainSurfaceFormat;
     vk::Extent2D m_SwapchainExtent;
     std::vector<vk::Image> m_SwapImages;
     std::vector<vk::raii::ImageView> m_SwapImageViews;
-    uint32_t m_QueueIndex = ~0;
     uint32_t m_MinImageCount = 0;
 
     std::array<FrameData, NUM_FRAMES_IN_FLIGHT> m_Frames;
@@ -2499,15 +2353,11 @@ private:
     std::shared_ptr<Cubemap> m_Skybox = nullptr;
     std::unique_ptr<CloudSystem> m_CloudSystem = nullptr;
 
-    static constexpr uint32_t m_APIVersion = VK_API_VERSION_1_4;
     uint32_t m_FrameIndex = 0;
-    IPlatform& m_Platform;
-    const Paths& m_Paths;
     bool m_bIsFocused = true;
     bool m_bCursorVisible = true;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_LastTime;
-    Options m_Options;
     uint64_t m_FrameCounter = 0;
     float m_RunTime = 0.f;
     float m_DeltaTime = 0.f;
@@ -2515,7 +2365,18 @@ private:
     float m_DisplayFPS = 0.f;
     bool m_bShutdown = false;
 
-    IJobSystem& m_JobSystem;
+    // Empty until the first auto-pathed file of a capture is written. See
+    // CaptureTimestamp().
+    std::string m_CaptureTimestamp;
+
+    // Barriers recorded for the current frame, split by the thread that records
+    // them: the opaque and transparent passes are recorded on job threads, so
+    // each owns its own counters rather than sharing one set. Everything else
+    // is recorded on the main thread and shares the third.
+    Rhi::BarrierCounts m_OpaqueBarrierCounts;
+    Rhi::BarrierCounts m_TransparentBarrierCounts;
+    Rhi::BarrierCounts m_MainThreadBarrierCounts;
+    Rhi::BarrierCounts m_LoggedBarrierCounts;
 
     // Used in WriteReport()
     uint32_t m_OpaqueDrawCallCount = 0;
@@ -2525,7 +2386,7 @@ private:
     uint32_t m_TransparentBatchCount = 0;
     uint32_t m_TransparentInstanceCount = 0;
     std::vector<float> m_FrameTimesMs;
-    AllocatedBuffer m_ScreenshotStagingBuffer;
+    Rhi::UniqueHandle<Rhi::BufferHandle> m_ScreenshotStagingBuffer;
     bool m_bScreenshotBufferReady = false;
 };
 
@@ -2539,6 +2400,14 @@ int main(int argc, char** argv)
     Log::g_MinSeverity = LogSeverity::Info;
 
     Options options = ParseArgs(argc, argv);
+
+    // Declared before pApp so that it outlives the device reporting into it, and
+    // so its counters are still readable for the --strict-validation check
+    // below, which runs after everything has been torn down.
+    Rhi::Diagnostics diagnostics(
+        Rhi::Diagnostics::Desc{.Policy = options.ValidationPolicy,
+                               .MinSeverity = Rhi::DiagnosticSeverity::Info,
+                               .OnMessage = &HandleRhiDiagnostic});
 
     // will be destroyed in reverse order of declaration. The platform must
     // outlive App: destroying it unloads the Vulkan library.
@@ -2575,7 +2444,7 @@ int main(int argc, char** argv)
 
         pPaths = std::make_unique<Paths>(options.ContentRoot);
 
-        pApp = std::make_unique<App>(*pPlatform, *pPaths, options, *pJobSystem);
+        pApp = std::make_unique<App>(*pPlatform, *pPaths, options, *pJobSystem, diagnostics);
         pApp->Run();
     }
     catch (const SDLException& e)
@@ -2600,11 +2469,33 @@ int main(int argc, char** argv)
     pPaths.reset();
     pPlatform.reset();
 
-    if (options.bStrictValidation && g_ValidationErrorCount.load(std::memory_order_relaxed) > 0)
+    // Everything above is destroyed by this point, so this covers teardown
+    // messages too — which is where the interesting ones tend to be, since a
+    // resource freed while still in use is only detectable at destruction.
+    const uint64_t validationErrors = diagnostics.ErrorCount();
+    const uint64_t validationWarnings = diagnostics.WarningCount();
+
+    if (validationErrors > 0 || validationWarnings > 0)
     {
-        LogMsg(LogSeverity::Error, LogMain,
-               "Strict validation failed: {} validation error(s) occurred",
-               g_ValidationErrorCount.load(std::memory_order_relaxed));
+        LogMsg(LogSeverity::Warning, LogDiagnostics, "{} error(s), {} warning(s)", validationErrors,
+               validationWarnings);
+
+        const std::vector<std::string> recent = diagnostics.RecentMessages();
+        const uint64_t dropped = diagnostics.DroppedMessageCount();
+        if (dropped > 0)
+            LogMsg(LogSeverity::Warning, LogDiagnostics,
+                   "  last {} message(s), {} earlier one(s) dropped:", recent.size(), dropped);
+        else
+            LogMsg(LogSeverity::Warning, LogDiagnostics, "  {} message(s):", recent.size());
+
+        for (const std::string& message : recent)
+            LogMsg(LogSeverity::Warning, LogDiagnostics, "    {}", message);
+    }
+
+    if (options.bStrictValidation && validationErrors > 0)
+    {
+        LogMsg(LogSeverity::Error, LogDiagnostics,
+               "Strict validation failed: {} validation error(s) occurred", validationErrors);
         return EXIT_FAILURE;
     }
 

@@ -5,7 +5,7 @@
 > for what to keep and what to throw away.
 
 **Created:** 16 August 2026 · **Supersedes:** `architecture_plan.md` Part IV,
-steps 24–34 · **Status:** not started
+steps 24–34 · **Status:** in progress — see the [progress table](#progress)
 
 ---
 
@@ -15,7 +15,7 @@ steps 24–34 · **Status:** not started
 2. [Design decisions](#2-design-decisions)
 3. [Module layout](#3-module-layout)
 4. [How the boundary is enforced](#4-how-the-boundary-is-enforced)
-5. [The step sequence](#5-the-step-sequence)
+5. [The step sequence](#5-the-step-sequence) — [progress table](#progress)
 6. [Mapping back to Part IV](#6-mapping-back-to-part-iv)
 7. [Out of scope](#7-out-of-scope)
 8. [D3D12 readiness checklist](#8-d3d12-readiness-checklist)
@@ -148,8 +148,8 @@ namespace Rhi
 {
 enum class PipelineStage : uint32_t   // → VkPipelineStageFlags2 / D3D12_BARRIER_SYNC
 {
-    None = 0, Draw = 1 << 0, VertexShading = 1 << 1, PixelShading = 1 << 2,
-    ComputeShading = 1 << 3, DepthStencil = 1 << 4, RenderTarget = 1 << 5,
+    None = 0, Draw = 1 << 0, VertexStage = 1 << 1, PixelStage = 1 << 2,
+    ComputeStage = 1 << 3, DepthStencil = 1 << 4, RenderTarget = 1 << 5,
     Copy = 1 << 6, Resolve = 1 << 7, AllGraphics = 1 << 8, All = 1 << 9,
 };
 
@@ -315,6 +315,36 @@ but two rules start applying now:
 The `add_slang_shader_target` function in the root `CMakeLists.txt` will need a target
 parameter when D3D12 lands. Not now.
 
+### D13 — Where the two APIs disagree on a name, use D3D12's
+
+The neutral vocabulary has to pick one word for every concept the two backends name
+differently. It picks D3D12's, consistently, including for the Vulkan-side helpers.
+
+The reason is asymmetry of harm. Vulkan is the backend that exists today, so its terms are
+the ones already in the codebase and in the reader's head — a Vulkan name in neutral code
+reads as natural and is therefore easy to leave in place by accident, right up until a second
+backend makes it wrong. A D3D12 name in neutral code is mildly unfamiliar, which is exactly
+what makes it obvious that the surrounding code is *meant* to be backend-neutral. The
+unfamiliarity is doing work.
+
+Consequences already in the tree:
+
+| Concept | Vulkan | D3D12 | Chosen |
+|---|---|---|---|
+| Copy queue role | transfer | copy | `QueueType::Copy` |
+| Recorded command container | command buffer | command list | `CommandListUtil.h` |
+| Fragment shader stage | fragment | pixel | `PipelineStage::PixelStage` |
+| Read-write shader resource | storage | unordered access | `AccessFlags::UnorderedAccess` |
+
+This applies to *names*, not semantics. `FamilySupports` still encodes Vulkan's queue-family
+capability rules because that is what the Vulkan backend has to obey; only the word "Copy" is
+borrowed. Where Vulkan has a concept D3D12 lacks entirely, or vice versa, there is nothing to
+reconcile and the owning API's term stands.
+
+Utility headers in `rhi/vulkan/` take a `Util` suffix uniformly (`BufferUtil.h`, `ImageUtil.h`,
+`BarrierUtil.h`, `CommandListUtil.h`, `SwapchainUtil.h`) so that "is this a type or a bag of
+free functions" is answerable from the filename.
+
 ---
 
 ## 3. Module layout
@@ -335,13 +365,16 @@ engine/rhi/
 │   ├── ICommandList.h              # barriers + copies in Stage 5; draws in Stage 8
 │   ├── UploadContext.h             # batched staging, one fence
 │   ├── PipelineCache.h             # opaque blob on disk
-│   └── Diagnostics.h               # validation policy + counters
+│   └── Diagnostics.h               # DiagnosticSeverity, ValidationPolicy, counters, capture
 │
 ├── include/rhi/vulkan/             # TRANSITIONAL + the sanctioned escape hatch (D9)
 │   ├── VulkanNative.h              # survives Stage 5 — ImGui/editor only
 │   ├── PipelineBuilder.h           # stays Vulkan-shaped through Stage 5 (D8)
 │   ├── ComputePipelineBuilder.h
 │   └── DescriptorAllocator.h       # deliberately Vulkan-only (D7)
+│
+├── src/                            # backend-neutral implementation
+│   └── Diagnostics.cpp             # counting/policy/capture: no backend in it (R7)
 │
 └── src/vulkan/
     ├── VulkanDevice.{h,cpp}        # instance, messenger, physical, logical, queues, VMA
@@ -350,7 +383,6 @@ engine/rhi/
     ├── VulkanBuffer.h  VulkanTexture.h     # pool payloads; may use vk::raii freely
     ├── VulkanUploadContext.cpp
     ├── VulkanPipelineCache.cpp
-    ├── VulkanDiagnostics.cpp
     ├── VMAImpl.cpp                 # moved from src/
     └── PipelineBuilder.cpp  ComputePipelineBuilder.cpp  DescriptorAllocator.cpp
 ```
@@ -433,6 +465,36 @@ unless the step's **Verify** line says otherwise. "It still builds" is not evide
 Sizes use Part IV's scale: XS < 1h · S 1–3h · M ½–1 day · L 2–4 days.
 Every step ends with a compiling, running application.
 
+### Progress
+
+**This table is the authority on what is done.** Update it in the same commit as the step.
+`CLAUDE.md`'s stage table is coarse (Stage 5 as a whole) and deliberately does not repeat
+per-step status, so there is only one place to change.
+
+Where the as-built result differs from the step's **Do** text — because implementing it
+revealed something the plan got wrong — the step carries an **As built** note. Those notes
+are the ones later steps need to read.
+
+| Step | Status |
+|---|---|
+| R1 — `core/Handle.h` + `core/HandlePool.h` | ✅ done |
+| R2 — `engine/rhi` skeleton and the neutral vocabulary | ✅ done |
+| R3 — Move the RHI leaf types | ✅ done |
+| R4 — Dissolve `Utility.h` | ✅ done |
+| R5 — Extract `Rhi::Device` | ✅ done |
+| R6 — Enumerate all queue families | ✅ done |
+| R7 — `Rhi::Diagnostics` | ✅ done |
+| R8 — `Rhi::ICommandList` and the neutral barrier API | ⚠️ barrier API done; `ICommandList` deferred — see **As built** |
+| R9 — Buffers become handles | ✅ done |
+| R10 — Textures, views and samplers become handles | not started |
+| R11 — `UploadContext` — batch transfers | not started |
+| R12 — Use the dedicated transfer queue | not started |
+| R13 — Growable `DescriptorAllocator` | not started |
+| R14 — Growable instance buffer | not started |
+| R15 — `PipelineCache` | not started |
+| R16 — First GPU tests | not started |
+| R17 — Seal the boundary and update the docs | not started |
+
 ### R1 — `core/Handle.h` + `core/HandlePool.h`
 
 - **Do:** Add `Handle<Tag>` exactly as specified in architecture plan §11.1
@@ -444,20 +506,52 @@ Every step ends with a compiling, running application.
 - **Why now:** D2. It is CPU-only, so it is testable before any GPU code depends on it.
 - **Verify:** `ctest -L unit` passes with the new tests. Application untouched, so the
   headless report must be byte-identical to the baseline.
+- **As built:** `Handle` gained `FromIndexAndGeneration()` so `HandlePool` never open-codes
+  the bit layout, and `kMaxIndex = kIndexMask - 1` so that no valid handle can collide with
+  `kInvalid` (index `0xFFFFFF` at generation `0xFF` *is* `kInvalid`). §11.1's `MeshHandle` /
+  `MaterialHandle` / `TextureHandle` / `EntityHandle` aliases were **not** added: a global
+  `TextureHandle` in `Core` is the collision D0 warns about, and R2/R9/R10 declare those
+  under `Rhi::` instead.
 - **Size:** S · **Needs:** —
 
 ### R2 — `engine/rhi` skeleton and the neutral vocabulary
 
 - **Do:** Create the module with `engine_module(RHI ...)`, `add_subdirectory`, and both
-  header checks from §4 including `scripts/rhi_boundary_check.sh` wired into
-  `scripts/precommit.sh`. Add `RhiTypes.h`, `Handles.h`, `Barrier.h`, `BufferDesc.h`,
-  `TextureDesc.h`, `SamplerDesc.h`, and `src/vulkan/VulkanConversions.{h,cpp}` with
-  `ToVk`/`FromVk` for every enumerator. Add `tests/unit/rhi/ConversionTests.cpp` in a new
-  `rhi_tests` target (CPU-only — no device is created) asserting round-trips.
+  header checks from §4 including `rhi_boundary_check.sh` wired into `scripts/precommit.sh`.
+  Add `RhiTypes.h`, `Handles.h`, `Barrier.h`, `BufferDesc.h`, `TextureDesc.h`,
+  `SamplerDesc.h`, and `src/vulkan/VulkanConversions.{h,cpp}` with `ToVk`/`FromVk` for every
+  enumerator. Add `tests/unit/rhi/ConversionTests.cpp` in a new `rhi_tests` target
+  (CPU-only — no device is created) asserting round-trips.
 - **Note:** nothing uses any of this yet. That is intentional: the vocabulary is in place
   before the first type moves, so moved code can be converted in the same step it lands.
-- **Verify:** `HeaderSelfContainment` and `rhi_boundary_check.sh` pass. `ctest -L unit`
-  passes. Headless report identical to baseline.
+- **Verify:** `HeaderSelfContainment` and `rhi_boundary_check` pass. `ctest -L unit` passes.
+  Headless report identical to baseline.
+- **As built:** four departures, each with a consequence for a later step:
+  - **`FromVk` exists only where the mapping is one-to-one.** `PipelineStage`, `AccessFlags`,
+    `TextureLayout` and the usage/aspect flag enums are `ToVk`-only, because one neutral value
+    can expand to several Vulkan values (`DepthStencil` is both fragment-test stages) or two
+    neutral values can share one (`Common` and `UnorderedAccess` are both `eGeneral`). Where
+    `FromVk` does exist it is *derived* from `ToVk` by search, not hand-written twice.
+  - **`Format` omits `D16UnormS8Uint`.** D11 requires a DXGI equivalent and there is none —
+    `dxgiformat.h` offers stencil only with 24-bit unorm or 32-bit float depth. It is
+    currently the last candidate in `FindDepthFormat` (`main.cpp:2278`), so **R10 must drop it
+    from that list or accept a promotion to `D24UnormS8Uint`.** Vertex-attribute formats are
+    also absent, since vertex input stays Vulkan-side until Stage 8 (D8).
+  - **`QueueType` is tested with a predicate, not a bit mapping.** `FamilySupports(flags, role)`
+    replaces what would have been `ToVk(QueueType)`. The spec lets a graphics or compute family
+    omit `VK_QUEUE_TRANSFER_BIT` while still being able to copy, so `Copy` is satisfied by any
+    of `eTransfer`/`eGraphics`/`eCompute` — an "any of" test, which a caller handed a raw mask
+    would likely write as "all of". There is no reverse mapping: a universal family serves all
+    three roles, so "which role is this family" has no single answer.
+  - **The boundary check is `cmake/RhiBoundaryCheck.cmake`** with thin `.sh`/`.bat` wrappers
+    in `tests/scripts/`, not a shell grep in `scripts/`. It strips comments before matching,
+    because §4's literal pattern would reject this document's own specimen comments
+    (`// → VkPipelineStageFlags2`). It bans a *dependency*, not a mention.
+
+  Also: §4's claim that the exhaustive-switch mechanism "fails the build on all nine CI
+  configurations" was **false as written** — MSVC's C4062 is a level-4 warning that `/W3`
+  leaves off, so the RHI target now sets `/w14062` explicitly. Verified by adding an unmapped
+  enumerator and watching MSVC fail.
 - **Size:** M · **Needs:** R1
 
 ### R3 — Move the RHI leaf types
@@ -472,22 +566,63 @@ Every step ends with a compiling, running application.
   avoids pre-empting that decision.
 - **Verify:** Headless report and screenshot identical to baseline. `src/` no longer contains
   those files.
+- **As built:** the move exposed one ordering problem and one silent-breakage hazard.
+  - **`SetVkDebugName` had to come along, out of R4.** Both pipeline builders call it, and it
+    lived in `src/Utility.h` — so moving them into the module would have left module code
+    depending on a header in `src/`, which is the dependency direction the whole stage exists
+    to prevent. R4's first bullet already specifies `rhi/vulkan/DebugNames.h` for exactly this
+    function, so that one piece was pulled forward verbatim; `src/Utility.h` now includes it
+    and R4 has correspondingly less to do. Nothing else in the moved set needed anything from
+    `Utility.h`.
+  - **The RHI target now defines `DEBUG` PUBLIC in Debug configs.** `SetVkDebugName` is a
+    template whose body is `#ifdef DEBUG`, so it is instantiated per calling translation unit.
+    Before this step every caller was in `VulkanApp`, which defines `DEBUG` itself, so they all
+    agreed. With callers now on both sides of the boundary, a module that did not define it
+    would instantiate an empty body while the application instantiated a real one — an ODR
+    violation whose only symptom is debug names going missing from some objects and not others,
+    invisible to the baseline report. Verified present on the module's compile flags.
+  - **There are now two files called `Barrier.h`**: `rhi/Barrier.h` (neutral, R2) and
+    `rhi/vulkan/Barrier.h` (the moved Vulkan presets). Nothing includes both and no type names
+    overlap, so confusing them is a compile error rather than a silent substitution. R8 deletes
+    the latter. The moved file carries a comment saying so.
+  - **`TextureBinding` (`Albedo`/`Normal`/`MetallicRoughness`) rode along inside `Texture.h`**
+    and is a material concept, not an RHI one. Left in place because R3 moves files verbatim
+    and Stage 7 relocates `Texture` wholesale anyway — but it should not acquire new users
+    while it sits here.
 - **Size:** M · **Needs:** R2 · **Was:** step 24
 
 ### R4 — Dissolve `Utility.h`
 
-- **Do:** Split its 322 lines by concern:
-  `rhi/vulkan/DebugNames.h` (`SetVkDebugName`), `rhi/vulkan/BufferUtil.h` (`CreateBuffer`,
-  `CopyBuffer`, `CreateStagedBuffer`), `rhi/vulkan/ImageUtil.h` (`CreateImage`,
-  `CreateImageView`, `CopyBufferToImage`, `CreateRenderTexture`), `rhi/vulkan/BarrierUtil.h`
-  (`RecordImageBarrier`), `rhi/vulkan/SwapchainSupport.h` (`ChooseSwapchainFormat`,
-  `ChoosePresentMode`, `ChooseSwapchainExtent`, `ChooseSwapMinImageCount`),
-  `rhi/vulkan/CommandBufferUtil.h` (`BeginSingleTimeCommand`, `EndSingleTimeCommand`).
+- **Do:** Split its remaining lines by concern:
+  `rhi/vulkan/BufferUtil.h` (`CreateBuffer`, `CopyBuffer`, `CreateStagedBuffer`),
+  `rhi/vulkan/ImageUtil.h` (`CreateImage`, `CreateImageView`, `CopyBufferToImage`,
+  `CreateRenderTexture`),   `rhi/vulkan/BarrierUtil.h` (`RecordImageBarrier`),
+  `rhi/vulkan/SwapchainUtil.h` (`ChooseSwapchainFormat`, `ChoosePresentMode`,
+  `ChooseSwapchainExtent`, `ChooseSwapMinImageCount`), `rhi/vulkan/CommandListUtil.h`
+  (`BeginSingleTimeCommand`, `EndSingleTimeCommand`).
   Delete `FindMemoryType` (dead since VMA, and its own comment says so).
+- **Already done:** `rhi/vulkan/DebugNames.h` (`SetVkDebugName`) was pulled forward into R3,
+  which could not move the pipeline builders without it.
 - **Correction to Part IV step 25:** `EnsureParentDirectoryExists` and `EnsureExtension` are
   filesystem helpers with nothing to do with rendering. They go to
   `engine/platform/include/platform/FileSystem.h`, not to `rhi/`.
 - **Verify:** Headless report identical. `src/Utility.h` no longer exists.
+- **As built:** the split landed as specified, with the two filenames above corrected from what
+  this section originally said (`SwapchainSupport.h` → `SwapchainUtil.h` for suffix consistency,
+  `CommandBufferUtil.h` → `CommandListUtil.h` per D13). Three things worth recording.
+  - **`FindMemoryType` was genuinely dead** — deleted rather than moved, as planned. Confirmed
+    by search: the only occurrence in the tree was its own definition. Its comment ("shouldn't
+    need to use this anymore since I am now using VMA") had been right for a while.
+  - **Every consumer now includes what it uses.** `Utility.h` had become a de facto umbrella
+    header: it pulled in `AllocatedBuffer.h`, `AllocatedImage.h`, `Barrier.h`, `Texture.h` and
+    `DebugNames.h`, so files got those types without asking. Splitting it exposed that, and the
+    seven former includers were given explicit includes for the types they name rather than the
+    minimum needed to compile. Two of them — `PBRMaterial.cpp` and `MaterialFactory.cpp` —
+    turned out to want nothing from `Utility.h` but `SetVkDebugName`.
+  - **`BufferUtil` and `ImageUtil` still take a raw `VmaAllocator`.** Unchanged from before the
+    split, and deliberately not tidied here: R5 moves allocator ownership into the device, at
+    which point these become members rather than free functions and the parameter disappears.
+    Changing the signature now would be churn against a shape that is about to be replaced.
 - **Size:** M · **Needs:** R3 · **Was:** step 25
 
 ### R5 — Extract `Rhi::Device`
@@ -503,6 +638,56 @@ Every step ends with a compiling, running application.
 - **Verify:** Compare the startup log line-for-line against a saved baseline: same physical
   device, same queue index, same swapchain image count, same validation output. Headless
   report identical.
+- **As built:** four departures from the plan above, two of them forced by ownership order,
+  plus two notes on things that changed during implementation.
+  - **The window handle crosses the boundary, not the surface.** The plan had `App` create the
+    surface and pass it to `CreateDevice` as an opaque handle. That cannot work as written: the
+    surface is created *from* the instance, and the instance is now owned by the device, so
+    `App` has nothing to create a surface with until after the call it was supposed to feed.
+    The alternatives were a two-phase device init or a surface-factory callback; both are more
+    machinery than the problem deserves. Instead `DeviceRequirements` carries an opaque
+    `void* NativeWindowHandle` and the device makes the surface itself, macOS branch and all.
+    The Metal path is the reason this matters rather than being a coin toss — recreating it
+    from a raw instance handle would need the plain (non-RAII) dispatcher, which `vk::raii`
+    does not initialise, on the one platform this cannot be tested on. Stage 6's headless flip
+    is `bPresent = false` plus a null handle, which is simpler than it would have been.
+  - **Device creation moved into `App`'s constructor.** The renderer holds `vk::raii::Device&`
+    and friends in about a hundred places, and the cheapest way to keep those call sites
+    untouched is reference members — which must be bound in the initialiser list, which means
+    the device has to exist by then. The consequence is visible in the log: the five device
+    lines now print *before* `[main] Init()` rather than inside `InitVulkan()`. It also
+    required moving `m_Platform`/`m_Paths`/`m_Options` to the top of the member list, since
+    `MakeDeviceDesc()` reads them and members initialise in declaration order.
+  - **`VulkanNative.h` has two tiers, not one.** D9's `NativeDevice` (raw handles, for ImGui)
+    is there as specified, but the renderer also still *creates* Vulkan objects — swapchain,
+    pipelines, descriptor sets — which raw handles cannot do. So the header also exposes
+    `GetDevice`/`GetPhysicalDevice`/`GetSurface`/`GetGraphicsQueue`/`GetAllocator` returning
+    the RAII wrappers. This is a much wider hole than D9 describes, and the honest framing is
+    that it is a *staging area*: R9–R11 delete callers from it, and R17 should find only the
+    ImGui tier left. Worth counting the callers at R17 rather than assuming.
+  - **Validation counting is a callback, not a global.** `DebugCallback` moved into
+    `VulkanDevice`, where it can no longer see `main.cpp`'s counters. `DeviceDesc` therefore
+    carries `OnDiagnosticMessage`, and the app supplies a function that logs and increments.
+    That is R7's seam arriving early in miniature, and it keeps the message text
+    byte-identical.
+  - **The log category for those five lines is now `[RHI]`, not `[Renderer]`.** Deliberate:
+    they are no longer emitted by the renderer. It is the only intended difference in the
+    startup log.
+  - **The severity mapping was initially put in the wrong file.** `ToVkSeverity` first went into
+    an anonymous namespace in `VulkanDevice.cpp`, which breaks the rule `VulkanConversions.h`
+    states about itself: every neutral↔Vulkan mapping lives there and nowhere else, precisely so
+    that the tests can reach it. Moved, with `FromVk` added alongside. It is the one mapping
+    where `FromVk` is deliberately many-to-one — `eVerbose` and `eInfo` both collapse to `Info`,
+    because the neutral scale has no verbose tier and dropping those messages instead would
+    silently lose the driver's most detailed output.
+- **Verified deliberately:** the baseline reports zero validation errors *and* zero warnings, so
+  it does not exercise the diagnostic path at all — a miswired callback would have been
+  invisible to every automated check. Confirmed by hand instead, by naming the graphics queue
+  with `ObjectType::eBuffer`: the message arrived with the same `Type: {...}. Msg: ...` text
+  under `[Validation Layer]`, the error counter reached the run report, and
+  `--strict-validation` exited 1. Then reverted. Three unit tests now cover the enum mapping and
+  the ascending-value ordering that the threshold comparison depends on, which is the part the
+  hand check could not repeat cheaply.
 - **Size:** L · **Needs:** R4 · **Was:** step 26
 
 ### R6 — Enumerate all queue families
@@ -510,10 +695,53 @@ Every step ends with a compiling, running application.
 - **Do:** In `VulkanDevice`, find graphics+present, dedicated compute and dedicated transfer
   families; log all of them; expose them as `QueueType` (D6). **Keep using the graphics queue
   everywhere** — this step discovers and reports only.
+- **Use** `Rhi::Vulkan::FamilySupports(familyFlags, role)` to test a family rather than
+  comparing `queueFlags` yourself. R2 found that the spec lets a graphics or compute family
+  omit `VK_QUEUE_TRANSFER_BIT` while still being able to copy, so a plain
+  `flags & eTransfer` test would reject a capable family on any driver that takes that option;
+  `FamilySupports` encapsulates the "any of these capabilities" rule so the call site cannot
+  get it wrong. "Dedicated transfer" is the narrower, separate test — supports `Copy` but not
+  `Graphics` — and is R12's concern, not this step's.
 - **Verify:** Log lists the families the GPU exposes. Headless report identical. Resolves the
   information half of the dedicated-compute-queue `TODO` at `main.cpp:576` (Part IV cites
   `main.cpp:400` and `main.cpp:2173` for this; both line numbers are stale, and only the
   compute one still exists as a comment).
+- **As built:** the selection rule is more than the step's one-line description, and the
+  reason is that it cannot be checked on the machine it was written on.
+  - **The rules are a pure function in `src/vulkan/QueueFamilies.{h,cpp}`, unit-tested.** The
+    layouts that decide whether the rule is right — a transfer-only DMA family, a graphics
+    family that omits compute, two graphics families of which only one presents — are all
+    absent from this development machine, so testing on real hardware tests one arrangement
+    out of many. `SelectQueueFamilies` therefore takes the family list as data and returns a
+    `QueueFamilies`, with present support arriving as a `PresentSupportFn` callback because
+    that is the one part needing a surface. `tests/unit/rhi/QueueFamilyTests.cpp` covers the
+    arrangements this GPU does not have.
+  - **"Dedicated" is resolved by preferring the narrowest family, not by R12's one-line
+    test.** R12's note describes it as "supports `Copy` but not `Graphics`", which is
+    ambiguous on any GPU exposing both an async compute family and a DMA family — both
+    qualify, and taking the first would put uploads on the compute engine. The implemented
+    rule adds a tie-break: among non-graphics candidates, prefer the one advertising the
+    fewest of graphics/compute/copy. Ancillary bits (sparse binding, protected, video) are
+    deliberately not counted, or a video family advertising transfer would outrank a
+    transfer-only one. **R12 should use `GetQueueFamily(QueueType::Copy)` rather than
+    re-deriving the family.**
+  - **Every role always resolves to a usable family.** Compute and Copy fall back to the
+    graphics family rather than reporting "absent", so R12 does not need a fallback at the
+    call site; `IsDedicated()` is the separate question of whether that fallback happened.
+    The one exception is Compute on a graphics family that omits compute, which stays
+    `kInvalid` rather than pointing at a queue that would fail at submission.
+  - **No queues are created for the new families.** `VkDeviceQueueCreateInfo` still asks for
+    one queue from the graphics family only, because the step reports rather than uses, and
+    an unused queue is one the driver schedules for nothing. That makes creating the queue
+    part of R12's work, not a detail it can assume: `vkGetDeviceQueue` on a family that was
+    never requested is invalid, not merely useless.
+  - **The neutral half is two `DeviceCaps` flags**, `bHasDedicatedComputeQueue` and
+    `bHasDedicatedCopyQueue`, rather than a new `IDevice` virtual — `DeviceCaps` already is
+    "what the device turned out to be able to do", and the flags describe the device rather
+    than where work is submitted. Family indices stay backend-side:
+    `VulkanDevice::GetQueueFamily(QueueType)` replaced `GetGraphicsQueueFamily()`, and the
+    escape hatch did not grow — `VulkanNative.h` still exposes only the graphics family,
+    which is all ImGui and the command pools ask for.
 - **Size:** S · **Needs:** R5 · **Was:** step 27
 
 ### R7 — `Rhi::Diagnostics`
@@ -524,6 +752,59 @@ Every step ends with a compiling, running application.
   `g_ValidationErrorCount` working for the run report until Stage 7 moves it.
 - **Verify:** `--strict-validation` still exits non-zero on an injected error. `FailFast`
   aborts at the first error with the message printed. Headless report identical.
+- **As built:** three departures from the plan above, one of them a bug the step exposed.
+  - **`Diagnostics` is injected by the application, not owned by the device.** The **Do**
+    text says "owned by the device", which cannot work as written: `main` reads the error
+    count for `--strict-validation` *after* `pApp.reset()` has destroyed the App and with it
+    the device. So `main` owns a `Rhi::Diagnostics` declared before `pApp`, constructor-injects
+    it into `App` (a fifth parameter, alongside `IPlatform`/`IJobSystem`), and `DeviceDesc`
+    carries a non-owning `Diagnostics*`. The pointer may be null, in which case the device
+    creates its own, so `IDevice::GetDiagnostics()` is never invalid — Stage 6's headless
+    tests can create a device without caring about counters. Note this also means the
+    `--strict-validation` check now covers teardown messages, which the run report does not:
+    `WriteReport()` runs before `Shutdown()` and always did, which is what keeps the report
+    comparable to the committed baseline.
+  - **The counting/policy/capture code is neutral — `src/Diagnostics.cpp`, not
+    `src/vulkan/VulkanDiagnostics.cpp`** as §3's tree had it. Nothing about incrementing a
+    counter, comparing a threshold or keeping a ring of recent strings is backend-specific,
+    and putting it outside `src/vulkan/` is what lets `tests/unit/rhi/DiagnosticsTests.cpp`
+    reach it with no device and no ICD. That matters more here than the file location
+    suggests: R5 already recorded that the baseline run produces zero errors *and* zero
+    warnings, so a clean automated run proves nothing about this path, and the unit tests are
+    the only repeatable coverage it has. §3's tree gained a neutral `src/` section
+    accordingly. `VulkanDevice` keeps only the parts that are genuinely Vulkan — the
+    messenger, and `DebugCallback` translating a `VkDebugUtilsMessengerCallbackDataEXT` into
+    a neutral severity plus a string.
+  - **The globals are gone, rather than kept until Stage 7.** The **Do** text says keep
+    `g_ValidationErrorCount` working for the run report; there was no reason to, since the
+    report's JSON keys are unchanged and `App` already holds the `Diagnostics` reference it
+    needs. `CLAUDE.md`'s naming table cited `g_ValidationErrorCount` as its example of a
+    global and now cites `g_bShouldClose`.
+  - **The old callback was being invoked after its own destruction.** `m_OnDiagnosticMessage`
+    was the *first* member of `VulkanDevice` declared, so the first destroyed, while
+    `m_DebugMessenger` is declared second and destroyed second-to-last — after the allocator
+    and the logical device. Any validation message raised during device teardown therefore
+    called a destroyed `std::function`. It never misbehaved because the stored callable was a
+    plain function pointer sitting in the small-object buffer, so the bytes outlived the
+    object. The replacement members are declared *above* `m_Context` for exactly this reason,
+    and the ordering comment there now says so — a fallback `unique_ptr<Diagnostics>` in the
+    old position would have reproduced the same bug with a real destructor behind it.
+  - **`--validation-policy <ignore|count|failfast>`** was added, defaulting to `count`, so
+    `FailFast` is reachable without recompiling. `--strict-validation` combined with `ignore`
+    is rejected at parse time: nothing would be counted, so the run would exit 0 with errors
+    on the ground while reading in CI as "validation is enforced".
+  - **The messenger's severity flags are derived from `MinSeverity`** so the driver filters
+    before the callback. The callback keeps its own threshold check as well, because that is
+    what avoids paying `std::format` for a message about to be discarded. Verbose is never
+    requested: it collapses to `Info` on the neutral scale, so asking for it would multiply
+    message volume with nothing a caller could distinguish.
+- **Verified deliberately:** precommit green (121 unit tests, 9 of them new); the baseline
+  report is byte-identical and the screenshot hash matches. Then, because none of that
+  touches the diagnostic path, the R5 hand check was repeated — graphics queue named with
+  `ObjectType::eBuffer` — confirming the message text is unchanged, the error reaches the run
+  report, `--strict-validation` exits 1, `--validation-policy failfast` aborts at the first
+  error with the message printed and before `Init()` completes, `ignore` reports nothing, and
+  both malformed-flag cases are rejected. Then reverted.
 - **Size:** S · **Needs:** R5 · **Was:** step 28
 
 ### R8 — `Rhi::ICommandList` and the neutral barrier API
@@ -540,6 +821,52 @@ Every step ends with a compiling, running application.
   validation enabled** (`validate_sync` is already on at `main.cpp:1076`). Barrier count per
   frame logged and sane.
 - **Size:** M · **Needs:** R5
+- **As built:** the barrier half landed; `ICommandList` did not, because **this step is
+  ordered too early for it**. Every method the step lists — `Barrier`, `CopyBuffer`,
+  `CopyBufferToTexture`, `CopyTextureToBuffer` — has to name a resource, and the only
+  neutral way to name one is the `BufferHandle`/`TextureHandle` that R9 and R10 introduce.
+  A neutral interface written before them could only take `vk::Buffer`/`vk::Image`, which is
+  the leak the interface exists to prevent; declaring handle-typed methods that nothing can
+  call yet would be worse still. **The interface and its three copy methods belong at the end
+  of R10**, where the call sites they replace are being rewritten anyway. Nothing else
+  depends on the ordering: R11's `UploadContext` needs R9 and R10 regardless.
+
+  What did land, and is the whole of the neutral vocabulary being *used* rather than merely
+  declared:
+
+  - `Rhi::TextureBarrier` in `rhi/Barrier.h` — the neutral (stage, access, layout) triple
+    plus aspect and subresource range, deliberately without a resource. Separating the
+    description from the resource is what lets the presets be constants; when R10 lands, the
+    handle becomes a field on it.
+  - `rhi/BarrierPresets.h` — all of the old `rhi/vulkan/Barrier.h` presets re-expressed
+    neutrally and renamed per D13 (`UndefinedToCopyDst`, `RenderTargetToShaderResource`, …),
+    plus `PreserveRenderTarget` for the load-op dependency that was written inline in
+    `RecordImGui`, and `UndefinedToUnorderedAccess` / `UnorderedAccessToShaderResource` for
+    the four barriers `CloudSystem` was hand-writing. `rhi/vulkan/Barrier.h` is deleted, and
+    with it the near-namesake hazard its own header comment described.
+  - `Rhi::Vulkan::RecordBarriers` (`rhi/vulkan/BarrierUtil.h`, now with a `.cpp` because the
+    conversion tables are module-private) batches a span into one `pipelineBarrier2`,
+    resolving the old `TODO`. Per frame: 13 barriers, in 8 calls rather than 13.
+  - **`AccessFlags::RenderTargetRead` had to be added**, so D4's list is one enumerator short
+    of as-built. A colour attachment is read whenever blending is on or a pass loads instead
+    of clearing, and the ImGui pass does exactly that; there was no neutral way to say it.
+    It collapses onto `D3D12_BARRIER_ACCESS_RENDER_TARGET` with `RenderTargetWrite`, the same
+    many-to-one shape `UnorderedAccess` already has.
+  - The neutral mapping moves two depth transitions from the separate depth-only layouts to
+    the combined depth/stencil ones, while `beginRendering` and the depth descriptor still
+    name the separate ones. That is correct, not tolerated: the specification defines the
+    combined layouts as *equivalent* to the separate pair, which is why the pre-existing
+    mismatch between `UndefinedToDepthAttachment` and `DepthAttachmentToShaderRead` was never
+    a validation error either. Cited in `ToVk(TextureLayout)`.
+  - The per-frame count the step asks for is **two** numbers, `barriers` and `barrierCalls`,
+    both logged on change and both added to the run report. One without the other says
+    nothing useful: a barrier count cannot distinguish one call carrying three barriers from
+    three carrying one each, which is exactly what this step changed. `Rhi::BarrierCounts`
+    carries the pair, `CloudSystem::RecordDispatch` returns it so the cloud pass is included,
+    and the two threaded record functions keep their own rather than sharing one set.
+  - **The committed baseline report is two fields short of what the app now writes.** Its
+    other fields are unchanged and still compare exactly; regenerate
+    `tests/baseline/report_*.json` when convenient so a plain `diff` is clean again.
 
 ### R9 — Buffers become handles
 
@@ -551,6 +878,40 @@ Every step ends with a compiling, running application.
 - **Verify:** Headless report identical. Live-buffer count logged at shutdown is 0 — the
   first thing the handle model buys.
 - **Size:** L · **Needs:** R8
+- **As built:** done, and the shutdown log reads `Device destroyed with 0 live buffers.` The
+  report is byte-identical to the baseline, and a capture taken at the same resolution as a
+  pre-R9 one is pixel-identical, so nothing about rendering moved.
+
+  Five things differ from the **Do** text, four of them forced:
+
+  - **`GetMappedData(BufferHandle)`, not `Map`/`Unmap`.** `ToVk(MemoryAccess)` already commits
+    every host-visible allocation to `VMA_ALLOCATION_CREATE_MAPPED_BIT`, so the pointer is
+    valid from creation to destruction whatever the API says. A Map/Unmap pair would be a
+    fiction: `Unmap` would either do nothing or invalidate the pointer the per-frame uniform
+    and instance buffers hold across frames. D3D12 maps UPLOAD/READBACK heaps persistently
+    too, so nothing portable is given up.
+  - **`Rhi::Vulkan::GetBuffer(IDevice&, BufferHandle)` had to be added** to `VulkanNative.h`.
+    `vkCmdBindVertexBuffers`, `vkCmdBindIndexBuffer`, `vkCmdCopyBufferToImage` and
+    `VkDescriptorBufferInfo` all take a `VkBuffer`, and all four still happen in `src/` — draw
+    recording until Stage 8, descriptor writes until bindless. It is listed in the one file
+    that counts the leaks, and it retires with those call sites rather than needing its own
+    step.
+  - **`MeshBatch` carries `BufferHandle`, not `vk::Buffer`** (`src/InstanceData.h`), so the
+    resolve happens at the bind site rather than being stored. Unplanned, and a boundary win:
+    it takes a Vulkan type out of a struct that Stage 9's `FrameSnapshot` is descended from.
+  - **`CreateStagedBuffer` and `CopyBuffer` moved into `namespace Rhi::Vulkan`** and now speak
+    handles, rather than being folded into `IDevice`. R11's `UploadContext` is what replaces
+    them; designing that here would have meant writing it twice. They still drain the queue
+    per call.
+  - **Debug names fold into `BufferDesc::DebugName`.** Every creation site previously paired a
+    `SetVkDebugName` with a `vmaSetAllocationName`; the device now does both, and the sites
+    lost two lines each.
+
+  `ModelLoader` no longer needs a `VmaAllocator` at all. `TextureLoader` and `CubemapLoader`
+  keep theirs for image creation only, which is what R10 takes. `UniqueHandle` covers the
+  scope-local staging buffers exactly as D2 predicted, and has six CPU-only tests
+  (`tests/unit/rhi/UniqueHandleTests.cpp`) built on a recording `IDevice` stub — move
+  transfer, overwrite-on-assign, `Release`, and double-`Reset`.
 
 ### R10 — Textures, views and samplers become handles
 
@@ -559,6 +920,19 @@ Every step ends with a compiling, running application.
   `src/Texture.h` and `src/Cubemap.h` become thin asset-side wrappers holding a handle plus
   their name/path/create-info, so `ResourceCache` and `MaterialFactory` keep working
   unchanged until Stage 7.
+- **Decide first:** `FindDepthFormat` (`main.cpp:2278`) currently ends its candidate list with
+  `eD16UnormS8Uint`, which `Rhi::Format` deliberately does not carry — there is no DXGI
+  equivalent (R2's as-built note). Either drop that candidate or map it to
+  `D24UnormS8Uint`. Doing neither means the conversion throws on whatever hardware falls
+  through to it.
+- **Also, carried over from R8:** add `Rhi::ICommandList` — `Begin`/`End`, `Barrier` over a
+  span of `TextureBarrier`, and `CopyBuffer` / `CopyBufferToTexture` / `CopyTextureToBuffer` —
+  with `VulkanCommandList` over `vk::CommandBuffer` behind it. R8 deferred it because every
+  one of those methods names a resource and handles did not exist yet; here they do. The
+  handle moves into `TextureBarrier`, and `Rhi::Vulkan::ImageBarrier` and the free
+  `RecordBarrier` functions in `rhi/vulkan/BarrierUtil.h` go away, since the barrier call
+  sites in `App`, the loaders and `CloudSystem` are being rewritten for handles regardless.
+  Draw/bind/viewport recording still stays on the raw `vk::CommandBuffer` until Stage 8.
 - **Verify:** Headless report identical, screenshot identical. Live-texture count 0 at
   shutdown.
 - **Size:** L · **Needs:** R9
