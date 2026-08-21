@@ -8,16 +8,14 @@
 #include <core/Log.h>
 #include <core/MyMacros.h>
 
-#include <rhi/vulkan/Cubemap.h>
-#include <rhi/vulkan/Texture.h>
+#include "Cubemap.h"
+#include "Texture.h"
 
 inline constexpr LogCategory LogResourceManager{"Resource Manager"};
 constexpr std::string_view fallbackTexturePrefix = "FallbackTexture";
 
-void ResourceManager::Init(Rhi::IDevice& rhiDevice, vk::raii::Device& device,
-                           vk::raii::PhysicalDevice& physicalDevice,
-                           vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                           VmaAllocator allocator, const Paths& paths)
+void ResourceManager::Init(Rhi::IDevice& rhiDevice, vk::raii::CommandPool& commandPool,
+                           vk::raii::Queue& transferQueue, const Paths& paths)
 {
     LogMsg(LogSeverity::Info, LogResourceManager, "Init()");
 
@@ -25,9 +23,9 @@ void ResourceManager::Init(Rhi::IDevice& rhiDevice, vk::raii::Device& device,
         throw std::runtime_error("ResourceManager singleton has already been initialised!");
 
     s_Instance = new ResourceManager(paths);
-    TextureLoader::Init(rhiDevice, device, physicalDevice, commandPool, transferQueue, allocator);
-    CubemapLoader::Init(rhiDevice, device, physicalDevice, commandPool, transferQueue, allocator);
-    ModelLoader::Init(rhiDevice, device, physicalDevice, commandPool, transferQueue);
+    TextureLoader::Init(rhiDevice, commandPool, transferQueue);
+    CubemapLoader::Init(rhiDevice, commandPool, transferQueue);
+    ModelLoader::Init(rhiDevice, commandPool, transferQueue);
     ModelManager::Init();
 }
 
@@ -66,7 +64,7 @@ void ResourceManager::PurgeCaches()
 }
 
 std::shared_ptr<Texture> ResourceManager::LoadTexture(const std::string& filepath,
-                                                      const vk::Format format)
+                                                      const Rhi::Format format)
 {
     // Keyed on the resolved path so that the same file requested relatively
     // (from a scene) and absolutely (from a model's own texture references)

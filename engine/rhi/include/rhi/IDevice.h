@@ -7,6 +7,9 @@
 #include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/Handles.h>
+#include <rhi/SamplerDesc.h>
+#include <rhi/TextureDesc.h>
+#include <rhi/TextureViewDesc.h>
 
 namespace Rhi
 {
@@ -66,6 +69,41 @@ public:
     // Buffers currently alive. Exists to be asserted on at shutdown, where
     // anything other than zero is a leak.
     virtual uint32_t GetLiveBufferCount() const = 0;
+
+    // --- Textures, views and samplers ---
+    //
+    // Three separate identities rather than one, because that is what both APIs
+    // have: the texture is the memory, the view is how a shader or an
+    // attachment interprets it, and the sampler is how it is filtered. D3D12
+    // backs the last two with descriptors rather than objects, which changes
+    // what a handle resolves to and not what it means.
+    //
+    // Every Create throws on failure, for the same reason CreateBuffer does.
+    // Every Destroy invalidates outstanding copies of the handle and reports a
+    // stale one through Diagnostics.
+    //
+    // Destruction order is the caller's responsibility: a view outliving its
+    // texture is legal here and a use-after-free in the driver, so destroy
+    // views before the texture they were made from.
+    virtual TextureHandle CreateTexture(const TextureDesc& desc) = 0;
+    virtual void Destroy(TextureHandle handle) = 0;
+
+    virtual TextureViewHandle CreateTextureView(const TextureViewDesc& desc) = 0;
+    virtual void Destroy(TextureViewHandle handle) = 0;
+
+    virtual SamplerHandle CreateSampler(const SamplerDesc& desc) = 0;
+    virtual void Destroy(SamplerHandle handle) = 0;
+
+    // The description `handle` was created with, or nullptr if it is stale.
+    // Exists because a texture's extent and format are needed wherever it is
+    // used — sizing a copy, choosing an aspect — and asking the device beats
+    // every caller keeping its own copy in step with the real one.
+    virtual const TextureDesc* GetTextureDesc(TextureHandle handle) const = 0;
+
+    // Counterparts to GetLiveBufferCount, and asserted on at the same place.
+    virtual uint32_t GetLiveTextureCount() const = 0;
+    virtual uint32_t GetLiveTextureViewCount() const = 0;
+    virtual uint32_t GetLiveSamplerCount() const = 0;
 
 protected:
     IDevice() = default;

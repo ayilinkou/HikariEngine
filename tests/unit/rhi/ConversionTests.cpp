@@ -1,11 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <rhi/Barrier.h>
+#include <rhi/BarrierPresets.h>
 #include <rhi/BufferDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/RhiTypes.h>
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
+#include <rhi/TextureViewDesc.h>
 
 #include "vulkan/VulkanConversions.h"
 
@@ -124,6 +126,7 @@ TEST_CASE("Sampler and texture scalar enums map both ways", "[RhiConversions]")
 {
     RequireRoundTrips(kAllSampleCounts);
     RequireRoundTrips(kAllTextureDimensions);
+    RequireRoundTrips(kAllTextureViewDimensions);
     RequireRoundTrips(kAllFilters);
     RequireRoundTrips(kAllMipmapModes);
     RequireRoundTrips(kAllAddressModes);
@@ -437,8 +440,9 @@ TEST_CASE("Descs default to something inert rather than something plausible", "[
     // a zero depth would be an invalid extent for both APIs.
     REQUIRE(texture.Extent == Extent3D{0u, 0u, 1u});
 
-    // The sampler defaults match what the renderer creates today, so R10 can
-    // convert those call sites without restating every field.
+    // The sampler defaults are what the cloud pass's sampler is created from,
+    // so it names no field at all; changing one of these silently changes how
+    // that texture is filtered.
     const SamplerDesc sampler{};
     REQUIRE(sampler.MagFilter == Filter::Linear);
     REQUIRE(sampler.MinFilter == Filter::Linear);
@@ -446,7 +450,58 @@ TEST_CASE("Descs default to something inert rather than something plausible", "[
     REQUIRE(sampler.AddressU == AddressMode::Repeat);
     REQUIRE(sampler.AddressV == AddressMode::Repeat);
     REQUIRE(sampler.AddressW == AddressMode::Repeat);
+    REQUIRE(sampler.Border == BorderColor::OpaqueBlackInt);
+    REQUIRE(sampler.MipLodBias == 0.f);
+    REQUIRE(sampler.MinLod == 0.f);
+    REQUIRE(sampler.MaxLod == 0.f);
+    REQUIRE_FALSE(sampler.bAnisotropyEnable);
     REQUIRE_FALSE(sampler.bCompareEnable);
+
+    // Both of the view desc's sentinels mean "follow the texture". They are
+    // what stops every call site having to restate a format it does not choose
+    // and an aspect it would get wrong for a depth texture.
+    const TextureViewDesc view{};
+    REQUIRE_FALSE(view.Texture.IsValid());
+    REQUIRE(view.Dimension == TextureViewDimension::Texture2D);
+    REQUIRE(view.Format == Rhi::Format::Undefined);
+    REQUIRE(view.Aspect == TextureAspect::None);
+    REQUIRE(view.MipCount == 1u);
+    REQUIRE(view.LayerCount == 1u);
+}
+
+TEST_CASE("A cube view is a view dimension, not a texture dimension", "[RhiConversions]")
+{
+    // The split is the whole reason TextureViewDimension exists: a cubemap is
+    // stored as a 2D texture with six layers in both APIs, and only the view
+    // calls it a cube. A single enum covering both would make "3D texture" and
+    // "cube view" the same kind of thing, which they are not.
+    REQUIRE(ToVk(TextureViewDimension::TextureCube) == vk::ImageViewType::eCube);
+    REQUIRE(ToVk(TextureViewDimension::Texture2DArray) == vk::ImageViewType::e2DArray);
+    REQUIRE(ToVk(TextureDimension::Texture2D) == vk::ImageType::e2D);
+    REQUIRE(ToVk(TextureDimension::Texture3D) == vk::ImageType::e3D);
+}
+
+TEST_CASE("A barrier preset carries no texture until On() gives it one", "[RhiConversions]")
+{
+    // The presets are constants, which they can only be because they name no
+    // resource. On() is the pairing, and it has to leave the description alone.
+    constexpr TextureBarrier preset = BarrierPresets::CopyDstToShaderResource(6u);
+    REQUIRE_FALSE(preset.Texture.IsValid());
+
+    const TextureHandle texture = TextureHandle::FromIndexAndGeneration(7u, 3u);
+    const TextureBarrier applied = preset.On(texture);
+
+    REQUIRE(applied.Texture == texture);
+    REQUIRE(applied.LayerCount == 6u);
+    REQUIRE(applied.SrcStage == preset.SrcStage);
+    REQUIRE(applied.SrcAccess == preset.SrcAccess);
+    REQUIRE(applied.DstStage == preset.DstStage);
+    REQUIRE(applied.DstAccess == preset.DstAccess);
+    REQUIRE(applied.OldLayout == preset.OldLayout);
+    REQUIRE(applied.NewLayout == preset.NewLayout);
+
+    // The preset itself is untouched, so one can be applied to several textures.
+    REQUIRE_FALSE(preset.Texture.IsValid());
 }
 
 TEST_CASE("Diagnostic severities map to the Vulkan tier of the same name", "[RhiConversions]")

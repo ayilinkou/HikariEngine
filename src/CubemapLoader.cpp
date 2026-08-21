@@ -1,5 +1,6 @@
 #include "CubemapLoader.h"
 
+#include "Cubemap.h"
 #include "ResourceManager.h"
 #include "stb_image.h"
 
@@ -7,35 +8,26 @@
 #include <core/Log.h>
 
 #include <rhi/BarrierPresets.h>
+#include <rhi/ICommandList.h>
 #include <rhi/UniqueHandle.h>
-#include <rhi/vulkan/AllocatedImage.h>
-#include <rhi/vulkan/BarrierUtil.h>
-#include <rhi/vulkan/BufferUtil.h>
 #include <rhi/vulkan/CommandListUtil.h>
-#include <rhi/vulkan/Cubemap.h>
-#include <rhi/vulkan/ImageUtil.h>
+#include <rhi/vulkan/VulkanNative.h>
 
 constexpr LogCategory LogCubemapLoader("Cubemap Loader");
 
-CubemapLoader::CubemapLoader(Rhi::IDevice& rhiDevice, vk::raii::Device& device,
-                             vk::raii::PhysicalDevice& physicalDevice,
-                             vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                             VmaAllocator allocator)
-    : m_RhiDevice(rhiDevice), m_Device(device), m_PhysicalDevice(physicalDevice),
-      m_CommandPool(commandPool), m_TransferQueue(transferQueue), m_Allocator(allocator)
+CubemapLoader::CubemapLoader(Rhi::IDevice& rhiDevice, vk::raii::CommandPool& commandPool,
+                             vk::raii::Queue& transferQueue)
+    : m_RhiDevice(rhiDevice), m_CommandPool(commandPool), m_TransferQueue(transferQueue)
 {
 }
 
-void CubemapLoader::Init(Rhi::IDevice& rhiDevice, vk::raii::Device& device,
-                         vk::raii::PhysicalDevice& physicalDevice,
-                         vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                         VmaAllocator allocator)
+void CubemapLoader::Init(Rhi::IDevice& rhiDevice, vk::raii::CommandPool& commandPool,
+                         vk::raii::Queue& transferQueue)
 {
     if (s_Instance)
         throw std::runtime_error("CubemapLoader singleton is already initialised!");
 
-    s_Instance =
-        new CubemapLoader(rhiDevice, device, physicalDevice, commandPool, transferQueue, allocator);
+    s_Instance = new CubemapLoader(rhiDevice, commandPool, transferQueue);
 }
 
 void CubemapLoader::Shutdown()
@@ -49,7 +41,7 @@ void CubemapLoader::Shutdown()
 
 std::shared_ptr<Cubemap> CubemapLoader::Load(const CubemapCreateInfo& createInfo)
 {
-    static constexpr uint32_t faceCount = 6u;
+    static constexpr uint32_t faceCount = Cubemap::kFaceCount;
     struct FaceData
     {
         std::array<stbi_uc*, faceCount> Pixels;
@@ -94,9 +86,11 @@ std::shared_ptr<Cubemap> CubemapLoader::Load(const CubemapCreateInfo& createInfo
             throw std::runtime_error(std::format("Failed to load texture: {}", facePath->c_str()));
     }
 
-    vk::DeviceSize faceSize = faceData.Width * faceData.Height * 4u;
-    vk::DeviceSize totalSize = faceSize * faceCount;
-    // TODO: fix and make use VMA
+    const uint32_t width = static_cast<uint32_t>(faceData.Width);
+    const uint32_t height = static_cast<uint32_t>(faceData.Height);
+    const uint64_t faceSize = static_cast<uint64_t>(width) * height * 4u;
+    const uint64_t totalSize = faceSize * faceCount;
+
     Rhi::UniqueHandle<Rhi::BufferHandle> stagingBuffer(
         m_RhiDevice, m_RhiDevice.CreateBuffer(Rhi::BufferDesc{
                          .Size = totalSize,
@@ -114,41 +108,19 @@ std::shared_ptr<Cubemap> CubemapLoader::Load(const CubemapCreateInfo& createInfo
         faceData.Pixels[i] = nullptr;
     }
 
-    vk::ImageCreateInfo imageInfo{};
-    imageInfo.imageType = vk::ImageType::e2D;
-    imageInfo.extent = vk::Extent3D{static_cast<uint32_t>(faceData.Width),
-                                    static_cast<uint32_t>(faceData.Height), 1};
-    imageInfo.mipLevels = 1u;
-    imageInfo.arrayLayers = faceCount;
-    imageInfo.format = createInfo.Format;
-    imageInfo.tiling = vk::ImageTiling::eOptimal;
-    imageInfo.initialLayout = vk::ImageLayout::eUndefined;
-    imageInfo.usage = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
-    imageInfo.samples = vk::SampleCountFlagBits::e1;
-    imageInfo.sharingMode = vk::SharingMode::eExclusive;
-    imageInfo.flags = vk::ImageCreateFlagBits::eCubeCompatible;
+    auto cubemap = std::make_shared<Cubemap>(m_RhiDevice, createInfo, Rhi::Extent2D{width, height});
 
-    AllocatedImage cubemapImage = CreateImage(m_Allocator, imageInfo);
-    SetVkDebugName(m_Device, cubemapImage.Image, vk::ObjectType::eImage,
-                   std::format("{} Cubemap Image", createInfo.Name).c_str());
-    vmaSetAllocationName(m_Allocator, cubemapImage.Allocation,
-                         std::format("{} Cubemap Device allocation", createInfo.Name).c_str());
+    vk::raii::CommandBuffer cmd =
+        BeginSingleTimeCommand(Rhi::Vulkan::GetDevice(m_RhiDevice), m_CommandPool);
+    std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(m_RhiDevice, *cmd);
 
-    auto cmd = BeginSingleTimeCommand(m_Device, m_CommandPool);
-    Rhi::Vulkan::RecordBarrier(*cmd, cubemapImage.Image,
-                               Rhi::BarrierPresets::UndefinedToCopyDst(faceCount));
-    CopyBufferToImage(cmd, Rhi::Vulkan::GetBuffer(m_RhiDevice, stagingBuffer.Get()),
-                      cubemapImage.Image, static_cast<uint32_t>(faceData.Width),
-                      static_cast<uint32_t>(faceData.Height), faceCount);
-    Rhi::Vulkan::RecordBarrier(*cmd, cubemapImage.Image,
-                               Rhi::BarrierPresets::CopyDstToShaderResource(faceCount));
+    list->Barrier(Rhi::BarrierPresets::UndefinedToCopyDst(faceCount).On(cubemap->GetHandle()));
+    list->CopyBufferToTexture(
+        stagingBuffer.Get(), cubemap->GetHandle(),
+        Rhi::BufferTextureCopyRegion{.LayerCount = faceCount, .Extent = {width, height, 1u}});
+    list->Barrier(Rhi::BarrierPresets::CopyDstToShaderResource(faceCount).On(cubemap->GetHandle()));
+
     EndSingleTimeCommand(cmd, m_TransferQueue);
 
-    vk::raii::ImageView imageView =
-        CreateImageView(m_Device, cubemapImage.Image, vk::ImageViewType::eCube, createInfo.Format,
-                        vk::ImageAspectFlagBits::eColor, faceCount);
-    SetVkDebugName(m_Device, *imageView, vk::ObjectType::eImageView,
-                   std::format("{} Cubemap Image View", createInfo.Name).c_str());
-
-    return std::make_shared<Cubemap>(std::move(cubemapImage), std::move(imageView), createInfo);
+    return cubemap;
 }

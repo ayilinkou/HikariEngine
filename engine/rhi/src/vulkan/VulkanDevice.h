@@ -14,10 +14,16 @@
 #include <rhi/Handles.h>
 #include <rhi/IDevice.h>
 #include <rhi/RhiTypes.h>
+#include <rhi/SamplerDesc.h>
+#include <rhi/TextureDesc.h>
+#include <rhi/TextureViewDesc.h>
 #include <rhi/vulkan/VulkanAllocator.h>
 
 #include "vulkan/QueueFamilies.h"
 #include "vulkan/VulkanBuffer.h"
+#include "vulkan/VulkanSampler.h"
+#include "vulkan/VulkanTexture.h"
+#include "vulkan/VulkanTextureView.h"
 
 namespace Rhi::Vulkan
 {
@@ -36,9 +42,39 @@ public:
     void* GetMappedData(BufferHandle handle) override;
     uint32_t GetLiveBufferCount() const override { return m_Buffers.Size(); }
 
-    // The buffer behind `handle`, or a null vk::Buffer if it is stale. Backs
-    // Rhi::Vulkan::GetBuffer() in <rhi/vulkan/VulkanNative.h>.
+    TextureHandle CreateTexture(const TextureDesc& desc) override;
+    void Destroy(TextureHandle handle) override;
+    TextureViewHandle CreateTextureView(const TextureViewDesc& desc) override;
+    void Destroy(TextureViewHandle handle) override;
+    SamplerHandle CreateSampler(const SamplerDesc& desc) override;
+    void Destroy(SamplerHandle handle) override;
+    const TextureDesc* GetTextureDesc(TextureHandle handle) const override;
+    uint32_t GetLiveTextureCount() const override { return m_Textures.Size(); }
+    uint32_t GetLiveTextureViewCount() const override { return m_TextureViews.Size(); }
+    uint32_t GetLiveSamplerCount() const override { return m_Samplers.Size(); }
+
+    // Gives an image the device did not allocate a pool slot, so that barriers,
+    // views and copies can name it by handle like any other texture. Destroying
+    // the returned handle releases the slot and does not touch the image.
+    //
+    // Exists for the swapchain, whose images belong to the presentation engine.
+    // It retires when Stage 6's IPresentTarget owns the swapchain and hands out
+    // the handle itself; until then the swapchain lives in the renderer and this
+    // is what lets the rest of the RHI treat its images normally.
+    TextureHandle RegisterExternalTexture(vk::Image image, const TextureDesc& desc);
+
+    // The Vulkan objects behind a handle, or a null object if it is stale. These
+    // back the accessors in <rhi/vulkan/VulkanNative.h>, and are also what
+    // VulkanCommandList resolves handles through.
     vk::Buffer GetBuffer(BufferHandle handle) const;
+    vk::Image GetImage(TextureHandle handle) const;
+    vk::ImageView GetImageView(TextureViewHandle handle) const;
+    vk::Sampler GetSampler(SamplerHandle handle) const;
+
+    // Reports a handle that resolved to nothing, from the places that cannot
+    // throw over it — recording a barrier or a copy, where the caller's own
+    // command list is already half-built.
+    void ReportStaleHandle(std::string_view what) const;
 
     // Everything below is reachable only through <rhi/vulkan/VulkanNative.h>,
     // which is the one sanctioned way for code outside this module to see a
@@ -110,6 +146,13 @@ private:
     // so this is also what makes an un-destroyed buffer merely a leak reported
     // at shutdown rather than a crash during it.
     HandlePool<VulkanBuffer, BufferTag> m_Buffers;
+    HandlePool<VulkanTexture, TextureTag> m_Textures;
+
+    // After m_Textures so that views are destroyed before the images they were
+    // made from: a VkImageView outliving its VkImage is undefined behaviour
+    // rather than something the driver diagnoses.
+    HandlePool<VulkanTextureView, TextureViewTag> m_TextureViews;
+    HandlePool<VulkanSampler, SamplerTag> m_Samplers;
 
     QueueFamilies m_QueueFamilies;
 

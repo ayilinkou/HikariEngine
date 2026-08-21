@@ -11,22 +11,19 @@
 
 #include <rhi/vulkan/BufferUtil.h>
 
-ModelLoader::ModelLoader(Rhi::IDevice& rhiDevice, vk::raii::Device& device,
-                         vk::raii::PhysicalDevice& physicalDevice,
-                         vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue)
-    : m_RhiDevice(rhiDevice), m_Device(device), m_PhysicalDevice(physicalDevice),
-      m_CommandPool(commandPool), m_TransferQueue(transferQueue)
+ModelLoader::ModelLoader(Rhi::IDevice& rhiDevice, vk::raii::CommandPool& commandPool,
+                         vk::raii::Queue& transferQueue)
+    : m_RhiDevice(rhiDevice), m_CommandPool(commandPool), m_TransferQueue(transferQueue)
 {
 }
 
-void ModelLoader::Init(Rhi::IDevice& rhiDevice, vk::raii::Device& device,
-                       vk::raii::PhysicalDevice& physicalDevice, vk::raii::CommandPool& commandPool,
+void ModelLoader::Init(Rhi::IDevice& rhiDevice, vk::raii::CommandPool& commandPool,
                        vk::raii::Queue& transferQueue)
 {
     if (s_Instance)
         throw std::runtime_error("ModelLoader singleton is already initialised!");
 
-    s_Instance = new ModelLoader(rhiDevice, device, physicalDevice, commandPool, transferQueue);
+    s_Instance = new ModelLoader(rhiDevice, commandPool, transferQueue);
 }
 
 void ModelLoader::Shutdown()

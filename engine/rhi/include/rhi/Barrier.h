@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 
+#include <rhi/Handles.h>
 #include <rhi/RhiTypes.h>
 
 // The neutral three-way barrier split.
@@ -127,48 +128,22 @@ inline constexpr std::array kAllTextureLayouts{
     TextureLayout::CopyDst,          TextureLayout::Present,
 };
 
-// Which parts of a texture a barrier or a view refers to. Kept separate from
-// Format because a depth/stencil format has two aspects and an operation
-// usually names one of them.
-enum class TextureAspect : uint32_t
-{
-    None = 0,
-    Color = 1 << 0,
-    Depth = 1 << 1,
-    Stencil = 1 << 2,
-};
-RHI_DEFINE_FLAG_OPERATORS(TextureAspect)
-
-inline constexpr std::array kAllTextureAspects{
-    TextureAspect::Color,
-    TextureAspect::Depth,
-    TextureAspect::Stencil,
-};
-
-// The aspect mask a barrier or view should use for `format`, so that the
-// depth/stencil decision is made in one place rather than at each call site.
-constexpr TextureAspect DefaultAspect(Format format)
-{
-    if (!IsDepthFormat(format))
-        return TextureAspect::Color;
-
-    return HasStencilComponent(format) ? (TextureAspect::Depth | TextureAspect::Stencil)
-                                       : TextureAspect::Depth;
-}
-
-// One texture transition: what must finish, what may then begin, and the layout
-// the texture moves between.
+// One texture transition: which texture, what must finish, what may then begin,
+// and the layout the texture moves between.
 //
-// Deliberately says nothing about *which* texture. A barrier is a description
-// of work, and separating it from the resource is what lets the presets in
-// <rhi/BarrierPresets.h> be constants rather than functions of a resource. The
-// backend pairs the two when it records.
+// The presets in <rhi/BarrierPresets.h> leave Texture invalid, which is what
+// lets them be constants rather than functions of a resource; On() pairs a
+// preset with the texture it applies to at the call site. A barrier reaching
+// the backend with an invalid Texture is a bug, and is reported rather than
+// skipped.
 //
 // The src half describes work already submitted, the dst half work not yet
 // recorded — so the defaults are the pair that synchronizes nothing, and every
 // preset sets all four.
 struct TextureBarrier
 {
+    TextureHandle Texture{};
+
     PipelineStage SrcStage = PipelineStage::None;
     AccessFlags SrcAccess = AccessFlags::None;
     PipelineStage DstStage = PipelineStage::None;
@@ -188,6 +163,17 @@ struct TextureBarrier
     uint32_t MipCount = 1u;
     uint32_t BaseLayer = 0u;
     uint32_t LayerCount = 1u;
+
+    // This transition, applied to `texture`. Returns a copy so that a preset
+    // stays a constant and several barriers can share one description:
+    //
+    //     BarrierPresets::UndefinedToRenderTarget().On(m_OpaqueTexture)
+    constexpr TextureBarrier On(TextureHandle texture) const
+    {
+        TextureBarrier result = *this;
+        result.Texture = texture;
+        return result;
+    }
 };
 
 // How much barrier work a stretch of recording produced: the barriers

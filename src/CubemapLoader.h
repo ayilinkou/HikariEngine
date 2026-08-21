@@ -2,7 +2,6 @@
 
 #include <memory>
 
-#include "vk_mem_alloc.h"
 #include "vulkan/vulkan_raii.hpp"
 
 #include <rhi/IDevice.h>
@@ -16,13 +15,11 @@ class CubemapLoader
 private:
     friend class ResourceManager;
 
-    CubemapLoader(Rhi::IDevice& rhiDevice, vk::raii::Device& device,
-                  vk::raii::PhysicalDevice& physicalDevice, vk::raii::CommandPool& commandPool,
-                  vk::raii::Queue& transferQueue, VmaAllocator allocator);
+    CubemapLoader(Rhi::IDevice& rhiDevice, vk::raii::CommandPool& commandPool,
+                  vk::raii::Queue& transferQueue);
 
-    static void Init(Rhi::IDevice& rhiDevice, vk::raii::Device& device,
-                     vk::raii::PhysicalDevice& physicalDevice, vk::raii::CommandPool& commandPool,
-                     vk::raii::Queue& transferQueue, VmaAllocator allocator);
+    static void Init(Rhi::IDevice& rhiDevice, vk::raii::CommandPool& commandPool,
+                     vk::raii::Queue& transferQueue);
     static void Shutdown();
 
     static CubemapLoader* Get() { return s_Instance; }
@@ -33,10 +30,10 @@ private:
     inline static CubemapLoader* s_Instance = nullptr;
 
     Rhi::IDevice& m_RhiDevice;
-    vk::raii::Device& m_Device;
-    vk::raii::PhysicalDevice& m_PhysicalDevice;
+
+    // Still Vulkan-shaped because each upload submits on its own and then waits
+    // for the queue to drain. An upload context recording many copies behind a
+    // single fence is what replaces both of these.
     vk::raii::CommandPool& m_CommandPool;
     vk::raii::Queue& m_TransferQueue;
-
-    VmaAllocator m_Allocator{};
 };

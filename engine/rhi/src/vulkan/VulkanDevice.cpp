@@ -39,6 +39,40 @@ std::string DescribeFamily(const QueueFamilies& families, QueueType role)
 
     return std::format("family {}{}", index, families.IsDedicated(role) ? " (dedicated)" : "");
 }
+
+// Rejects the descriptions Vulkan would reject anyway, but with a message that
+// names the caller's field rather than a VUID. Every one of these is a
+// programming error rather than a runtime condition, so they throw.
+void ValidateTextureDesc(const TextureDesc& desc)
+{
+    const auto fail = [&desc](std::string_view why)
+    {
+        throw std::runtime_error(
+            std::format("Rhi::IDevice::CreateTexture('{}'): {}", desc.DebugName, why));
+    };
+
+    if (desc.Format == Rhi::Format::Undefined)
+        fail("no format.");
+
+    if (desc.Extent.Width == 0u || desc.Extent.Height == 0u || desc.Extent.Depth == 0u)
+        fail("every extent must be at least 1.");
+
+    if (desc.MipLevels == 0u || desc.ArrayLayers == 0u)
+        fail("MipLevels and ArrayLayers must be at least 1.");
+
+    // Depth is the third dimension of a 3D texture and the array is the layers;
+    // Vulkan has no 3D array images, and mixing the two is the classic way to
+    // describe a cubemap as six slices deep instead of six layers wide.
+    if (desc.Dimension == TextureDimension::Texture3D && desc.ArrayLayers != 1u)
+        fail("a 3D texture cannot have array layers.");
+
+    if (desc.Dimension == TextureDimension::Texture2D && desc.Extent.Depth != 1u)
+        fail("a 2D texture must have a depth of 1; use ArrayLayers for slices.");
+
+    if (desc.bCubeCompatible &&
+        (desc.Dimension != TextureDimension::Texture2D || desc.ArrayLayers % 6u != 0u))
+        fail("a cube-compatible texture must be 2D with a multiple of 6 array layers.");
+}
 } // namespace
 
 VulkanDevice::VulkanDevice(const DeviceDesc& desc)
@@ -63,23 +97,37 @@ VulkanDevice::VulkanDevice(const DeviceDesc& desc)
 
 VulkanDevice::~VulkanDevice()
 {
-    // A buffer still alive here was never destroyed. It is not a crash — the
-    // pool frees the allocation on its way out, and it is declared after the
-    // allocator so that happens in the right order — but it is a leak for as
-    // long as the device ran, and the whole point of routing resources through
-    // handles is that the count is knowable. Reported rather than asserted so
-    // that a shutdown already unwinding from an error is not made worse.
-    const uint32_t liveBuffers = m_Buffers.Size();
-    if (liveBuffers == 0u)
+    // A resource still alive here was never destroyed. It is not a crash — the
+    // pools free their payloads on the way out, and they are declared after the
+    // allocator and the device so that happens in the right order — but it is a
+    // leak for as long as the device ran, and the whole point of routing
+    // resources through handles is that the count is knowable. Reported rather
+    // than asserted so that a shutdown already unwinding from an error is not
+    // made worse.
+    const std::array<std::pair<const char*, uint32_t>, 4> live{
+        std::pair{"buffer", m_Buffers.Size()},
+        std::pair{"texture", m_Textures.Size()},
+        std::pair{"texture view", m_TextureViews.Size()},
+        std::pair{"sampler", m_Samplers.Size()},
+    };
+
+    bool bAnyLive = false;
+    for (const auto& [kind, count] : live)
     {
-        LogMsg(LogSeverity::Info, LogRhi, "Device destroyed with 0 live buffers.");
-    }
-    else
-    {
+        if (count == 0u)
+            continue;
+
+        bAnyLive = true;
         LogMsg(LogSeverity::Warning, LogRhi,
-               "Device destroyed with {} buffer(s) still alive — each is a resource whose owner "
+               "Device destroyed with {} {}(s) still alive — each is a resource whose owner "
                "never released it.",
-               liveBuffers);
+               count, kind);
+    }
+
+    if (!bAnyLive)
+    {
+        LogMsg(LogSeverity::Info, LogRhi,
+               "Device destroyed with 0 live buffers, textures, texture views and samplers.");
     }
 }
 
@@ -155,6 +203,215 @@ vk::Buffer VulkanDevice::GetBuffer(BufferHandle handle) const
 {
     const VulkanBuffer* pBuffer = m_Buffers.Get(handle);
     return pBuffer ? pBuffer->Buffer : vk::Buffer{};
+}
+
+TextureHandle VulkanDevice::CreateTexture(const TextureDesc& desc)
+{
+    ValidateTextureDesc(desc);
+
+    const vk::ImageCreateInfo imageInfo{
+        .flags = desc.bCubeCompatible
+                     ? vk::ImageCreateFlags{vk::ImageCreateFlagBits::eCubeCompatible}
+                     : vk::ImageCreateFlags{},
+        .imageType = ToVk(desc.Dimension),
+        .format = ToVk(desc.Format),
+        .extent = vk::Extent3D{desc.Extent.Width, desc.Extent.Height, desc.Extent.Depth},
+        .mipLevels = desc.MipLevels,
+        .arrayLayers = desc.ArrayLayers,
+        .samples = ToVk(desc.Samples),
+        .tiling = vk::ImageTiling::eOptimal,
+        .usage = ToVk(desc.Usage),
+        .sharingMode = vk::SharingMode::eExclusive,
+        .initialLayout = vk::ImageLayout::eUndefined};
+
+    // Textures are always device-local: nothing here uploads by writing an
+    // image's memory directly, it stages through a buffer and copies. That is
+    // also the only portable path — D3D12 has no equivalent of a linear-tiled
+    // host-visible image that a shader can sample.
+    const VmaMemoryParams memoryParams = ToVk(MemoryAccess::GpuOnly);
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = memoryParams.Usage;
+    allocInfo.flags = memoryParams.Flags;
+
+    const VkImageCreateInfo cImageInfo = static_cast<VkImageCreateInfo>(imageInfo);
+    VkImage rawImage = VK_NULL_HANDLE;
+    VmaAllocation allocation = nullptr;
+
+    const vk::Result result = static_cast<vk::Result>(
+        vmaCreateImage(m_Allocator, &cImageInfo, &allocInfo, &rawImage, &allocation, nullptr));
+
+    if (result != vk::Result::eSuccess)
+    {
+        throw std::runtime_error(std::format("Rhi::IDevice::CreateTexture: VMA failed to allocate "
+                                             "'{}' ({}x{}x{}): {}.",
+                                             desc.DebugName, desc.Extent.Width, desc.Extent.Height,
+                                             desc.Extent.Depth, vk::to_string(result)));
+    }
+
+    if (!desc.DebugName.empty())
+    {
+        SetVkDebugName(m_Device, vk::Image(rawImage), vk::ObjectType::eImage,
+                       desc.DebugName.c_str());
+        // Names the allocation as well as the image, because VMA's own leak and
+        // budget dumps report allocations, not Vulkan objects.
+        vmaSetAllocationName(m_Allocator, allocation, desc.DebugName.c_str());
+    }
+
+    return m_Textures.Create(m_Allocator, vk::Image(rawImage), allocation, desc);
+}
+
+TextureHandle VulkanDevice::RegisterExternalTexture(vk::Image image, const TextureDesc& desc)
+{
+    if (!image)
+        throw std::runtime_error("Rhi::Vulkan::RegisterExternalTexture: null image.");
+
+    ValidateTextureDesc(desc);
+
+    if (!desc.DebugName.empty())
+        SetVkDebugName(m_Device, image, vk::ObjectType::eImage, desc.DebugName.c_str());
+
+    // No allocator and no allocation: VulkanTexture reads that as "not ours"
+    // and frees nothing when the slot is released.
+    return m_Textures.Create(VmaAllocator{}, image, VmaAllocation{}, desc);
+}
+
+void VulkanDevice::Destroy(TextureHandle handle)
+{
+    if (m_Textures.Release(handle))
+        return;
+
+    ReportDiagnostic(DiagnosticSeverity::Error,
+                     std::format("Rhi::IDevice::Destroy(TextureHandle): handle {:#010x} is stale "
+                                 "or was never valid; it may have been destroyed already.",
+                                 handle.Value));
+}
+
+TextureViewHandle VulkanDevice::CreateTextureView(const TextureViewDesc& desc)
+{
+    const VulkanTexture* pTexture = m_Textures.Get(desc.Texture);
+    if (!pTexture)
+    {
+        throw std::runtime_error(
+            std::format("Rhi::IDevice::CreateTextureView: '{}' names texture handle {:#010x}, "
+                        "which is stale or was never valid.",
+                        desc.DebugName, desc.Texture.Value));
+    }
+
+    const Rhi::Format format =
+        desc.Format == Rhi::Format::Undefined ? pTexture->Desc.Format : desc.Format;
+    const TextureAspect aspect = Any(desc.Aspect) ? desc.Aspect : DefaultAspect(format);
+
+    const vk::ImageViewCreateInfo createInfo{.image = pTexture->Image,
+                                             .viewType = ToVk(desc.Dimension),
+                                             .format = ToVk(format),
+                                             .subresourceRange = {.aspectMask = ToVk(aspect),
+                                                                  .baseMipLevel = desc.BaseMip,
+                                                                  .levelCount = desc.MipCount,
+                                                                  .baseArrayLayer = desc.BaseLayer,
+                                                                  .layerCount = desc.LayerCount}};
+
+    VulkanTextureView view{vk::raii::ImageView(m_Device, createInfo)};
+
+    if (!desc.DebugName.empty())
+    {
+        SetVkDebugName(m_Device, *view.View, vk::ObjectType::eImageView, desc.DebugName.c_str());
+    }
+
+    return m_TextureViews.Create(std::move(view));
+}
+
+void VulkanDevice::Destroy(TextureViewHandle handle)
+{
+    if (m_TextureViews.Release(handle))
+        return;
+
+    ReportDiagnostic(
+        DiagnosticSeverity::Error,
+        std::format("Rhi::IDevice::Destroy(TextureViewHandle): handle {:#010x} is stale or "
+                    "was never valid; it may have been destroyed already.",
+                    handle.Value));
+}
+
+SamplerHandle VulkanDevice::CreateSampler(const SamplerDesc& desc)
+{
+    // Only meaningful when anisotropy is enabled, and then it must lie within
+    // the device's limit (VUID-VkSamplerCreateInfo-anisotropyEnable-01071). A
+    // desc asking for 0 is asking for the best the device offers, which is what
+    // spares every caller from plumbing the limit through to get it.
+    float maxAnisotropy = desc.MaxAnisotropy;
+    if (desc.bAnisotropyEnable)
+    {
+        const float limit = m_PhysicalDevice.getProperties().limits.maxSamplerAnisotropy;
+        maxAnisotropy = desc.MaxAnisotropy <= 0.f ? limit : std::min(desc.MaxAnisotropy, limit);
+    }
+
+    const vk::SamplerCreateInfo createInfo{
+        .magFilter = ToVk(desc.MagFilter),
+        .minFilter = ToVk(desc.MinFilter),
+        .mipmapMode = ToVk(desc.MipmapFilter),
+        .addressModeU = ToVk(desc.AddressU),
+        .addressModeV = ToVk(desc.AddressV),
+        .addressModeW = ToVk(desc.AddressW),
+        .mipLodBias = desc.MipLodBias,
+        .anisotropyEnable = static_cast<vk::Bool32>(desc.bAnisotropyEnable),
+        .maxAnisotropy = maxAnisotropy,
+        .compareEnable = static_cast<vk::Bool32>(desc.bCompareEnable),
+        .compareOp = ToVk(desc.Compare),
+        .minLod = desc.MinLod,
+        .maxLod = desc.MaxLod,
+        .borderColor = ToVk(desc.Border),
+        .unnormalizedCoordinates = vk::False};
+
+    VulkanSampler sampler{vk::raii::Sampler(m_Device, createInfo)};
+
+    if (!desc.DebugName.empty())
+    {
+        SetVkDebugName(m_Device, *sampler.Sampler, vk::ObjectType::eSampler,
+                       desc.DebugName.c_str());
+    }
+
+    return m_Samplers.Create(std::move(sampler));
+}
+
+void VulkanDevice::Destroy(SamplerHandle handle)
+{
+    if (m_Samplers.Release(handle))
+        return;
+
+    ReportDiagnostic(DiagnosticSeverity::Error,
+                     std::format("Rhi::IDevice::Destroy(SamplerHandle): handle {:#010x} is stale "
+                                 "or was never valid; it may have been destroyed already.",
+                                 handle.Value));
+}
+
+const TextureDesc* VulkanDevice::GetTextureDesc(TextureHandle handle) const
+{
+    const VulkanTexture* pTexture = m_Textures.Get(handle);
+    return pTexture ? &pTexture->Desc : nullptr;
+}
+
+vk::Image VulkanDevice::GetImage(TextureHandle handle) const
+{
+    const VulkanTexture* pTexture = m_Textures.Get(handle);
+    return pTexture ? pTexture->Image : vk::Image{};
+}
+
+vk::ImageView VulkanDevice::GetImageView(TextureViewHandle handle) const
+{
+    const VulkanTextureView* pView = m_TextureViews.Get(handle);
+    return pView ? *pView->View : vk::ImageView{};
+}
+
+vk::Sampler VulkanDevice::GetSampler(SamplerHandle handle) const
+{
+    const VulkanSampler* pSampler = m_Samplers.Get(handle);
+    return pSampler ? *pSampler->Sampler : vk::Sampler{};
+}
+
+void VulkanDevice::ReportStaleHandle(std::string_view what) const
+{
+    ReportDiagnostic(DiagnosticSeverity::Error, what);
 }
 
 void VulkanDevice::ReportDiagnostic(DiagnosticSeverity severity, std::string_view message) const

@@ -9,12 +9,16 @@
 #include <platform/Paths.h>
 
 #include <rhi/Barrier.h>
-#include <rhi/vulkan/AllocatedImage.h>
-#include <rhi/vulkan/Texture.h>
+#include <rhi/Handles.h>
+#include <rhi/ICommandList.h>
+#include <rhi/IDevice.h>
+#include <rhi/UniqueHandle.h>
+
+#include "Texture.h"
 
 struct CloudSystemCreateInfo
 {
-    vk::raii::Device& Device;
+    Rhi::IDevice& RhiDevice;
     const Paths& ContentPaths;
     vk::raii::DescriptorSetLayout& GlobalSetLayout;
     vk::raii::DescriptorSetLayout& DepthSetLayout;
@@ -23,7 +27,6 @@ struct CloudSystemCreateInfo
     uint32_t SwapchainWidth;
     uint32_t SwapchainHeight;
     uint32_t FramesInFlight;
-    VmaAllocator Allocator;
 };
 
 class CloudSystem
@@ -57,9 +60,9 @@ public:
                                       vk::raii::DescriptorSet& depthSet);
     void Resize(uint32_t width, uint32_t height);
 
-    vk::ImageView GetImageView(uint8_t frameIndex)
+    Rhi::TextureViewHandle GetOutputView(uint8_t frameIndex) const
     {
-        return m_OutputTextures[frameIndex].GetImageView();
+        return m_OutputTextures[frameIndex].GetView();
     }
 
 private:
@@ -83,6 +86,12 @@ private:
 private:
     static const uint32_t s_NOISE_RES;
 
+    // Declared before every GPU resource below so that it outlives them: the
+    // handles they hold are released through it.
+    Rhi::IDevice& m_RhiDevice;
+
+    // Borrowed from m_RhiDevice. Still needed because pipelines and descriptors
+    // stay Vulkan-shaped for the whole of Stage 5 (plan D7, D8).
     vk::raii::Device& m_Device;
 
     vk::raii::DescriptorSetLayout m_SetLayout = nullptr;
@@ -95,19 +104,16 @@ private:
     vk::raii::Pipeline m_BakePipeline = nullptr;
     std::vector<vk::raii::DescriptorSet> m_DescriptorSets;
     vk::raii::DescriptorSet m_BakeDescriptorSet = nullptr;
-    vk::raii::Sampler m_TextureSampler = nullptr;
+    Rhi::UniqueHandle<Rhi::SamplerHandle> m_TextureSampler;
 
     std::vector<Texture> m_OutputTextures;
-    AllocatedImage m_PerlinWorleyImage{};
-    vk::raii::ImageView m_PerlinWorleyView = nullptr;
+    Texture m_PerlinWorley;
 
     const uint32_t m_FramesInFlight;
     uint32_t m_Width;
     uint32_t m_Height;
     uint32_t m_OutputWidth;
     uint32_t m_OutputHeight;
-
-    VmaAllocator m_Allocator{};
 
     CloudPushConstants m_CloudData{};
 };

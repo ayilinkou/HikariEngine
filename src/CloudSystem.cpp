@@ -1,19 +1,19 @@
 #include "CloudSystem.h"
 #include <core/Log.h>
 #include <rhi/BarrierPresets.h>
-#include <rhi/vulkan/BarrierUtil.h>
+#include <rhi/ICommandList.h>
 #include <rhi/vulkan/CommandListUtil.h>
 #include <rhi/vulkan/ComputePipelineBuilder.h>
 #include <rhi/vulkan/DebugNames.h>
-#include <rhi/vulkan/ImageUtil.h>
+#include <rhi/vulkan/VulkanNative.h>
 
 inline constexpr LogCategory LogCloudSystem{"Cloud System"};
 
 const uint32_t CloudSystem::s_NOISE_RES = 128u;
 
 CloudSystem::CloudSystem(CloudSystemCreateInfo createInfo)
-    : m_Device(createInfo.Device), m_FramesInFlight(createInfo.FramesInFlight),
-      m_Allocator(createInfo.Allocator)
+    : m_RhiDevice(createInfo.RhiDevice), m_Device(Rhi::Vulkan::GetDevice(createInfo.RhiDevice)),
+      m_FramesInFlight(createInfo.FramesInFlight)
 {
     Init(createInfo);
 }
@@ -59,11 +59,13 @@ void CloudSystem::CreateOutputTextures(uint32_t width, uint32_t height)
 
     for (uint32_t i = 0; i < m_FramesInFlight; ++i)
     {
-        Texture tex = CreateRenderTexture(
-            m_Allocator, m_Device, m_OutputWidth, m_OutputHeight, vk::Format::eR16G16B16A16Sfloat,
-            vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
-            vk::ImageAspectFlagBits::eColor, std::format("Frame_{} Cloud output image", i).c_str());
-        m_OutputTextures.push_back(std::move(tex));
+        m_OutputTextures.emplace_back(
+            m_RhiDevice,
+            Rhi::TextureDesc{.Format = Rhi::Format::RGBA16Float,
+                             .Extent = {m_OutputWidth, m_OutputHeight, 1u},
+                             .Usage = Rhi::TextureUsage::Storage | Rhi::TextureUsage::Sampled,
+                             .DebugName = std::format("Frame_{} Cloud Output Image", i)},
+            Rhi::TextureViewDimension::Texture2D);
     }
 }
 
@@ -182,7 +184,7 @@ void CloudSystem::AllocateAndWriteBakeDescriptorSet()
     m_BakeDescriptorSet = std::move(vk::raii::DescriptorSets(m_Device, allocInfo).front());
 
     vk::DescriptorImageInfo noiseImageInfo{
-        .imageView = *m_PerlinWorleyView,
+        .imageView = Rhi::Vulkan::GetImageView(m_RhiDevice, m_PerlinWorley.GetView()),
         .imageLayout = vk::ImageLayout::eGeneral,
     };
 
@@ -204,13 +206,13 @@ void CloudSystem::WriteDescriptorSets()
     for (uint32_t i = 0u; i < m_FramesInFlight; i++)
     {
         vk::DescriptorImageInfo storageImageInfo{
-            .imageView = m_OutputTextures[i].GetImageView(),
+            .imageView = Rhi::Vulkan::GetImageView(m_RhiDevice, m_OutputTextures[i].GetView()),
             .imageLayout = vk::ImageLayout::eGeneral,
         };
-        vk::DescriptorImageInfo perlinWorleyImageInfo{.sampler = *m_TextureSampler,
-                                                      .imageView = *m_PerlinWorleyView,
-                                                      .imageLayout =
-                                                          vk::ImageLayout::eShaderReadOnlyOptimal};
+        vk::DescriptorImageInfo perlinWorleyImageInfo{
+            .sampler = Rhi::Vulkan::GetSampler(m_RhiDevice, m_TextureSampler.Get()),
+            .imageView = Rhi::Vulkan::GetImageView(m_RhiDevice, m_PerlinWorley.GetView()),
+            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
         std::array<vk::WriteDescriptorSet, 2> writeDescSet{
             vk::WriteDescriptorSet{.dstSet = *m_DescriptorSets[i],
@@ -236,11 +238,12 @@ Rhi::BarrierCounts CloudSystem::RecordDispatch(vk::raii::CommandBuffer& cmd, uin
                                                vk::raii::DescriptorSet& globalSet,
                                                vk::raii::DescriptorSet& depthSet)
 {
-    cmd.begin({});
+    std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(m_RhiDevice, *cmd);
+    list->Begin();
 
     Rhi::BarrierCounts barrierCounts =
-        Rhi::Vulkan::RecordBarrier(*cmd, m_OutputTextures[frameIndex].GetImage(),
-                                   Rhi::BarrierPresets::UndefinedToUnorderedAccess());
+        list->Barrier(Rhi::BarrierPresets::UndefinedToUnorderedAccess().On(
+            m_OutputTextures[frameIndex].GetHandle()));
 
     cmd.bindPipeline(vk::PipelineBindPoint::eCompute, *m_Pipeline);
     std::array<vk::DescriptorSet, 3> sets = {*globalSet, *depthSet, *m_DescriptorSets[frameIndex]};
@@ -251,43 +254,24 @@ Rhi::BarrierCounts CloudSystem::RecordDispatch(vk::raii::CommandBuffer& cmd, uin
 
     cmd.dispatch((m_OutputWidth + 7) / 8, (m_OutputHeight + 7) / 8, 1);
 
-    barrierCounts +=
-        Rhi::Vulkan::RecordBarrier(*cmd, m_OutputTextures[frameIndex].GetImage(),
-                                   Rhi::BarrierPresets::UnorderedAccessToShaderResource());
+    barrierCounts += list->Barrier(Rhi::BarrierPresets::UnorderedAccessToShaderResource().On(
+        m_OutputTextures[frameIndex].GetHandle()));
 
-    cmd.end();
+    list->End();
 
     return barrierCounts;
 }
 
 void CloudSystem::CreateNoiseTexture()
 {
-    vk::ImageCreateInfo imageInfo{
-        .imageType = vk::ImageType::e3D,
-        .format = vk::Format::eR8Unorm,
-        .extent = {s_NOISE_RES, s_NOISE_RES, s_NOISE_RES},
-        .mipLevels = 1,
-        .arrayLayers = 1,
-        .samples = vk::SampleCountFlagBits::e1,
-        .tiling = vk::ImageTiling::eOptimal,
-        .usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
-        .sharingMode = vk::SharingMode::eExclusive,
-        .initialLayout = vk::ImageLayout::eUndefined,
-    };
-
-    m_PerlinWorleyImage = CreateImage(m_Allocator, imageInfo);
-    SetVkDebugName(m_Device, m_PerlinWorleyImage.Image, vk::ObjectType::eImage,
-                   "Perlin Worley Image");
-
-    vk::ImageViewCreateInfo viewInfo{
-        .image = m_PerlinWorleyImage.Image,
-        .viewType = vk::ImageViewType::e3D,
-        .format = vk::Format::eR8Unorm,
-        .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-    };
-    m_PerlinWorleyView = vk::raii::ImageView(m_Device, viewInfo);
-    SetVkDebugName(m_Device, *m_PerlinWorleyView, vk::ObjectType::eImageView,
-                   "Perlin Worley Image View");
+    m_PerlinWorley =
+        Texture(m_RhiDevice,
+                Rhi::TextureDesc{.Dimension = Rhi::TextureDimension::Texture3D,
+                                 .Format = Rhi::Format::R8Unorm,
+                                 .Extent = {s_NOISE_RES, s_NOISE_RES, s_NOISE_RES},
+                                 .Usage = Rhi::TextureUsage::Storage | Rhi::TextureUsage::Sampled,
+                                 .DebugName = "Perlin Worley Image"},
+                Rhi::TextureViewDimension::Texture3D);
 }
 
 void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
@@ -297,9 +281,9 @@ void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
            s_NOISE_RES, s_NOISE_RES, s_NOISE_RES);
 
     vk::raii::CommandBuffer cmd = BeginSingleTimeCommand(m_Device, commandPool);
+    std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(m_RhiDevice, *cmd);
 
-    Rhi::Vulkan::RecordBarrier(*cmd, m_PerlinWorleyImage,
-                               Rhi::BarrierPresets::UndefinedToUnorderedAccess());
+    list->Barrier(Rhi::BarrierPresets::UndefinedToUnorderedAccess().On(m_PerlinWorley.GetHandle()));
 
     cmd.bindPipeline(vk::PipelineBindPoint::eCompute, *m_BakePipeline);
     cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute, *m_BakePipelineLayout, 0,
@@ -314,9 +298,9 @@ void CloudSystem::BakeNoiseTexture(vk::raii::CommandPool& commandPool,
 
     // The bake's result is read by another dispatch, not by the main pass, so
     // the destination stage is compute rather than the preset's default.
-    Rhi::Vulkan::RecordBarrier(
-        *cmd, m_PerlinWorleyImage,
-        Rhi::BarrierPresets::UnorderedAccessToShaderResource(Rhi::PipelineStage::ComputeStage));
+    list->Barrier(
+        Rhi::BarrierPresets::UnorderedAccessToShaderResource(Rhi::PipelineStage::ComputeStage)
+            .On(m_PerlinWorley.GetHandle()));
 
     // TODO: move to a read only image
     EndSingleTimeCommand(cmd, computeQueue);
@@ -326,19 +310,7 @@ void CloudSystem::CreateTextureSampler()
 {
     LogMsg(LogSeverity::Info, LogCloudSystem, "CreateTextureSampler()");
 
-    vk::SamplerCreateInfo createInfo{.magFilter = vk::Filter::eLinear,
-                                     .minFilter = vk::Filter::eLinear,
-                                     .mipmapMode = vk::SamplerMipmapMode::eLinear,
-                                     .addressModeU = vk::SamplerAddressMode::eRepeat,
-                                     .addressModeV = vk::SamplerAddressMode::eRepeat,
-                                     .addressModeW = vk::SamplerAddressMode::eRepeat,
-                                     .anisotropyEnable = vk::False,
-                                     .compareEnable = vk::False,
-                                     .minLod = 0.f,
-                                     .maxLod = 0.f,
-                                     .borderColor = vk::BorderColor::eIntOpaqueBlack,
-                                     .unnormalizedCoordinates = vk::False};
-    m_TextureSampler = vk::raii::Sampler(m_Device, createInfo);
-    SetVkDebugName(m_Device, *m_TextureSampler, vk::ObjectType::eSampler,
-                   "Cloud System Texture Sampler");
+    m_TextureSampler = Rhi::UniqueHandle<Rhi::SamplerHandle>(
+        m_RhiDevice,
+        m_RhiDevice.CreateSampler(Rhi::SamplerDesc{.DebugName = "Cloud System Texture Sampler"}));
 }

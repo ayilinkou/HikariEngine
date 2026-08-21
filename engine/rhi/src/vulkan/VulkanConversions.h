@@ -12,6 +12,7 @@
 #include <rhi/RhiTypes.h>
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
+#include <rhi/TextureViewDesc.h>
 
 // Every mapping between the RHI's neutral vocabulary and Vulkan lives here and
 // nowhere else (plan §3). A conversion written inline at a call site is the
@@ -68,6 +69,9 @@ SampleCount FromVk(vk::SampleCountFlagBits samples);
 
 vk::ImageType ToVk(TextureDimension dimension);
 TextureDimension FromVk(vk::ImageType imageType);
+
+vk::ImageViewType ToVk(TextureViewDimension dimension);
+TextureViewDimension FromVk(vk::ImageViewType viewType);
 
 vk::Filter ToVk(Filter filter);
 Filter FromVk(vk::Filter filter);

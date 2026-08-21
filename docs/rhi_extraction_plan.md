@@ -484,9 +484,9 @@ are the ones later steps need to read.
 | R5 — Extract `Rhi::Device` | ✅ done |
 | R6 — Enumerate all queue families | ✅ done |
 | R7 — `Rhi::Diagnostics` | ✅ done |
-| R8 — `Rhi::ICommandList` and the neutral barrier API | ⚠️ barrier API done; `ICommandList` deferred — see **As built** |
+| R8 — `Rhi::ICommandList` and the neutral barrier API | ✅ done (barriers here; `ICommandList` landed in R10 — see **As built**) |
 | R9 — Buffers become handles | ✅ done |
-| R10 — Textures, views and samplers become handles | not started |
+| R10 — Textures, views and samplers become handles | ✅ done |
 | R11 — `UploadContext` — batch transfers | not started |
 | R12 — Use the dedicated transfer queue | not started |
 | R13 — Growable `DescriptorAllocator` | not started |
@@ -936,6 +936,85 @@ are the ones later steps need to read.
 - **Verify:** Headless report identical, screenshot identical. Live-texture count 0 at
   shutdown.
 - **Size:** L · **Needs:** R9
+- **As built:** done. The report is byte-identical to the baseline, a capture taken at the
+  same resolution as a pre-R10 one is byte-identical too, and the shutdown log reads
+  `Device destroyed with 0 live buffers, textures, texture views and samplers.` Validation
+  errors stayed at 0 with synchronization validation on, which is the check that matters
+  here: every barrier in the renderer was rewritten. The window was also resized twice
+  during a separate run, because the fixed-frame baseline never exercises
+  `RecreateSwapchainAndRenderImages` — and that is the one path that re-registers the
+  swapchain's textures and move-assigns over live render targets. Clean, and still 0 live
+  resources at shutdown.
+
+  **The decision the step asked for: `D16UnormS8Uint` is dropped, not promoted.** It cost
+  nothing, because it was unreachable. The specification's mandatory format table requires
+  `VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT` to be "supported for at least one of
+  `VK_FORMAT_D24_UNORM_S8_UINT` and `VK_FORMAT_D32_SFLOAT_S8_UINT`" (Vulkan 1.4,
+  *Mandatory Format Support: Depth/Stencil*), and both sit above it in the candidate list —
+  so no conformant device could ever fall through to a fourth candidate. Promoting it to
+  `D24UnormS8Uint` would have been worse than dropping it: it would name a format the
+  device had just been asked about and declined. The reasoning is in `FindDepthFormat`, and
+  `Rhi::Format`'s note about the omission now records the outcome instead of the question.
+
+  Seven things differ from the **Do** text:
+
+  - **`ICommandList` is reached through `Rhi::Vulkan::WrapCommandList(IDevice&,
+    vk::CommandBuffer)`,** not by constructing a public class. `VulkanCommandList` stays in
+    `src/vulkan/` because R17's end state keeps only four headers in `include/rhi/vulkan/`,
+    and a fifth would have to be removed again a step later. The wrapper is non-owning: the
+    renderer still allocates and submits its own command buffers, records draws on the raw
+    one, and uses the neutral list for barriers and copies.
+  - **Swapchain images get handles too, via
+    `Rhi::Vulkan::RegisterExternalTexture`.** `TextureBarrier` now names a `TextureHandle`,
+    and the swapchain images are the one thing barriers touch that the device did not
+    allocate — so without this there would have to be a second, image-typed barrier path
+    purely for them. Registering gives the image a pool slot whose payload has a null
+    `VmaAllocation`, which `VulkanTexture` reads as "not ours" and frees nothing. It is
+    also the shape Stage 6 wants: `IPresentTarget` will hand out the handle itself and this
+    retires with it.
+  - **`TextureAspect` and `DefaultAspect` moved from `rhi/Barrier.h` to `rhi/RhiTypes.h`.**
+    A view needs the aspect as much as a barrier does, and `TextureViewDesc` should not
+    have to include the barrier vocabulary to say which half of a depth/stencil format it
+    covers.
+  - **`TextureViewDesc` has two sentinels**, both meaning "follow the texture": an
+    `Undefined` format, and a `None` aspect resolving through `DefaultAspect`. The aspect
+    one earns its keep — a colour default would silently produce a wrong-aspect view for
+    every depth texture, and the call sites that would have to override it are exactly the
+    ones most likely to forget.
+  - **`TextureBarrier::On(handle)`** is what pairs a preset with a resource. The presets
+    stay constants that name no texture, which is what R8's note said the handle would
+    have to preserve; `On` returns a copy, so one preset can be applied to several
+    textures in the same batch.
+  - **`BufferTextureCopyRegion` carries no offset.** Every copy in the codebase covers a
+    whole subresource from its origin, and an offset field would mean adding an `Offset3D`
+    to the neutral vocabulary for a case that does not exist.
+  - **`src/Texture.h` and `src/Cubemap.h` moved back out of `rhi/vulkan/`.** Holding two
+    handles, they have no Vulkan in them and no business in the RHI; they are asset-side
+    types that Stage 7 moves into `Assets`. `Cubemap` is now a `Texture` plus its create
+    info, since the only thing that makes a cubemap one is the view dimension.
+    `rhi/vulkan/ImageUtil.h`, `AllocatedImage.{h,cpp}` and `BarrierUtil.{h,cpp}` are
+    deleted — every one of their callers now goes through `IDevice` or `ICommandList`.
+
+  **The escape hatch grew, and that is worth reading rather than skimming** (§9's third
+  risk). `VulkanNative.h` went from 8 functions to 13. `GetAllocator` left, because
+  textures were the last VMA consumer outside the module. Six arrived, in five roles:
+
+  | Added | Why | Retires with |
+  |---|---|---|
+  | `GetImageView` | `VkDescriptorImageInfo` and `vk::RenderingAttachmentInfo` take raw views | bindless (step 69) / Stage 8 |
+  | `GetSampler` | same, for `VkDescriptorImageInfo::sampler` | bindless (step 69) |
+  | `RegisterExternalTexture` | the swapchain's images, see above | Stage 6's `IPresentTarget` |
+  | `WrapCommandList` | the renderer owns its command buffers until Stage 8 | Stage 8 |
+  | `GetNativeFormat` / `FromNativeFormat` | `PipelineBuilder` takes `vk::Format` (D8), and the depth-format search queries `VkFormatProperties` | Stage 8 |
+
+  There is deliberately **no** `GetImage`: nothing outside the module names an image any
+  more, because barriers and copies both take a `TextureHandle`.
+
+  Two smaller notes. `SamplerDesc::MaxAnisotropy == 0` means "the device maximum", which is
+  what removed the last read of `maxSamplerAnisotropy` from the renderer. And `ModelLoader`
+  lost its `vk::raii::Device` and `vk::raii::PhysicalDevice` members, which had been unused
+  since R9 and were only still being passed because `ResourceManager::Init` fed all three
+  loaders from one signature.
 
 ### R11 — `UploadContext` — batch transfers
 

@@ -314,6 +314,28 @@ TextureDimension FromVk(vk::ImageType imageType)
     return ConvertBack(imageType, kAllTextureDimensions, "TextureDimension");
 }
 
+vk::ImageViewType ToVk(TextureViewDimension dimension)
+{
+    switch (dimension)
+    {
+        case TextureViewDimension::Texture2D:
+            return vk::ImageViewType::e2D;
+        case TextureViewDimension::Texture2DArray:
+            return vk::ImageViewType::e2DArray;
+        case TextureViewDimension::TextureCube:
+            return vk::ImageViewType::eCube;
+        case TextureViewDimension::Texture3D:
+            return vk::ImageViewType::e3D;
+    }
+
+    throw std::runtime_error("Rhi::Vulkan::ToVk(TextureViewDimension): unhandled enumerator.");
+}
+
+TextureViewDimension FromVk(vk::ImageViewType viewType)
+{
+    return ConvertBack(viewType, kAllTextureViewDimensions, "TextureViewDimension");
+}
+
 vk::Filter ToVk(Filter filter)
 {
     switch (filter)

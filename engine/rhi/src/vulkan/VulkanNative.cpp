@@ -2,6 +2,8 @@
 
 #include <stdexcept>
 
+#include "vulkan/VulkanCommandList.h"
+#include "vulkan/VulkanConversions.h"
 #include "vulkan/VulkanDevice.h"
 
 namespace Rhi::Vulkan
@@ -58,13 +60,38 @@ uint32_t GetGraphicsQueueFamily(IDevice& device)
     return AsVulkan(device).GetQueueFamily(QueueType::Graphics);
 }
 
-VmaAllocator GetAllocator(IDevice& device)
-{
-    return AsVulkan(device).GetAllocator();
-}
-
 vk::Buffer GetBuffer(IDevice& device, BufferHandle handle)
 {
     return AsVulkan(device).GetBuffer(handle);
+}
+
+vk::ImageView GetImageView(IDevice& device, TextureViewHandle handle)
+{
+    return AsVulkan(device).GetImageView(handle);
+}
+
+vk::Sampler GetSampler(IDevice& device, SamplerHandle handle)
+{
+    return AsVulkan(device).GetSampler(handle);
+}
+
+TextureHandle RegisterExternalTexture(IDevice& device, vk::Image image, const TextureDesc& desc)
+{
+    return AsVulkan(device).RegisterExternalTexture(image, desc);
+}
+
+std::unique_ptr<ICommandList> WrapCommandList(IDevice& device, vk::CommandBuffer cmd)
+{
+    return std::make_unique<VulkanCommandList>(AsVulkan(device), cmd);
+}
+
+vk::Format GetNativeFormat(Format format)
+{
+    return ToVk(format);
+}
+
+Format FromNativeFormat(vk::Format format)
+{
+    return FromVk(format);
 }
 } // namespace Rhi::Vulkan

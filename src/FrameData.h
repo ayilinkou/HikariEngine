@@ -4,7 +4,8 @@
 
 #include <rhi/Handles.h>
 #include <rhi/UniqueHandle.h>
-#include <rhi/vulkan/Texture.h>
+
+#include "Texture.h"
 
 struct FrameData
 {

@@ -17,9 +17,9 @@ using namespace Rhi;
 namespace
 {
 // An IDevice that allocates nothing and records what it was asked to destroy.
-// Only the buffer half is implemented; the rest of the interface is here to
-// satisfy the vtable, and calling it would be a test bug rather than a
-// meaningful operation.
+// Every resource kind hands out handles from one index counter and records its
+// destructions in its own vector, so a test can check that UniqueHandle called
+// the right overload as well as that it called one at all.
 class RecordingDevice final : public IDevice
 {
 public:
@@ -41,7 +41,48 @@ public:
         return m_NextIndex - static_cast<uint32_t>(Destroyed.size());
     }
 
+    TextureHandle CreateTexture(const TextureDesc&) override
+    {
+        return TextureHandle::FromIndexAndGeneration(m_NextIndex++, 0u);
+    }
+
+    void Destroy(TextureHandle handle) override { DestroyedTextures.push_back(handle); }
+
+    TextureViewHandle CreateTextureView(const TextureViewDesc&) override
+    {
+        return TextureViewHandle::FromIndexAndGeneration(m_NextIndex++, 0u);
+    }
+
+    void Destroy(TextureViewHandle handle) override { DestroyedViews.push_back(handle); }
+
+    SamplerHandle CreateSampler(const SamplerDesc&) override
+    {
+        return SamplerHandle::FromIndexAndGeneration(m_NextIndex++, 0u);
+    }
+
+    void Destroy(SamplerHandle handle) override { DestroyedSamplers.push_back(handle); }
+
+    const TextureDesc* GetTextureDesc(TextureHandle) const override { return nullptr; }
+
+    uint32_t GetLiveTextureCount() const override
+    {
+        return static_cast<uint32_t>(DestroyedTextures.size());
+    }
+
+    uint32_t GetLiveTextureViewCount() const override
+    {
+        return static_cast<uint32_t>(DestroyedViews.size());
+    }
+
+    uint32_t GetLiveSamplerCount() const override
+    {
+        return static_cast<uint32_t>(DestroyedSamplers.size());
+    }
+
     std::vector<BufferHandle> Destroyed;
+    std::vector<TextureHandle> DestroyedTextures;
+    std::vector<TextureViewHandle> DestroyedViews;
+    std::vector<SamplerHandle> DestroyedSamplers;
 
 private:
     DeviceCaps m_Caps{};

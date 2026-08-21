@@ -1,6 +1,9 @@
+#include <span>
+
 #include "Camera.h"
 #include "CloudSystem.h"
 #include "Common.h"
+#include "Cubemap.h"
 #include "Entity.h"
 #include "FrameData.h"
 #include "InstanceData.h"
@@ -10,6 +13,7 @@
 #include "ModelManager.h"
 #include "PBRMaterial.h"
 #include "ResourceManager.h"
+#include "Texture.h"
 #include "Vertex.h"
 #include "XmlParser.h"
 
@@ -30,17 +34,17 @@
 #include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/Handles.h>
+#include <rhi/ICommandList.h>
 #include <rhi/IDevice.h>
+#include <rhi/RhiTypes.h>
+#include <rhi/SamplerDesc.h>
+#include <rhi/TextureDesc.h>
+#include <rhi/TextureViewDesc.h>
 #include <rhi/UniqueHandle.h>
-#include <rhi/vulkan/AllocatedImage.h>
-#include <rhi/vulkan/BarrierUtil.h>
 #include <rhi/vulkan/BufferUtil.h>
-#include <rhi/vulkan/Cubemap.h>
 #include <rhi/vulkan/DebugNames.h>
-#include <rhi/vulkan/ImageUtil.h>
 #include <rhi/vulkan/PipelineBuilder.h>
 #include <rhi/vulkan/SwapchainUtil.h>
-#include <rhi/vulkan/Texture.h>
 #include <rhi/vulkan/VulkanNative.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -351,7 +355,6 @@ public:
           m_Device(Rhi::Vulkan::GetDevice(*m_RhiDevice)),
           m_Surface(Rhi::Vulkan::GetSurface(*m_RhiDevice)),
           m_GraphicsQueue(Rhi::Vulkan::GetGraphicsQueue(*m_RhiDevice)),
-          m_VmaAllocator(Rhi::Vulkan::GetAllocator(*m_RhiDevice)),
           m_QueueIndex(Rhi::Vulkan::GetGraphicsQueueFamily(*m_RhiDevice))
     {
     }
@@ -507,7 +510,7 @@ private:
         // TODO: read from scene
         CubemapCreateInfo createInfo{};
         createInfo.Name = "Skybox";
-        createInfo.Format = vk::Format::eR8G8B8A8Srgb;
+        createInfo.Format = Rhi::Format::RGBA8Srgb;
 
         const auto skyboxFace = [this](std::string_view face)
         { return m_Paths.Content("textures/skybox/" + std::string(face)).string(); };
@@ -576,7 +579,7 @@ private:
         initInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
         initInfo.MinImageCount = m_MinImageCount;
         initInfo.MinAllocationSize = 1024 * 1024;
-        initInfo.ImageCount = static_cast<uint32_t>(m_SwapImages.size());
+        initInfo.ImageCount = static_cast<uint32_t>(m_SwapTextures.size());
         initInfo.UseDynamicRendering = true;
         initInfo.PipelineCache = VK_NULL_HANDLE;
         initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
@@ -601,9 +604,8 @@ private:
         CreateCommandPools();
         CreateTextureSampler();
 
-        ResourceManager::Init(*m_RhiDevice, m_Device, m_PhysicalDevice, m_GenericCommandPool,
-                              m_GraphicsQueue, m_VmaAllocator, m_Paths);
-        MaterialFactory::Init(m_Device, m_TextureSampler);
+        ResourceManager::Init(*m_RhiDevice, m_GenericCommandPool, m_GraphicsQueue, m_Paths);
+        MaterialFactory::Init(*m_RhiDevice, m_TextureSampler.Get());
 
         CreatePipelines();
         CreateCommandBuffers();
@@ -613,7 +615,7 @@ private:
         CreateDescriptorPool();
 
         // TODO: read from scene
-        CloudSystemCreateInfo cloudCreateInfo{.Device = m_Device,
+        CloudSystemCreateInfo cloudCreateInfo{.RhiDevice = *m_RhiDevice,
                                               .ContentPaths = m_Paths,
                                               .GlobalSetLayout = m_GlobalBufferSetLayout,
                                               .DepthSetLayout = m_DepthSetLayout,
@@ -627,8 +629,7 @@ private:
                                               .ComputeQueue = m_GraphicsQueue,
                                               .SwapchainWidth = m_SwapchainExtent.width,
                                               .SwapchainHeight = m_SwapchainExtent.height,
-                                              .FramesInFlight = NUM_FRAMES_IN_FLIGHT,
-                                              .Allocator = m_VmaAllocator};
+                                              .FramesInFlight = NUM_FRAMES_IN_FLIGHT};
         m_CloudSystem = std::make_unique<CloudSystem>(cloudCreateInfo);
 
         CreateDescriptorSets();
@@ -1111,14 +1112,31 @@ private:
         m_Swapchain = vk::raii::SwapchainKHR(m_Device, createInfo);
         SetVkDebugName(m_Device, *m_Swapchain, vk::ObjectType::eSwapchainKHR, "Swapchain");
 
-        m_SwapImages = m_Swapchain.getImages();
-        for (size_t i = 0; i < m_SwapImages.size(); i++)
+        // Every swapchain texture and view is described in neutral terms, so a
+        // surface offering nothing Rhi::Format can name is an unrecoverable init
+        // failure rather than something to fall back from — that is the deal the
+        // curated format list makes. ChooseSwapchainFormat asks for BGRA8Unorm
+        // first, which every desktop surface offers.
+        const Rhi::Format swapchainFormat =
+            Rhi::Vulkan::FromNativeFormat(m_SwapchainSurfaceFormat.format);
+
+        // Registered rather than created: the images belong to the presentation
+        // engine, and a handle is only how the rest of the RHI names one.
+        const std::vector<vk::Image> images = m_Swapchain.getImages();
+        assert(m_SwapTextures.empty());
+        m_SwapTextures.reserve(images.size());
+        for (size_t i = 0; i < images.size(); i++)
         {
-            SetVkDebugName(m_Device, m_SwapImages[i], vk::ObjectType::eImage,
-                           std::format("Swapchain Image_{}", i).c_str());
+            const Rhi::TextureDesc desc{
+                .Format = swapchainFormat,
+                .Extent = {m_SwapchainExtent.width, m_SwapchainExtent.height, 1u},
+                .Usage = Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::CopySrc,
+                .DebugName = std::format("Swapchain Image_{}", i)};
+            m_SwapTextures.emplace_back(
+                *m_RhiDevice, Rhi::Vulkan::RegisterExternalTexture(*m_RhiDevice, images[i], desc));
         }
 
-        LogMsg(LogSeverity::Info, LogRenderer, "Swapchain image count: {}", m_SwapImages.size());
+        LogMsg(LogSeverity::Info, LogRenderer, "Swapchain image count: {}", m_SwapTextures.size());
     }
 
     void CreateSwapchainImageViews()
@@ -1126,13 +1144,13 @@ private:
         LogMsg(LogSeverity::Info, LogRenderer, "CreateSwapchainImageViews()");
 
         assert(m_SwapImageViews.empty());
-        for (size_t i = 0; i < m_SwapImages.size(); i++)
+        m_SwapImageViews.reserve(m_SwapTextures.size());
+        for (size_t i = 0; i < m_SwapTextures.size(); i++)
         {
-            m_SwapImageViews.push_back(CreateImageView(
-                m_Device, m_SwapImages[i], vk::ImageViewType::e2D, m_SwapchainSurfaceFormat.format,
-                vk::ImageAspectFlagBits::eColor, 1u));
-            SetVkDebugName(m_Device, *m_SwapImageViews.back(), vk::ObjectType::eImageView,
-                           std::format("Swapchain Image View_{}", i).c_str());
+            m_SwapImageViews.emplace_back(
+                *m_RhiDevice, m_RhiDevice->CreateTextureView(Rhi::TextureViewDesc{
+                                  .Texture = m_SwapTextures[i].Get(),
+                                  .DebugName = std::format("Swapchain Image View_{}", i)}));
         }
     }
 
@@ -1178,8 +1196,9 @@ private:
                 .Shaders(m_Paths.Content("shaders/opaque.spv").string())
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(true, true, vk::CompareOp::eLess)
-                .ColorAttachments(std::array{m_OpaqueImageFormat}, std::array{attachmentState})
-                .DepthAttachment(m_DepthFormat)
+                .ColorAttachments(std::array{Rhi::Vulkan::GetNativeFormat(m_OpaqueImageFormat)},
+                                  std::array{attachmentState})
+                .DepthAttachment(Rhi::Vulkan::GetNativeFormat(m_DepthFormat))
                 .Cull(vk::CullModeFlagBits::eNone, true)
                 .Layout(setLayouts, std::array{pushConstantRange})
                 .DebugName("Opaque")
@@ -1205,7 +1224,9 @@ private:
         std::ranges::copy(vertexAttributeDesc, attributeDescs.begin());
         std::ranges::copy(instanceAttributeDesc, attributeDescs.begin() + Vertex::AttributeCount);
 
-        std::array<vk::Format, 2> attachmentFormats = {m_AccumImageFormat, m_RevealageImageFormat};
+        std::array<vk::Format, 2> attachmentFormats = {
+            Rhi::Vulkan::GetNativeFormat(m_AccumImageFormat),
+            Rhi::Vulkan::GetNativeFormat(m_RevealageImageFormat)};
 
         std::array<vk::PipelineColorBlendAttachmentState, 2> attachmentStates{
             {{.blendEnable = vk::True,
@@ -1234,7 +1255,7 @@ private:
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(true, false, vk::CompareOp::eLess)
                 .ColorAttachments(attachmentFormats, attachmentStates)
-                .DepthAttachment(m_DepthFormat)
+                .DepthAttachment(Rhi::Vulkan::GetNativeFormat(m_DepthFormat))
                 .Cull(vk::CullModeFlagBits::eNone)
                 .Layout(setLayouts, std::array{pushConstantRange})
                 .DebugName("Transparent")
@@ -1406,6 +1427,17 @@ private:
         }
     }
 
+    // The VkImageView a handle names.
+    //
+    // Dynamic rendering attachments and descriptor writes both take raw Vulkan
+    // objects, and both still happen here — attachments until Stage 8's frame
+    // graph, descriptor writes until bindless. This is the one place that
+    // resolve is spelled out, so the call sites read as they did.
+    vk::ImageView NativeView(Rhi::TextureViewHandle handle)
+    {
+        return Rhi::Vulkan::GetImageView(*m_RhiDevice, handle);
+    }
+
     // What the frame's three recording threads produced between them. Summed on
     // demand rather than accumulated into one member, because two of the three
     // are written from job threads.
@@ -1438,28 +1470,24 @@ private:
         FrameData& frame = m_Frames[m_FrameIndex];
         frame.OpaqueCommandPool.reset();
         vk::raii::CommandBuffer& cmd = frame.OpaqueCommandBuffer;
-
-        vk::CommandBufferBeginInfo beginInfo{};
-        cmd.begin(beginInfo);
+        std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(*m_RhiDevice, *cmd);
+        list->Begin();
 
         const std::array openingBarriers{
-            Rhi::Vulkan::ImageBarrier{.Image = frame.DepthTexture.GetImage(),
-                                      .Barrier =
-                                          Rhi::BarrierPresets::UndefinedToDepthStencilWrite()},
-            Rhi::Vulkan::ImageBarrier{.Image = frame.OpaqueTexture.GetImage(),
-                                      .Barrier = Rhi::BarrierPresets::UndefinedToRenderTarget()}};
-        m_OpaqueBarrierCounts = Rhi::Vulkan::RecordBarriers(*cmd, openingBarriers);
+            Rhi::BarrierPresets::UndefinedToDepthStencilWrite().On(frame.DepthTexture.GetHandle()),
+            Rhi::BarrierPresets::UndefinedToRenderTarget().On(frame.OpaqueTexture.GetHandle())};
+        m_OpaqueBarrierCounts = list->Barrier(openingBarriers);
 
         vk::ClearValue clearColor = vk::ClearColorValue(SKY_COLOR.r, SKY_COLOR.g, SKY_COLOR.b, 1.f);
         vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.f, 0);
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
-            .imageView = frame.OpaqueTexture.GetImageView(),
+            .imageView = NativeView(frame.OpaqueTexture.GetView()),
             .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eClear,
             .storeOp = vk::AttachmentStoreOp::eStore,
             .clearValue = clearColor};
         vk::RenderingAttachmentInfo depthAttachmentInfo = {
-            .imageView = frame.DepthTexture.GetImageView(),
+            .imageView = NativeView(frame.DepthTexture.GetView()),
             .imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eClear,
             .storeOp = vk::AttachmentStoreOp::eStore,
@@ -1519,7 +1547,7 @@ private:
 
         cmd.endRendering();
 
-        cmd.end();
+        list->End();
     }
 
     void RecordCloudsCommandBuffer()
@@ -1537,35 +1565,31 @@ private:
         FrameData& frame = m_Frames[m_FrameIndex];
         frame.TransparentCommandPool.reset();
         vk::raii::CommandBuffer& cmd = frame.TransparentCommandBuffer;
-
-        vk::CommandBufferBeginInfo beginInfo{};
-        cmd.begin(beginInfo);
+        std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(*m_RhiDevice, *cmd);
+        list->Begin();
 
         const std::array openingBarriers{
-            Rhi::Vulkan::ImageBarrier{.Image = frame.AccumTexture.GetImage(),
-                                      .Barrier = Rhi::BarrierPresets::UndefinedToRenderTarget()},
-            Rhi::Vulkan::ImageBarrier{.Image = frame.RevealageTexture.GetImage(),
-                                      .Barrier = Rhi::BarrierPresets::UndefinedToRenderTarget()},
-            Rhi::Vulkan::ImageBarrier{
-                .Image = frame.DepthTexture.GetImage(),
-                .Barrier = Rhi::BarrierPresets::DepthStencilWriteToShaderResource()}};
-        m_TransparentBarrierCounts = Rhi::Vulkan::RecordBarriers(*cmd, openingBarriers);
+            Rhi::BarrierPresets::UndefinedToRenderTarget().On(frame.AccumTexture.GetHandle()),
+            Rhi::BarrierPresets::UndefinedToRenderTarget().On(frame.RevealageTexture.GetHandle()),
+            Rhi::BarrierPresets::DepthStencilWriteToShaderResource().On(
+                frame.DepthTexture.GetHandle())};
+        m_TransparentBarrierCounts = list->Barrier(openingBarriers);
 
         vk::ClearValue accumClearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 0.f);
         vk::ClearValue revealageClearColor = vk::ClearColorValue(1.f, 0.f, 0.f, 0.f);
         std::array<vk::RenderingAttachmentInfo, 2> colorAttachmentInfos = {
-            {{.imageView = frame.AccumTexture.GetImageView(),
+            {{.imageView = NativeView(frame.AccumTexture.GetView()),
               .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
               .loadOp = vk::AttachmentLoadOp::eClear,
               .storeOp = vk::AttachmentStoreOp::eStore,
               .clearValue = accumClearColor},
-             {.imageView = frame.RevealageTexture.GetImageView(),
+             {.imageView = NativeView(frame.RevealageTexture.GetView()),
               .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
               .loadOp = vk::AttachmentLoadOp::eClear,
               .storeOp = vk::AttachmentStoreOp::eStore,
               .clearValue = revealageClearColor}}};
         vk::RenderingAttachmentInfo depthAttachmentInfo = {
-            .imageView = frame.DepthTexture.GetImageView(),
+            .imageView = NativeView(frame.DepthTexture.GetView()),
             .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal,
             .loadOp = vk::AttachmentLoadOp::eLoad,
             .storeOp = vk::AttachmentStoreOp::eNone};
@@ -1612,7 +1636,7 @@ private:
 
         cmd.endRendering();
 
-        cmd.end();
+        list->End();
     }
 
     void RecordCompositeCommandBuffer(uint32_t imageIndex)
@@ -1620,25 +1644,19 @@ private:
         FrameData& frame = m_Frames[m_FrameIndex];
         frame.CompositeCommandPool.reset();
         vk::raii::CommandBuffer& cmd = frame.CompositeCommandBuffer;
-
-        vk::CommandBufferBeginInfo beginInfo{};
-        cmd.begin(beginInfo);
+        std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(*m_RhiDevice, *cmd);
+        list->Begin();
 
         const std::array openingBarriers{
-            Rhi::Vulkan::ImageBarrier{.Image = frame.OpaqueTexture.GetImage(),
-                                      .Barrier =
-                                          Rhi::BarrierPresets::RenderTargetToShaderResource()},
-            Rhi::Vulkan::ImageBarrier{.Image = frame.AccumTexture.GetImage(),
-                                      .Barrier =
-                                          Rhi::BarrierPresets::RenderTargetToShaderResource()},
-            Rhi::Vulkan::ImageBarrier{.Image = frame.RevealageTexture.GetImage(),
-                                      .Barrier =
-                                          Rhi::BarrierPresets::RenderTargetToShaderResource()}};
-        m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarriers(*cmd, openingBarriers);
+            Rhi::BarrierPresets::RenderTargetToShaderResource().On(frame.OpaqueTexture.GetHandle()),
+            Rhi::BarrierPresets::RenderTargetToShaderResource().On(frame.AccumTexture.GetHandle()),
+            Rhi::BarrierPresets::RenderTargetToShaderResource().On(
+                frame.RevealageTexture.GetHandle())};
+        m_MainThreadBarrierCounts += list->Barrier(openingBarriers);
 
         vk::ClearValue clearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 1.f);
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
-            .imageView = m_SwapImageViews[imageIndex],
+            .imageView = NativeView(m_SwapImageViews[imageIndex].Get()),
             .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eClear,
             .storeOp = vk::AttachmentStoreOp::eStore,
@@ -1672,23 +1690,23 @@ private:
 
         cmd.endRendering();
 
-        cmd.end();
+        list->End();
     }
 
     void RecordImGui(uint32_t imageIndex)
     {
         m_Frames[m_FrameIndex].ImGuiCommandPool.reset();
         vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].ImGuiCommandBuffer;
-        vk::CommandBufferBeginInfo beginInfo{};
-        cmd.begin(beginInfo);
+        std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(*m_RhiDevice, *cmd);
+        list->Begin();
 
         // ImGui draws over the composited frame with loadOp eLoad, so the
         // composite pass's writes have to be visible to this pass's load.
-        m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
-            *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::PreserveRenderTarget());
+        m_MainThreadBarrierCounts += list->Barrier(
+            Rhi::BarrierPresets::PreserveRenderTarget().On(m_SwapTextures[imageIndex].Get()));
 
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
-            .imageView = m_SwapImageViews[imageIndex],
+            .imageView = NativeView(m_SwapImageViews[imageIndex].Get()),
             .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eLoad,
             .storeOp = vk::AttachmentStoreOp::eStore};
@@ -1705,65 +1723,59 @@ private:
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *cmd);
 
         cmd.endRendering();
-        cmd.end();
+        list->End();
     }
 
     void RecordSwapImageToDrawLayout(uint32_t imageIndex)
     {
         m_Frames[m_FrameIndex].DrawLayoutCommandPool.reset();
         vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].DrawLayoutCommandBuffer;
-        vk::CommandBufferBeginInfo beginInfo{};
-        cmd.begin(beginInfo);
-        m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
-            *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::AcquiredSwapchainToRenderTarget());
-        cmd.end();
+        std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(*m_RhiDevice, *cmd);
+        list->Begin();
+        m_MainThreadBarrierCounts +=
+            list->Barrier(Rhi::BarrierPresets::AcquiredSwapchainToRenderTarget().On(
+                m_SwapTextures[imageIndex].Get()));
+        list->End();
     }
 
     void RecordSwapImageToPresentLayout(uint32_t imageIndex, bool captureScreenshot)
     {
         m_Frames[m_FrameIndex].PresentLayoutCommandPool.reset();
         vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].PresentLayoutCommandBuffer;
-        vk::CommandBufferBeginInfo beginInfo{};
-        cmd.begin(beginInfo);
+        std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(*m_RhiDevice, *cmd);
+        list->Begin();
+
+        const Rhi::TextureHandle swapTexture = m_SwapTextures[imageIndex].Get();
 
         if (captureScreenshot)
         {
             // Copy out the composited frame while it is still safely between
             // acquire and present (see RenderTargetToCopySrc()).
-            m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
-                *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::RenderTargetToCopySrc());
+            m_MainThreadBarrierCounts +=
+                list->Barrier(Rhi::BarrierPresets::RenderTargetToCopySrc().On(swapTexture));
 
-            const vk::BufferImageCopy region{
-                .bufferOffset = 0,
-                .bufferRowLength = 0,
-                .bufferImageHeight = 0,
-                .imageSubresource = {.aspectMask = vk::ImageAspectFlagBits::eColor,
-                                     .mipLevel = 0,
-                                     .baseArrayLayer = 0,
-                                     .layerCount = 1},
-                .imageOffset = {0, 0, 0},
-                .imageExtent = {m_SwapchainExtent.width, m_SwapchainExtent.height, 1}};
-            cmd.copyImageToBuffer(
-                m_SwapImages[imageIndex], vk::ImageLayout::eTransferSrcOptimal,
-                Rhi::Vulkan::GetBuffer(*m_RhiDevice, m_ScreenshotStagingBuffer.Get()), region);
+            list->CopyTextureToBuffer(
+                swapTexture, m_ScreenshotStagingBuffer.Get(),
+                Rhi::BufferTextureCopyRegion{
+                    .Extent = {m_SwapchainExtent.width, m_SwapchainExtent.height, 1u}});
 
-            m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
-                *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::CopySrcToPresent());
+            m_MainThreadBarrierCounts +=
+                list->Barrier(Rhi::BarrierPresets::CopySrcToPresent().On(swapTexture));
         }
         else
         {
-            m_MainThreadBarrierCounts += Rhi::Vulkan::RecordBarrier(
-                *cmd, m_SwapImages[imageIndex], Rhi::BarrierPresets::RenderTargetToPresent());
+            m_MainThreadBarrierCounts +=
+                list->Barrier(Rhi::BarrierPresets::RenderTargetToPresent().On(swapTexture));
         }
 
-        cmd.end();
+        list->End();
     }
 
     void CreateSyncObjects()
     {
         LogMsg(LogSeverity::Info, LogRenderer, "CreateSyncObjects()");
 
-        for (size_t i = 0; i < m_SwapImages.size(); i++)
+        for (size_t i = 0; i < m_SwapTextures.size(); i++)
         {
             m_RenderCompleteSemaphores.emplace_back(
                 vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo()));
@@ -1803,9 +1815,10 @@ private:
         m_Device.waitIdle();
 
         m_SwapImageViews.clear();
+        m_SwapTextures.clear();
         m_Swapchain = nullptr;
 
-        m_DepthFormat = vk::Format::eUndefined;
+        m_DepthFormat = Rhi::Format::Undefined;
 
         m_Device.waitIdle();
 
@@ -2062,24 +2075,11 @@ private:
     {
         LogMsg(LogSeverity::Info, LogRenderer, "CreateTextureSampler()");
 
-        float maxAnisotropy = m_PhysicalDevice.getProperties().limits.maxSamplerAnisotropy;
-        vk::SamplerCreateInfo createInfo{.magFilter = vk::Filter::eLinear,
-                                         .minFilter = vk::Filter::eLinear,
-                                         .mipmapMode = vk::SamplerMipmapMode::eLinear,
-                                         .addressModeU = vk::SamplerAddressMode::eRepeat,
-                                         .addressModeV = vk::SamplerAddressMode::eRepeat,
-                                         .addressModeW = vk::SamplerAddressMode::eRepeat,
-                                         .mipLodBias = 0.f,
-                                         .anisotropyEnable = vk::True,
-                                         .maxAnisotropy = maxAnisotropy,
-                                         .compareEnable = vk::False,
-                                         .compareOp = vk::CompareOp::eAlways,
-                                         .minLod = 0.f,
-                                         .maxLod = 0.f,
-                                         .borderColor = vk::BorderColor::eIntOpaqueBlack,
-                                         .unnormalizedCoordinates = vk::False};
-        m_TextureSampler = vk::raii::Sampler(m_Device, createInfo);
-        SetVkDebugName(m_Device, *m_TextureSampler, vk::ObjectType::eSampler, "Texture Sampler");
+        // MaxAnisotropy left at 0 asks for the device maximum, which is what this
+        // used to read off the physical device's limits itself.
+        m_TextureSampler = Rhi::UniqueHandle<Rhi::SamplerHandle>(
+            *m_RhiDevice, m_RhiDevice->CreateSampler(Rhi::SamplerDesc{
+                              .bAnisotropyEnable = true, .DebugName = "Texture Sampler"}));
     }
 
     void CreateDepthResources()
@@ -2089,20 +2089,24 @@ private:
         m_DepthFormat = FindDepthFormat();
         for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
-            m_Frames[i].DepthTexture = CreateRenderTexture(
-                m_VmaAllocator, m_Device, m_SwapchainExtent.width, m_SwapchainExtent.height,
-                m_DepthFormat,
-                vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled,
-                vk::ImageAspectFlagBits::eDepth, std::format("Frame_{} Depth Image", i).c_str());
+            m_Frames[i].DepthTexture = Texture(
+                *m_RhiDevice,
+                Rhi::TextureDesc{.Format = m_DepthFormat,
+                                 .Extent = {m_SwapchainExtent.width, m_SwapchainExtent.height, 1u},
+                                 .Usage = Rhi::TextureUsage::DepthStencilAttachment |
+                                          Rhi::TextureUsage::Sampled,
+                                 .DebugName = std::format("Frame_{} Depth Image", i)},
+                Rhi::TextureViewDimension::Texture2D);
         }
     }
 
-    vk::Format FindSupportedFormat(const std::vector<vk::Format>& candidates,
-                                   vk::ImageTiling tiling, vk::FormatFeatureFlags features)
+    Rhi::Format FindSupportedFormat(std::span<const Rhi::Format> candidates, vk::ImageTiling tiling,
+                                    vk::FormatFeatureFlags features)
     {
-        for (const vk::Format format : candidates)
+        for (const Rhi::Format format : candidates)
         {
-            vk::FormatProperties properties = m_PhysicalDevice.getFormatProperties(format);
+            const vk::FormatProperties properties =
+                m_PhysicalDevice.getFormatProperties(Rhi::Vulkan::GetNativeFormat(format));
 
             if (tiling == vk::ImageTiling::eLinear &&
                 (properties.linearTilingFeatures & features) == features)
@@ -2114,18 +2118,21 @@ private:
         throw std::runtime_error("Failed to find a supported format!");
     }
 
-    vk::Format FindDepthFormat()
+    Rhi::Format FindDepthFormat()
     {
-        return FindSupportedFormat({vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint,
-                                    vk::Format::eD24UnormS8Uint, vk::Format::eD16UnormS8Uint},
-                                   vk::ImageTiling::eOptimal,
+        // D16UnormS8Uint used to be a fourth candidate here and is deliberately
+        // gone: it has no DXGI equivalent, so Rhi::Format cannot carry it. That
+        // costs nothing, because it was unreachable. The specification's
+        // mandatory format table requires VK_FORMAT_FEATURE_DEPTH_STENCIL_
+        // ATTACHMENT_BIT to be "supported for at least one of
+        // VK_FORMAT_D24_UNORM_S8_UINT and VK_FORMAT_D32_SFLOAT_S8_UINT"
+        // (Vulkan 1.4, "Mandatory Format Support: Depth/Stencil"), and both are
+        // above it in this list — so no conformant device could ever fall
+        // through to a fourth candidate.
+        static constexpr std::array candidates{Rhi::Format::D32Float, Rhi::Format::D32FloatS8Uint,
+                                               Rhi::Format::D24UnormS8Uint};
+        return FindSupportedFormat(candidates, vk::ImageTiling::eOptimal,
                                    vk::FormatFeatureFlagBits::eDepthStencilAttachment);
-    }
-
-    bool HasStencilComponent(vk::Format format)
-    {
-        return format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint ||
-               format == vk::Format::eD16UnormS8Uint;
     }
 
     void CreateInstanceBuffers()
@@ -2162,28 +2169,27 @@ private:
     void CreateRenderTargets()
     {
         LogMsg(LogSeverity::Info, LogRenderer, "CreateRenderTargets()");
-        vk::ImageUsageFlags usage =
-            vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
-        vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor;
+
+        const auto makeTarget = [this](Rhi::Format format, const std::string& name)
+        {
+            return Texture(
+                *m_RhiDevice,
+                Rhi::TextureDesc{.Format = format,
+                                 .Extent = {m_SwapchainExtent.width, m_SwapchainExtent.height, 1u},
+                                 .Usage = Rhi::TextureUsage::ColorAttachment |
+                                          Rhi::TextureUsage::Sampled,
+                                 .DebugName = name},
+                Rhi::TextureViewDimension::Texture2D);
+        };
 
         for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
-            Texture opaqueTex =
-                CreateRenderTexture(m_VmaAllocator, m_Device, m_SwapchainExtent.width,
-                                    m_SwapchainExtent.height, m_OpaqueImageFormat, usage, aspect,
-                                    std::format("Frame_{} Opaque Image", i).c_str());
-            m_Frames[i].OpaqueTexture = std::move(opaqueTex);
-
-            Texture accumTex = CreateRenderTexture(
-                m_VmaAllocator, m_Device, m_SwapchainExtent.width, m_SwapchainExtent.height,
-                m_AccumImageFormat, usage, aspect, std::format("Frame_{} Accum Image", i).c_str());
-            m_Frames[i].AccumTexture = std::move(accumTex);
-
-            Texture revealageTex =
-                CreateRenderTexture(m_VmaAllocator, m_Device, m_SwapchainExtent.width,
-                                    m_SwapchainExtent.height, m_RevealageImageFormat, usage, aspect,
-                                    std::format("Frame_{} Revealage Image", i).c_str());
-            m_Frames[i].RevealageTexture = std::move(revealageTex);
+            m_Frames[i].OpaqueTexture =
+                makeTarget(m_OpaqueImageFormat, std::format("Frame_{} Opaque Image", i));
+            m_Frames[i].AccumTexture =
+                makeTarget(m_AccumImageFormat, std::format("Frame_{} Accum Image", i));
+            m_Frames[i].RevealageTexture =
+                makeTarget(m_RevealageImageFormat, std::format("Frame_{} Revealage Image", i));
         }
     }
 
@@ -2220,18 +2226,18 @@ private:
         for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
             FrameData& frame = m_Frames[i];
-            vk::DescriptorImageInfo opaqueImageInfo{.imageView = frame.OpaqueTexture.GetImageView(),
-                                                    .imageLayout =
-                                                        vk::ImageLayout::eShaderReadOnlyOptimal};
-            vk::DescriptorImageInfo accumImageInfo{.imageView = frame.AccumTexture.GetImageView(),
-                                                   .imageLayout =
-                                                       vk::ImageLayout::eShaderReadOnlyOptimal};
+            vk::DescriptorImageInfo opaqueImageInfo{
+                .imageView = NativeView(frame.OpaqueTexture.GetView()),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+            vk::DescriptorImageInfo accumImageInfo{
+                .imageView = NativeView(frame.AccumTexture.GetView()),
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
             vk::DescriptorImageInfo revealageImageInfo{
-                .imageView = frame.RevealageTexture.GetImageView(),
+                .imageView = NativeView(frame.RevealageTexture.GetView()),
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
             vk::DescriptorImageInfo cloudsImageInfo{
-                .sampler = m_TextureSampler,
-                .imageView = m_CloudSystem->GetImageView(static_cast<uint8_t>(i)),
+                .sampler = Rhi::Vulkan::GetSampler(*m_RhiDevice, m_TextureSampler.Get()),
+                .imageView = NativeView(m_CloudSystem->GetOutputView(static_cast<uint8_t>(i))),
                 .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
             std::array compDescriptorWrites = {
@@ -2270,9 +2276,9 @@ private:
 
         for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
-            vk::DescriptorImageInfo imageInfo{.imageView = m_Frames[i].DepthTexture.GetImageView(),
-                                              .imageLayout =
-                                                  vk::ImageLayout::eDepthReadOnlyOptimal};
+            vk::DescriptorImageInfo imageInfo{
+                .imageView = NativeView(m_Frames[i].DepthTexture.GetView()),
+                .imageLayout = vk::ImageLayout::eDepthReadOnlyOptimal};
 
             std::array depthDescriptorWrites = {
                 vk::WriteDescriptorSet{.dstSet = m_Frames[i].DepthBufferDescriptorSet,
@@ -2312,7 +2318,6 @@ private:
     vk::raii::Device& m_Device;
     vk::raii::SurfaceKHR& m_Surface;
     vk::raii::Queue& m_GraphicsQueue;
-    VmaAllocator m_VmaAllocator;
     uint32_t m_QueueIndex;
 
     vk::raii::SwapchainKHR m_Swapchain = nullptr;
@@ -2327,21 +2332,24 @@ private:
     vk::raii::Pipeline m_CompositePipeline = nullptr;
     vk::raii::CommandPool m_GenericCommandPool = nullptr;
     GlobalBuffer m_GlobalBuffer = {};
-    vk::raii::Sampler m_TextureSampler = nullptr;
+    Rhi::UniqueHandle<Rhi::SamplerHandle> m_TextureSampler;
     vk::raii::DescriptorPool m_FrameDescriptorPool = nullptr;
     vk::raii::DescriptorPool m_CompositeDescriptorPool = nullptr;
     vk::raii::DescriptorPool m_GenericDescriptorPool = nullptr;
-    vk::Format m_DepthFormat = vk::Format::eUndefined;
-    static constexpr vk::Format m_OpaqueImageFormat = vk::Format::eR16G16B16A16Sfloat;
-    static constexpr vk::Format m_AccumImageFormat = vk::Format::eR16G16B16A16Sfloat;
-    static constexpr vk::Format m_RevealageImageFormat = vk::Format::eR8Unorm;
+    Rhi::Format m_DepthFormat = Rhi::Format::Undefined;
+    static constexpr Rhi::Format m_OpaqueImageFormat = Rhi::Format::RGBA16Float;
+    static constexpr Rhi::Format m_AccumImageFormat = Rhi::Format::RGBA16Float;
+    static constexpr Rhi::Format m_RevealageImageFormat = Rhi::Format::R8Unorm;
     Rhi::UniqueHandle<Rhi::BufferHandle> m_QuadVertexBuffer;
     Rhi::UniqueHandle<Rhi::BufferHandle> m_QuadIndexBuffer;
 
     vk::SurfaceFormatKHR m_SwapchainSurfaceFormat;
     vk::Extent2D m_SwapchainExtent;
-    std::vector<vk::Image> m_SwapImages;
-    std::vector<vk::raii::ImageView> m_SwapImageViews;
+    // The presentation engine owns the images; these handles only name them, so
+    // releasing one frees nothing. The views on top of them are the device's,
+    // and are declared second so that they are released first.
+    std::vector<Rhi::UniqueHandle<Rhi::TextureHandle>> m_SwapTextures;
+    std::vector<Rhi::UniqueHandle<Rhi::TextureViewHandle>> m_SwapImageViews;
     uint32_t m_MinImageCount = 0;
 
     std::array<FrameData, NUM_FRAMES_IN_FLIGHT> m_Frames;

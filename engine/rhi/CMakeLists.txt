@@ -3,14 +3,12 @@ engine_module(
   SOURCES
   src/Diagnostics.cpp
   src/vulkan/VulkanConversions.cpp
-  src/vulkan/BarrierUtil.cpp
   src/vulkan/QueueFamilies.cpp
   src/vulkan/VulkanDevice.cpp
   src/vulkan/VulkanNative.cpp
   src/vulkan/VulkanBuffer.cpp
-  src/vulkan/AllocatedImage.cpp
-  src/vulkan/Texture.cpp
-  src/vulkan/Cubemap.cpp
+  src/vulkan/VulkanTexture.cpp
+  src/vulkan/VulkanCommandList.cpp
   src/vulkan/PipelineBuilder.cpp
   src/vulkan/ComputePipelineBuilder.cpp
   # The single translation unit that instantiates VMA. It has to live in exactly

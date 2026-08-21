@@ -99,8 +99,9 @@ namespace Rhi
 //   * D16UnormS8Uint has no DXGI equivalent. dxgiformat.h offers stencil only
 //     alongside 24-bit unorm or 32-bit float depth; the enum runs straight
 //     from DXGI_FORMAT_D16_UNORM to DXGI_FORMAT_R16_UNORM. A depth+stencil
-//     format at 16-bit depth cannot be expressed, so it is left out here and
-//     R10 has to drop it from the candidate list or accept a promotion.
+//     format at 16-bit depth cannot be expressed. It was the last candidate the
+//     renderer's depth-format search tried, and dropping it costs nothing —
+//     see FindDepthFormat for why no conformant device could reach it.
 //   * The vertex-attribute formats (R32G32B32A32Sfloat and friends) are absent
 //     because vertex input stays Vulkan-side for the whole of Stage 5 (D8).
 //     They are portable and belong here when pipeline creation is neutralized.
@@ -141,6 +142,35 @@ constexpr bool IsDepthFormat(Format format)
 constexpr bool HasStencilComponent(Format format)
 {
     return format == Format::D24UnormS8Uint || format == Format::D32FloatS8Uint;
+}
+
+// Which parts of a texture a barrier or a view refers to. Kept separate from
+// Format because a depth/stencil format has two aspects and an operation
+// usually names one of them.
+enum class TextureAspect : uint32_t
+{
+    None = 0,
+    Color = 1 << 0,
+    Depth = 1 << 1,
+    Stencil = 1 << 2,
+};
+RHI_DEFINE_FLAG_OPERATORS(TextureAspect)
+
+inline constexpr std::array kAllTextureAspects{
+    TextureAspect::Color,
+    TextureAspect::Depth,
+    TextureAspect::Stencil,
+};
+
+// The aspect mask a barrier or view should use for `format`, so that the
+// depth/stencil decision is made in one place rather than at each call site.
+constexpr TextureAspect DefaultAspect(Format format)
+{
+    if (!IsDepthFormat(format))
+        return TextureAspect::Color;
+
+    return HasStencilComponent(format) ? (TextureAspect::Depth | TextureAspect::Stencil)
+                                       : TextureAspect::Depth;
 }
 
 // The *role* work is submitted for, not a description of a queue. Chosen to

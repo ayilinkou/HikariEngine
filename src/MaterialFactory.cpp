@@ -2,6 +2,7 @@
 
 #include <core/Log.h>
 #include <rhi/vulkan/DebugNames.h>
+#include <rhi/vulkan/VulkanNative.h>
 
 constexpr LogCategory LogMaterialFactory("Material Factory");
 
@@ -9,20 +10,20 @@ MaterialFactory* MaterialFactory::s_Instance = nullptr;
 const uint8_t MaterialFactory::s_MAX_TEXTURE_COUNT_PER_MAT = 3u;
 const uint16_t MaterialFactory::s_MAX_MATERIAL_SET_COUNT = 100u;
 
-MaterialFactory::MaterialFactory(vk::raii::Device& device, vk::raii::Sampler& sampler)
-    : m_Device(device), m_Sampler(sampler)
+MaterialFactory::MaterialFactory(Rhi::IDevice& rhiDevice, Rhi::SamplerHandle sampler)
+    : m_RhiDevice(rhiDevice), m_Device(Rhi::Vulkan::GetDevice(rhiDevice)), m_Sampler(sampler)
 {
     CreateDescriptorPool();
     CreateDescriptorSetLayout();
 }
 
-void MaterialFactory::Init(vk::raii::Device& device, vk::raii::Sampler& sampler)
+void MaterialFactory::Init(Rhi::IDevice& rhiDevice, Rhi::SamplerHandle sampler)
 {
     LogMsg(LogSeverity::Info, LogMaterialFactory, "Init()");
 
     if (s_Instance)
         throw std::runtime_error("MaterialFactory singleton is already initialised!");
-    s_Instance = new MaterialFactory(device, sampler);
+    s_Instance = new MaterialFactory(rhiDevice, sampler);
 }
 
 void MaterialFactory::Shutdown()
@@ -87,6 +88,6 @@ void MaterialFactory::CreateDescriptorSetLayout()
 PBRMaterial* MaterialFactory::CreatePBRMaterial(aiMaterial* mat,
                                                 const std::string& texturesParentFolder)
 {
-    return new PBRMaterial(m_Device, m_DescriptorPool, m_SetLayout, m_Sampler, mat,
+    return new PBRMaterial(m_RhiDevice, m_DescriptorPool, m_SetLayout, m_Sampler, mat,
                            texturesParentFolder);
 }

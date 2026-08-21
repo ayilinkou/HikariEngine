@@ -5,24 +5,27 @@
 
 #include "glm/glm.hpp"
 
+#include <rhi/Handles.h>
+#include <rhi/IDevice.h>
+
 #include "Material.h"
-#include <rhi/vulkan/Texture.h>
+#include "Texture.h"
 
 struct aiMaterial;
 
 class PBRMaterial : public Material
 {
 public:
-    PBRMaterial(vk::raii::Device& device, vk::raii::DescriptorPool& descriptorPool,
-                vk::raii::DescriptorSetLayout& setLayout, vk::raii::Sampler& sampler,
+    PBRMaterial(Rhi::IDevice& rhiDevice, vk::raii::DescriptorPool& descriptorPool,
+                vk::raii::DescriptorSetLayout& setLayout, Rhi::SamplerHandle sampler,
                 aiMaterial* mat, const std::string& texturesParentFolder);
 
     virtual void* GetPushConstantData() override { return &m_MatData; }
 
 private:
     void LoadTextures(aiMaterial* mat, const std::string& texturesParentFolder);
-    void CreateDescriptorSet(vk::raii::Device& device, vk::raii::DescriptorPool& descriptorPool,
-                             vk::raii::DescriptorSetLayout& setLayout, vk::raii::Sampler& sampler);
+    void CreateDescriptorSet(Rhi::IDevice& rhiDevice, vk::raii::DescriptorPool& descriptorPool,
+                             vk::raii::DescriptorSetLayout& setLayout, Rhi::SamplerHandle sampler);
 
 public:
     struct MaterialData
