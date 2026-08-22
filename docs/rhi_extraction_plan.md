@@ -493,7 +493,7 @@ are the ones later steps need to read.
 | R12a — Use the dedicated transfer queue | ✅ done (the acquire is submitted by the context, not returned — see **As built**) |
 | R12b — Adopt `VK_KHR_maintenance8` and `VK_KHR_maintenance9` | ✅ done (exposed a barrier that was invalid on a copy-only queue — see **As built**) |
 | R13 — Growable `DescriptorAllocator` | ✅ done (grows before the pool is overrun, not after — see **As built**) |
-| R14 — Growable instance buffer | not started |
+| R14 — Growable instance buffer | ✅ done (the wait, not the reallocation, is the load-bearing part — see **As built**) |
 | R15 — `PipelineCache` | not started |
 | R16 — First GPU tests | not started |
 | R17 — Seal the boundary and update the docs | not started |
@@ -1323,6 +1323,45 @@ are the ones later steps need to read.
 - **Verify:** Author `content/scenes/stress.map` with > 1024 instances and confirm it renders
   instead of throwing. Existing scenes' reports identical.
 - **Size:** S · **Needs:** R9 · **Was:** step 32
+- **As built:** done. `MAX_INSTANCE_COUNT` is now `INITIAL_INSTANCE_CAPACITY`, and the
+  capacity it names lives in `m_InstanceCapacity` because it changes.
+
+  **Every frame's buffer is replaced at once.** Growing only the frame being filled would
+  leave the other frame short by exactly the same amount, so it would grow again on the very
+  next frame — two device waits and two log lines for one overflow.
+
+  **The wait is the whole correctness argument, and it is the part the obvious test does not
+  reach.** Replacing a buffer destroys the old one through `UniqueHandle::operator=`, and a
+  frame still in flight has that buffer bound as a vertex buffer;
+  `VUID-vkDestroyBuffer-buffer-00922` requires every submitted command referring to it to have
+  completed. The current frame's fence has been waited on by the time
+  `UpdateInstanceBuffer` runs, but nothing covers the others, so the growth waits on the
+  device.
+
+  A scene is fully loaded before the first frame, so the growth `stress.map` triggers happens
+  on frame 0 with nothing in flight — the wait returns immediately and proves nothing. Forcing
+  a growth every 30 frames instead produced five reallocations with both frames in flight and
+  synchronization validation on (it is enabled unconditionally in
+  `VulkanDevice::CreateInstance`), for **0 errors and 0 warnings**. That is the evidence the
+  step rests on; the probe was removed afterwards.
+
+  **No remap step was needed.** `UpdateInstanceBuffer` already calls `GetMappedData` fresh
+  each frame and the vertex binding is resolved at record time, so nothing held a pointer or
+  handle across the swap. The **Do** text's "remap" was already satisfied by the existing code.
+
+  **`content/scenes/stress.map` is 80 cars in a lattice, not a flat grid.** Four depths, each
+  a 5x4 arrangement sized to the frustum at that depth from camera preset 1 and offset by half
+  a cell from its neighbour, so a nearer car sits between the ones behind it rather than hiding
+  one. That fills the frame instead of leaving the cars in a thin band at the horizon, which
+  makes the same scene usable for frustum culling later. The lateral extent is sized for a
+  near-square window; a wider one only adds margin at the sides, so no car falls off the edge
+  on a different window size. 80 cars x 21 meshes = **1680 instances**, one growth to 2048,
+  `validationErrors: 0`. The car is authored at `scale="1"` — `test_scene.map` uses `scale="10"`,
+  which is ten times life size and made the cars interpenetrate at any spacing that fits on
+  screen.
+
+  `tests/baseline/`'s report is unchanged, and `test_scene` never grows: 23 instances against
+  an initial 1024.
 
 ### R15 — `PipelineCache`
 

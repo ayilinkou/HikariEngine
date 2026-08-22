@@ -1,0 +1,495 @@
+<?xml version="1.0"?>
+<scene>
+	<entity name="DirLight_1">
+		<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		<light type="1" intensity="5" direction="0.5 -1 0.5" />
+	</entity>
+	<entity name="PointLight_1">
+		<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		<light type="0" intensity="1000" position="-10 15 0" />
+	</entity>
+	<entity name="PointLight_2">
+		<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		<light type="0" intensity="1000" position="10 15 0" color="0 1 1" />
+	</entity>
+	<entity name="Car_0">
+		<transform position="-10 -12.2 13.7" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_1">
+		<transform position="-10 -12.2 6.8" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_2">
+		<transform position="-10 -12.2 -0.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_3">
+		<transform position="-10 -12.2 -6.8" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_4">
+		<transform position="-10 -12.2 -13.7" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_5">
+		<transform position="-10 -2.7 13.7" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_6">
+		<transform position="-10 -2.7 6.8" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_7">
+		<transform position="-10 -2.7 -0.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_8">
+		<transform position="-10 -2.7 -6.8" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_9">
+		<transform position="-10 -2.7 -13.7" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_10">
+		<transform position="-10 6.7 13.7" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_11">
+		<transform position="-10 6.7 6.8" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_12">
+		<transform position="-10 6.7 -0.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_13">
+		<transform position="-10 6.7 -6.8" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_14">
+		<transform position="-10 6.7 -13.7" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_15">
+		<transform position="-10 16.2 13.7" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_16">
+		<transform position="-10 16.2 6.8" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_17">
+		<transform position="-10 16.2 -0.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_18">
+		<transform position="-10 16.2 -6.8" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_19">
+		<transform position="-10 16.2 -13.7" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_20">
+		<transform position="-25 -14.6 18.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_21">
+		<transform position="-25 -14.6 6.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_22">
+		<transform position="-25 -14.6 -6.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_23">
+		<transform position="-25 -14.6 -18.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_24">
+		<transform position="-25 -14.6 -29.9" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_25">
+		<transform position="-25 2.0 18.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_26">
+		<transform position="-25 2.0 6.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_27">
+		<transform position="-25 2.0 -6.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_28">
+		<transform position="-25 2.0 -18.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_29">
+		<transform position="-25 2.0 -29.9" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_30">
+		<transform position="-25 18.6 18.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_31">
+		<transform position="-25 18.6 6.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_32">
+		<transform position="-25 18.6 -6.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_33">
+		<transform position="-25 18.6 -18.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_34">
+		<transform position="-25 18.6 -29.9" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_35">
+		<transform position="-25 35.2 18.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_36">
+		<transform position="-25 35.2 6.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_37">
+		<transform position="-25 35.2 -6.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_38">
+		<transform position="-25 35.2 -18.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_39">
+		<transform position="-25 35.2 -29.9" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_40">
+		<transform position="-40 -33.6 34.2" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_41">
+		<transform position="-40 -33.6 17.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_42">
+		<transform position="-40 -33.6 -0.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_43">
+		<transform position="-40 -33.6 -17.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_44">
+		<transform position="-40 -33.6 -34.2" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_45">
+		<transform position="-40 -9.9 34.2" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_46">
+		<transform position="-40 -9.9 17.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_47">
+		<transform position="-40 -9.9 -0.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_48">
+		<transform position="-40 -9.9 -17.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_49">
+		<transform position="-40 -9.9 -34.2" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_50">
+		<transform position="-40 13.9 34.2" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_51">
+		<transform position="-40 13.9 17.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_52">
+		<transform position="-40 13.9 -0.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_53">
+		<transform position="-40 13.9 -17.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_54">
+		<transform position="-40 13.9 -34.2" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_55">
+		<transform position="-40 37.6 34.2" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_56">
+		<transform position="-40 37.6 17.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_57">
+		<transform position="-40 37.6 -0.0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_58">
+		<transform position="-40 37.6 -17.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_59">
+		<transform position="-40 37.6 -34.2" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_60">
+		<transform position="-55 -28.9 33.3" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_61">
+		<transform position="-55 -28.9 11.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_62">
+		<transform position="-55 -28.9 -11.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_63">
+		<transform position="-55 -28.9 -33.3" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_64">
+		<transform position="-55 -28.9 -55.6" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_65">
+		<transform position="-55 2.0 33.3" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_66">
+		<transform position="-55 2.0 11.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_67">
+		<transform position="-55 2.0 -11.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_68">
+		<transform position="-55 2.0 -33.3" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_69">
+		<transform position="-55 2.0 -55.6" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_70">
+		<transform position="-55 32.9 33.3" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_71">
+		<transform position="-55 32.9 11.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_72">
+		<transform position="-55 32.9 -11.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_73">
+		<transform position="-55 32.9 -33.3" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_74">
+		<transform position="-55 32.9 -55.6" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_75">
+		<transform position="-55 63.7 33.3" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_76">
+		<transform position="-55 63.7 11.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_77">
+		<transform position="-55 63.7 -11.1" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_78">
+		<transform position="-55 63.7 -33.3" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="Car_79">
+		<transform position="-55 63.7 -55.6" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/american_fullsize_73/scene.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+</scene>

@@ -74,7 +74,7 @@ inline void EnableAnsiColors()
 }
 #endif
 
-constexpr uint32_t MAX_INSTANCE_COUNT = 1024u;
+constexpr uint32_t INITIAL_INSTANCE_CAPACITY = 1024u;
 constexpr int NUM_FRAMES_IN_FLIGHT = 2;
 constexpr glm::vec3 SKY_COLOR = {0.4f, 0.8f, 1.f};
 
@@ -626,7 +626,7 @@ private:
         CreatePipelines();
         CreateCommandBuffers();
         CreateGlobalBuffers();
-        CreateInstanceBuffers();
+        CreateInstanceBuffers(INITIAL_INSTANCE_CAPACITY);
         CreateRenderTargets();
         CreateDescriptorPool();
 
@@ -2151,13 +2151,13 @@ private:
                                    vk::FormatFeatureFlagBits::eDepthStencilAttachment);
     }
 
-    void CreateInstanceBuffers()
+    void CreateInstanceBuffers(uint32_t instanceCapacity)
     {
         LogMsg(LogSeverity::Info, LogRenderer, "CreateInstanceBuffers()");
 
         // TODO: allocating memory 3 times, can probably allocate once and
         // store offsets Can do the same with uniform buffer.
-        vk::DeviceSize size = sizeof(InstanceData) * MAX_INSTANCE_COUNT;
+        vk::DeviceSize size = sizeof(InstanceData) * instanceCapacity;
         for (int i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
             m_Frames[i].InstanceBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
@@ -2167,6 +2167,30 @@ private:
                                   .Access = Rhi::MemoryAccess::CpuToGpu,
                                   .DebugName = std::format("Instance Buffer Frame {}", i)}));
         }
+
+        m_InstanceCapacity = instanceCapacity;
+    }
+
+    // Every frame's buffer is replaced at once, not just the one being filled:
+    // growing them one at a time would leave the other frame short by exactly
+    // the same amount and grow again on the very next frame, for two device
+    // waits instead of one.
+    //
+    // The wait is what makes the replacement legal. These are vertex buffers
+    // that frames still in flight have bound, and destroying one while a
+    // submitted command buffer still refers to it is invalid
+    // (VUID-vkDestroyBuffer-buffer-00922); the current frame's fence has been
+    // waited on by this point, but nothing covers the others. Growth is rare
+    // enough that a device-wide wait beats tracking per-buffer lifetimes.
+    void GrowInstanceBuffers(uint32_t neededInstances)
+    {
+        const uint32_t newCapacity = std::max(neededInstances, m_InstanceCapacity * 2u);
+
+        m_RhiDevice->WaitIdle();
+        CreateInstanceBuffers(newCapacity);
+
+        LogMsg(LogSeverity::Info, LogRenderer, "Instance buffer grown to {} instances.",
+               newCapacity);
     }
 
     void UpdateInstanceBuffer(uint32_t frameIndex)
@@ -2175,8 +2199,8 @@ private:
         if (instanceDatas.empty())
             return;
 
-        if (instanceDatas.size() > MAX_INSTANCE_COUNT)
-            throw std::runtime_error("Max instance count exceeded!");
+        if (instanceDatas.size() > m_InstanceCapacity)
+            GrowInstanceBuffers(static_cast<uint32_t>(instanceDatas.size()));
 
         memcpy(m_RhiDevice->GetMappedData(m_Frames[frameIndex].InstanceBuffer.Get()),
                instanceDatas.data(), sizeof(InstanceData) * instanceDatas.size());
@@ -2384,6 +2408,10 @@ private:
     uint32_t m_MinImageCount = 0;
 
     std::array<FrameData, NUM_FRAMES_IN_FLIGHT> m_Frames;
+
+    // Instances every frame's buffer has room for. A starting size, not a
+    // ceiling — see GrowInstanceBuffers.
+    uint32_t m_InstanceCapacity = 0u;
     std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
 
     std::unique_ptr<SceneGraph> m_SceneGraph = nullptr;
