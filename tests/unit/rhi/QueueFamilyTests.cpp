@@ -37,9 +37,9 @@ bool AllPresent(uint32_t)
 
 QueueFamilies Select(const std::vector<vk::QueueFamilyProperties>& families,
                      const PresentSupportFn& presentSupported = AllPresent,
-                     bool bRequirePresent = true)
+                     bool bRequirePresent = true, bool bForceSingleQueue = false)
 {
-    return SelectQueueFamilies(families, presentSupported, bRequirePresent);
+    return SelectQueueFamilies(families, presentSupported, bRequirePresent, bForceSingleQueue);
 }
 } // namespace
 
@@ -186,4 +186,50 @@ TEST_CASE("Get() covers every role", "[rhi][queues]")
     REQUIRE(families.Get(QueueType::Graphics) == families.Graphics);
     REQUIRE(families.Get(QueueType::Compute) == families.Compute);
     REQUIRE(families.Get(QueueType::Copy) == families.Copy);
+}
+
+// DeviceDesc::bForceSingleQueue exists so the GPU tests can reach the
+// arrangement this machine does not have. It has to collapse the roles onto the
+// graphics family rather than merely stop preferring a dedicated one, or the
+// upload path would still see two families and still hand resources over.
+TEST_CASE("Forcing a single queue collapses every role onto graphics", "[rhi][queues]")
+{
+    const std::vector<vk::QueueFamilyProperties> discrete{
+        Family(kGraphics | kCompute | kTransfer | kSparse, 16),
+        Family(kTransfer | kSparse, 2),
+        Family(kCompute | kTransfer | kSparse, 8),
+    };
+
+    const QueueFamilies forced = Select(discrete, AllPresent, true, true);
+
+    REQUIRE(forced.Graphics == 0);
+    REQUIRE(forced.Compute == 0);
+    REQUIRE(forced.Copy == 0);
+
+    REQUIRE_FALSE(forced.IsDedicated(QueueType::Compute));
+    REQUIRE_FALSE(forced.IsDedicated(QueueType::Copy));
+
+    // The same list without the flag, so the test says the flag changed the
+    // answer rather than that the answer happened to be this anyway.
+    const QueueFamilies unforced = Select(discrete);
+    REQUIRE(unforced.Copy == 1);
+    REQUIRE(unforced.Compute == 2);
+}
+
+// Compute is the one role with no fallback: a graphics family that cannot
+// dispatch leaves it unresolved rather than pointing at a family that would
+// fail at submission. Forcing a single queue must not paper over that.
+TEST_CASE("Forcing a single queue leaves compute unresolved when graphics cannot dispatch",
+          "[rhi][queues]")
+{
+    const QueueFamilies families = Select(
+        {
+            Family(kGraphics | kTransfer, 1),
+            Family(kCompute | kTransfer, 4),
+        },
+        AllPresent, true, true);
+
+    REQUIRE(families.Graphics == 0);
+    REQUIRE(families.Copy == 0);
+    REQUIRE(families.Compute == QueueFamilies::kInvalid);
 }

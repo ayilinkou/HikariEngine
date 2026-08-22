@@ -91,8 +91,8 @@ VulkanDevice::VulkanDevice(const DeviceDesc& desc)
     CreateSurface(desc.Requirements);
     PickPhysicalDevice(desc.Requirements);
     SelectOptionalExtensions(desc);
-    FindQueueFamilies(desc.Requirements);
-    CreateLogicalDevice();
+    FindQueueFamilies(desc);
+    CreateLogicalDevice(desc.Requirements);
 
     m_Allocator = VulkanAllocator(m_Instance, m_PhysicalDevice, m_Device, kApiVersion);
 
@@ -482,26 +482,38 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
                                       .apiVersion = kApiVersion};
 
     // extensions
-    uint32_t countInstanceExtensions = 0;
-    const char* const* instanceExtensions =
-        SDL_Vulkan_GetInstanceExtensions(&countInstanceExtensions);
-
-    if (countInstanceExtensions == 0)
-        throw std::runtime_error("No available instance extensions found!");
-
-    std::vector<const char*> requiredExtensions(countInstanceExtensions);
-    memcpy(requiredExtensions.data(), instanceExtensions,
-           countInstanceExtensions * sizeof(const char*));
+    std::vector<const char*> requiredExtensions;
     requiredExtensions.push_back(vk::EXTDebugUtilsExtensionName);
+
+    // The surface extensions come from SDL because only it knows which
+    // windowing system this build is talking to. A device that will not present
+    // must not ask: SDL only loads the Vulkan library when video has been
+    // initialised, so this returns nothing in a process that never opened a
+    // window — and none of what it would return is needed there anyway.
+    if (desc.Requirements.bPresent)
+    {
+        uint32_t countInstanceExtensions = 0;
+        const char* const* instanceExtensions =
+            SDL_Vulkan_GetInstanceExtensions(&countInstanceExtensions);
+
+        if (countInstanceExtensions == 0)
+            throw std::runtime_error("No available instance extensions found!");
+
+        requiredExtensions.insert(requiredExtensions.end(), instanceExtensions,
+                                  instanceExtensions + countInstanceExtensions);
+    }
 
 #if defined(__APPLE__)
     // MoltenVK is a portability driver. On macOS the Vulkan loader requires the
     // app to explicitly opt into enumerating portability drivers, otherwise
-    // vkCreateInstance fails with VK_ERROR_INCOMPATIBLE_DRIVER.
+    // vkCreateInstance fails with VK_ERROR_INCOMPATIBLE_DRIVER. Needed whether
+    // or not anything is presented, since it gates enumeration itself.
     requiredExtensions.push_back(vk::KHRPortabilityEnumerationExtensionName);
+
     // Required so we can build the swapchain surface via VK_EXT_metal_surface
     // (SDL_Vulkan_CreateSurface is unreliable on macOS).
-    requiredExtensions.push_back(vk::EXTMetalSurfaceExtensionName);
+    if (desc.Requirements.bPresent)
+        requiredExtensions.push_back(vk::EXTMetalSurfaceExtensionName);
 #endif
 
     auto extensionProperties = m_Context.enumerateInstanceExtensionProperties();
@@ -642,7 +654,8 @@ void VulkanDevice::CreateSurface(const DeviceRequirements& requirements)
 #endif
 }
 
-bool VulkanDevice::IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& device) const
+bool VulkanDevice::IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& device,
+                                            const DeviceRequirements& requirements) const
 {
     auto properties = device.getProperties();
 
@@ -653,8 +666,9 @@ bool VulkanDevice::IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& devi
         std::ranges::any_of(queueFamilies, [](const auto& qfp)
                             { return FamilySupports(qfp.queueFlags, QueueType::Graphics); });
 
-    std::vector<const char*> requiredExtensions = {vk::KHRSwapchainExtensionName,
-                                                   vk::EXTDescriptorIndexingExtensionName};
+    std::vector<const char*> requiredExtensions = {vk::EXTDescriptorIndexingExtensionName};
+    if (requirements.bPresent)
+        requiredExtensions.push_back(vk::KHRSwapchainExtensionName);
     auto availableExtensions = device.enumerateDeviceExtensionProperties();
     bool bSupportsAllExtensions = std::ranges::all_of(
         requiredExtensions,
@@ -684,11 +698,10 @@ void VulkanDevice::PickPhysicalDevice(const DeviceRequirements& requirements)
 {
     LogMsg(LogSeverity::Info, LogRhi, "PickPhysicalDevice()");
 
-    (void)requirements;
-
     auto devices = m_Instance.enumeratePhysicalDevices();
-    const auto deviceIt = std::ranges::find_if(devices, [&](const auto& device)
-                                               { return IsPhysicalDeviceSuitable(device); });
+    const auto deviceIt =
+        std::ranges::find_if(devices, [&](const auto& device)
+                             { return IsPhysicalDeviceSuitable(device, requirements); });
 
     if (deviceIt == devices.end())
         throw std::runtime_error("Failed to find a suitable GPU!");
@@ -789,7 +802,7 @@ OwnershipTransferRules VulkanDevice::GetOwnershipTransferRules(uint32_t srcFamil
     return rules;
 }
 
-void VulkanDevice::FindQueueFamilies(const DeviceRequirements& requirements)
+void VulkanDevice::FindQueueFamilies(const DeviceDesc& desc)
 {
     LogMsg(LogSeverity::Info, LogRhi, "FindQueueFamilies()");
 
@@ -812,10 +825,16 @@ void VulkanDevice::FindQueueFamilies(const DeviceRequirements& requirements)
                families[index].queueCount, vk::to_string(families[index].queueFlags), presentNote);
     }
 
-    m_QueueFamilies = SelectQueueFamilies(families, presentSupported, requirements.bPresent);
+    if (desc.bForceSingleQueue)
+        LogMsg(LogSeverity::Info, LogRhi,
+               "DeviceDesc::bForceSingleQueue is set: every role resolves to the graphics "
+               "family.");
+
+    m_QueueFamilies = SelectQueueFamilies(families, presentSupported, desc.Requirements.bPresent,
+                                          desc.bForceSingleQueue);
 
     if (m_QueueFamilies.Graphics == QueueFamilies::kInvalid)
-        throw std::runtime_error(requirements.bPresent
+        throw std::runtime_error(desc.Requirements.bPresent
                                      ? "Could not find a queue for graphics and presenting!"
                                      : "Could not find a queue for graphics!");
 
@@ -825,7 +844,7 @@ void VulkanDevice::FindQueueFamilies(const DeviceRequirements& requirements)
            DescribeFamily(m_QueueFamilies, QueueType::Copy));
 }
 
-void VulkanDevice::CreateLogicalDevice()
+void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
 {
     LogMsg(LogSeverity::Info, LogRhi, "CreateLogicalDevice()");
 
@@ -875,7 +894,9 @@ void VulkanDevice::CreateLogicalDevice()
     if (!m_bMaintenance9Enabled)
         featureChain.unlink<vk::PhysicalDeviceMaintenance9FeaturesKHR>();
 
-    std::vector<const char*> deviceExtensions = {vk::KHRSwapchainExtensionName};
+    std::vector<const char*> deviceExtensions;
+    if (requirements.bPresent)
+        deviceExtensions.push_back(vk::KHRSwapchainExtensionName);
 
 #if defined(__APPLE__)
     // MoltenVK exposes VK_KHR_portability_subset and requires it to be enabled

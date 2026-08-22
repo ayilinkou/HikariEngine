@@ -13,9 +13,10 @@ namespace Rhi
 // explicit now means that change is a flag rather than a new code path.
 struct DeviceRequirements
 {
-    // When false, no surface is created and no queue family is required to
-    // support presentation. Nothing sets this yet — it exists so that the
-    // present and non-present paths are already distinct.
+    // When false, no surface is created, no surface or swapchain extension is
+    // requested, and no queue family is required to support presentation. The
+    // GPU tests run this way, since a test binary has no window; the
+    // application's own headless mode is what Stage 6 builds on top of it.
     bool bPresent = true;
 
     // Opaque platform window handle, needed only when bPresent. Opaque rather
@@ -59,6 +60,22 @@ struct DeviceDesc
     // reported and ignored, so this can never turn a working device into a
     // failing one.
     std::vector<std::string> DisabledOptionalExtensions;
+
+    // Resolve every queue role to one queue, as though the device exposed a
+    // single universal family.
+    //
+    // The other half of the testing lever above, and needed because the two
+    // reach different code. Disabling an extension changes what a device
+    // promises; this changes its *shape* — and a device with no separate copy
+    // family neither hands resources over nor has a second queue to submit them
+    // on, which is a third arrangement rather than a variation on the first two.
+    // It is what an integrated GPU looks like, so the path is real hardware's
+    // and not a contrivance.
+    //
+    // Neutral because both backends have somewhere to put it: Vulkan collapses
+    // the family selection, and D3D12 would submit everything on the direct
+    // queue. A backend that cannot honour it must say so rather than pretend.
+    bool bForceSingleQueue = false;
 };
 
 // What a device turned out to be able to do, as opposed to what was asked of

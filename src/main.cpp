@@ -175,6 +175,10 @@ struct Options
     // what the flag's prefix says: an optional extension exists in one backend's
     // vocabulary and nowhere else.
     std::vector<std::string> DisabledVulkanExtensions;
+
+    // --vk-force-single-queue. Same prefix for the same reason: it is queue
+    // families this collapses, and only Vulkan has them.
+    bool bForceSingleQueue = false;
 };
 
 // Hardcoded camera transforms selected via --camera-preset <N>, for
@@ -227,6 +231,10 @@ void PrintUsage()
                      "support this\n"
                      "                          optional extension, to exercise the fallback path. "
                      "Repeatable.\n"
+                     "  --vk-force-single-queue Vulkan only. Behave as though the device exposed "
+                     "one queue\n"
+                     "                          family, to exercise the path an integrated GPU "
+                     "takes\n"
                      "  --help                  Print this message and exit\n";
 }
 
@@ -328,6 +336,11 @@ Options ParseArgs(int argc, char** argv)
                 options.JobCount = option.RequireInt();
             else if (flag == "--vk-disable-extension")
                 options.DisabledVulkanExtensions.push_back(option.RequireValue());
+            else if (flag == "--vk-force-single-queue")
+            {
+                option.RequireNoValue();
+                options.bForceSingleQueue = true;
+            }
             else
             {
                 LogMsg(LogSeverity::Error, LogMain, "Unknown option: {}", flag);
@@ -493,6 +506,7 @@ private:
         desc.Requirements.bPresent = true;
         desc.Requirements.NativeWindowHandle = m_Platform.GetNativeWindowHandle();
         desc.DisabledOptionalExtensions = m_Options.DisabledVulkanExtensions;
+        desc.bForceSingleQueue = m_Options.bForceSingleQueue;
         return desc;
     }
 

@@ -71,7 +71,8 @@ bool QueueFamilies::IsDedicated(QueueType role) const
 }
 
 QueueFamilies SelectQueueFamilies(std::span<const vk::QueueFamilyProperties> families,
-                                  const PresentSupportFn& presentSupported, bool bRequirePresent)
+                                  const PresentSupportFn& presentSupported, bool bRequirePresent,
+                                  bool bForceSingleQueue)
 {
     QueueFamilies result;
 
@@ -87,8 +88,14 @@ QueueFamilies SelectQueueFamilies(std::span<const vk::QueueFamilyProperties> fam
         break;
     }
 
-    result.Compute = FindDedicatedFamily(families, QueueType::Compute);
-    result.Copy = FindDedicatedFamily(families, QueueType::Copy);
+    // Leaving both unresolved is what makes the fallback below assign them the
+    // graphics family, so forcing a single queue is the absence of a search
+    // rather than a second assignment that would have to stay in step with it.
+    if (!bForceSingleQueue)
+    {
+        result.Compute = FindDedicatedFamily(families, QueueType::Compute);
+        result.Copy = FindDedicatedFamily(families, QueueType::Copy);
+    }
 
     if (result.Graphics == QueueFamilies::kInvalid)
         return result;

@@ -22,3 +22,18 @@ engine_test(rhi_tests SOURCES unit/rhi/ConversionTests.cpp
 # than promoting them to public headers just to make them reachable.
 target_include_directories(rhi_tests
                            PRIVATE ${CMAKE_SOURCE_DIR}/engine/rhi/src)
+
+# Needs a real GPU, so it is labelled "gpu" and left out of the "unit" run that
+# CI performs: on a machine with no Vulkan ICD every case here skips, and a run
+# of nothing but skips looks identical to a run of tests that were passing
+# vacuously. tests/scripts/run_gpu_tests.sh is what executes them.
+engine_test(rhi_gpu_tests SOURCES gpu/rhi/DeviceTests.cpp
+  gpu/rhi/UploadRoundTripTests.cpp support/RhiDeviceListener.cpp
+  LIBS Engine::RHI LABEL gpu)
+
+# The same reach into the module's own sources that rhi_tests makes, plus the
+# shared fixture: submitting a command list needs a queue, and the RHI hands out
+# neither.
+target_include_directories(
+  rhi_gpu_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support
+                        ${CMAKE_SOURCE_DIR}/engine/rhi/src)

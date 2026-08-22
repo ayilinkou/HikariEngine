@@ -495,7 +495,7 @@ are the ones later steps need to read.
 | R13 — Growable `DescriptorAllocator` | ✅ done (grows before the pool is overrun, not after — see **As built**) |
 | R14 — Growable instance buffer | ✅ done (the wait, not the reallocation, is the load-bearing part — see **As built**) |
 | R15 — `PipelineCache` | ✅ done (the header check is the load-bearing part, not the file I/O — see **As built**) |
-| R16 — First GPU tests | not started |
+| R16 — First GPU tests | ✅ done (the cubemap bug was already gone; headless device creation was the real work — see **As built**) |
 | R17 — Seal the boundary and update the docs | not started |
 
 ### R1 — `core/Handle.h` + `core/HandlePool.h`
@@ -1459,6 +1459,70 @@ are the ones later steps need to read.
 - **Verify:** `ctest -L gpu` passes locally, and skips with a clear message when no ICD is
   present. `ctest -L unit` unaffected.
 - **Size:** L · **Needs:** R11 · **Was:** step 34
+- **As built:** done. Nine cases in `rhi_gpu_tests`, all passing, all skipping cleanly on a
+  machine with no ICD. Four things differ from the **Do** text.
+
+  **The cubemap bug was already gone, and proving that took more than the passing test.** The
+  step predicted companion-doc bug 1.1 would surface here, and it did not: the test passed
+  first time under all four configurations. R10 removed it without noting that it had, because
+  making a copy region a neutral `BufferTextureCopyRegion` meant `BaseLayer` and `LayerCount`
+  became fields the caller has to fill rather than arguments with a default of one, and the
+  release barrier's range is built from `desc.ArrayLayers`. A hardcoded layer count had nowhere
+  left to hide. A test that passes for a reason nobody checked is worth no more than the
+  assumption behind it, so the bug was put back — `.BaseLayer = 0u, .LayerCount = 1u` in the
+  region `VulkanUploadContext::Flush` builds — and the test fails on face 0, all six faces
+  having landed on top of each other in layer 0. Reverted immediately; the mutation is recorded
+  here rather than kept, because the value was in running it once.
+
+  **Headless device creation was the actual work of this step.** `DeviceRequirements::bPresent`
+  had existed since R5 with nothing setting it false, and it did not work: a test binary never
+  initialises SDL video, so `SDL_Vulkan_GetInstanceExtensions` returns nothing and the old code
+  threw on the empty list. Three separate places assumed presentation — the instance extension
+  list, `IsPhysicalDeviceSuitable` requiring `VK_KHR_swapchain`, and `CreateLogicalDevice`
+  enabling it. All three are now conditional, which is the first time the non-present path has
+  been executed rather than merely declared. Stage 6's headless mode inherits a device layer
+  that already works; what it still needs is everything above the device. The macOS
+  portability-enumeration extension stays unconditional, because it gates driver enumeration
+  itself rather than presentation, while `VK_EXT_metal_surface` moved under the flag.
+
+  **Every upload case runs under four device configurations, not two.** The step asked for the
+  ownership transfer forced on and off. That is two of the arrangements the upload path can be
+  in; the third is a device with no separate copy family, which hands nothing over because
+  there is nowhere to hand it. `DeviceDesc::bForceSingleQueue` reaches it, implemented in
+  `SelectQueueFamilies` as the *absence* of the dedicated-family search rather than as a second
+  assignment afterwards — the existing fallback already resolves an unfilled role to the
+  graphics family, so skipping the search reuses it instead of duplicating it, and compute
+  correctly stays unresolved on a graphics family that cannot dispatch. The fourth
+  configuration is the same transfer with `VK_KHR_maintenance8` also disabled, so the barriers
+  fall back to `AllCommands`. On this machine (RX 580, RADV) three of the four are unreachable
+  without the levers, and they are the three most hardware in the field is.
+
+  **A Catch2 listener destroys the shared devices; static destruction aborts.** The first
+  arrangement left them to the static that owns them, and `vkDestroyDevice` then abort()ed
+  inside the validation layer — the layer's own globals are torn down by its static
+  destructors, and whichever runs first wins. The crash arrives after every test has passed, so
+  it reads as a failure of whatever ran last. `RhiDeviceListener` tears them down from
+  `testRunEnded`, while `main()` is still running.
+
+  Two smaller notes. `engine_test` gained `SKIP_RETURN_CODE 4` alongside the `LABEL` the step
+  asked for: Catch2 returns 4 from a run in which every case skipped, and without telling CTest
+  that, a machine with no ICD reports nine passes rather than nine skips — the exact failure
+  mode the `gpu` label exists to prevent. And `GpuReadback.h` is Vulkan-side on purpose: the RHI
+  hands out a command list but not a queue, so recording a readback is neutral and submitting it
+  is not. A second backend keeps those two functions' signatures and rewrites their bodies.
+
+  **`scripts/precommit.sh` runs them; CI still does not.** That makes precommit a superset of
+  CI rather than a mirror of it, which is the one place the two are now allowed to differ: a
+  developer has a GPU and CI does not. Because the cases skip rather than fail, precommit stays
+  green on a machine with no ICD — so a green precommit is evidence the GPU tests ran only when
+  the machine could run them, and `ctest` exits 0 either way. That is tolerable locally and is
+  exactly why the same job would be worthless on a runner.
+
+  Verified: `ctest -L gpu` 9/9 pass, and 9/9 skip under `VK_DRIVER_FILES=/nonexistent`.
+  `ctest -L unit` is 145/145, up two from R15 for `bForceSingleQueue`. `scripts/precommit.sh`
+  green. `tests/baseline/`'s report is unchanged, field for field. The same scene run with
+  `--vk-force-single-queue` reports 13 barriers against 14 and 8 barrier calls against 9, which
+  is the ownership transfer not happening, with `validationErrors` still 0.
 
 ### R17 — Seal the boundary and update the docs
 

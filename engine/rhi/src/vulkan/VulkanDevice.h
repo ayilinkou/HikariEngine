@@ -134,10 +134,11 @@ private:
     void CreateSurface(const DeviceRequirements& requirements);
     void PickPhysicalDevice(const DeviceRequirements& requirements);
     void SelectOptionalExtensions(const DeviceDesc& desc);
-    void FindQueueFamilies(const DeviceRequirements& requirements);
-    void CreateLogicalDevice();
+    void FindQueueFamilies(const DeviceDesc& desc);
+    void CreateLogicalDevice(const DeviceRequirements& requirements);
 
-    bool IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& device) const;
+    bool IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& device,
+                                  const DeviceRequirements& requirements) const;
 
     // Called from the driver's debug callback, on whichever thread the driver
     // happens to be on.

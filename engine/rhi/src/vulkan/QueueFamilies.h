@@ -64,6 +64,12 @@ using PresentSupportFn = std::function<bool(uint32_t familyIndex)>;
 // that also exposes a transfer-only family, while still putting them there on a
 // device that does not. Both fall back to the graphics family when the device
 // offers nothing better.
+//
+// `bForceSingleQueue` skips that search entirely and resolves every role to the
+// graphics family, so that the arrangement an integrated GPU has — one
+// universal family, nothing to hand a resource over to — is reachable on a
+// device that exposes more. See DeviceDesc::bForceSingleQueue.
 QueueFamilies SelectQueueFamilies(std::span<const vk::QueueFamilyProperties> families,
-                                  const PresentSupportFn& presentSupported, bool bRequirePresent);
+                                  const PresentSupportFn& presentSupported, bool bRequirePresent,
+                                  bool bForceSingleQueue);
 } // namespace Rhi::Vulkan

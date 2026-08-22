@@ -31,9 +31,13 @@ and everything outside steps 24–34 stays governed by the architecture plan.
 dismantling across Stages 4–9. Touching it outside its scheduled step creates conflicts with
 the plan. Fix what the step asks for; note anything else you spot rather than fixing it.
 
-**Verify every change with `scripts/precommit.sh`** (configure + build + build tests + ctest
-+ format-check) before reporting a change as done. That is exactly what CI enforces. Report
-failures with the actual output — never claim a build passed without running it.
+**Verify every change with `scripts/precommit.sh`** (configure + build + build tests +
+`ctest -L unit` + `ctest -L gpu` + format-check) before reporting a change as done. It is a
+superset of CI: everything CI enforces, plus the GPU tests, which CI cannot run because its
+runners have no Vulkan ICD. Those skip rather than fail on a machine without one, so a green
+precommit on such a machine has proved less than it looks — check whether they ran before
+relying on them. Report failures with the actual output — never claim a build passed without
+running it.
 
 **For changes that could alter rendering, also compare against the baseline** (see
 *Regression checking* below). "It still builds" is not evidence a refactor preserved
@@ -99,13 +103,14 @@ Requires `VULKAN_SDK` and `VCPKG_ROOT` to be set; `slangc` must be on `PATH`.
 ./build.sh ninja-release-linux      # or any preset
 cmake --workflow --preset ninja-debug-linux   # what build.sh wraps
 
-tests/scripts/build_tests.sh        # build the core_tests + platform_tests targets
+tests/scripts/build_tests.sh        # build every test target
 tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
+tests/scripts/run_gpu_tests.sh      # ctest -L gpu --output-on-failure (needs a Vulkan ICD)
 tests/scripts/header_check.sh       # compile every header standalone, no PCH
 tests/scripts/rhi_boundary_check.sh # no Vulkan/VMA in engine/rhi's neutral headers
 tests/scripts/format_check.sh       # dry-run, -Werror
 scripts/format.sh                   # clang-format -i over src/ and engine/
-scripts/precommit.sh                # all of the above, in CI order
+scripts/precommit.sh                # all of the above, CI's checks in CI's order
 ```
 
 `header_check.sh` builds the `HeaderSelfContainment` aggregate: one check target per layer
@@ -163,8 +168,9 @@ engine/platform/ # Engine::Platform static lib — IPlatform/SdlPlatform, Paths,
                  #   CommandLine
 cmake/           # EngineModule.cmake (engine_module), Testing.cmake (engine_test),
                  #   HeaderSelfContainment.cmake, Warnings.cmake
-tests/unit/      # Catch2 tests, CTest label "unit"
-tests/support/   # shared test helpers (TestPaths.h, CaptureStream.h)
+tests/unit/      # Catch2 tests, CTest label "unit" — no GPU, run by CI
+tests/gpu/       # Catch2 tests needing a real device, CTest label "gpu" — not run by CI
+tests/support/   # shared test helpers (TestPaths.h, CaptureStream.h, RhiTestFixture.h)
 content/         # runtime content root — models/ scenes/ textures/ shaders/ (.spv is gitignored)
 ```
 
@@ -177,7 +183,9 @@ Source lists are explicit, not globbed — a new `.cpp` will silently not build 
   call in `engine/<module>/CMakeLists.txt`.
 - `tests/unit/**/*.cpp` → append to the matching `engine_test(...)` call in
   `tests/CMakeLists.txt` — `core_tests` for `unit/core/`, `platform_tests` for
-  `unit/platform/`.
+  `unit/platform/`, `rhi_tests` for `unit/rhi/`.
+- `tests/gpu/**/*.cpp` → append to `rhi_gpu_tests` in the same file. `engine_test` takes a
+  `LABEL` naming the CTest label its cases get; it defaults to `unit`, and these pass `gpu`.
 
 Headers *are* globbed (into the header checks and the format targets), so a new header is
 checked automatically.
