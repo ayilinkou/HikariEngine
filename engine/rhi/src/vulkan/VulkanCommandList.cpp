@@ -22,9 +22,11 @@ vk::ImageMemoryBarrier2 MakeVkBarrier(vk::Image image, const TextureBarrier& des
                                           .baseArrayLayer = desc.BaseLayer,
                                           .layerCount = desc.LayerCount};
 
-    // Both queue-family fields are IGNORED because every barrier the renderer
-    // records stays on one queue. Releasing a resource from one queue family and
-    // acquiring it on another is what gives them real values.
+    // Both queue-family fields are IGNORED, which is what a barrier that stays
+    // on one queue must say. A neutral TextureBarrier cannot describe a queue
+    // family ownership transfer at all — the concept has no D3D12 counterpart
+    // (plan D6) — so the component that submits to a second queue builds those
+    // barriers itself; VulkanUploadContext is the one that does.
     return vk::ImageMemoryBarrier2{.srcStageMask = ToVk(desc.SrcStage),
                                    .srcAccessMask = ToVk(desc.SrcAccess),
                                    .dstStageMask = ToVk(desc.DstStage),

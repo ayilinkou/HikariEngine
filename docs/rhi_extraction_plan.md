@@ -212,7 +212,9 @@ Neutral: `enum class QueueType : uint8_t { Graphics, Compute, Copy }` — chosen
 D3D12's `DIRECT` / `COMPUTE` / `COPY` command list types, which have no notion of a queue
 family index. Vulkan's family indices stay inside `VulkanDevice`.
 
-The queue-family ownership transfer that step R12 adds is a Vulkan-only mechanism. D3D12
+The queue-family ownership transfer that step R12a adds is a Vulkan-only mechanism, and one
+R12b then makes conditional: `VK_KHR_maintenance9` removes the requirement for buffers, linear
+images and most optimal images, so the backend asks per resource whether it is needed. D3D12
 has no equivalent; it requires copy-queue resources to be in the `COMMON` layout instead.
 The RHI expresses the intent — "this resource was written on the copy queue and will next be
 read on the graphics queue" — and each backend does whatever its API requires. Concretely
@@ -488,7 +490,8 @@ are the ones later steps need to read.
 | R9 — Buffers become handles | ✅ done |
 | R10 — Textures, views and samplers become handles | ✅ done |
 | R11 — `UploadContext` — batch transfers | ✅ done |
-| R12 — Use the dedicated transfer queue | not started |
+| R12a — Use the dedicated transfer queue | ✅ done (the acquire is submitted by the context, not returned — see **As built**) |
+| R12b — Adopt `VK_KHR_maintenance8` and `VK_KHR_maintenance9` | ✅ done (exposed a barrier that was invalid on a copy-only queue — see **As built**) |
 | R13 — Growable `DescriptorAllocator` | not started |
 | R14 — Growable instance buffer | not started |
 | R15 — `PipelineCache` | not started |
@@ -701,7 +704,7 @@ are the ones later steps need to read.
   `flags & eTransfer` test would reject a capable family on any driver that takes that option;
   `FamilySupports` encapsulates the "any of these capabilities" rule so the call site cannot
   get it wrong. "Dedicated transfer" is the narrower, separate test — supports `Copy` but not
-  `Graphics` — and is R12's concern, not this step's.
+  `Graphics` — and is R12a's concern, not this step's.
 - **Verify:** Log lists the families the GPU exposes. Headless report identical. Resolves the
   information half of the dedicated-compute-queue `TODO` at `main.cpp:576` (Part IV cites
   `main.cpp:400` and `main.cpp:2173` for this; both line numbers are stale, and only the
@@ -716,24 +719,24 @@ are the ones later steps need to read.
     `QueueFamilies`, with present support arriving as a `PresentSupportFn` callback because
     that is the one part needing a surface. `tests/unit/rhi/QueueFamilyTests.cpp` covers the
     arrangements this GPU does not have.
-  - **"Dedicated" is resolved by preferring the narrowest family, not by R12's one-line
-    test.** R12's note describes it as "supports `Copy` but not `Graphics`", which is
+  - **"Dedicated" is resolved by preferring the narrowest family, not by R12a's one-line
+    test.** R12a's note describes it as "supports `Copy` but not `Graphics`", which is
     ambiguous on any GPU exposing both an async compute family and a DMA family — both
     qualify, and taking the first would put uploads on the compute engine. The implemented
     rule adds a tie-break: among non-graphics candidates, prefer the one advertising the
     fewest of graphics/compute/copy. Ancillary bits (sparse binding, protected, video) are
     deliberately not counted, or a video family advertising transfer would outrank a
-    transfer-only one. **R12 should use `GetQueueFamily(QueueType::Copy)` rather than
+    transfer-only one. **R12a should use `GetQueueFamily(QueueType::Copy)` rather than
     re-deriving the family.**
   - **Every role always resolves to a usable family.** Compute and Copy fall back to the
-    graphics family rather than reporting "absent", so R12 does not need a fallback at the
+    graphics family rather than reporting "absent", so R12a does not need a fallback at the
     call site; `IsDedicated()` is the separate question of whether that fallback happened.
     The one exception is Compute on a graphics family that omits compute, which stays
     `kInvalid` rather than pointing at a queue that would fail at submission.
   - **No queues are created for the new families.** `VkDeviceQueueCreateInfo` still asks for
     one queue from the graphics family only, because the step reports rather than uses, and
     an unused queue is one the driver schedules for nothing. That makes creating the queue
-    part of R12's work, not a detail it can assume: `vkGetDeviceQueue` on a family that was
+    part of R12a's work, not a detail it can assume: `vkGetDeviceQueue` on a family that was
     never requested is invalid, not merely useless.
   - **The neutral half is two `DeviceCaps` flags**, `bHasDedicatedComputeQueue` and
     `bHasDedicatedCopyQueue`, rather than a new `IDevice` virtual — `DeviceCaps` already is
@@ -1034,7 +1037,7 @@ are the ones later steps need to read.
   5.1–5.2 s before and 5.1–5.3 s after, which is run-to-run noise. Nearly all of that 5 s is
   stb_image decoding and Assimp parsing, and no amount of batching touches either.
 
-  So the value of this step is not the clock, and pretending otherwise would set up R12 to
+  So the value of this step is not the clock, and pretending otherwise would set up R12a to
   be judged against a number it also will not move. What it actually buys:
 
   - **A drain of the whole queue becomes a wait on one fence.** `vkQueueWaitIdle` is defined
@@ -1042,7 +1045,7 @@ are the ones later steps need to read.
     bluntest available synchronisation. It only looked free because nothing else is running
     while a scene loads — and the ImGui "Load Scene" button already breaks that assumption
     once, and threaded loading would break it permanently.
-  - **It is the step R12 needs.** Moving uploads to a dedicated transfer queue is a change
+  - **It is the step R12a needs.** Moving uploads to a dedicated transfer queue is a change
     to one submission site, not seventy.
   - **Peak staging memory is now bounded and visible.** Sponza stages 380 MiB in total; the
     old path never held more than one resource's worth at a time, so batching without a cap
@@ -1074,7 +1077,7 @@ are the ones later steps need to read.
     everything in it. Cited at the submit site so nobody adds a redundant barrier later.
   - **The upload pool uses the graphics family**, because a command buffer may only be
     submitted to a queue of its pool's family and the graphics queue is still the only one the
-    device creates. R12 changes the pool and the submit together, and brings the ownership
+    device creates. R12a changes the pool and the submit together, and brings the ownership
     transfer with it.
 
   `rhi/vulkan/BufferUtil.h` is deleted — `CreateStagedBuffer` and `CopyBuffer` were exactly
@@ -1094,7 +1097,7 @@ are the ones later steps need to read.
   cubemap-face test. `UploadStats` exists so those can assert on submission counts rather than
   on log lines.
 
-### R12 — Use the dedicated transfer queue
+### R12a — Use the dedicated transfer queue
 
 - **Do:** Point `UploadContext` at the transfer family when one exists, with its own command
   pool, plus queue-family ownership release/acquire before first graphics use — expressed as
@@ -1108,6 +1111,168 @@ are the ones later steps need to read.
 - **Verify:** Headless report identical, **zero validation errors** with synchronization
   validation on. Load time improves further on discrete GPUs.
 - **Size:** M · **Needs:** R11 · **Was:** step 30
+- **As built:** done. Uploads run on queue family 1 of this development machine's RX 580
+  (RADV), each flush is a release on the copy queue and an acquire on the graphics queue
+  ordered by a semaphore, validation errors stayed at 0 with synchronization validation on,
+  and the render output is unchanged. Four things departed from the text above.
+
+  **The acquire is submitted by `UploadContext`, not handed back.** D6 says the context
+  "returns an explicit acquire record"; it does not, and returning one would not have worked.
+  The callers are `TextureLoader`, `CubemapLoader` and `ModelLoader`, none of which owns a
+  command list — R11 took their command pools away — and the renderer that does own one
+  receives a finished resource with no idea which flush produced it. Every design that hands
+  the record out therefore ends in the same place: some caller must remember to record it
+  before first use, and forgetting is silent until it is a corrupt texture on somebody else's
+  driver. Since `Flush()` already blocks until the GPU is finished, the context can submit
+  the acquire itself and make "a resource a flush covered is ready to use" true by
+  construction, which is the property the rest of the engine was already relying on.
+
+  The neutral half of D6 is unaffected and is what actually matters for a second backend:
+  `IUploadContext` still says nothing about queues, families or ownership. What changed is
+  that the Vulkan side discharges the obligation instead of exporting it. D3D12 will have
+  nothing to export in the first place — a copy-queue resource is left in `COMMON`, which
+  costs a layout, not a submission.
+
+  **A flush is two submissions, not one, and `UploadStats::Submits` counts both.** The
+  headline R11 left behind — 74 → 5 for a Sponza load — becomes 5 copies and 5 acquires. The
+  alternative was to keep counting batches and quietly stop counting submissions, which would
+  make the number agree with the old one by measuring something else. The log line names both
+  halves for the same reason.
+
+  **Staging offsets are aligned to 4 bytes.** A queue family that supports transfer but
+  neither graphics nor compute requires every `bufferOffset` to be a multiple of 4
+  (`VUID-vkCmdCopyBufferToImage-commandBuffer-07737`), which the previous tight packing would
+  violate for a `Format::R8Unorm` texture. No such family exists on this machine — RADV does
+  not expose Polaris's SDMA engine even under `RADV_PERFTEST=transfer_queue`, so the copy role
+  resolves to the async compute family, which advertises compute and is therefore exempt. The
+  rule is honoured anyway rather than left as a trap for the first GPU that has one.
+
+  **One best-practices message is muted by ID, and `CreateInstance` grew a
+  `message_id_filter` list to do it.** Every transfer draws
+  `BestPractices-PipelineBarrier-unneeded-QFOT` on a device that has a copy queue of its own
+  *and* supports `VK_KHR_maintenance9` — 20 messages per load here, reported 10 times before
+  the layer's duplicate limit cut it off. The advice is real: maintenance9 makes buffers,
+  linear images, and optimal images that clear
+  `VkQueueFamilyOwnershipTransferPropertiesKHR::optimalImageTransferToQueueFamilies` keep
+  their contents through an implicit acquire, and the specification says explicit transfers in
+  those cases have "no functional nor performance advantage" and are "not recommended for new
+  applications".
+
+  Taking that advice was considered and rejected *for now*, on testing grounds rather than
+  technical ones. This GPU reports that property as every family and none of the uploaded
+  textures carry an attachment usage, so with maintenance9 enabled every transfer this step
+  performs would be skipped — leaving the path every other driver takes as dead code on the
+  only machine that runs the application at all. Adopting maintenance9 is worth doing as its
+  own piece of work, together with a way to force the transfer path so that both stay
+  exercised; the mute is what should be deleted when that happens.
+
+  The mute was one named ID with its reasoning at the call site, not a category, and it kept
+  `validationWarnings` meaning "something needs looking at" — the run report stayed
+  byte-identical to `tests/baseline/`, so nothing needed rebaselining. **R12b removed it**, by
+  adopting maintenance9 so that the default configuration stops performing the transfers the
+  message is about. A run that disables maintenance9 emits the message again, which is correct:
+  it is a run deliberately pretending to be hardware that lacks the extension.
+
+  Two spec details worth keeping, both from Vulkan 1.4 *Queue Family Ownership Transfer*.
+  The release barrier's destination masks and the acquire barrier's source masks are ignored
+  and are set to zero as the specification asks — writing the eventual reader's stage into the
+  release would additionally be invalid on a transfer-only family, which has no pixel shader
+  stage to name. And the acquire's destination stage is `AllCommands` because an acquire
+  happens in no defined pipeline stage, so without `VK_KHR_maintenance8` nothing else can wait
+  for one. Its destination *access* is `ShaderRead` for images and `MemoryRead` for buffers:
+  an image's access mask has to agree with its layout, and the blanket `MemoryRead` is not
+  among the flags `ShaderReadOnlyOptimal` permits.
+
+  **Load time did not improve, and the Verify line above should not have expected it to.**
+  R11 already established that a Sponza load is 5 s of `stb_image` and Assimp with 44 ms of
+  GPU waiting inside it; moving that 44 ms to another engine cannot show up. Nor can the two
+  queues overlap yet — loading is synchronous and `Flush()` blocks on the fence — so what this
+  step buys is the same thing R11 bought: the mechanism threaded loading needs, in place and
+  exercised, before anything depends on it.
+
+  Verified beyond the baseline: `StagingBudget` temporarily set to 1 byte puts each of the 22
+  resources in its own batch and produces exactly 44 submissions with the output unchanged;
+  forcing `m_bOwnershipTransfer` false reproduces the pre-R12a path. Not covered by unit tests,
+  for R11's reason — this is backend code with no neutral logic to isolate, and R16's GPU
+  tests are where an upload round-trip gets asserted.
+
+### R12b — Adopt `VK_KHR_maintenance8` and `VK_KHR_maintenance9`
+
+- **Do:** Enable both extensions when the device has them, and fall back to R12a's behaviour
+  when it does not. maintenance9 turns "does this resource need an ownership transfer" into a
+  per-resource question; maintenance8 lets the transfer's barriers name real pipeline stages
+  instead of being pinned to `AllCommands`. Add `--vk-disable-extension <name>` so the
+  fallback path stays reachable on hardware that has the extensions.
+- **Verify:** All four combinations of the two extensions render identically with zero
+  validation errors, and the default configuration needs no muted messages.
+- **Size:** M · **Needs:** R12a
+- **As built:** done, and it earned its place by finding a bug rather than by the performance
+  it does not deliver.
+
+  **The barrier that keeps a texture on the copy queue was invalid, and nothing before this
+  step could have run it.** `BarrierPresets::CopyDstToShaderResource` names `PixelStage` as its
+  destination, which is illegal on a command buffer from a family without graphics
+  (`VUID-vkCmdPipelineBarrier2-dstStageMask-09676`); this machine's copy family is
+  compute+transfer. R12a never hit it because a separate copy queue meant *every* texture was
+  transferred, and the transferred path replaces that barrier with the release. maintenance9
+  makes textures stay on the copy queue for the first time, and the first run produced 10
+  validation errors. The fix empties the destination scope at the call site, which is also what
+  the situation truly is: nothing later in that command buffer reads the texture, and the
+  consumer in a subsequent submission is reached through the fence wait the copies already rely
+  on. This is precisely the failure mode §9 warns about for this area, arriving from the
+  direction nobody was watching.
+
+  **Extension and feature move together or not at all.** Every relaxation either extension
+  describes is worded "if the feature is enabled", so enabling the extension alone changes
+  nothing — and leaving a feature struct chained for an extension that is not enabled is
+  undefined behaviour rather than a no-op. `CreateLogicalDevice` therefore keeps both structs in
+  its `vk::StructureChain` and `unlink`s the ones whose extension did not make the list.
+
+  **The rule is a pure function with unit tests, which is what makes two paths safe.**
+  `RequiresOwnershipTransfer` in `src/vulkan/OwnershipTransfer.{h,cpp}` takes the device's
+  promises as a value and answers per resource; `tests/unit/rhi/OwnershipTransferTests.cpp`
+  covers the arrangements this GPU does not have. Two things about it are easy to get backwards
+  and are locked down by tests: `optimalImageTransferToQueueFamilies` belongs to the *source*
+  family and its bits are *destination* family indices, and it is 32 bits wide, so a
+  destination family index of 32 or above is unrepresentable and has to fall back to
+  transferring rather than to a shift with undefined behaviour.
+
+  **maintenance8 changes what the barriers say and not what happens, exactly as predicted.**
+  The release and acquire now name `Copy` where the specification would otherwise ignore the
+  mask, which pins the hand-over to a stage instead of leaving it unplaced. Two things stay at
+  `AllCommands` and both for reasons the extension cannot fix: the acquire's *destination*
+  stage, because an upload context fills resources for a caller that has not said what will
+  read them, and the semaphore wait, because that submission contains the acquire and nothing
+  else, so there is no later work a narrower wait could let start sooner. Both become worth
+  narrowing when the acquire moves into the command list that consumes the resource. No number
+  moved, which is what R11 and R12a both also found and is why it was not promised.
+
+  **The testing lever is `DeviceDesc::DisabledOptionalExtensions`, and the flag is a thin skin
+  over it.** The field is neutral in type and backend-specific in content, and R16 sets it
+  directly rather than going through a command line. `--vk-disable-extension` is repeatable, and
+  a name the backend does not treat as optional is reported and ignored, so it can never turn a
+  working device into a failing one. The `vk-` prefix marks it as backend-specific in a way that
+  survives a second backend existing.
+
+  Measured on the RX 580 (RADV), which has both extensions. All four runs are **pixel-identical**
+  to each other and every counter but the warning count matches:
+
+  | Configuration | Submissions | Transfers | `validationErrors` | `validationWarnings` |
+  |---|---|---|---|---|
+  | both enabled | 4 | none | 0 | 0 |
+  | no maintenance9 | 8 | all, stage-accurate | 0 | 10 |
+  | neither | 8 | all, `AllCommands` | 0 | 10 |
+  | no maintenance8 | 4 | none | 0 | 0 |
+
+  The 10 warnings in the middle two rows are the best-practices message about performing a
+  transfer a maintenance9 device does not need — correct, since those runs are pretending not to
+  have it. The default row is clean with nothing suppressed, which is what let R12a's mute be
+  deleted. Stressed with `StagingBudget` at 1 byte: 22 submissions with maintenance9 and 44
+  without, for 22 resources, both with zero errors and no leaked resources.
+
+  **Deferred to R16:** `--vk-force-single-queue`, to reach the third path — a device with no
+  separate copy family — without patching code. It is a different mechanism from disabling an
+  extension, and R16 is where the GPU tests that would consume it get written.
 
 ### R13 — Growable `DescriptorAllocator`
 
@@ -1147,6 +1312,12 @@ are the ones later steps need to read.
   differ as expected**. Requires a `LABEL` parameter on `engine_test` in `cmake/Testing.cmake`,
   which currently hardcodes `LABELS "unit"`. Label these `gpu` and keep them out of
   `run_unit_tests.sh`.
+- **Run the upload round-trips with the ownership transfer forced on and off**, via
+  `DeviceDesc::DisabledOptionalExtensions` (R12b). On a device with `VK_KHR_maintenance9` the
+  default configuration performs no transfer at all, so without this the release/acquire path —
+  the one most hardware in the field takes — never executes in the test suite. Add
+  `--vk-force-single-queue` here too, so the third arrangement (no separate copy family) is
+  reachable without patching code.
 - **Expect a failure:** the cubemap test should fail first time — that is companion-doc bug
   1.1, `CopyBufferToImage` and the layout transition hardcoding `layerCount = 1` (visible in
   the old `Utility.h:245`). Fix it here; the test locks it down permanently.
@@ -1183,7 +1354,8 @@ are the ones later steps need to read.
 | R9 | — | New: buffers become handles |
 | R10 | — | New: textures/views/samplers become handles |
 | R11 | 29 | Now handle-based |
-| R12 | 30 | Ownership transfer expressed as intent, not raw barriers |
+| R12a | 30 | Ownership transfer expressed as intent, not raw barriers |
+| R12b | — | New: the transfer becomes conditional on `VK_KHR_maintenance9`, with the explicit path as the fallback |
 | R13 | 31 | Explicitly stays Vulkan-only (D7) |
 | R14 | 32 | Unchanged |
 | R15 | 33 | Neutral interface over an opaque blob |
@@ -1245,7 +1417,7 @@ The audit R17 runs. For each row: is the concept neutral, isolated, or knowingly
 - **R9 and R10 are the dangerous steps.** They touch every resource creation and use site in
   the codebase. They are deliberately split (buffers, then textures) so a baseline comparison
   runs between them. Do not merge them.
-- **R12, queue-family ownership transfer**, is the classic "compiles, renders correctly on
+- **R12a, queue-family ownership transfer**, is the classic "compiles, renders correctly on
   one driver, fails intermittently on another" change. Read the spec's synchronization
   chapter, keep synchronization validation on, and treat a clean run as necessary but not
   sufficient.
@@ -1273,6 +1445,10 @@ into `docs/architecture_plan.md` (or a small permanent `docs/rhi.md`):
 - §2 D1–D12 — the rationale future work has to respect.
 - §4 — how the boundary is enforced, since the checks stay in the build.
 - §8 — the D3D12 readiness checklist, which becomes the starting backlog for the backend.
+- R12b's flag convention, into `CLAUDE.md`'s *Conventions*: a command-line option that only one
+  backend can honour takes that backend's prefix — `--vk-disable-extension` — in the same
+  `--kebab-case` as every other flag. It is the only thing that tells a reader which options
+  stop meaning anything under a second backend, and it outlives this document.
 
 **Then delete:** this file, and the Stage 5 pointer in `CLAUDE.md`'s working rules and
 roadmap table.

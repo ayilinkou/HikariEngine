@@ -25,8 +25,11 @@
 //     neutral terms and consumed by the backend.
 //   * D3D12_BARRIER_LAYOUT has queue-type-specific variants that may only be
 //     used on a compatible queue, and requires copy-queue resources to be in
-//     COMMON. Common exists in TextureLayout to express exactly that, and is
-//     what R12's queue-family ownership transfer will reach for.
+//     COMMON. Common exists in TextureLayout to express exactly that. Moving a
+//     resource between queues is not spelled here at all, though: Vulkan needs
+//     an explicit ownership transfer and D3D12 needs a layout, so the two have
+//     no shared shape, and whichever component submits to a second queue owns
+//     that problem privately (plan D6).
 namespace Rhi
 {
 // -> VkPipelineStageFlags2 / D3D12_BARRIER_SYNC

@@ -4,6 +4,7 @@ engine_module(
   src/Diagnostics.cpp
   src/vulkan/VulkanConversions.cpp
   src/vulkan/QueueFamilies.cpp
+  src/vulkan/OwnershipTransfer.cpp
   src/vulkan/VulkanDevice.cpp
   src/vulkan/VulkanNative.cpp
   src/vulkan/VulkanBuffer.cpp

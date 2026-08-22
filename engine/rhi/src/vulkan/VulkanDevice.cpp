@@ -29,6 +29,11 @@ namespace
 {
 constexpr LogCategory LogRhi("RHI");
 
+// The tiling every texture this device allocates is created with. Named rather
+// than written inline because whether an image needs a queue family ownership
+// transfer depends on it, and the two answers have to come from one place.
+constexpr vk::ImageTiling kTextureTiling = vk::ImageTiling::eOptimal;
+
 constexpr const char* kValidationLayerName = "VK_LAYER_KHRONOS_validation";
 
 // "family 1 (dedicated)", "family 0", or "none", for the startup log.
@@ -84,6 +89,7 @@ VulkanDevice::VulkanDevice(const DeviceDesc& desc)
     SetupDebugMessenger(desc);
     CreateSurface(desc.Requirements);
     PickPhysicalDevice(desc.Requirements);
+    SelectOptionalExtensions(desc);
     FindQueueFamilies(desc.Requirements);
     CreateLogicalDevice();
 
@@ -135,6 +141,17 @@ VulkanDevice::~VulkanDevice()
 void VulkanDevice::WaitIdle()
 {
     m_Device.waitIdle();
+}
+
+vk::raii::Queue& VulkanDevice::GetQueue(QueueType role)
+{
+    if (role == QueueType::Copy && *m_CopyQueue)
+        return m_CopyQueue;
+
+    // Compute lands here too. The graphics queue is the only other one created,
+    // and it can serve any role its family advertises — which SelectQueueFamilies
+    // already checked before falling a role back to it.
+    return m_GraphicsQueue;
 }
 
 BufferHandle VulkanDevice::CreateBuffer(const BufferDesc& desc)
@@ -220,7 +237,7 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDesc& desc)
         .mipLevels = desc.MipLevels,
         .arrayLayers = desc.ArrayLayers,
         .samples = ToVk(desc.Samples),
-        .tiling = vk::ImageTiling::eOptimal,
+        .tiling = kTextureTiling,
         .usage = ToVk(desc.Usage),
         .sharingMode = vk::SharingMode::eExclusive,
         .initialLayout = vk::ImageLayout::eUndefined};
@@ -673,6 +690,99 @@ void VulkanDevice::PickPhysicalDevice(const DeviceRequirements& requirements)
     m_PhysicalDevice = *deviceIt;
 }
 
+void VulkanDevice::SelectOptionalExtensions(const DeviceDesc& desc)
+{
+    LogMsg(LogSeverity::Info, LogRhi, "SelectOptionalExtensions()");
+
+    const std::vector<vk::ExtensionProperties> available =
+        m_PhysicalDevice.enumerateDeviceExtensionProperties();
+
+    // Every optional extension this backend knows what to do with. A name
+    // outside this list cannot be disabled, because nothing would read the
+    // answer.
+    const std::array<const char*, 2> optional = {vk::KHRMaintenance8ExtensionName,
+                                                 vk::KHRMaintenance9ExtensionName};
+
+    for (const std::string& name : desc.DisabledOptionalExtensions)
+    {
+        if (std::ranges::none_of(optional, [&name](const char* entry) { return name == entry; }))
+        {
+            LogMsg(LogSeverity::Warning, LogRhi,
+                   "DisabledOptionalExtensions names '{}', which is not an optional extension this "
+                   "backend uses. It has no effect.",
+                   name);
+        }
+    }
+
+    auto resolve = [&](const char* name)
+    {
+        const bool bSupported =
+            std::ranges::any_of(available, [name](const vk::ExtensionProperties& properties)
+                                { return strcmp(properties.extensionName, name) == 0; });
+
+        const bool bDisabled =
+            std::ranges::any_of(desc.DisabledOptionalExtensions,
+                                [name](const std::string& entry) { return entry == name; });
+
+        LogMsg(LogSeverity::Info, LogRhi, "{}: {}", name,
+               !bSupported ? "not supported"
+               : bDisabled ? "supported, disabled by request"
+                           : "enabled");
+
+        return bSupported && !bDisabled;
+    };
+
+    m_bMaintenance8Enabled = resolve(vk::KHRMaintenance8ExtensionName);
+    m_bMaintenance9Enabled = resolve(vk::KHRMaintenance9ExtensionName);
+
+    if (!m_bMaintenance9Enabled)
+        return;
+
+    // Fetched for every family rather than only the copy one, because the
+    // property describes the family *releasing* a resource and this type has no
+    // opinion yet about which family that will be.
+    using QueueFamilyChain = vk::StructureChain<vk::QueueFamilyProperties2,
+                                                vk::QueueFamilyOwnershipTransferPropertiesKHR>;
+
+    const std::vector<QueueFamilyChain> families =
+        m_PhysicalDevice.getQueueFamilyProperties2<QueueFamilyChain>();
+
+    m_OptimalImageTransferToQueueFamilies.reserve(families.size());
+    for (const QueueFamilyChain& family : families)
+    {
+        m_OptimalImageTransferToQueueFamilies.push_back(
+            family.get<vk::QueueFamilyOwnershipTransferPropertiesKHR>()
+                .optimalImageTransferToQueueFamilies);
+    }
+}
+
+bool VulkanDevice::RequiresOwnershipTransfer(TextureHandle handle, uint32_t srcFamily,
+                                             uint32_t dstFamily) const
+{
+    // Images are asked about one at a time, and buffers are not, because the
+    // specification treats them differently: maintenance9 preserves every
+    // buffer unconditionally, while an image's answer depends on how it was
+    // created. Only the device knows that, which is why this lives here rather
+    // than at the call site.
+    const TextureDesc* pDesc = GetTextureDesc(handle);
+    if (pDesc == nullptr)
+        return true;
+
+    return ImageRequiresOwnershipTransfer(GetOwnershipTransferRules(srcFamily), kTextureTiling,
+                                          ToVk(pDesc->Usage), srcFamily, dstFamily);
+}
+
+OwnershipTransferRules VulkanDevice::GetOwnershipTransferRules(uint32_t srcFamily) const
+{
+    OwnershipTransferRules rules{.bMaintenance9 = m_bMaintenance9Enabled};
+
+    if (srcFamily < m_OptimalImageTransferToQueueFamilies.size())
+        rules.OptimalImageTransferToQueueFamilies =
+            m_OptimalImageTransferToQueueFamilies[srcFamily];
+
+    return rules;
+}
+
 void VulkanDevice::FindQueueFamilies(const DeviceRequirements& requirements)
 {
     LogMsg(LogSeverity::Info, LogRhi, "FindQueueFamilies()");
@@ -713,44 +823,83 @@ void VulkanDevice::CreateLogicalDevice()
 {
     LogMsg(LogSeverity::Info, LogRhi, "CreateLogicalDevice()");
 
-    // Only the graphics family gets a queue. A compute or copy family that is
-    // never submitted to would be a queue the driver has to schedule for
-    // nothing, so each one is created by the step that starts using it.
+    // A queue per family that is actually submitted to, and no more: an unused
+    // queue is one the driver schedules for nothing. Uploads run on the copy
+    // family, so it gets one; nothing dispatches on the compute family, so it
+    // does not.
+    //
+    // The indices have to be distinct — vkCreateDevice rejects a repeated
+    // queueFamilyIndex — which IsDedicated() is exactly the test for, since it
+    // is false precisely when the copy role resolved to the graphics family.
     float queuePriority = 0.5f;
-    vk::DeviceQueueCreateInfo queueCreateInfo{.queueFamilyIndex = m_QueueFamilies.Graphics,
-                                              .queueCount = 1,
-                                              .pQueuePriorities = &queuePriority};
+    std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
+    queueCreateInfos.push_back(
+        vk::DeviceQueueCreateInfo{.queueFamilyIndex = m_QueueFamilies.Graphics,
+                                  .queueCount = 1,
+                                  .pQueuePriorities = &queuePriority});
 
-    vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
-                       vk::PhysicalDeviceVulkan13Features,
-                       vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
-                       vk::PhysicalDeviceDescriptorIndexingFeaturesEXT>
+    if (m_QueueFamilies.IsDedicated(QueueType::Copy))
+    {
+        queueCreateInfos.push_back(
+            vk::DeviceQueueCreateInfo{.queueFamilyIndex = m_QueueFamilies.Copy,
+                                      .queueCount = 1,
+                                      .pQueuePriorities = &queuePriority});
+    }
+
+    vk::StructureChain<
+        vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
+        vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
+        vk::PhysicalDeviceDescriptorIndexingFeaturesEXT, vk::PhysicalDeviceMaintenance8FeaturesKHR,
+        vk::PhysicalDeviceMaintenance9FeaturesKHR>
         featureChain = {{.features = {.independentBlend = true, .samplerAnisotropy = true}},
                         {.shaderDrawParameters = true},
                         {.synchronization2 = true, .dynamicRendering = true},
                         {.extendedDynamicState = true},
-                        {.descriptorBindingPartiallyBound = true}};
+                        {.descriptorBindingPartiallyBound = true},
+                        {.maintenance8 = true},
+                        {.maintenance9 = true}};
 
-    std::vector<const char*> requiredDeviceExtensions = {vk::KHRSwapchainExtensionName};
+    // Both halves of an optional extension move together. A feature struct left
+    // chained for an extension that is not in the enabled list is not merely
+    // ignored — chaining it is undefined behaviour — and enabling the extension
+    // without setting its feature bit does nothing at all, because every
+    // relaxation either describes is worded "if the feature is enabled".
+    if (!m_bMaintenance8Enabled)
+        featureChain.unlink<vk::PhysicalDeviceMaintenance8FeaturesKHR>();
+    if (!m_bMaintenance9Enabled)
+        featureChain.unlink<vk::PhysicalDeviceMaintenance9FeaturesKHR>();
+
+    std::vector<const char*> deviceExtensions = {vk::KHRSwapchainExtensionName};
 
 #if defined(__APPLE__)
     // MoltenVK exposes VK_KHR_portability_subset and requires it to be enabled
     // on the logical device; otherwise device creation has undefined behaviour
     // and can crash.
-    requiredDeviceExtensions.push_back(vk::KHRPortabilitySubsetExtensionName);
+    deviceExtensions.push_back(vk::KHRPortabilitySubsetExtensionName);
 #endif
+
+    if (m_bMaintenance8Enabled)
+        deviceExtensions.push_back(vk::KHRMaintenance8ExtensionName);
+    if (m_bMaintenance9Enabled)
+        deviceExtensions.push_back(vk::KHRMaintenance9ExtensionName);
 
     vk::DeviceCreateInfo deviceCreateInfo{
         .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
-        .queueCreateInfoCount = 1,
-        .pQueueCreateInfos = &queueCreateInfo,
-        .enabledExtensionCount = (uint32_t)requiredDeviceExtensions.size(),
-        .ppEnabledExtensionNames = requiredDeviceExtensions.data()};
+        .queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
+        .pQueueCreateInfos = queueCreateInfos.data(),
+        .enabledExtensionCount = (uint32_t)deviceExtensions.size(),
+        .ppEnabledExtensionNames = deviceExtensions.data()};
 
     m_Device = vk::raii::Device(m_PhysicalDevice, deviceCreateInfo);
     SetVkDebugName(m_Device, *m_Device, vk::ObjectType::eDevice, "Device");
     m_GraphicsQueue = vk::raii::Queue(m_Device, m_QueueFamilies.Graphics, 0);
     SetVkDebugName(m_Device, *m_GraphicsQueue, vk::ObjectType::eQueue, "Graphics Queue");
+
+    if (m_QueueFamilies.IsDedicated(QueueType::Copy))
+    {
+        m_CopyQueue = vk::raii::Queue(m_Device, m_QueueFamilies.Copy, 0);
+        SetVkDebugName(m_Device, *m_CopyQueue, vk::ObjectType::eQueue, "Copy Queue");
+    }
 
     // Setting debug names for objects which were created before the device was
     // created.

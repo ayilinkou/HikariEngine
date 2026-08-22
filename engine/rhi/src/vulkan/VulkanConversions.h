@@ -119,12 +119,13 @@ DiagnosticSeverity FromVk(vk::DebugUtilsMessageSeverityFlagBitsEXT severity);
 //   * The test is therefore "any of these bits", not "all of them". Exposing
 //     the mask instead would invite `HasAll(flags, mask)`, which for Copy would
 //     demand a family be graphics *and* compute *and* transfer — rejecting the
-//     dedicated transfer family R12 is looking for.
+//     dedicated transfer family a device's DMA engine appears as.
 //
 // One family can satisfy several roles, and normally does: a universal family
 // satisfies all three, which is why there is no inverse asking "which role is
-// this family". R6 enumerates families with this; R12 then picks a dedicated
-// transfer one, which is the narrower test "supports Copy but not Graphics".
+// this family". Whether a family is *dedicated* to a role is the narrower,
+// separate test — supports the role but not Graphics — and belongs to
+// SelectQueueFamilies rather than here.
 bool FamilySupports(vk::QueueFlags familyCapabilities, QueueType role);
 
 // --- One-way: ToVk only, see the comment above ---

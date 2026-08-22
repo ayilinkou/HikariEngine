@@ -52,8 +52,12 @@ struct UploadContextDesc
 // on it. Cumulative over the context's lifetime.
 struct UploadStats
 {
-    // Submissions, which is the number that R11 exists to reduce: it used to be
-    // one per resource.
+    // Queue submissions, which is what batching exists to reduce: there used to
+    // be one per resource. Counted as submissions rather than as batches
+    // because a backend that moves uploads onto a dedicated copy queue needs a
+    // second submission per batch to hand the results back — so the two numbers
+    // differ, and the honest one is the one that says how often the GPU was
+    // handed work.
     uint64_t Submits = 0u;
 
     uint64_t Uploads = 0u;
@@ -67,6 +71,13 @@ struct UploadStats
 // and then blocked until the whole queue went idle. That is not merely slow —
 // draining the queue is the bluntest synchronisation there is, and it only
 // looks harmless because nothing else is running while a scene loads.
+//
+// A backend may perform the copies on a queue dedicated to them rather than on
+// the one that renders. Nothing here says which, and nothing outside needs to:
+// a resource covered by a returned Flush() is ready for the renderer to use,
+// and whatever a backend has to do to make that true — Vulkan's queue family
+// ownership transfer, D3D12's COMMON layout requirement — it does on its own
+// side of this interface.
 //
 // **Not thread-safe.** One context serves one loading thread. Asset loading is
 // single-threaded today; when it stops being, each thread takes its own context
@@ -85,6 +96,16 @@ public:
     //
     // `data` is copied into staging before returning, so the caller's storage
     // can go away immediately. `destination` must carry BufferUsage::CopyDst.
+    //
+    // `destination` must be a buffer that has not been used yet — one filled by
+    // this context and then read elsewhere may not be uploaded to a second
+    // time. A backend is free to do the copy on a queue other than the one that
+    // reads the result, and handing the buffer back to that reader is a
+    // one-way transfer; taking it back would need a submission on the reading
+    // queue, which an upload context has no way to order itself against. A
+    // buffer whose contents change every frame should be mapped and written
+    // directly instead, which is what this renderer does for its uniform and
+    // instance data.
     virtual void UploadBuffer(BufferHandle destination, uint64_t destinationOffset,
                               std::span<const std::byte> data) = 0;
 

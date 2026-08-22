@@ -165,8 +165,8 @@ TEST_CASE("A queue role is served by any family capable of it", "[RhiConversions
     REQUIRE(FamilySupports(asyncCompute, QueueType::Copy));
     REQUIRE_FALSE(FamilySupports(asyncCompute, QueueType::Graphics));
 
-    // A dedicated transfer family serves Copy and nothing else, which is what
-    // makes R12's dedicated-transfer-queue step meaningful.
+    // A dedicated transfer family serves Copy and nothing else, which is the
+    // arrangement uploads are routed onto when a device has one.
     REQUIRE(FamilySupports(dedicatedTransfer, QueueType::Copy));
     REQUIRE_FALSE(FamilySupports(dedicatedTransfer, QueueType::Graphics));
     REQUIRE_FALSE(FamilySupports(dedicatedTransfer, QueueType::Compute));

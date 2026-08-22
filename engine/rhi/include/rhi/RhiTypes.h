@@ -182,9 +182,9 @@ constexpr TextureAspect DefaultAspect(Format format)
 // queue family advertises a mask of capabilities, and a "universal" family
 // with graphics + compute + transfer is guaranteed to exist on any device that
 // supports graphics at all — so one queue may back all three roles, which is
-// exactly what this application does today. The backend is free to alias them,
-// and R12's point is precisely that it stops aliasing Copy once a dedicated
-// transfer family is available.
+// what happens on a device with nothing better. The backend is free to alias
+// them, and equally free to stop: uploads are submitted for the Copy role, and
+// land on a queue of their own wherever the device has one.
 //
 // Presentation is deliberately not a role here. It is not a queue capability
 // in Vulkan — support is a property of a (family, surface) pair, queried

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 #include "vulkan/vulkan_raii.hpp"
 
@@ -20,6 +21,7 @@
 #include <rhi/UploadContext.h>
 #include <rhi/vulkan/VulkanAllocator.h>
 
+#include "vulkan/OwnershipTransfer.h"
 #include "vulkan/QueueFamilies.h"
 #include "vulkan/VulkanBuffer.h"
 #include "vulkan/VulkanSampler.h"
@@ -93,16 +95,41 @@ public:
     uint32_t GetApiVersion() const { return kApiVersion; }
 
     // The queue family serving `role`, or QueueFamilies::kInvalid when the
-    // device has none. Only the graphics family is backed by a created queue —
-    // compute and copy work is still submitted there, and the other families
-    // are known but idle.
+    // device has none. Graphics and Copy are backed by created queues; compute
+    // work is still submitted to the graphics queue, so that family is known
+    // but idle.
     uint32_t GetQueueFamily(QueueType role) const { return m_QueueFamilies.Get(role); }
+
+    // The queue to submit `role`'s work to. Falls back to the graphics queue
+    // for every role the device has no separate queue for, so a caller never
+    // has to test IsDedicated before submitting — GetQueueFamily() is what it
+    // must consult instead, because a command pool is tied to a family and the
+    // two answers differ exactly when an ownership transfer is needed.
+    vk::raii::Queue& GetQueue(QueueType role);
+
+    // Whether VK_KHR_maintenance8 was enabled, which is what allows a queue
+    // family ownership transfer to name real pipeline stages instead of being
+    // pinned to AllCommands.
+    bool IsMaintenance8Enabled() const { return m_bMaintenance8Enabled; }
+
+    // What this device promises about handing a resource on from `srcFamily`.
+    // The answer differs per family, so a caller passes the family it recorded
+    // the releasing work on. This is the whole answer for a buffer; an image
+    // needs the question below, which folds in how the image was created.
+    OwnershipTransferRules GetOwnershipTransferRules(uint32_t srcFamily) const;
+
+    // Whether a texture filled on `srcFamily` must be explicitly released
+    // before `dstFamily` can rely on its contents. A stale handle answers yes,
+    // since the safe answer is the one that does more work.
+    bool RequiresOwnershipTransfer(TextureHandle handle, uint32_t srcFamily,
+                                   uint32_t dstFamily) const;
 
 private:
     void CreateInstance(const DeviceDesc& desc);
     void SetupDebugMessenger(const DeviceDesc& desc);
     void CreateSurface(const DeviceRequirements& requirements);
     void PickPhysicalDevice(const DeviceRequirements& requirements);
+    void SelectOptionalExtensions(const DeviceDesc& desc);
     void FindQueueFamilies(const DeviceRequirements& requirements);
     void CreateLogicalDevice();
 
@@ -145,6 +172,10 @@ private:
     VulkanAllocator m_Allocator{};
     vk::raii::Queue m_GraphicsQueue = nullptr;
 
+    // Null unless the copy family is a family of its own; GetQueue() is what
+    // resolves that, so nothing else has to know.
+    vk::raii::Queue m_CopyQueue = nullptr;
+
     // After the allocator, so that every buffer is destroyed before the
     // allocator that owns their memory. Releasing a slot frees its VulkanBuffer,
     // so this is also what makes an un-destroyed buffer merely a leak reported
@@ -159,6 +190,15 @@ private:
     HandlePool<VulkanSampler, SamplerTag> m_Samplers;
 
     QueueFamilies m_QueueFamilies;
+
+    // Optional extensions, resolved once at creation from what the device
+    // supports and what DeviceDesc asked to be pretended away.
+    bool m_bMaintenance8Enabled = false;
+    bool m_bMaintenance9Enabled = false;
+
+    // optimalImageTransferToQueueFamilies per queue family, empty unless
+    // maintenance9 was enabled. Indexed by the family releasing a resource.
+    std::vector<uint32_t> m_OptimalImageTransferToQueueFamilies;
 
     DeviceCaps m_Caps{};
 };

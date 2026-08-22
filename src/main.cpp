@@ -170,6 +170,11 @@ struct Options
     bool bHeadless = false; // TODO
     int JobCount =
         -1; // -1 = default, 0 = SerialJobSystem, N>0 = SharedQueueJobSystem with N worker threads
+
+    // --vk-disable-extension, repeatable. Vulkan-specific by nature, which is
+    // what the flag's prefix says: an optional extension exists in one backend's
+    // vocabulary and nowhere else.
+    std::vector<std::string> DisabledVulkanExtensions;
 };
 
 // Hardcoded camera transforms selected via --camera-preset <N>, for
@@ -217,6 +222,11 @@ void PrintUsage()
                      "(reserved, not yet implemented)\n"
                      "  --jobs <N>              Worker thread count (0 = SerialJobSystem, "
                      "no threads; default = hardware_concurrency() - 1)\n"
+                     "  --vk-disable-extension <name>\n"
+                     "                          Vulkan only. Behave as though the device did not "
+                     "support this\n"
+                     "                          optional extension, to exercise the fallback path. "
+                     "Repeatable.\n"
                      "  --help                  Print this message and exit\n";
 }
 
@@ -316,6 +326,8 @@ Options ParseArgs(int argc, char** argv)
             }
             else if (flag == "--jobs")
                 options.JobCount = option.RequireInt();
+            else if (flag == "--vk-disable-extension")
+                options.DisabledVulkanExtensions.push_back(option.RequireValue());
             else
             {
                 LogMsg(LogSeverity::Error, LogMain, "Unknown option: {}", flag);
@@ -480,6 +492,7 @@ private:
         desc.pDiagnostics = &m_Diagnostics;
         desc.Requirements.bPresent = true;
         desc.Requirements.NativeWindowHandle = m_Platform.GetNativeWindowHandle();
+        desc.DisabledOptionalExtensions = m_Options.DisabledVulkanExtensions;
         return desc;
     }
 

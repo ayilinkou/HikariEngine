@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <rhi/Diagnostics.h>
 
@@ -43,6 +44,21 @@ struct DeviceDesc
     // Null is allowed and means the device makes its own, so that GetDiagnostics()
     // is always valid; a caller that never reads the counts need not care.
     Diagnostics* pDiagnostics = nullptr;
+
+    // Backend extension names to pretend this device does not support.
+    //
+    // Purely a testing lever, and one that has no substitute: an optional
+    // extension changes which of two code paths runs, and the path taken on
+    // hardware *without* the extension is otherwise unreachable on hardware
+    // with it. That is the wrong way round — the fallback is the path most
+    // hardware in the field takes, so it is the one that most needs exercising.
+    //
+    // Names are backend-specific ("VK_KHR_maintenance9"), which is why this is a
+    // list of strings rather than an enum: nothing neutral could name them. A
+    // name the backend does not recognise as one of its *optional* extensions is
+    // reported and ignored, so this can never turn a working device into a
+    // failing one.
+    std::vector<std::string> DisabledOptionalExtensions;
 };
 
 // What a device turned out to be able to do, as opposed to what was asked of

@@ -12,6 +12,7 @@
 #include <rhi/vulkan/DebugNames.h>
 
 #include "vulkan/VulkanCommandList.h"
+#include "vulkan/VulkanConversions.h"
 #include "vulkan/VulkanDevice.h"
 
 namespace Rhi::Vulkan
@@ -23,6 +24,28 @@ constexpr LogCategory LogRhi("RHI");
 // Staging is written by the CPU and read once by the copy, which is exactly what
 // CpuToGpu describes.
 constexpr MemoryAccess kStagingAccess = MemoryAccess::CpuToGpu;
+
+// Every subresource starts at a 4-byte boundary within its staging buffer.
+//
+// Packing them tightly is legal on a graphics or compute queue, but a queue
+// family that supports only transfer requires every bufferOffset to be a
+// multiple of 4 (VUID-vkCmdCopyBufferToImage-commandBuffer-07737). That rule
+// has no effect on the four-byte-per-texel textures loaded today, and no
+// symptom at all until the code meets both a DMA-only queue and Format::R8Unorm
+// — which is the failure mode this whole area is prone to, so it is paid for up
+// front rather than discovered on someone else's GPU.
+//
+// Rounding up cannot break the alignment rule that applies on every queue, that
+// an offset is a multiple of the texel block size
+// (VUID-vkCmdCopyBufferToImage-dstImage-07975): every block size in Rhi::Format
+// is a power of two, so 4 is either a multiple of it or it is a multiple of 4
+// and a 4-aligned offset was already block-aligned.
+constexpr uint64_t kStagingCopyAlignment = 4u;
+
+constexpr uint64_t AlignUp(uint64_t value, uint64_t alignment)
+{
+    return (value + alignment - 1u) & ~(alignment - 1u);
+}
 } // namespace
 
 VulkanUploadContext::VulkanUploadContext(VulkanDevice& device, const UploadContextDesc& desc)
@@ -33,32 +56,91 @@ VulkanUploadContext::VulkanUploadContext(VulkanDevice& device, const UploadConte
 
     vk::raii::Device& vkDevice = m_Device.GetDevice();
 
-    // Transient because every buffer this pool hands out is recorded, submitted
+    m_CopyFamily = m_Device.GetQueueFamily(QueueType::Copy);
+    m_GraphicsFamily = m_Device.GetQueueFamily(QueueType::Graphics);
+
+    // The copy family falls back to the graphics one on a device with no
+    // separate transfer engine, and then there are no two families for a
+    // resource to move between.
+    m_bSeparateCopyQueue = m_CopyFamily != m_GraphicsFamily;
+
+    m_TransferRules = m_Device.GetOwnershipTransferRules(m_CopyFamily);
+    m_bUseAllStages = m_Device.IsMaintenance8Enabled();
+
+    // Transient because every buffer these pools hand out is recorded, submitted
     // and reset within one flush.
     //
-    // The graphics family, not the copy one, because a command buffer may only
-    // be submitted to a queue of the family its pool was created for and the
-    // graphics queue is the only one this device actually creates. Moving
-    // uploads to a dedicated transfer queue changes the pool and the submit
-    // together, and brings a queue-family ownership transfer with it.
-    const vk::CommandPoolCreateInfo poolInfo{.flags = vk::CommandPoolCreateFlagBits::eTransient,
-                                             .queueFamilyIndex =
-                                                 m_Device.GetQueueFamily(QueueType::Graphics)};
-    m_CommandPool = vk::raii::CommandPool(vkDevice, poolInfo);
-    SetVkDebugName(vkDevice, *m_CommandPool, vk::ObjectType::eCommandPool,
-                   (name + " Command Pool").c_str());
+    // The copy pool takes the copy family because a command buffer may only be
+    // submitted to a queue of the family its pool was created for, and the
+    // copies are submitted to the copy queue.
+    const vk::CommandPoolCreateInfo copyPoolInfo{.flags = vk::CommandPoolCreateFlagBits::eTransient,
+                                                 .queueFamilyIndex = m_CopyFamily};
+    m_CopyPool = vk::raii::CommandPool(vkDevice, copyPoolInfo);
+    SetVkDebugName(vkDevice, *m_CopyPool, vk::ObjectType::eCommandPool,
+                   (name + " Copy Command Pool").c_str());
 
-    const vk::CommandBufferAllocateInfo allocInfo{.commandPool = *m_CommandPool,
-                                                  .level = vk::CommandBufferLevel::ePrimary,
-                                                  .commandBufferCount = 1u};
-    m_CommandBuffer = std::move(vk::raii::CommandBuffers(vkDevice, allocInfo).front());
-    SetVkDebugName(vkDevice, *m_CommandBuffer, vk::ObjectType::eCommandBuffer,
-                   (name + " Command Buffer").c_str());
+    const vk::CommandBufferAllocateInfo copyAllocInfo{.commandPool = *m_CopyPool,
+                                                      .level = vk::CommandBufferLevel::ePrimary,
+                                                      .commandBufferCount = 1u};
+    m_CopyCommandBuffer = std::move(vk::raii::CommandBuffers(vkDevice, copyAllocInfo).front());
+    SetVkDebugName(vkDevice, *m_CopyCommandBuffer, vk::ObjectType::eCommandBuffer,
+                   (name + " Copy Command Buffer").c_str());
+
+    if (m_bSeparateCopyQueue)
+    {
+        const vk::CommandPoolCreateInfo acquirePoolInfo{
+            .flags = vk::CommandPoolCreateFlagBits::eTransient,
+            .queueFamilyIndex = m_GraphicsFamily};
+        m_AcquirePool = vk::raii::CommandPool(vkDevice, acquirePoolInfo);
+        SetVkDebugName(vkDevice, *m_AcquirePool, vk::ObjectType::eCommandPool,
+                       (name + " Acquire Command Pool").c_str());
+
+        const vk::CommandBufferAllocateInfo acquireAllocInfo{.commandPool = *m_AcquirePool,
+                                                             .level =
+                                                                 vk::CommandBufferLevel::ePrimary,
+                                                             .commandBufferCount = 1u};
+        m_AcquireCommandBuffer =
+            std::move(vk::raii::CommandBuffers(vkDevice, acquireAllocInfo).front());
+        SetVkDebugName(vkDevice, *m_AcquireCommandBuffer, vk::ObjectType::eCommandBuffer,
+                       (name + " Acquire Command Buffer").c_str());
+
+        // Binary rather than a timeline semaphore, even though the RHI models
+        // waits as fence + value (plan D5): this one never leaves the backend,
+        // is signalled and waited exactly once per flush, and a timeline would
+        // mean enabling VkPhysicalDeviceVulkan12Features::timelineSemaphore for
+        // a use that gains nothing from a counter.
+        //
+        // Reuse across flushes is safe because a binary semaphore returns to
+        // unsignalled once the wait it satisfied is executed, and Flush() blocks
+        // on the fence that submission signals before it can be called again.
+        m_OwnershipSemaphore = vk::raii::Semaphore(vkDevice, vk::SemaphoreCreateInfo{});
+        SetVkDebugName(vkDevice, *m_OwnershipSemaphore, vk::ObjectType::eSemaphore,
+                       (name + " Ownership Semaphore").c_str());
+    }
 
     // Created unsignaled: the first thing done with it is a submit, and the wait
     // that follows must not return before that submit completes.
     m_Fence = vk::raii::Fence(vkDevice, vk::FenceCreateInfo{});
     SetVkDebugName(vkDevice, *m_Fence, vk::ObjectType::eFence, (name + " Fence").c_str());
+
+    if (!m_bSeparateCopyQueue)
+    {
+        LogMsg(LogSeverity::Info, LogRhi,
+               "Upload context '{}' uploads on the graphics queue family {}; the device has no "
+               "separate copy family, so nothing is ever handed over.",
+               name, m_CopyFamily);
+        return;
+    }
+
+    LogMsg(
+        LogSeverity::Info, LogRhi,
+        "Upload context '{}' uploads on queue family {} for the graphics family {}. Buffers {} "
+        "an ownership transfer, images are decided per resource, and ownership barriers name {}.",
+        name, m_CopyFamily, m_GraphicsFamily,
+        BufferRequiresOwnershipTransfer(m_TransferRules, m_CopyFamily, m_GraphicsFamily)
+            ? "need"
+            : "do not need",
+        m_bUseAllStages ? "real pipeline stages" : "AllCommands");
 }
 
 VulkanUploadContext::~VulkanUploadContext()
@@ -140,7 +222,7 @@ void VulkanUploadContext::UploadTexture(TextureHandle destination,
 
     uint64_t total = 0u;
     for (const TextureUpload& subresource : subresources)
-        total += subresource.Data.size_bytes();
+        total = AlignUp(total, kStagingCopyAlignment) + subresource.Data.size_bytes();
 
     if (total == 0u)
         return;
@@ -164,6 +246,7 @@ void VulkanUploadContext::UploadTexture(TextureHandle destination,
     uint64_t offset = 0u;
     for (const TextureUpload& subresource : subresources)
     {
+        offset = AlignUp(offset, kStagingCopyAlignment);
         std::memcpy(pMapped + offset, subresource.Data.data(), subresource.Data.size_bytes());
 
         pending.Subresources.push_back(
@@ -183,32 +266,121 @@ void VulkanUploadContext::UploadTexture(TextureHandle destination,
     m_Stats.Bytes += total;
 }
 
+vk::ImageMemoryBarrier2 VulkanUploadContext::MakeReleaseBarrier(vk::Image image,
+                                                                const TextureDesc& desc) const
+{
+    // The destination half is empty on purpose. A release performs no
+    // visibility operation, so its destination access mask has no effect and
+    // the specification asks for it to be zero (Vulkan 1.4, *Queue Family
+    // Ownership Transfer*).
+    //
+    // The destination *stage* is ignored too, unless maintenance8's dependency
+    // flag is set — and then it stops being ignored in both directions: it
+    // becomes the stage the release is ordered at, and it must be one the copy
+    // family supports (VUID-vkCmdPipelineBarrier2-dstStageMask-09676). Copy is
+    // both, which is what makes naming it an improvement on leaving the
+    // operation unpinned.
+    return vk::ImageMemoryBarrier2{
+        .srcStageMask = vk::PipelineStageFlagBits2::eCopy,
+        .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
+        .dstStageMask = m_bUseAllStages ? vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eCopy}
+                                        : vk::PipelineStageFlags2{},
+        .dstAccessMask = vk::AccessFlagBits2::eNone,
+        .oldLayout = ToVk(TextureLayout::CopyDst),
+        .newLayout = ToVk(TextureLayout::ShaderResource),
+        .srcQueueFamilyIndex = m_CopyFamily,
+        .dstQueueFamilyIndex = m_GraphicsFamily,
+        .image = image,
+        .subresourceRange = {.aspectMask = ToVk(DefaultAspect(desc.Format)),
+                             .baseMipLevel = 0u,
+                             .levelCount = desc.MipLevels,
+                             .baseArrayLayer = 0u,
+                             .layerCount = desc.ArrayLayers}};
+}
+
+void VulkanUploadContext::MakeAcquireBarriers(OwnershipBarriers& barriers) const
+{
+    // An acquire performs no availability operation, so its source access mask
+    // says nothing, and its source stage is ignored for the same reason the
+    // release's destination stage is — unless maintenance8's flag is set, when
+    // it becomes the stage the acquire is ordered at and must be valid on the
+    // graphics family. Copy is valid there, and matching the release's stage is
+    // what makes the pair express "this hand-over happens at the copy stage"
+    // rather than "somewhere between the two submissions".
+    const vk::PipelineStageFlags2 srcStage =
+        m_bUseAllStages ? vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eCopy}
+                        : vk::PipelineStageFlags2{};
+
+    // The destination stage stays AllCommands even with maintenance8, and that
+    // is a limit of what an upload context can know rather than caution: it
+    // fills resources for a caller that has not said what will read them, so
+    // naming a narrower stage would be a guess. It becomes worth narrowing when
+    // the acquire moves into the command list that actually consumes the
+    // resource.
+    //
+    // The two destination access masks differ because an image's has to agree
+    // with its layout. ShaderReadOnlyOptimal permits only the shader and
+    // attachment read flags, and the blanket MemoryRead is not among them — a
+    // mismatch the validation layer reports even though MemoryRead is defined
+    // as every read access. A buffer has no layout to disagree with, so the
+    // blanket flag is the honest answer there.
+    for (vk::ImageMemoryBarrier2& barrier : barriers.Images)
+    {
+        barrier.srcStageMask = srcStage;
+        barrier.srcAccessMask = vk::AccessFlagBits2::eNone;
+        barrier.dstStageMask = vk::PipelineStageFlagBits2::eAllCommands;
+        barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead;
+    }
+
+    for (vk::BufferMemoryBarrier2& barrier : barriers.Buffers)
+    {
+        barrier.srcStageMask = srcStage;
+        barrier.srcAccessMask = vk::AccessFlagBits2::eNone;
+        barrier.dstStageMask = vk::PipelineStageFlagBits2::eAllCommands;
+        barrier.dstAccessMask = vk::AccessFlagBits2::eMemoryRead;
+    }
+}
+
+vk::DependencyFlags VulkanUploadContext::OwnershipDependencyFlags() const
+{
+    return m_bUseAllStages ? vk::DependencyFlags{vk::DependencyFlagBits::
+                                                     eQueueFamilyOwnershipTransferUseAllStagesKHR}
+                           : vk::DependencyFlags{};
+}
+
 void VulkanUploadContext::Flush()
 {
     if (m_BufferCopies.empty() && m_TextureCopies.empty())
         return;
 
-    // Safe because every buffer from this pool was submitted and waited on by
+    // Safe because every buffer from these pools was submitted and waited on by
     // the previous flush.
-    m_CommandPool.reset();
+    m_CopyPool.reset();
 
-    VulkanCommandList list(m_Device, *m_CommandBuffer);
+    VulkanCommandList list(m_Device, *m_CopyCommandBuffer);
     list.Begin();
 
-    // Both barrier batches cover the whole of each texture rather than only the
-    // subresources being written. A layout is a property of a subresource, and
-    // leaving the untouched ones in Undefined would make them illegal to sample
-    // through a view that spans the whole resource — which is the only kind of
-    // view anything here creates.
+    // Every texture barrier here covers the whole of each texture rather than
+    // only the subresources being written. A layout is a property of a
+    // subresource, and leaving the untouched ones in Undefined would make them
+    // illegal to sample through a view that spans the whole resource — which is
+    // the only kind of view anything here creates.
     std::vector<TextureBarrier> toCopyDst;
-    std::vector<TextureBarrier> toShaderResource;
     toCopyDst.reserve(m_TextureCopies.size());
-    toShaderResource.reserve(m_TextureCopies.size());
+
+    // A texture that stays on this queue takes the ordinary CopyDst ->
+    // ShaderResource transition. One being handed over takes the same layout
+    // move as part of its release, because a transition inside an ownership
+    // transfer must be named identically in both halves and is then executed
+    // exactly once.
+    std::vector<TextureBarrier> toShaderResource;
+    OwnershipBarriers transfer;
 
     for (const PendingTextureCopy& copy : m_TextureCopies)
     {
         const TextureDesc* pDesc = m_Device.GetTextureDesc(copy.Destination);
-        if (pDesc == nullptr)
+        const vk::Image image = m_Device.GetImage(copy.Destination);
+        if (pDesc == nullptr || !image)
             continue; // Reported by the command list when the copy is recorded.
 
         const uint32_t mips = pDesc->MipLevels;
@@ -217,10 +389,35 @@ void VulkanUploadContext::Flush()
 
         toCopyDst.push_back(
             BarrierPresets::UndefinedToCopyDst(layers, mips, aspect).On(copy.Destination));
-        toShaderResource.push_back(
-            BarrierPresets::CopyDstToShaderResource(layers, mips, aspect).On(copy.Destination));
+
+        if (m_Device.RequiresOwnershipTransfer(copy.Destination, m_CopyFamily, m_GraphicsFamily))
+        {
+            transfer.Images.push_back(MakeReleaseBarrier(image, *pDesc));
+            continue;
+        }
+
+        // The preset's destination scope is emptied, and that is a requirement
+        // rather than an economy. This barrier is recorded on the copy queue,
+        // whose family need not support graphics — and naming a stage the
+        // recording family does not have is invalid
+        // (VUID-vkCmdPipelineBarrier2-dstStageMask-09676), which on this
+        // machine's compute+transfer copy family means the pixel shader stage
+        // the preset names.
+        //
+        // Emptying it is also what the situation actually is: nothing later in
+        // this command buffer reads the texture. The consumer is a subsequent
+        // submission, reached through the fence wait below, which is the same
+        // guarantee the copies themselves rely on and is cited at that wait.
+        TextureBarrier readable =
+            BarrierPresets::CopyDstToShaderResource(layers, mips, aspect).On(copy.Destination);
+        readable.DstStage = PipelineStage::None;
+        readable.DstAccess = AccessFlags::None;
+        toShaderResource.push_back(readable);
     }
 
+    // No ownership is acquired for this one: the textures are in Undefined, so
+    // there are no contents for the copy family to inherit, and the copies are
+    // the first thing to touch them.
     list.Barrier(toCopyDst);
 
     for (const PendingBufferCopy& copy : m_BufferCopies)
@@ -246,12 +443,104 @@ void VulkanUploadContext::Flush()
         }
     }
 
+    // Buffers are all-or-nothing: nothing about an individual buffer changes
+    // the answer, so the question is asked once for the batch.
+    if (BufferRequiresOwnershipTransfer(m_TransferRules, m_CopyFamily, m_GraphicsFamily))
+    {
+        transfer.Buffers.reserve(m_BufferCopies.size());
+        for (const PendingBufferCopy& copy : m_BufferCopies)
+        {
+            const vk::Buffer buffer = m_Device.GetBuffer(copy.Destination);
+            if (!buffer)
+                continue;
+
+            transfer.Buffers.push_back(vk::BufferMemoryBarrier2{
+                .srcStageMask = vk::PipelineStageFlagBits2::eCopy,
+                .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
+                .dstStageMask = m_bUseAllStages
+                                    ? vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eCopy}
+                                    : vk::PipelineStageFlags2{},
+                .dstAccessMask = vk::AccessFlagBits2::eNone,
+                .srcQueueFamilyIndex = m_CopyFamily,
+                .dstQueueFamilyIndex = m_GraphicsFamily,
+                .buffer = buffer,
+                .offset = copy.DestinationOffset,
+                .size = copy.Size});
+        }
+    }
+
     list.Barrier(toShaderResource);
+
+    const bool bHandOver = !transfer.Empty();
+    if (bHandOver)
+    {
+        const vk::DependencyInfo releaseInfo{
+            .dependencyFlags = OwnershipDependencyFlags(),
+            .bufferMemoryBarrierCount = static_cast<uint32_t>(transfer.Buffers.size()),
+            .pBufferMemoryBarriers = transfer.Buffers.data(),
+            .imageMemoryBarrierCount = static_cast<uint32_t>(transfer.Images.size()),
+            .pImageMemoryBarriers = transfer.Images.data()};
+        m_CopyCommandBuffer.pipelineBarrier2(releaseInfo);
+    }
+
     list.End();
 
-    const vk::CommandBuffer commandBuffer = *m_CommandBuffer;
-    const vk::SubmitInfo submitInfo{.commandBufferCount = 1u, .pCommandBuffers = &commandBuffer};
-    m_Device.GetGraphicsQueue().submit(submitInfo, *m_Fence);
+    // The copy queue, whichever family that resolved to — a command buffer may
+    // only be submitted to a queue of the family its pool was created for, and
+    // this pool is the copy family's.
+    const vk::CommandBuffer copyCommandBuffer = *m_CopyCommandBuffer;
+    vk::raii::Queue& copyQueue = m_Device.GetQueue(QueueType::Copy);
+
+    if (bHandOver)
+    {
+        MakeAcquireBarriers(transfer);
+
+        m_AcquirePool.reset();
+        m_AcquireCommandBuffer.begin(vk::CommandBufferBeginInfo{});
+
+        const vk::DependencyInfo acquireInfo{
+            .dependencyFlags = OwnershipDependencyFlags(),
+            .bufferMemoryBarrierCount = static_cast<uint32_t>(transfer.Buffers.size()),
+            .pBufferMemoryBarriers = transfer.Buffers.data(),
+            .imageMemoryBarrierCount = static_cast<uint32_t>(transfer.Images.size()),
+            .pImageMemoryBarriers = transfer.Images.data()};
+        m_AcquireCommandBuffer.pipelineBarrier2(acquireInfo);
+        m_AcquireCommandBuffer.end();
+
+        const vk::Semaphore released = *m_OwnershipSemaphore;
+        const vk::SubmitInfo copySubmit{.commandBufferCount = 1u,
+                                        .pCommandBuffers = &copyCommandBuffer,
+                                        .signalSemaphoreCount = 1u,
+                                        .pSignalSemaphores = &released};
+        copyQueue.submit(copySubmit);
+
+        // The semaphore is what orders the acquire after the release, which the
+        // specification requires of every ownership transfer — an execution
+        // dependency between two queues cannot be expressed with a barrier.
+        //
+        // The wait stage stays AllCommands even under maintenance8. Narrowing it
+        // is the remaining win the extension offers, and there is nothing here
+        // to win: this submission contains the acquire and nothing else, so
+        // there is no later work for a narrower wait to let start sooner.
+        const vk::CommandBuffer acquireCommandBuffer = *m_AcquireCommandBuffer;
+        const vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eAllCommands;
+        const vk::SubmitInfo acquireSubmit{.waitSemaphoreCount = 1u,
+                                           .pWaitSemaphores = &released,
+                                           .pWaitDstStageMask = &waitStage,
+                                           .commandBufferCount = 1u,
+                                           .pCommandBuffers = &acquireCommandBuffer};
+        m_Device.GetGraphicsQueue().submit(acquireSubmit, *m_Fence);
+
+        m_Stats.Submits += 2u;
+    }
+    else
+    {
+        const vk::SubmitInfo submitInfo{.commandBufferCount = 1u,
+                                        .pCommandBuffers = &copyCommandBuffer};
+        copyQueue.submit(submitInfo, *m_Fence);
+
+        ++m_Stats.Submits;
+    }
 
     // No barrier is needed between these copies and whatever reads the results
     // in a later submission, and that is a specification guarantee rather than
@@ -261,6 +550,11 @@ void VulkanUploadContext::Flush()
     // access, which makes them visible to everything it contains (Vulkan 1.4,
     // *Fences* and *Host Write Ordering Guarantees*). The queue drain this
     // replaced was defined as exactly this fence wait, so nothing is given up.
+    //
+    // That covers visibility, and only visibility. It says nothing about which
+    // queue family owns the memory, which is why the hand-over above exists as
+    // well: without it the contents would be undefined to the graphics family
+    // no matter how well synchronized the two queues were.
     const vk::Result result = m_Device.GetDevice().waitForFences(
         *m_Fence, vk::True, std::numeric_limits<uint64_t>::max());
     if (result != vk::Result::eSuccess)
@@ -281,9 +575,9 @@ void VulkanUploadContext::Flush()
     m_BufferCopies.clear();
     m_TextureCopies.clear();
     m_PendingBytes = 0u;
-    ++m_Stats.Submits;
 
-    LogMsg(LogSeverity::Info, LogRhi, "Upload flush: {} resource(s), {:.1f} MiB, in 1 submission.",
-           flushedUploads, static_cast<double>(flushedBytes) / (1024.0 * 1024.0));
+    LogMsg(LogSeverity::Info, LogRhi, "Upload flush: {} resource(s), {:.1f} MiB, in {}.",
+           flushedUploads, static_cast<double>(flushedBytes) / (1024.0 * 1024.0),
+           bHandOver ? "2 submissions (copy, then ownership acquire)" : "1 submission");
 }
 } // namespace Rhi::Vulkan
