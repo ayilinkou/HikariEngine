@@ -1,10 +1,19 @@
-# Fails if a neutral RHI header has acquired a dependency on Vulkan or VMA
-# (rhi_extraction_plan.md D1, enforcement mechanism 2 in its §4).
+# Guards the RHI's public seam. Three checks, in the order the boundary is built
+# up (rhi_extraction_plan.md D1, enforcement mechanism 2 in its §4):
+#
+#   1. A neutral header in include/rhi/ must not depend on Vulkan or VMA.
+#   2. include/rhi/vulkan/, the transitional area that may expose Vulkan, holds
+#      exactly the headers listed here and no others.
+#   3. Outside engine/rhi/, only allowlisted sites may include that area.
+#
+# Checks 2 and 3 are ratchets rather than ceilings: the lists are allowed to
+# shrink and an entry that stops matching is itself a failure, so neither can
+# quietly outlive the code it excuses.
 #
 # Run with:  cmake -P cmake/RhiBoundaryCheck.cmake
 # from anywhere — paths are resolved relative to this file, not the caller.
 #
-# Why this exists alongside the HeaderSelfContainment_RHI_Neutral target: that
+# Why check 1 exists alongside the HeaderSelfContainment_RHI_Neutral target: that
 # target proves a neutral header compiles without linking Vulkan, but a
 # dependency that also happens to sit on the default system include path is
 # found regardless of what a target links, which on some distributions covers
@@ -146,10 +155,198 @@ if(violations)
       "rhi_boundary_check: neutral RHI headers must not depend on Vulkan or VMA.\n"
       "${violation_text}\n\n"
       "Backend-facing declarations belong in engine/rhi/src/vulkan/ (invisible\n"
-      "outside the module) or engine/rhi/include/rhi/vulkan/ (transitional, and\n"
-      "excluded from this check). Naming a Vulkan type in a comment is fine —\n"
-      "comments are stripped before matching, so this is a real dependency.")
+      "outside the module) or engine/rhi/include/rhi/vulkan/ (transitional —\n"
+      "exempt from this check, governed by the two below). Naming a Vulkan type\n"
+      "in a comment is fine: comments are stripped before matching, so this is a\n"
+      "real dependency.")
 endif()
 
 list(LENGTH neutral_headers header_count)
 message(STATUS "rhi_boundary_check: ${header_count} neutral RHI header(s) free of Vulkan and VMA.")
+
+# ---------------------------------------------------------------------------
+# Check 2: the transitional area is a fixed set of headers.
+#
+# include/rhi/vulkan/ is the one place in the module that may expose Vulkan
+# outside it (plan D1 and D9). Stage 5 ends with it frozen: a backend header
+# added here rather than in src/vulkan/ has to be argued for by editing this
+# list, which is the point. Everything else the backend needs is private.
+# ---------------------------------------------------------------------------
+
+set(transitional_headers
+    # The escape hatch itself (D9): instance/device/queue for ImGui, and the
+    # VkFormat/VkPipelineCache accessors the app's pipeline creation needs.
+    "VulkanNative.h"
+    # Pipeline creation stays Vulkan-side until the binding model is neutral
+    # (D8, Stage 8).
+    "PipelineBuilder.h"
+    "ComputePipelineBuilder.h"
+    # Descriptors are deliberately not abstracted in Stage 5 (D7); this is
+    # isolated, not neutral, and goes away with bindless in step 69.
+    "DescriptorAllocator.h"
+    # Names Vulkan objects the application still creates for itself. Shrinks as
+    # those move behind the RHI; it is a template, so it cannot move to src/.
+    "DebugNames.h"
+    # Pure functions over surface query results. The swapchain lives in App
+    # until IPresentTarget exists (Stage 6, plan §7).
+    "SwapchainUtil.h"
+    # Begin/submit/wait for a one-shot command buffer. The remaining caller
+    # records a compute dispatch, which ICommandList cannot express until draw
+    # and dispatch recording lands (Stage 8, plan §7).
+    "CommandListUtil.h")
+
+set(transitional_dir "${neutral_dir}/vulkan")
+file(GLOB transitional_present RELATIVE "${transitional_dir}" "${transitional_dir}/*.h")
+
+set(unexpected "")
+foreach(header IN LISTS transitional_present)
+  if(NOT header IN_LIST transitional_headers)
+    list(APPEND unexpected "  engine/rhi/include/rhi/vulkan/${header}")
+  endif()
+endforeach()
+
+if(unexpected)
+  list(JOIN unexpected "\n" unexpected_text)
+  message(
+    FATAL_ERROR
+      "rhi_boundary_check: unexpected header in the transitional area.\n"
+      "${unexpected_text}\n\n"
+      "A backend header belongs in engine/rhi/src/vulkan/, where nothing\n"
+      "outside the module can reach it. Put it here only if something outside\n"
+      "the module must include it, and say why by adding it to\n"
+      "transitional_headers in cmake/RhiBoundaryCheck.cmake.")
+endif()
+
+foreach(header IN LISTS transitional_headers)
+  if(NOT header IN_LIST transitional_present)
+    message(
+      FATAL_ERROR
+        "rhi_boundary_check: transitional_headers lists ${header}, which no\n"
+        "longer exists. Delete the entry — this list is meant to shrink.")
+  endif()
+endforeach()
+
+# ---------------------------------------------------------------------------
+# Check 3: who outside the module may include the transitional area.
+#
+# The plan's target for this step was "only the ImGui glue", which Stage 5
+# cannot reach: the swapchain (Stage 6), the descriptor model (D7), pipeline
+# creation (D8) and dispatch recording (Stage 8) are all explicitly out of
+# scope, and each of them is a reason the application still names Vulkan. So the
+# rule is a ratchet instead of a ceiling — every existing use is listed with the
+# work that removes it, an unlisted one fails, and an entry that stops matching
+# fails too, so the list cannot quietly outlive the code it excuses.
+#
+# Entries are "<path>|<header>|<why it is still here>", split on "|" because a
+# CMake list is already split on ";".
+# ---------------------------------------------------------------------------
+
+set(transitional_allowlist
+    "src/main.cpp|VulkanNative.h|ImGui_ImplVulkan_Init needs instance/device/queue (D9)"
+    "src/main.cpp|PipelineBuilder.h|Graphics pipeline creation is Vulkan-side (D8)"
+    "src/main.cpp|SwapchainUtil.h|The swapchain lives in App until IPresentTarget (Stage 6)"
+    "src/main.cpp|DebugNames.h|Names the swapchain, pools, sets and sync objects App still owns"
+    "src/CloudSystem.cpp|VulkanNative.h|Raw dispatch recording needs the device (D9)"
+    "src/CloudSystem.cpp|ComputePipelineBuilder.h|Compute pipeline creation is Vulkan-side (D8)"
+    "src/CloudSystem.cpp|CommandListUtil.h|The noise bake is a dispatch, not a copy (Stage 8)"
+    "src/CloudSystem.cpp|DebugNames.h|Names the bake's pipeline and descriptor set"
+    "src/MaterialFactory.h|DescriptorAllocator.h|Descriptors are isolated, not abstracted (D7)"
+    "src/MaterialFactory.cpp|VulkanNative.h|Writes descriptor sets directly (D7)"
+    "src/MaterialFactory.cpp|DebugNames.h|Names the material set layout"
+    "src/PBRMaterial.h|DescriptorAllocator.h|Descriptors are isolated, not abstracted (D7)"
+    "src/PBRMaterial.cpp|VulkanNative.h|Writes descriptor sets directly (D7)"
+    "src/PBRMaterial.cpp|DebugNames.h|Names the material descriptor set"
+    "tests/gpu/rhi/DeviceTests.cpp|VulkanNative.h|The escape hatch is what these cases assert on"
+    "tests/support/GpuReadback.h|VulkanNative.h|Readback records raw copies to a host-visible buffer"
+)
+
+# Splitting by hand rather than with file(STRINGS), which would turn every
+# semicolon in the source into a list separator and make line numbers useless.
+function(read_lines path out_var)
+  file(READ "${path}" content)
+  string(REPLACE ";" "\;" content "${content}")
+  string(REPLACE "\n" ";" content "${content}")
+  set(${out_var} "${content}" PARENT_SCOPE)
+endfunction()
+
+file(GLOB_RECURSE scanned_files "${repo_root}/src/*.h"
+     "${repo_root}/src/*.cpp" "${repo_root}/tests/*.h" "${repo_root}/tests/*.cpp"
+     "${repo_root}/engine/*.h" "${repo_root}/engine/*.cpp")
+
+set(unlisted "")
+set(matched_entries "")
+
+foreach(scanned IN LISTS scanned_files)
+  file(RELATIVE_PATH relative_path "${repo_root}" "${scanned}")
+
+  if(relative_path MATCHES "^engine/rhi/")
+    continue()
+  endif()
+
+  read_lines("${scanned}" lines)
+  set(line_number 0)
+
+  foreach(line IN LISTS lines)
+    math(EXPR line_number "${line_number} + 1")
+
+    # Anchored at the start of the line so a commented-out include does not
+    # count as a use.
+    if(NOT line MATCHES "^[ \t]*#[ \t]*include[ \t]*[<\"]rhi/vulkan/([A-Za-z0-9_]+\\.h)[>\"]")
+      continue()
+    endif()
+
+    set(included "${CMAKE_MATCH_1}")
+    set(found FALSE)
+
+    foreach(entry IN LISTS transitional_allowlist)
+      if(entry MATCHES "^([^|]+)\\|([^|]+)\\|")
+        if(CMAKE_MATCH_1 STREQUAL relative_path AND CMAKE_MATCH_2 STREQUAL included)
+          set(found TRUE)
+          list(APPEND matched_entries "${entry}")
+          break()
+        endif()
+      endif()
+    endforeach()
+
+    if(NOT found)
+      list(APPEND unlisted "  ${relative_path}:${line_number}: rhi/vulkan/${included}")
+    endif()
+  endforeach()
+endforeach()
+
+if(unlisted)
+  list(JOIN unlisted "\n" unlisted_text)
+  message(
+    FATAL_ERROR
+      "rhi_boundary_check: new use of the transitional RHI area.\n"
+      "${unlisted_text}\n\n"
+      "Outside engine/rhi/, rhi/vulkan/ may only be included by the sites\n"
+      "listed in transitional_allowlist in cmake/RhiBoundaryCheck.cmake. Prefer\n"
+      "the neutral API in rhi/. If there is genuinely no neutral way to say it\n"
+      "yet, add an entry naming the work that removes it again.")
+endif()
+
+set(stale "")
+foreach(entry IN LISTS transitional_allowlist)
+  if(NOT entry IN_LIST matched_entries)
+    string(REPLACE "|" " -> " readable "${entry}")
+    list(APPEND stale "  ${readable}")
+  endif()
+endforeach()
+
+if(stale)
+  list(JOIN stale "\n" stale_text)
+  message(
+    FATAL_ERROR
+      "rhi_boundary_check: transitional_allowlist has entries nothing matches.\n"
+      "${stale_text}\n\n"
+      "The include is gone, so delete the entry. The allowlist is a ratchet: it\n"
+      "only means anything while it shrinks as the neutral API grows.")
+endif()
+
+list(LENGTH transitional_headers transitional_count)
+list(LENGTH transitional_allowlist allowlist_count)
+message(
+  STATUS
+    "rhi_boundary_check: transitional area is ${transitional_count} header(s), used from "
+    "${allowlist_count} site(s) outside the module.")

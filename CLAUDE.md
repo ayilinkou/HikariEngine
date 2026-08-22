@@ -84,8 +84,8 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 2 — Header self-containment | 12–14 | ✅ done (`HeaderSelfContainment` target, enforced in CI) |
 | 3 — Core library | 15–19 | ✅ done (`Engine::Core`, `IJobSystem` injected into `App`) |
 | 4 — Platform library | 20–23 | ✅ done (`Engine::Platform`, `Paths` + `content/` root, `CommandLine`) |
-| **5 — RHI extraction** | **R1–R17** | **← in progress. `engine/rhi` with a backend-neutral API, handle-based resources, batched uploads, growable descriptors. Planned in `docs/rhi_extraction_plan.md`, which supersedes Part IV steps 24–34 and holds the per-step progress table.** |
-| 6 — Headless capability | 35–40 | not started |
+| 5 — RHI extraction | R1–R17 | ✅ done (`Engine::RHI` — backend-neutral API, handle-based resources, batched uploads, growable descriptors, a pipeline cache, and GPU tests) |
+| **6 — Headless capability** | **35–40** | **← next** |
 | 7 — Engine shell + DI | 41–47 | not started — **CI goal met at step 47** |
 | 8+ — Frame graph, DOD, scalability | 48–76 | not started |
 
@@ -107,7 +107,7 @@ tests/scripts/build_tests.sh        # build every test target
 tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
 tests/scripts/run_gpu_tests.sh      # ctest -L gpu --output-on-failure (needs a Vulkan ICD)
 tests/scripts/header_check.sh       # compile every header standalone, no PCH
-tests/scripts/rhi_boundary_check.sh # no Vulkan/VMA in engine/rhi's neutral headers
+tests/scripts/rhi_boundary_check.sh # the RHI seam: neutral headers, and who may bypass them
 tests/scripts/format_check.sh       # dry-run, -Werror
 scripts/format.sh                   # clang-format -i over src/ and engine/
 scripts/precommit.sh                # all of the above, CI's checks in CI's order
@@ -166,6 +166,13 @@ engine/core/     # Engine::Core static lib — Log, Timer, MyMacros, SwapbackArr
                  #   ThreadPool, IJobSystem + SerialJobSystem + SharedQueueJobSystem
 engine/platform/ # Engine::Platform static lib — IPlatform/SdlPlatform, Paths, FileSystem,
                  #   CommandLine
+engine/rhi/      # Engine::RHI static lib — the graphics abstraction.
+                 #   include/rhi/         backend-neutral: IDevice, ICommandList, barriers,
+                 #                        handles, descs, IUploadContext, IPipelineCache
+                 #   include/rhi/vulkan/  the transitional area that may expose Vulkan —
+                 #                        the native escape hatch plus what Stages 6-8 have
+                 #                        not taken over yet. Frozen; see below.
+                 #   src/vulkan/          the backend. Invisible outside the module.
 cmake/           # EngineModule.cmake (engine_module), Testing.cmake (engine_test),
                  #   HeaderSelfContainment.cmake, Warnings.cmake
 tests/unit/      # Catch2 tests, CTest label "unit" — no GPU, run by CI
@@ -213,6 +220,15 @@ Two non-obvious rules that the whole test strategy rests on:
   with zero Vulkan.
 - **`Render` must not link `Scene`.** It consumes a POD `FrameSnapshot`, so renderer tests
   build inputs by hand.
+
+**The RHI's public API is backend-neutral, and that is checked rather than trusted.** Nothing
+under `engine/rhi/include/rhi/` may name a Vulkan or VMA type; the backend lives in
+`engine/rhi/src/vulkan/`, where nothing outside the module can reach it. The one exception is
+`engine/rhi/include/rhi/vulkan/`, which is *frozen*: seven headers covering what Stages 6–8
+have not taken over yet, and sixteen allowlisted include sites outside the module. Adding
+either fails `rhi_boundary_check`, and so does leaving an allowlist entry behind after its
+include goes — the list is meant to shrink to nothing. New entries are argued for in
+`cmake/RhiBoundaryCheck.cmake`, next to the reason each existing one is still there.
 
 Full target table, per-module header lists and directory layout: architecture plan §8–§9.
 
@@ -323,5 +339,8 @@ Other rules:
   prebuilt libraries; removing it produces LNK2038 errors.
 - **macOS is tagged experimental** — it builds in CI but is exercised far less than
   Linux/Windows.
-- **Fixed ceilings that abort rather than grow:** `MAX_INSTANCE_COUNT` 1024, and a
-  100-material descriptor pool limit. Growable replacements land in steps 31–32.
+- **The instance buffer and the descriptor pools grow** — both were fixed ceilings that
+  aborted, and no longer are. Growing the instance buffer reallocates storage the GPU may
+  still be reading, so the wait before the swap is the load-bearing part, not the
+  reallocation. Read `DescriptorAllocator::Grow` and `App::GrowInstanceBuffers` before
+  changing either.

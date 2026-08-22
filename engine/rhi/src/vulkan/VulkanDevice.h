@@ -20,10 +20,10 @@
 #include <rhi/TextureDesc.h>
 #include <rhi/TextureViewDesc.h>
 #include <rhi/UploadContext.h>
-#include <rhi/vulkan/VulkanAllocator.h>
 
 #include "vulkan/OwnershipTransfer.h"
 #include "vulkan/QueueFamilies.h"
+#include "vulkan/VulkanAllocator.h"
 #include "vulkan/VulkanBuffer.h"
 #include "vulkan/VulkanSampler.h"
 #include "vulkan/VulkanTexture.h"

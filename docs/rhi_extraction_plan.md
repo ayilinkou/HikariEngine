@@ -496,7 +496,7 @@ are the ones later steps need to read.
 | R14 — Growable instance buffer | ✅ done (the wait, not the reallocation, is the load-bearing part — see **As built**) |
 | R15 — `PipelineCache` | ✅ done (the header check is the load-bearing part, not the file I/O — see **As built**) |
 | R16 — First GPU tests | ✅ done (the cubemap bug was already gone; headless device creation was the real work — see **As built**) |
-| R17 — Seal the boundary and update the docs | not started |
+| R17 — Seal the boundary and update the docs | ✅ done (one header could move; the boundary became a ratchet instead of a ceiling — see **As built**) |
 
 ### R1 — `core/Handle.h` + `core/HandlePool.h`
 
@@ -1535,6 +1535,36 @@ are the ones later steps need to read.
 - **Verify:** `scripts/precommit.sh` green; boundary check green; headless report identical
   to baseline with `validationErrors: 0`.
 - **Size:** S · **Needs:** R16
+- **As built:** Three of the four headers this step expected to move down could not, and the
+  `src/` rule it expected to write could not be written.
+
+  Only `VulkanAllocator.h` had no user outside the module; it moved to `src/vulkan/` and took
+  VMA off every public path with it. `DebugNames.h`, `SwapchainUtil.h` and `CommandListUtil.h`
+  are all still included from `src/`, and each for a reason Stage 5 put out of scope on
+  purpose: the application names Vulkan objects it created itself, the swapchain lives in
+  `App` until `IPresentTarget` (Stage 6), and the cloud bake records a dispatch, which
+  `ICommandList` will not express until Stage 8. Moving them would have meant either breaking
+  the build or dragging Stage 6 and Stage 8 work into this step.
+
+  So "only the ImGui glue may include `rhi/vulkan/`" is not a rule Stage 5 can end on — and
+  there is no ImGui glue file to point it at either, since ImGui is still initialised inside
+  `main.cpp`. What replaced it is a **ratchet**: `cmake/RhiBoundaryCheck.cmake` now also
+  freezes the transitional area to a named list of seven headers, and allowlists the sixteen
+  sites outside `engine/rhi/` that include them, each entry carrying the work that will
+  remove it. A new include fails. An entry that stops matching *also* fails, so the list
+  cannot outlive the code it excuses — which is what makes it shrink as Stages 6–8 land,
+  ending at the ImGui glue this step was aiming for. All three failure modes were tested by
+  provoking them.
+
+  The §8 audit found one row weaker than the table claimed: `FenceHandle` is declared, and
+  D5's reasoning is recorded on it, but no interface takes one. That is now said at the
+  declaration, along with where the API should be shaped from (Stage 6's first real wait)
+  rather than guessed at now.
+
+  Also worth knowing before this document is retired: **27 comments across the tree cite its
+  decision numbers** as `(plan D2)`, `(plan D6)` and so on. Each comment states its rationale
+  in full and the citation only points at the longer argument, so none of them break — but
+  they all dangle unless §2 keeps its numbering wherever it is promoted to.
 
 ---
 
@@ -1582,32 +1612,84 @@ Explicitly **not** in Stage 5, to keep the boundary of this plan sharp:
 
 ## 8. D3D12 readiness checklist
 
-The audit R17 runs. For each row: is the concept neutral, isolated, or knowingly deferred?
+R17 walked this. Each row carries the verdict it was walked for — **neutral** (the public API
+says nothing Vulkan-specific), **isolated** (Vulkan is still visible, but only from named
+sites the boundary check holds), **deferred** (out of Stage 5 by an explicit decision), or
+**partial** (the neutral form exists but does not yet cover every use).
 
-| Concept | Vulkan today | D3D12 equivalent | Stage 5 outcome |
-|---|---|---|---|
-| Instance / adapter | `VkInstance` + `VkPhysicalDevice` | `IDXGIFactory` + `IDXGIAdapter` | Inside `VulkanDevice` |
-| Device | `VkDevice` | `ID3D12Device` | `Rhi::IDevice`, neutral |
-| Queues | family index + `VkQueue` | `ID3D12CommandQueue` (DIRECT/COMPUTE/COPY) | `QueueType`, neutral (D6) |
-| Allocator | VMA | D3D12MA (same author, similar API) | Inside device |
-| Buffer | `VkBuffer` + `VmaAllocation` | `ID3D12Resource` | `BufferHandle` (D2) |
-| Texture | `VkImage` | `ID3D12Resource` | `TextureHandle` (D2) |
-| Texture view | `VkImageView` object | descriptor in a heap | `TextureViewHandle` — same handle, different backing |
-| Sampler | `VkSampler` object | sampler descriptor / static sampler | `SamplerHandle` |
-| Barriers | sync2 triple | Enhanced Barriers triple | Neutral triple + presets (D4) |
-| Command recording | `VkCommandBuffer` | `ID3D12GraphicsCommandList` | `ICommandList`, partial — copies/barriers only |
-| Command pool | `VkCommandPool` | `ID3D12CommandAllocator` | Inside backend |
-| CPU/GPU sync | timeline semaphore | `ID3D12Fence` + value | `FenceHandle` + value (D5) |
-| Present sync | **binary** semaphores (VUIDs in D5) | DXGI + fence | Behind `IPresentTarget`, Stage 6 |
-| Descriptors | sets / layouts / pools | root signature + heaps | **Deferred** (D7) — isolated, not abstracted |
-| Per-draw constants | push constants | root constants | Already 1:1 |
-| Pipelines | `VkPipeline` + dynamic rendering | PSO, no render pass objects | Vulkan-side (D8); dynamic rendering is the portable choice |
-| Pipeline cache | `VkPipelineCache` | cached PSO blob / `ID3D12PipelineLibrary` | Neutral opaque blob (D8) |
-| Shaders | SPIR-V via Slang | DXIL via Slang | Already portable (D12) |
-| Clip space | Y-down | Y-up | One site, `DeviceCaps::bFlipClipSpaceY` (D10) |
-| Formats | `VkFormat` | `DXGI_FORMAT` | Curated `Rhi::Format` + tables (D11) |
-| Debug names | `VK_EXT_debug_utils` | `ID3D12Object::SetName` | `SetDebugName(handle, name)` |
-| Validation | layers + messenger | debug layer + `ID3D12InfoQueue` | `Rhi::Diagnostics` (D7 step, neutral) |
+| Concept | Vulkan today | D3D12 equivalent | Stage 5 outcome | Verdict |
+|---|---|---|---|---|
+| Instance / adapter | `VkInstance` + `VkPhysicalDevice` | `IDXGIFactory` + `IDXGIAdapter` | Inside `VulkanDevice` | Isolated |
+| Device | `VkDevice` | `ID3D12Device` | `Rhi::IDevice`, neutral | Neutral |
+| Queues | family index + `VkQueue` | `ID3D12CommandQueue` (DIRECT/COMPUTE/COPY) | `QueueType`, neutral (D6) | Neutral |
+| Allocator | VMA | D3D12MA (same author, similar API) | Inside device | Neutral |
+| Buffer | `VkBuffer` + `VmaAllocation` | `ID3D12Resource` | `BufferHandle` (D2) | Neutral |
+| Texture | `VkImage` | `ID3D12Resource` | `TextureHandle` (D2) | Neutral |
+| Texture view | `VkImageView` object | descriptor in a heap | `TextureViewHandle` — same handle, different backing | Neutral |
+| Sampler | `VkSampler` object | sampler descriptor / static sampler | `SamplerHandle` | Neutral |
+| Barriers | sync2 triple | Enhanced Barriers triple | Neutral triple + presets (D4) | Neutral |
+| Command recording | `VkCommandBuffer` | `ID3D12GraphicsCommandList` | `ICommandList`, copies and barriers only | Partial |
+| Command pool | `VkCommandPool` | `ID3D12CommandAllocator` | Inside backend for the RHI's own work | Partial |
+| CPU/GPU sync | timeline semaphore | `ID3D12Fence` + value | `FenceHandle` declared; waiting is inside `IUploadContext` | Partial |
+| Present sync | **binary** semaphores (VUIDs in D5) | DXGI + fence | Behind `IPresentTarget`, Stage 6 | Deferred |
+| Descriptors | sets / layouts / pools | root signature + heaps | **Deferred** (D7) — isolated, not abstracted | Deferred |
+| Per-draw constants | push constants | root constants | Already 1:1, but recorded through raw Vulkan | Deferred |
+| Pipelines | `VkPipeline` + dynamic rendering | PSO, no render pass objects | Vulkan-side (D8); dynamic rendering is the portable choice | Deferred |
+| Pipeline cache | `VkPipelineCache` | cached PSO blob / `ID3D12PipelineLibrary` | Neutral opaque blob (D8) | Neutral |
+| Shaders | SPIR-V via Slang | DXIL via Slang | Already portable (D12) | Neutral |
+| Clip space | Y-down | Y-up | One site, `DeviceCaps::bFlipClipSpaceY` (D10) | Neutral |
+| Formats | `VkFormat` | `DXGI_FORMAT` | Curated `Rhi::Format` + tables (D11) | Neutral |
+| Debug names | `VK_EXT_debug_utils` | `ID3D12Object::SetName` | `DebugName` on every `*Desc`, not a setter | Neutral |
+| Validation | layers + messenger | debug layer + `ID3D12InfoQueue` | `Rhi::Diagnostics` | Neutral |
+
+Eleven rows landed somewhere other than the plan predicted, or need a caveat a table cell
+cannot hold:
+
+- **Instance / adapter is isolated, not hidden.** `VulkanNative.h` hands out the physical
+  device, device, surface and graphics queue, because ImGui's Vulkan backend takes all four
+  (D9). A D3D12 backend cannot implement those functions — it does not have to, because
+  `VulkanNative.h` is a Vulkan header. What it means is that the ImGui integration is
+  backend-specific code, and stays so.
+- **The allocator became fully private in R17.** `VulkanAllocator.h` was the last VMA type on
+  a public path; it now lives in `src/vulkan/`, so VMA is invisible outside the module. This
+  is the only row the step actually moved.
+- **Command recording is copies and barriers.** `ICommandList` has `Begin`/`End`, `Barrier`,
+  and the three copy entry points. Draws, dispatches and render passes are Stage 8, so the
+  frame loop and the cloud bake still record through `vk::CommandBuffer` — the cloud bake
+  wraps the same buffer in an `ICommandList` for its barriers and uses raw Vulkan for the
+  dispatch, which is the shape the rest of the renderer will take as Stage 8 lands.
+- **Command pools: the RHI owns its own, the application still owns nine.** The upload
+  context allocates from a pool it created; `App` creates a generic pool plus one per pass
+  per frame in flight. Those move with the frame loop, not with the RHI.
+- **CPU/GPU sync is the weakest row.** `FenceHandle` exists as a type and D5's reasoning is
+  recorded on it, but no interface takes one: `IUploadContext::Flush` waits internally on a
+  `VkFence` it owns — not even the timeline semaphore D5 settles on — and the frame loop's
+  fences and binary semaphores are still `App`'s raw Vulkan. The neutral shape is decided and
+  unbuilt. Stage 6 is where a caller
+  first needs to wait on something the RHI owns, and is where this should be built rather
+  than guessed at now.
+- **Per-draw constants are 1:1 but not abstracted.** `vkCmdPushConstants` and
+  `SetGraphicsRoot32BitConstants` mean the same thing, so there is no design risk here; there
+  is also no neutral call, because it takes a pipeline layout, which is descriptors (D7).
+- **Debug names are a `Desc` field, not `SetDebugName(handle, name)`.** Every `*Desc` carries
+  a `DebugName`, so the name is set at creation and there is no second call to forget. A
+  setter would also have had to work on handles whose backing object does not exist yet on
+  D3D12 (a view is a descriptor). Neutral either way; the checklist simply predicted the
+  wrong shape.
+- **Clip space holds.** `bFlipClipSpaceY` is read at exactly one site in the renderer, plus
+  one assertion in the GPU tests. D10 is intact.
+- **`Rhi::Diagnostics` is neutral but not virtual.** It is a concrete class with a
+  backend-set callback rather than an interface. Nothing about it names Vulkan; a second
+  backend feeds the same class from `ID3D12InfoQueue`.
+- **Formats are curated, and the table is the enforcement.** `Rhi::Format` is a hand-picked
+  enum, and the conversion functions are switches with no `default:`, so adding a format
+  without mapping it fails the build — on MSVC too, which is what the `/w14062` in
+  `engine/rhi/CMakeLists.txt` buys.
+- **The transitional area is seven headers, used from sixteen sites.** Not the four the step
+  predicted: pipeline creation (D8), descriptors (D7), the swapchain (Stage 6) and dispatch
+  recording (Stage 8) are all explicitly out of Stage 5, and each is a reason a header has to
+  stay reachable. `cmake/RhiBoundaryCheck.cmake` lists all sixteen with the work that removes
+  each, and fails both on a new one and on an entry that stops matching.
 
 ---
 

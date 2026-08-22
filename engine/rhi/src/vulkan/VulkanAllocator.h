@@ -7,6 +7,12 @@
 #include "vk_mem_alloc.h"
 #include "vulkan/vulkan_raii.hpp"
 
+namespace Rhi::Vulkan
+{
+// Owns the VMA allocator for one device.
+//
+// Module-private: every allocation the engine makes goes through the device,
+// so nothing outside the backend has a reason to name this.
 class VulkanAllocator
 {
 public:
@@ -58,3 +64,4 @@ private:
 
     VmaAllocator m_Allocator{};
 };
+} // namespace Rhi::Vulkan
