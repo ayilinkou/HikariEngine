@@ -492,7 +492,7 @@ are the ones later steps need to read.
 | R11 — `UploadContext` — batch transfers | ✅ done |
 | R12a — Use the dedicated transfer queue | ✅ done (the acquire is submitted by the context, not returned — see **As built**) |
 | R12b — Adopt `VK_KHR_maintenance8` and `VK_KHR_maintenance9` | ✅ done (exposed a barrier that was invalid on a copy-only queue — see **As built**) |
-| R13 — Growable `DescriptorAllocator` | not started |
+| R13 — Growable `DescriptorAllocator` | ✅ done (grows before the pool is overrun, not after — see **As built**) |
 | R14 — Growable instance buffer | not started |
 | R15 — `PipelineCache` | not started |
 | R16 — First GPU tests | not started |
@@ -1283,6 +1283,37 @@ are the ones later steps need to read.
   confirm it loads with pool growth logged, then restore a sensible size. Headless report
   identical.
 - **Size:** M · **Needs:** R5 · **Was:** step 31
+- **As built:** done. Two things differ from the **Do** text.
+
+  **Growth happens before a pool is overrun, not in response to the failure.** The allocator
+  counts the sets it has taken from the newest pool and adds the next one when that count
+  reaches the pool's capacity. Catching the failed allocation was implemented first and does
+  work — Sponza loaded at an initial capacity of 4, growing 4 → 6 → 9 → 13 — but every growth
+  cost three validation warnings, because the layers report each
+  `VK_ERROR_OUT_OF_POOL_MEMORY`. `validationWarnings` is one of the numbers the run report
+  exists to make trustworthy, so a routine, expected growth must not raise it. The counter
+  brought the same run to **zero warnings and zero errors** with the growth still logged.
+
+  The catch stays, because the counter cannot see the other reason an allocation fails.
+  Fragmentation is invisible from outside the driver, and the specification's instruction is
+  to treat *any* error as fragmentation and create a new pool — `VK_ERROR_FRAGMENTED_POOL`
+  was added late in Vulkan 1.0, so a driver written against an earlier patch version is
+  allowed to report it as something else. So the retry catches `vk::SystemError` rather than
+  the two named codes, and a genuine out-of-memory surfaces from the retry instead.
+
+  **Pool sizes are stated per set, not per pool.** The caller passes the descriptors *one*
+  set needs and the allocator multiplies by the pool's set capacity. Stating it per pool
+  would make every growth a place to get the arithmetic wrong: raising `maxSets` without
+  raising the descriptor counts to match produces a pool that reports itself as having room
+  and then refuses the allocation. `MaterialFactory` now derives its one entry from
+  `TextureBinding::COUNT`, which retires the hand-maintained `s_MAX_TEXTURE_COUNT_PER_MAT`
+  alongside `s_MAX_MATERIAL_SET_COUNT`.
+
+  `kInitialMaterialSetCapacity` is 100 — the old ceiling, kept as the starting size so no
+  scene shipped today pays for a second pool, and Sponza confirms it (zero growth events).
+  The allocator is not thread-safe; material creation is single-threaded today, and a mutex
+  would be paying now for a guarantee nothing asks for. Sponza's report is identical at
+  capacity 4 and capacity 100, and `tests/baseline/`'s report is unchanged.
 
 ### R14 — Growable instance buffer
 

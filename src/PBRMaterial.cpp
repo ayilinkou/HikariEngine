@@ -7,13 +7,13 @@
 #include <rhi/vulkan/DebugNames.h>
 #include <rhi/vulkan/VulkanNative.h>
 
-PBRMaterial::PBRMaterial(Rhi::IDevice& rhiDevice, vk::raii::DescriptorPool& descriptorPool,
+PBRMaterial::PBRMaterial(Rhi::IDevice& rhiDevice, DescriptorAllocator& descriptorAllocator,
                          vk::raii::DescriptorSetLayout& setLayout, Rhi::SamplerHandle sampler,
                          aiMaterial* mat, const std::string& texturesParentFolder)
     : Material(mat)
 {
     LoadTextures(mat, texturesParentFolder);
-    CreateDescriptorSet(rhiDevice, descriptorPool, setLayout, sampler);
+    CreateDescriptorSet(rhiDevice, descriptorAllocator, setLayout, sampler);
 }
 
 void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParentFolder)
@@ -66,7 +66,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParen
 }
 
 void PBRMaterial::CreateDescriptorSet(Rhi::IDevice& rhiDevice,
-                                      vk::raii::DescriptorPool& descriptorPool,
+                                      DescriptorAllocator& descriptorAllocator,
                                       vk::raii::DescriptorSetLayout& materialSetLayout,
                                       Rhi::SamplerHandle sampler)
 {
@@ -81,14 +81,7 @@ void PBRMaterial::CreateDescriptorSet(Rhi::IDevice& rhiDevice,
         return texture ? Rhi::Vulkan::GetImageView(rhiDevice, texture->GetView()) : vk::ImageView{};
     };
 
-    std::vector<vk::DescriptorSetLayout> layouts(1, materialSetLayout);
-    vk::DescriptorSetAllocateInfo allocInfo{.descriptorPool = descriptorPool,
-                                            .descriptorSetCount =
-                                                static_cast<uint32_t>(layouts.size()),
-                                            .pSetLayouts = layouts.data()};
-
-    auto sets = device.allocateDescriptorSets(allocInfo);
-    m_DescriptorSet = std::move(sets.front());
+    m_DescriptorSet = descriptorAllocator.Allocate(*materialSetLayout);
     SetVkDebugName(device, *m_DescriptorSet, vk::ObjectType::eDescriptorSet,
                    std::format("{} Material Descriptor Set", m_Name).c_str());
 

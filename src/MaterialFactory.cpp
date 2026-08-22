@@ -1,19 +1,31 @@
 #include "MaterialFactory.h"
 
+#include <array>
+
 #include <core/Log.h>
 #include <rhi/vulkan/DebugNames.h>
 #include <rhi/vulkan/VulkanNative.h>
 
+#include "Texture.h"
+
 constexpr LogCategory LogMaterialFactory("Material Factory");
 
+// A material set binds one combined image sampler per texture slot.
+constexpr std::array kMaterialDescriptorsPerSet = {vk::DescriptorPoolSize{
+    .type = vk::DescriptorType::eCombinedImageSampler, .descriptorCount = TextureBinding::COUNT}};
+
+// A starting size, not a ceiling — the allocator adds pools when a scene brings
+// more materials than this. Sized so that no scene shipped today pays for a
+// second pool.
+constexpr uint32_t kInitialMaterialSetCapacity = 100u;
+
 MaterialFactory* MaterialFactory::s_Instance = nullptr;
-const uint8_t MaterialFactory::s_MAX_TEXTURE_COUNT_PER_MAT = 3u;
-const uint16_t MaterialFactory::s_MAX_MATERIAL_SET_COUNT = 100u;
 
 MaterialFactory::MaterialFactory(Rhi::IDevice& rhiDevice, Rhi::SamplerHandle sampler)
-    : m_RhiDevice(rhiDevice), m_Device(Rhi::Vulkan::GetDevice(rhiDevice)), m_Sampler(sampler)
+    : m_RhiDevice(rhiDevice), m_Device(Rhi::Vulkan::GetDevice(rhiDevice)), m_Sampler(sampler),
+      m_DescriptorAllocator(m_Device, kMaterialDescriptorsPerSet, kInitialMaterialSetCapacity,
+                            "Material Factory")
 {
-    CreateDescriptorPool();
     CreateDescriptorSetLayout();
 }
 
@@ -35,22 +47,6 @@ void MaterialFactory::Shutdown()
 
     delete s_Instance;
     s_Instance = nullptr;
-}
-
-void MaterialFactory::CreateDescriptorPool()
-{
-    std::array materialPoolSize = {vk::DescriptorPoolSize{
-        .type = vk::DescriptorType::eCombinedImageSampler,
-        .descriptorCount = s_MAX_TEXTURE_COUNT_PER_MAT * s_MAX_MATERIAL_SET_COUNT}};
-    vk::DescriptorPoolCreateInfo matCreateInfo{
-        .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-        .maxSets = s_MAX_MATERIAL_SET_COUNT,
-        .poolSizeCount = static_cast<uint32_t>(materialPoolSize.size()),
-        .pPoolSizes = materialPoolSize.data()};
-
-    m_DescriptorPool = vk::raii::DescriptorPool(m_Device, matCreateInfo);
-    SetVkDebugName(m_Device, *m_DescriptorPool, vk::ObjectType::eDescriptorPool,
-                   "Material Factory Descriptor Pool");
 }
 
 void MaterialFactory::CreateDescriptorSetLayout()
@@ -88,6 +84,6 @@ void MaterialFactory::CreateDescriptorSetLayout()
 PBRMaterial* MaterialFactory::CreatePBRMaterial(aiMaterial* mat,
                                                 const std::string& texturesParentFolder)
 {
-    return new PBRMaterial(m_RhiDevice, m_DescriptorPool, m_SetLayout, m_Sampler, mat,
+    return new PBRMaterial(m_RhiDevice, m_DescriptorAllocator, m_SetLayout, m_Sampler, mat,
                            texturesParentFolder);
 }

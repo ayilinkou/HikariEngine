@@ -7,6 +7,7 @@
 
 #include <rhi/Handles.h>
 #include <rhi/IDevice.h>
+#include <rhi/vulkan/DescriptorAllocator.h>
 
 #include "Material.h"
 #include "Texture.h"
@@ -16,7 +17,7 @@ struct aiMaterial;
 class PBRMaterial : public Material
 {
 public:
-    PBRMaterial(Rhi::IDevice& rhiDevice, vk::raii::DescriptorPool& descriptorPool,
+    PBRMaterial(Rhi::IDevice& rhiDevice, DescriptorAllocator& descriptorAllocator,
                 vk::raii::DescriptorSetLayout& setLayout, Rhi::SamplerHandle sampler,
                 aiMaterial* mat, const std::string& texturesParentFolder);
 
@@ -24,7 +25,7 @@ public:
 
 private:
     void LoadTextures(aiMaterial* mat, const std::string& texturesParentFolder);
-    void CreateDescriptorSet(Rhi::IDevice& rhiDevice, vk::raii::DescriptorPool& descriptorPool,
+    void CreateDescriptorSet(Rhi::IDevice& rhiDevice, DescriptorAllocator& descriptorAllocator,
                              vk::raii::DescriptorSetLayout& setLayout, Rhi::SamplerHandle sampler);
 
 public:

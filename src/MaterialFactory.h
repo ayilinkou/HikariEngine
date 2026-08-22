@@ -1,10 +1,10 @@
 #pragma once
 
-#include <cstdint>
 #include <string>
 
 #include <rhi/Handles.h>
 #include <rhi/IDevice.h>
+#include <rhi/vulkan/DescriptorAllocator.h>
 
 #include "Material.h"
 #include "PBRMaterial.h"
@@ -27,14 +27,12 @@ public:
 private:
     MaterialFactory(Rhi::IDevice& rhiDevice, Rhi::SamplerHandle sampler);
 
-    void CreateDescriptorPool();
     void CreateDescriptorSetLayout();
 
 private:
     static MaterialFactory* s_Instance;
 
     vk::raii::DescriptorSetLayout m_SetLayout = nullptr;
-    vk::raii::DescriptorPool m_DescriptorPool = nullptr;
 
     Rhi::IDevice& m_RhiDevice;
 
@@ -45,6 +43,7 @@ private:
 
     Rhi::SamplerHandle m_Sampler;
 
-    static const uint8_t s_MAX_TEXTURE_COUNT_PER_MAT;
-    static const uint16_t s_MAX_MATERIAL_SET_COUNT;
+    // Declared after m_Device because it is constructed from that reference,
+    // and members are initialized in declaration order.
+    DescriptorAllocator m_DescriptorAllocator;
 };
