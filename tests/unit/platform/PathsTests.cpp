@@ -200,7 +200,45 @@ TEST_CASE("Content() joins a relative path onto the resolved root", "[Paths]")
     const Paths paths{root.string()};
 
     REQUIRE(paths.ContentRoot() == root);
-    REQUIRE(paths.Content("shaders/opaque.spv") == root / "shaders/opaque.spv");
+    REQUIRE(paths.Content("scenes/test_scene.map") == root / "scenes/test_scene.map");
+}
+
+TEST_CASE("Shader() joins a relative path onto the shader root", "[Paths]")
+{
+    const TempDir temp;
+    const Paths paths{temp.MakeDir("content").string()};
+
+    REQUIRE(paths.Shader("opaque.spv") == paths.ShaderRoot() / "opaque.spv");
+}
+
+TEST_CASE("Shader() returns an absolute path unchanged", "[Paths]")
+{
+    const TempDir temp;
+    const Paths paths{temp.MakeDir("content").string()};
+
+    const std::filesystem::path absolute = temp.Missing("elsewhere/opaque.spv");
+    REQUIRE(absolute.is_absolute());
+    REQUIRE(paths.Shader(absolute.string()) == absolute);
+}
+
+TEST_CASE("The shader root does not follow the content root", "[Paths]")
+{
+    const TempDir temp;
+
+    // Compiled SPIR-V is only valid for the binary it was built alongside, so
+    // it is keyed to the executable and --content must not move it. Two
+    // different content roots therefore have to give the same shader root: the
+    // configuration a shader was compiled for is decided by which executable is
+    // running, not by which content the run was pointed at.
+    const Paths first{temp.MakeDir("content_a").string()};
+    const Paths second{temp.MakeDir("content_b").string()};
+
+    REQUIRE(first.ContentRoot() != second.ContentRoot());
+    REQUIRE(first.ShaderRoot() == second.ShaderRoot());
+    REQUIRE(first.Shader("opaque.spv") == second.Shader("opaque.spv"));
+
+    // And it is not under either of them, so no content root can shadow it.
+    REQUIRE(first.ShaderRoot().string().rfind(first.ContentRoot().string(), 0) != 0);
 }
 
 TEST_CASE("Content() returns an absolute path unchanged", "[Paths]")

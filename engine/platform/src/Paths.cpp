@@ -14,6 +14,7 @@ constexpr LogCategory LogPaths("Paths");
 
 constexpr const char* kContentEnvVar = "VULKANAPP_CONTENT";
 constexpr const char* kContentDirName = "content";
+constexpr const char* kShaderDirName = "shaders";
 
 constexpr const char* kUserDataEnvVar = "VULKANAPP_USER_DATA";
 constexpr const char* kAppName = "VulkanApp";
@@ -123,7 +124,17 @@ Paths::Paths(std::string_view commandLineOverride)
     // terminated with a separator. On macOS it resolves to the .app bundle's
     // Resources directory when bundled, which is where content belongs there.
     if (const char* basePath = SDL_GetBasePath())
+    {
         candidates.ExecutableRelative = std::filesystem::path(basePath) / kContentDirName;
+
+        // The shader root is not resolved from candidates the way the content
+        // root is, because there is nothing to choose between: the build puts
+        // the SPIR-V here and only a binary built alongside it can use it. A
+        // missing directory is therefore a broken build rather than a
+        // misconfiguration, and it surfaces where the shader is loaded, naming
+        // the file that could not be opened.
+        m_ShaderRoot = std::filesystem::path(basePath) / kShaderDirName;
+    }
 
     // Last resort, so that a freshly built tree runs before anything has been
     // installed next to the executable.
@@ -132,6 +143,7 @@ Paths::Paths(std::string_view commandLineOverride)
     m_ContentRoot = ResolveContentRoot(candidates);
 
     LogMsg(LogSeverity::Info, LogPaths, "Content root: {}", m_ContentRoot.string());
+    LogMsg(LogSeverity::Info, LogPaths, "Shader root: {}", m_ShaderRoot.string());
 
     m_UserDataRoot = ResolveUserDataRoot();
     if (!m_UserDataRoot.empty())
@@ -146,6 +158,13 @@ std::filesystem::path Paths::Content(std::string_view relativePath) const
     // command line or picked from a file dialog must be used as given, not
     // re-rooted under the content directory.
     return path.is_absolute() ? path : m_ContentRoot / path;
+}
+
+std::filesystem::path Paths::Shader(std::string_view relativePath) const
+{
+    const std::filesystem::path path(relativePath);
+
+    return path.is_absolute() ? path : m_ShaderRoot / path;
 }
 
 std::filesystem::path Paths::UserData(std::string_view relativePath) const

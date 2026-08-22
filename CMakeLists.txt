@@ -243,6 +243,27 @@ engine_header_self_containment(
 
 add_executable(VulkanApp)
 
+# Where the executable lands, and — via cmake/Shaders.cmake — the shaders it
+# loads. Both are derived from this one variable so that they cannot drift
+# apart: Paths looks for shaders beside the executable, and a mismatch would
+# only show up at runtime.
+#
+# Multi-configuration generators build every configuration out of a single
+# build tree, so the configuration has to be part of the path there; the Ninja
+# presets already get one build tree per configuration. Spelling the
+# configuration out with a generator expression rather than letting CMake
+# append it is what keeps the value here equal to the value Shaders.cmake uses
+# — the automatic append happens to the target property only.
+get_property(is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(is_multi_config)
+  set(VULKANAPP_EXE_DIR ${CMAKE_BINARY_DIR}/$<CONFIG>)
+else()
+  set(VULKANAPP_EXE_DIR ${CMAKE_BINARY_DIR})
+endif()
+
+set_target_properties(VulkanApp PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                           ${VULKANAPP_EXE_DIR})
+
 target_precompile_headers(VulkanApp PRIVATE src/pch.h)
 
 target_sources(VulkanApp PRIVATE ${SOURCES})

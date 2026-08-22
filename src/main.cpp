@@ -1235,7 +1235,7 @@ private:
 
         auto [opaqueLayout, opaquePipeline] =
             PipelineBuilder(m_Device)
-                .Shaders(m_Paths.Content("shaders/opaque.spv").string())
+                .Shaders(m_Paths.Shader("opaque.spv").string())
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(true, true, vk::CompareOp::eLess)
                 .ColorAttachments(std::array{Rhi::Vulkan::GetNativeFormat(m_OpaqueImageFormat)},
@@ -1294,7 +1294,7 @@ private:
 
         auto [transparentLayout, transparentPipeline] =
             PipelineBuilder(m_Device)
-                .Shaders(m_Paths.Content("shaders/weightedBlendedOIT.spv").string())
+                .Shaders(m_Paths.Shader("weightedBlendedOIT.spv").string())
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(true, false, vk::CompareOp::eLess)
                 .ColorAttachments(attachmentFormats, attachmentStates)
@@ -1324,7 +1324,7 @@ private:
 
         auto [compositeLayout, compositePipeline] =
             PipelineBuilder(m_Device)
-                .Shaders(m_Paths.Content("shaders/composite.spv").string())
+                .Shaders(m_Paths.Shader("composite.spv").string())
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(false, false, vk::CompareOp::eLess)
                 .ColorAttachments(std::array{m_SwapchainSurfaceFormat.format},
