@@ -12,6 +12,7 @@
 #include <rhi/Handles.h>
 #include <rhi/ICommandList.h>
 #include <rhi/IDevice.h>
+#include <rhi/PipelineCache.h>
 #include <rhi/UniqueHandle.h>
 
 #include "Texture.h"
@@ -19,6 +20,7 @@
 struct CloudSystemCreateInfo
 {
     Rhi::IDevice& RhiDevice;
+    Rhi::IPipelineCache& PipelineCache;
     const Paths& ContentPaths;
     vk::raii::DescriptorSetLayout& GlobalSetLayout;
     vk::raii::DescriptorSetLayout& DepthSetLayout;
@@ -72,9 +74,10 @@ private:
     void CreateNoiseTexture();
     void CreateDescriptorSetLayout();
     void CreateBakeDescriptorSetLayout();
-    void CreatePipeline(const Paths& paths, vk::raii::DescriptorSetLayout& globalSetLayout,
+    void CreatePipeline(const Paths& paths, Rhi::IPipelineCache& pipelineCache,
+                        vk::raii::DescriptorSetLayout& globalSetLayout,
                         vk::raii::DescriptorSetLayout& depthSetLayout);
-    void CreateBakePipeline(const Paths& paths);
+    void CreateBakePipeline(const Paths& paths, Rhi::IPipelineCache& pipelineCache);
     void CreateDescriptorPool();
     void CreateBakeDescriptorPool();
     void AllocateDescriptorSets();

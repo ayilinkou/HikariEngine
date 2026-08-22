@@ -494,7 +494,7 @@ are the ones later steps need to read.
 | R12b — Adopt `VK_KHR_maintenance8` and `VK_KHR_maintenance9` | ✅ done (exposed a barrier that was invalid on a copy-only queue — see **As built**) |
 | R13 — Growable `DescriptorAllocator` | ✅ done (grows before the pool is overrun, not after — see **As built**) |
 | R14 — Growable instance buffer | ✅ done (the wait, not the reallocation, is the load-bearing part — see **As built**) |
-| R15 — `PipelineCache` | not started |
+| R15 — `PipelineCache` | ✅ done (the header check is the load-bearing part, not the file I/O — see **As built**) |
 | R16 — First GPU tests | not started |
 | R17 — Seal the boundary and update the docs | not started |
 
@@ -1373,6 +1373,71 @@ are the ones later steps need to read.
   and confirm it regenerates. **Corrupt the file and confirm it is rejected gracefully**
   rather than crashing.
 - **Size:** M · **Needs:** R5 · **Was:** step 33
+- **As built:** done. `Rhi::IPipelineCache` has exactly one method, `Save()`, and the
+  description it is created from carries the path. The file I/O sits behind the interface
+  rather than in the caller because deciding a file is stale is a backend question — Vulkan
+  answers it from a header the specification defines, D3D12 would answer it some other way,
+  and neither answer belongs in `App`.
+
+  **The header check is what the step is really about.** Handing a driver bytes that did not
+  come from `vkGetPipelineCacheData` is invalid usage
+  (`VUID-VkPipelineCacheCreateInfo-initialDataSize-00769`), and while the specification
+  requires the implementation to *ignore* data it does not recognise — so a corrupt file was
+  never going to crash — a knowingly invalid call is still one the validation layers may
+  report, and `validationErrors` is a number this project keeps at zero. So the backend
+  validates before it hands anything over: 32-byte header, `headerSize` 32,
+  `headerVersion` `VK_PIPELINE_CACHE_HEADER_VERSION_ONE`, then `vendorID`, `deviceID` and
+  `pipelineCacheUUID` against the physical device.
+
+  Read a byte at a time rather than through `VkPipelineCacheHeaderVersionOne`. The
+  specification writes every field least significant byte first *regardless of host byte
+  order*, and explicitly declines to promise the C struct is packed to match — it says an
+  application whose compiler diverges "must employ another method to set values at the
+  correct offsets". Reading it by hand is that other method, and costs four lines.
+
+  Confirmed against a real file: `20 00 00 00 | 01 00 00 00 | 02 10 00 00 | df 67 00 00`
+  is 32, version one, vendor `0x1002`, device `0x67df`. Five rejection paths were exercised —
+  truncated to 16 bytes, 4 KiB of `/dev/urandom`, a valid header with a foreign
+  `pipelineCacheUUID`, a valid header with a foreign `deviceID`, and no file at all. Each
+  starts empty, regenerates, and passes `--strict-validation`. A device mismatch logs at
+  Info because a driver update legitimately causes it; a malformed header logs at Warning
+  because nothing legitimate does.
+
+  **`Save()` writes beside the file and renames over it.** A write interrupted halfway leaves
+  a blob that still carries a valid 32-byte header and so passes every check above, while
+  violating `VUID-VkPipelineCacheCreateInfo-initialDataSize-00768` — the size is part of what
+  makes the data valid to hand back, and nothing in the header states it. The rename is
+  atomic within a filesystem, so the next run sees either the whole old file or the whole new
+  one.
+
+  **Measuring this needs the driver's own cache out of the way.** Mesa keeps a shader cache
+  in `~/.cache`, so the obvious before/after understates the result badly: 3.6 ms of pipeline
+  creation cold against 0.6 ms warm, most of the "cold" number already being a hit somewhere
+  else. With `MESA_SHADER_CACHE_DISABLE=true`, which is what a driver with no such cache
+  looks like, the same five pipelines take **71.6 ms cold and 0.56 ms warm**. Anyone
+  re-measuring on a different driver should disable its cache first, or conclude this does
+  nothing.
+
+  **The user data directory is new, and lives in `Paths`.** `Paths::UserDataRoot()` /
+  `UserData()` resolve `VULKANAPP_USER_DATA`, else `SDL_GetPrefPath` — which creates the
+  directory and gives the right answer per platform. Two rules differ from the content root
+  deliberately: an explicit override is *created* rather than required to exist, since nothing
+  ships there; and failure is not fatal. Everything written to it is regenerable, so the root
+  comes back empty, `UserData()` returns an empty path, and an empty path is exactly what
+  tells the cache to stay in memory for the run. The organisation argument to
+  `SDL_GetPrefPath` is empty because this project has no organisation name, and passing the
+  application name twice would nest it under itself.
+
+  **Timing is logged per pipeline, inside the builders.** That covers `CloudSystem`'s two as
+  well as the renderer's three without either caller doing anything, and it puts the number
+  on the call the cache actually changes — `vkCreate*Pipelines`, not the shader module or the
+  layout around it.
+
+  ImGui reaches the same cache through one new accessor in `VulkanNative.h`. D9's hole grew
+  by a function, for the reason it exists: `ImGui_ImplVulkan_InitInfo::PipelineCache` is a raw
+  handle and ImGui builds its pipelines without going through anything this module offers.
+
+  `tests/baseline/`'s report is unchanged, field for field.
 
 ### R16 — First GPU tests
 

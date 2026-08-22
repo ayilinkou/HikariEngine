@@ -14,6 +14,7 @@
 #include <rhi/Diagnostics.h>
 #include <rhi/Handles.h>
 #include <rhi/IDevice.h>
+#include <rhi/PipelineCache.h>
 #include <rhi/RhiTypes.h>
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
@@ -58,6 +59,9 @@ public:
 
     [[nodiscard]] std::unique_ptr<IUploadContext>
     CreateUploadContext(const UploadContextDesc& desc) override;
+
+    [[nodiscard]] std::unique_ptr<IPipelineCache>
+    CreatePipelineCache(const PipelineCacheDesc& desc) override;
 
     // Gives an image the device did not allocate a pool slot, so that barriers,
     // views and copies can name it by handle like any other texture. Destroying

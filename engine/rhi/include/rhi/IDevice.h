@@ -7,6 +7,7 @@
 #include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/Handles.h>
+#include <rhi/PipelineCache.h>
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
 #include <rhi/TextureViewDesc.h>
@@ -116,6 +117,18 @@ public:
     // a second context rather than sharing one (see IUploadContext).
     [[nodiscard]] virtual std::unique_ptr<IUploadContext>
     CreateUploadContext(const UploadContextDesc& desc) = 0;
+
+    // --- Pipelines ---
+    //
+    // The cache is the only part of pipeline creation that is neutral in this
+    // stage (plan D8). Creating a pipeline still means naming backend state and
+    // so still happens against the backend's own builders; creating a cache,
+    // handing it to them and saving it does not.
+    //
+    // One per device is the intended shape. Nothing stops a second, but two
+    // caches only learn half of what one would.
+    [[nodiscard]] virtual std::unique_ptr<IPipelineCache>
+    CreatePipelineCache(const PipelineCacheDesc& desc) = 0;
 
 protected:
     IDevice() = default;

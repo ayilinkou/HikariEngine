@@ -7,6 +7,8 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
+#include <rhi/PipelineCache.h>
+
 class PipelineBuilder
 {
 public:
@@ -25,6 +27,10 @@ public:
     PipelineBuilder& Layout(std::span<const vk::DescriptorSetLayout> setLayouts,
                             std::span<const vk::PushConstantRange> pushRanges);
     PipelineBuilder& DebugName(std::string name);
+
+    // Reuses whatever the driver has already compiled, and records what it
+    // compiles here. Omitting it is legal and only costs compile time.
+    PipelineBuilder& Cache(Rhi::IPipelineCache& cache);
 
     [[nodiscard]] std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> Build();
 
@@ -59,4 +65,6 @@ private:
     std::vector<vk::PushConstantRange> m_PushRanges;
 
     std::string m_DebugName;
+
+    Rhi::IPipelineCache* m_pCache = nullptr;
 };

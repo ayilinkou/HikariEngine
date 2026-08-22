@@ -5,6 +5,7 @@
 #include "vulkan/VulkanCommandList.h"
 #include "vulkan/VulkanConversions.h"
 #include "vulkan/VulkanDevice.h"
+#include "vulkan/VulkanPipelineCache.h"
 
 namespace Rhi::Vulkan
 {
@@ -93,5 +94,10 @@ vk::Format GetNativeFormat(Format format)
 Format FromNativeFormat(vk::Format format)
 {
     return FromVk(format);
+}
+
+VkPipelineCache GetNativePipelineCache(IPipelineCache& cache)
+{
+    return *ToVulkan(cache).Get();
 }
 } // namespace Rhi::Vulkan

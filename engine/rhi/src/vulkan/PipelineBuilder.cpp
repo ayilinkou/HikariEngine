@@ -1,8 +1,19 @@
 #include <rhi/vulkan/PipelineBuilder.h>
 
+#include <string_view>
+
+#include <core/Log.h>
+#include <core/Timer.h>
 #include <platform/FileSystem.h>
 
 #include <rhi/vulkan/DebugNames.h>
+
+#include "vulkan/VulkanPipelineCache.h"
+
+namespace
+{
+constexpr LogCategory LogRhi("RHI");
+} // namespace
 
 PipelineBuilder::PipelineBuilder(vk::raii::Device& device) : m_Device(device) {}
 
@@ -65,6 +76,12 @@ PipelineBuilder& PipelineBuilder::Layout(std::span<const vk::DescriptorSetLayout
 PipelineBuilder& PipelineBuilder::DebugName(std::string name)
 {
     m_DebugName = std::move(name);
+    return *this;
+}
+
+PipelineBuilder& PipelineBuilder::Cache(Rhi::IPipelineCache& cache)
+{
+    m_pCache = &cache;
     return *this;
 }
 
@@ -166,7 +183,16 @@ std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> PipelineBuilder::Build()
                                                 .renderPass = nullptr, // dynamic rendering
                                                 .subpass = 0};
 
-    vk::raii::Pipeline pipeline(m_Device, nullptr, pipelineInfo);
+    // Timed on its own rather than around the whole of Build(), because this is
+    // the call the cache changes: a hit returns in well under a millisecond
+    // where a miss compiles the shader. Comparing two runs' numbers is what
+    // says whether the cache on disk is being used.
+    Timer compileTimer;
+    vk::raii::Pipeline pipeline(m_Device, Rhi::Vulkan::GetVkPipelineCache(m_pCache), pipelineInfo);
+
+    LogMsg(LogSeverity::Info, LogRhi, "Created {} pipeline in {:.2f} ms{}",
+           m_DebugName.empty() ? std::string_view("unnamed") : std::string_view(m_DebugName),
+           compileTimer.ElapsedMs(), m_pCache ? "" : " (uncached)");
 
     if (!m_DebugName.empty())
     {

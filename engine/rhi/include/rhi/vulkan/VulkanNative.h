@@ -8,6 +8,7 @@
 #include <rhi/Handles.h>
 #include <rhi/ICommandList.h>
 #include <rhi/IDevice.h>
+#include <rhi/PipelineCache.h>
 #include <rhi/RhiTypes.h>
 
 // The one sanctioned way to get a Vulkan handle out of an IDevice.
@@ -102,4 +103,12 @@ TextureHandle RegisterExternalTexture(IDevice& device, vk::Image image, const Te
 // Rhi::Format is curated, not a mirror (D11).
 vk::Format GetNativeFormat(Format format);
 Format FromNativeFormat(vk::Format format);
+
+// The VkPipelineCache behind a neutral cache.
+//
+// The same ImGui-shaped hole as NativeDevice, and there for the same reason:
+// ImGui_ImplVulkan_InitInfo::PipelineCache is a raw handle, and ImGui builds its
+// own pipelines without going through anything this module offers. Every other
+// caller hands the neutral cache to a builder instead.
+VkPipelineCache GetNativePipelineCache(IPipelineCache& cache);
 } // namespace Rhi::Vulkan

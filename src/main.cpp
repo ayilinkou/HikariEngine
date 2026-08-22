@@ -594,7 +594,7 @@ private:
         initInfo.MinAllocationSize = 1024 * 1024;
         initInfo.ImageCount = static_cast<uint32_t>(m_SwapTextures.size());
         initInfo.UseDynamicRendering = true;
-        initInfo.PipelineCache = VK_NULL_HANDLE;
+        initInfo.PipelineCache = Rhi::Vulkan::GetNativePipelineCache(*m_PipelineCache);
         initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
         initInfo.PipelineInfoMain.PipelineRenderingCreateInfo = pipelineRenderingInfo;
         initInfo.Allocator = nullptr;
@@ -620,6 +620,13 @@ private:
         m_UploadContext = m_RhiDevice->CreateUploadContext(
             Rhi::UploadContextDesc{.DebugName = "Asset Upload Context"});
 
+        // Before any pipeline is built, and before ImGui, which is handed the
+        // same one. Paths::UserData is empty when the platform gave us nowhere
+        // to write, and an empty path is how the cache is told to stay in
+        // memory for the run.
+        m_PipelineCache = m_RhiDevice->CreatePipelineCache(Rhi::PipelineCacheDesc{
+            .Path = m_Paths.UserData("pipeline_cache.bin"), .DebugName = "Pipeline Cache"});
+
         ResourceManager::Init(*m_RhiDevice, *m_UploadContext, m_Paths);
         MaterialFactory::Init(*m_RhiDevice, m_TextureSampler.Get());
 
@@ -632,6 +639,7 @@ private:
 
         // TODO: read from scene
         CloudSystemCreateInfo cloudCreateInfo{.RhiDevice = *m_RhiDevice,
+                                              .PipelineCache = *m_PipelineCache,
                                               .ContentPaths = m_Paths,
                                               .GlobalSetLayout = m_GlobalBufferSetLayout,
                                               .DepthSetLayout = m_DepthSetLayout,
@@ -785,6 +793,10 @@ private:
     void Shutdown()
     {
         LogMsg(LogSeverity::Info, LogMain, "Shutdown()");
+
+        // Before ImGui, which built pipelines into the same cache, and before
+        // the device that owns it goes away.
+        m_PipelineCache->Save();
 
         m_Skybox.reset();
         m_SceneGraph.reset();
@@ -1218,6 +1230,7 @@ private:
                 .Cull(vk::CullModeFlagBits::eNone, true)
                 .Layout(setLayouts, std::array{pushConstantRange})
                 .DebugName("Opaque")
+                .Cache(*m_PipelineCache)
                 .Build();
 
         m_OpaquePipelineLayout = std::move(opaqueLayout);
@@ -1275,6 +1288,7 @@ private:
                 .Cull(vk::CullModeFlagBits::eNone)
                 .Layout(setLayouts, std::array{pushConstantRange})
                 .DebugName("Transparent")
+                .Cache(*m_PipelineCache)
                 .Build();
 
         m_TransparentPipelineLayout = std::move(transparentLayout);
@@ -1305,6 +1319,7 @@ private:
                 .Cull(vk::CullModeFlagBits::eNone)
                 .Layout(setLayouts, {})
                 .DebugName("Composite")
+                .Cache(*m_PipelineCache)
                 .Build();
 
         m_CompositePipelineLayout = std::move(compositeLayout);
@@ -2364,6 +2379,7 @@ private:
     // context holds staging buffers of its own, and destroying it after the
     // device would release them into nothing.
     std::unique_ptr<Rhi::IUploadContext> m_UploadContext;
+    std::unique_ptr<Rhi::IPipelineCache> m_PipelineCache;
 
     // Borrowed from m_RhiDevice, which outlives them. References rather than
     // copies so that the ~100 call sites still read as they did, and so that

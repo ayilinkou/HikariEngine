@@ -21,6 +21,7 @@
 #include <rhi/vulkan/DebugNames.h>
 
 #include "vulkan/VulkanConversions.h"
+#include "vulkan/VulkanPipelineCache.h"
 #include "vulkan/VulkanUploadContext.h"
 
 namespace Rhi::Vulkan
@@ -430,6 +431,11 @@ vk::Sampler VulkanDevice::GetSampler(SamplerHandle handle) const
 std::unique_ptr<IUploadContext> VulkanDevice::CreateUploadContext(const UploadContextDesc& desc)
 {
     return std::make_unique<VulkanUploadContext>(*this, desc);
+}
+
+std::unique_ptr<IPipelineCache> VulkanDevice::CreatePipelineCache(const PipelineCacheDesc& desc)
+{
+    return std::make_unique<VulkanPipelineCache>(m_Device, m_PhysicalDevice.getProperties(), desc);
 }
 
 void VulkanDevice::ReportStaleHandle(std::string_view what) const
