@@ -7,25 +7,23 @@
 #include "MaterialFactory.h"
 #include "ModelData.h"
 #include "Node.h"
-#include "Utility.h"
 #include "Vertex.h"
 
-ModelLoader::ModelLoader(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
-                         vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                         VmaAllocator allocator)
-    : m_Device(device), m_PhysicalDevice(physicalDevice), m_CommandPool(commandPool),
-      m_TransferQueue(transferQueue), m_Allocator(allocator)
+#include <rhi/UniqueHandle.h>
+
+#include <span>
+
+ModelLoader::ModelLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
+    : m_RhiDevice(rhiDevice), m_UploadContext(uploadContext)
 {
 }
 
-void ModelLoader::Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
-                       vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                       VmaAllocator allocator)
+void ModelLoader::Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
 {
     if (s_Instance)
         throw std::runtime_error("ModelLoader singleton is already initialised!");
 
-    s_Instance = new ModelLoader(device, physicalDevice, commandPool, transferQueue, allocator);
+    s_Instance = new ModelLoader(rhiDevice, uploadContext);
 }
 
 void ModelLoader::Shutdown()
@@ -63,23 +61,23 @@ std::shared_ptr<ModelData> ModelLoader::Load(const std::string& path)
     if (vertices.empty() || indices.empty())
         throw std::runtime_error(std::format("Model {} loaded with no vertices or indices!", path));
 
-    vk::DeviceSize vertexBufSize = sizeof(vertices[0]) * vertices.size();
-    AllocatedBuffer vertexBuffer =
-        CreateStagedBuffer(m_Allocator, m_Device, m_CommandPool, m_TransferQueue, vertexBufSize,
-                           vk::BufferUsageFlagBits::eVertexBuffer, vertices.data());
-    SetVkDebugName(m_Device, vertexBuffer.Buffer, vk::ObjectType::eBuffer,
-                   std::format("{} Vertex Buffer", path).c_str());
-    vmaSetAllocationName(m_Allocator, vertexBuffer.Allocation,
-                         std::format("{} Vertex Buffer Memory", path).c_str());
+    const auto createUploaded = [&](Rhi::BufferUsage usage, auto& contents, const char* what)
+    {
+        Rhi::UniqueHandle<Rhi::BufferHandle> buffer(
+            m_RhiDevice, m_RhiDevice.CreateBuffer(Rhi::BufferDesc{
+                             .Size = std::span(contents).size_bytes(),
+                             .Usage = usage | Rhi::BufferUsage::CopyDst,
+                             .Access = Rhi::MemoryAccess::GpuOnly,
+                             .DebugName = std::format("{} {} Buffer", path, what)}));
 
-    vk::DeviceSize indexBufSize = sizeof(indices[0]) * indices.size();
-    AllocatedBuffer indexBuffer =
-        CreateStagedBuffer(m_Allocator, m_Device, m_CommandPool, m_TransferQueue, indexBufSize,
-                           vk::BufferUsageFlagBits::eIndexBuffer, indices.data());
-    SetVkDebugName(m_Device, indexBuffer.Buffer, vk::ObjectType::eBuffer,
-                   std::format("{} Index Buffer", path).c_str());
-    vmaSetAllocationName(m_Allocator, indexBuffer.Allocation,
-                         std::format("{} Index Buffer Memory", path).c_str());
+        m_UploadContext.UploadBuffer(buffer.Get(), 0u, std::as_bytes(std::span(contents)));
+        return buffer;
+    };
+
+    Rhi::UniqueHandle<Rhi::BufferHandle> vertexBuffer =
+        createUploaded(Rhi::BufferUsage::Vertex, vertices, "Vertex");
+    Rhi::UniqueHandle<Rhi::BufferHandle> indexBuffer =
+        createUploaded(Rhi::BufferUsage::Index, indices, "Index");
 
     pModelData->Init(std::move(vertexBuffer), std::move(indexBuffer), std::move(rootNode));
 

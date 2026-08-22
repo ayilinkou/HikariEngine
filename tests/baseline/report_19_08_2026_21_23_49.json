@@ -1,0 +1,12 @@
+{
+  "frames": 1000,
+  "validationErrors": 0,
+  "validationWarnings": 0,
+  "drawCalls": 22,
+  "batches": 22,
+  "instances": 23,
+  "barriers": 14,
+  "barrierCalls": 9,
+  "meanFrameTimeMs": 16.6667,
+  "p99FrameTimeMs": 16.6667
+}

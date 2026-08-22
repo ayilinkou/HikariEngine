@@ -1,31 +1,30 @@
 #include "ResourceManager.h"
 
-#include "Cubemap.h"
 #include "CubemapLoader.h"
 #include "ModelData.h"
 #include "ModelLoader.h"
 #include "ModelManager.h"
-#include "Texture.h"
 #include "TextureLoader.h"
 #include <core/Log.h>
 #include <core/MyMacros.h>
 
-inline constexpr LogCategory LogResourceManager{"Resource Manager"};
+#include "Cubemap.h"
+#include "Texture.h"
+
 constexpr std::string_view fallbackTexturePrefix = "FallbackTexture";
 
-void ResourceManager::Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
-                           vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                           VmaAllocator allocator, const Paths& paths)
+void ResourceManager::Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext,
+                           const Paths& paths)
 {
     LogMsg(LogSeverity::Info, LogResourceManager, "Init()");
 
     if (s_Instance)
         throw std::runtime_error("ResourceManager singleton has already been initialised!");
 
-    s_Instance = new ResourceManager(paths);
-    TextureLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
-    CubemapLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
-    ModelLoader::Init(device, physicalDevice, commandPool, transferQueue, allocator);
+    s_Instance = new ResourceManager(uploadContext, paths);
+    TextureLoader::Init(rhiDevice, uploadContext);
+    CubemapLoader::Init(rhiDevice, uploadContext);
+    ModelLoader::Init(rhiDevice, uploadContext);
     ModelManager::Init();
 }
 
@@ -64,8 +63,10 @@ void ResourceManager::PurgeCaches()
 }
 
 std::shared_ptr<Texture> ResourceManager::LoadTexture(const std::string& filepath,
-                                                      const vk::Format format)
+                                                      const Rhi::Format format)
 {
+    LoadScope uploads(*this);
+
     // Keyed on the resolved path so that the same file requested relatively
     // (from a scene) and absolutely (from a model's own texture references)
     // shares one cache entry.
@@ -86,12 +87,15 @@ std::shared_ptr<Texture> ResourceManager::LoadTexture(const std::string& filepat
 
 std::shared_ptr<Cubemap> ResourceManager::LoadCubemap(const CubemapCreateInfo& createInfo)
 {
+    LoadScope uploads(*this);
     return m_CubemapCache.Get(createInfo.Key(),
                               [&] { return CubemapLoader::Get()->Load(createInfo); });
 }
 
 std::shared_ptr<ModelData> ResourceManager::LoadModel(const std::string& modelPath)
 {
+    LoadScope uploads(*this);
+
     // ModelLoader derives its texture directory from the path it is given, so
     // handing it the resolved path is also what makes the model's own texture
     // references resolve.

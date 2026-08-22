@@ -1,32 +1,26 @@
 #include "CubemapLoader.h"
 
-#include "Barrier.h"
+#include "Cubemap.h"
 #include "ResourceManager.h"
 #include "stb_image.h"
 
-#include "Cubemap.h"
-#include "Utility.h"
-#include "vulkan/vulkan.hpp"
 #include <core/Log.h>
+
+#include <span>
 
 constexpr LogCategory LogCubemapLoader("Cubemap Loader");
 
-CubemapLoader::CubemapLoader(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
-                             vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                             VmaAllocator allocator)
-    : m_Device(device), m_PhysicalDevice(physicalDevice), m_CommandPool(commandPool),
-      m_TransferQueue(transferQueue), m_Allocator(allocator)
+CubemapLoader::CubemapLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
+    : m_RhiDevice(rhiDevice), m_UploadContext(uploadContext)
 {
 }
 
-void CubemapLoader::Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
-                         vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                         VmaAllocator allocator)
+void CubemapLoader::Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
 {
     if (s_Instance)
         throw std::runtime_error("CubemapLoader singleton is already initialised!");
 
-    s_Instance = new CubemapLoader(device, physicalDevice, commandPool, transferQueue, allocator);
+    s_Instance = new CubemapLoader(rhiDevice, uploadContext);
 }
 
 void CubemapLoader::Shutdown()
@@ -40,7 +34,7 @@ void CubemapLoader::Shutdown()
 
 std::shared_ptr<Cubemap> CubemapLoader::Load(const CubemapCreateInfo& createInfo)
 {
-    static constexpr uint32_t faceCount = 6u;
+    static constexpr uint32_t faceCount = Cubemap::kFaceCount;
     struct FaceData
     {
         std::array<stbi_uc*, faceCount> Pixels;
@@ -85,57 +79,33 @@ std::shared_ptr<Cubemap> CubemapLoader::Load(const CubemapCreateInfo& createInfo
             throw std::runtime_error(std::format("Failed to load texture: {}", facePath->c_str()));
     }
 
-    vk::DeviceSize faceSize = faceData.Width * faceData.Height * 4u;
-    vk::DeviceSize totalSize = faceSize * faceCount;
-    // TODO: fix and make use VMA
-    AllocatedBuffer stagingBuffer = CreateBuffer(
-        m_Allocator, totalSize, vk::BufferUsageFlagBits::eTransferSrc,
-        VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+    const uint32_t width = static_cast<uint32_t>(faceData.Width);
+    const uint32_t height = static_cast<uint32_t>(faceData.Height);
+    const uint64_t faceSize = static_cast<uint64_t>(width) * height * 4u;
 
-    // Vulkan ensures that these CPU writes are visible to the GPU before
-    // the command buffer starts executing.
-    uint8_t* dst = static_cast<uint8_t*>(stagingBuffer.AllocationInfo.pMappedData);
+    auto cubemap = std::make_shared<Cubemap>(m_RhiDevice, createInfo, Rhi::Extent2D{width, height});
+
+    // One upload naming all six layers, not six uploads: a texture has to reach
+    // the context whole, or a staging-budget flush landing between two faces
+    // would discard the ones already written (see IUploadContext::UploadTexture).
+    // Packing them into one staging buffer is the context's job now, which is
+    // why the faces are handed over as they were decoded.
+    std::array<Rhi::TextureUpload, faceCount> faces;
+    for (uint32_t i = 0; i < faceCount; i++)
+    {
+        faces[i] = Rhi::TextureUpload{
+            .Data = std::span(reinterpret_cast<const std::byte*>(faceData.Pixels[i]), faceSize),
+            .BaseLayer = i,
+            .Extent = {width, height, 1u}};
+    }
+
+    m_UploadContext.UploadTexture(cubemap->GetHandle(), faces);
+
     for (size_t i = 0; i < faceCount; i++)
     {
-        memcpy(dst + i * faceSize, faceData.Pixels[i], faceSize);
         stbi_image_free(faceData.Pixels[i]);
         faceData.Pixels[i] = nullptr;
     }
 
-    vk::ImageCreateInfo imageInfo{};
-    imageInfo.imageType = vk::ImageType::e2D;
-    imageInfo.extent = vk::Extent3D{static_cast<uint32_t>(faceData.Width),
-                                    static_cast<uint32_t>(faceData.Height), 1};
-    imageInfo.mipLevels = 1u;
-    imageInfo.arrayLayers = faceCount;
-    imageInfo.format = createInfo.Format;
-    imageInfo.tiling = vk::ImageTiling::eOptimal;
-    imageInfo.initialLayout = vk::ImageLayout::eUndefined;
-    imageInfo.usage = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
-    imageInfo.samples = vk::SampleCountFlagBits::e1;
-    imageInfo.sharingMode = vk::SharingMode::eExclusive;
-    imageInfo.flags = vk::ImageCreateFlagBits::eCubeCompatible;
-
-    AllocatedImage cubemapImage = CreateImage(m_Allocator, imageInfo);
-    SetVkDebugName(m_Device, cubemapImage.Image, vk::ObjectType::eImage,
-                   std::format("{} Cubemap Image", createInfo.Name).c_str());
-    vmaSetAllocationName(m_Allocator, cubemapImage.Allocation,
-                         std::format("{} Cubemap Device allocation", createInfo.Name).c_str());
-
-    auto cmd = BeginSingleTimeCommand(m_Device, m_CommandPool);
-    RecordImageBarrier(cmd, cubemapImage.Image, Barriers::UndefinedToTransferDst(faceCount));
-    CopyBufferToImage(cmd, stagingBuffer.Buffer, cubemapImage.Image,
-                      static_cast<uint32_t>(faceData.Width), static_cast<uint32_t>(faceData.Height),
-                      faceCount);
-    RecordImageBarrier(cmd, cubemapImage.Image, Barriers::TransferDstToShaderRead(faceCount));
-    EndSingleTimeCommand(cmd, m_TransferQueue);
-
-    vk::raii::ImageView imageView =
-        CreateImageView(m_Device, cubemapImage.Image, vk::ImageViewType::eCube, createInfo.Format,
-                        vk::ImageAspectFlagBits::eColor, faceCount);
-    SetVkDebugName(m_Device, *imageView, vk::ObjectType::eImageView,
-                   std::format("{} Cubemap Image View", createInfo.Name).c_str());
-
-    return std::make_shared<Cubemap>(std::move(cubemapImage), std::move(imageView), createInfo);
+    return cubemap;
 }

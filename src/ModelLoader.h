@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-#include "vk_mem_alloc.h"
-#include "vulkan/vulkan_raii.hpp"
+#include <rhi/IDevice.h>
+#include <rhi/UploadContext.h>
 
 #include "Material.h"
 
@@ -18,13 +18,9 @@ class ModelLoader
 private:
     friend class ResourceManager;
 
-    ModelLoader(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
-                vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                VmaAllocator allocator);
+    ModelLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext);
 
-    static void Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
-                     vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                     VmaAllocator allocator);
+    static void Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext);
     static void Shutdown();
 
     static ModelLoader* Get() { return s_Instance; }
@@ -37,10 +33,6 @@ private:
 private:
     inline static ModelLoader* s_Instance = nullptr;
 
-    vk::raii::Device& m_Device;
-    vk::raii::PhysicalDevice& m_PhysicalDevice;
-    vk::raii::CommandPool& m_CommandPool;
-    vk::raii::Queue& m_TransferQueue;
-
-    VmaAllocator m_Allocator;
+    Rhi::IDevice& m_RhiDevice;
+    Rhi::IUploadContext& m_UploadContext;
 };

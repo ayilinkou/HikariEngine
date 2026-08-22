@@ -1,7 +1,10 @@
 #pragma once
 
-#include <cstdint>
 #include <string>
+
+#include <rhi/Handles.h>
+#include <rhi/IDevice.h>
+#include <rhi/vulkan/DescriptorAllocator.h>
 
 #include "Material.h"
 #include "PBRMaterial.h"
@@ -11,7 +14,7 @@ struct aiMaterial;
 class MaterialFactory
 {
 public:
-    static void Init(vk::raii::Device& device, vk::raii::Sampler& sampler);
+    static void Init(Rhi::IDevice& rhiDevice, Rhi::SamplerHandle sampler);
     static void Shutdown();
 
     static MaterialFactory* Get() { return s_Instance; }
@@ -22,20 +25,25 @@ public:
     vk::DescriptorSetLayout GetDescriptorSetLayout() const { return *m_SetLayout; }
 
 private:
-    MaterialFactory(vk::raii::Device& device, vk::raii::Sampler& sampler);
+    MaterialFactory(Rhi::IDevice& rhiDevice, Rhi::SamplerHandle sampler);
 
-    void CreateDescriptorPool();
     void CreateDescriptorSetLayout();
 
 private:
     static MaterialFactory* s_Instance;
 
     vk::raii::DescriptorSetLayout m_SetLayout = nullptr;
-    vk::raii::DescriptorPool m_DescriptorPool = nullptr;
 
+    Rhi::IDevice& m_RhiDevice;
+
+    // Descriptor pools and set layouts stay Vulkan objects for the whole of
+    // Stage 5 — the binding model is deliberately not abstracted (plan D7) — so
+    // the factory keeps a device reference to build them from.
     vk::raii::Device& m_Device;
-    vk::raii::Sampler& m_Sampler;
 
-    static const uint8_t s_MAX_TEXTURE_COUNT_PER_MAT;
-    static const uint16_t s_MAX_MATERIAL_SET_COUNT;
+    Rhi::SamplerHandle m_Sampler;
+
+    // Declared after m_Device because it is constructed from that reference,
+    // and members are initialized in declaration order.
+    DescriptorAllocator m_DescriptorAllocator;
 };

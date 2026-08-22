@@ -45,6 +45,21 @@ public:
     // An absolute path is returned unchanged.
     std::filesystem::path Content(std::string_view relativePath) const;
 
+    // The per-user directory this application may write to: caches, settings,
+    // saves. Distinct from the content root, which ships with the application
+    // and is read-only on every platform that installs it properly.
+    //
+    // Empty when the platform would not give one. That is deliberately not an
+    // error: everything written here can be regenerated, so a caller that
+    // cannot have a directory skips writing rather than failing the run.
+    const std::filesystem::path& UserDataRoot() const { return m_UserDataRoot; }
+
+    // UserData("pipeline_cache.bin") -> <user data root>/pipeline_cache.bin,
+    // or an empty path when there is no user data root — so "nowhere to write"
+    // and "nothing to read" reach the caller as the same answer.
+    std::filesystem::path UserData(std::string_view relativePath) const;
+
 private:
     std::filesystem::path m_ContentRoot;
+    std::filesystem::path m_UserDataRoot;
 };

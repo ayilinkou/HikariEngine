@@ -2,6 +2,7 @@
 
 #include <format>
 
+#include <SDL3/SDL_error.h>
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_stdinc.h>
 
@@ -14,12 +15,66 @@ constexpr LogCategory LogPaths("Paths");
 constexpr const char* kContentEnvVar = "VULKANAPP_CONTENT";
 constexpr const char* kContentDirName = "content";
 
+constexpr const char* kUserDataEnvVar = "VULKANAPP_USER_DATA";
+constexpr const char* kAppName = "VulkanApp";
+
 bool IsDirectory(const std::filesystem::path& path)
 {
     // The error_code overload so a permission failure or a broken symlink
     // reports "not a directory" rather than throwing.
     std::error_code ec;
     return !path.empty() && std::filesystem::is_directory(path, ec);
+}
+
+// Creates `path` if it is not already a directory. Reports failure rather than
+// throwing: a missing place to write caches is a degraded run, not a broken one.
+bool EnsureDirectory(const std::filesystem::path& path)
+{
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    return IsDirectory(path);
+}
+
+// The directory the platform sets aside for this application's own files, or
+// empty if it will not give one.
+std::filesystem::path ResolveUserDataRoot()
+{
+    // Unlike the content root, an explicit override is created rather than
+    // required to exist: nothing ships here, so an empty directory is the
+    // correct starting state and demanding one be made first is ceremony.
+    if (const char* environmentRoot = SDL_getenv(kUserDataEnvVar))
+    {
+        if (EnsureDirectory(environmentRoot))
+            return environmentRoot;
+
+        LogMsg(LogSeverity::Warning, LogPaths,
+               "{} is set to \"{}\", which could not be created. Nothing will be written to "
+               "the user data directory this run.",
+               kUserDataEnvVar, environmentRoot);
+        return {};
+    }
+
+    // SDL_GetPrefPath() creates the directory and returns it with a trailing
+    // separator: $XDG_DATA_HOME/VulkanApp on Linux, %APPDATA%\VulkanApp on
+    // Windows, ~/Library/Application Support/VulkanApp on macOS.
+    //
+    // The organisation argument is empty because this project has no
+    // organisation name to give, and passing the application name for both
+    // would nest it under itself. SDL warns that omitting it can fail app store
+    // certification, which is a packaging decision for whenever there is
+    // something to package.
+    char* prefPath = SDL_GetPrefPath("", kAppName);
+    if (!prefPath)
+    {
+        LogMsg(LogSeverity::Warning, LogPaths,
+               "No user data directory available ({}). Nothing will be written to it this run.",
+               SDL_GetError());
+        return {};
+    }
+
+    const std::filesystem::path root(prefPath);
+    SDL_free(prefPath);
+    return root;
 }
 } // namespace
 
@@ -77,6 +132,10 @@ Paths::Paths(std::string_view commandLineOverride)
     m_ContentRoot = ResolveContentRoot(candidates);
 
     LogMsg(LogSeverity::Info, LogPaths, "Content root: {}", m_ContentRoot.string());
+
+    m_UserDataRoot = ResolveUserDataRoot();
+    if (!m_UserDataRoot.empty())
+        LogMsg(LogSeverity::Info, LogPaths, "User data root: {}", m_UserDataRoot.string());
 }
 
 std::filesystem::path Paths::Content(std::string_view relativePath) const
@@ -87,4 +146,12 @@ std::filesystem::path Paths::Content(std::string_view relativePath) const
     // command line or picked from a file dialog must be used as given, not
     // re-rooted under the content directory.
     return path.is_absolute() ? path : m_ContentRoot / path;
+}
+
+std::filesystem::path Paths::UserData(std::string_view relativePath) const
+{
+    if (m_UserDataRoot.empty())
+        return {};
+
+    return m_UserDataRoot / std::filesystem::path(relativePath);
 }

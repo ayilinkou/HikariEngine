@@ -67,11 +67,11 @@ set(SOURCES
     src/main.cpp
     src/Model.cpp
     src/ModelData.cpp
-    src/Texture.cpp
-    src/Cubemap.cpp
     src/Camera.cpp
     src/Material.cpp
     src/PBRMaterial.cpp
+    src/Texture.cpp
+    src/Cubemap.cpp
     src/MaterialFactory.cpp
     src/ResourceManager.cpp
     src/TextureLoader.cpp
@@ -84,12 +84,7 @@ set(SOURCES
     src/Node.cpp
     src/Mesh.cpp
     src/CloudSystem.cpp
-    src/XmlParser.cpp
-    src/VMAImpl.cpp
-    src/AllocatedBuffer.cpp
-    src/AllocatedImage.cpp
-    src/PipelineBuilder.cpp
-    src/ComputePipelineBuilder.cpp)
+    src/XmlParser.cpp)
 
 # On macOS the Vulkan validation layer only ships with the Vulkan SDK (vcpkg
 # ships none) and is selected at runtime via VK_LAYER_PATH. vcpkg's own
@@ -137,9 +132,42 @@ engine_header_self_containment_init()
 
 add_subdirectory(engine/core)
 add_subdirectory(engine/platform)
+add_subdirectory(engine/rhi)
+
+# clang-format's output is not stable across major versions, so the version is
+# pinned rather than left to whatever is on PATH. Without the pin, the nine CI
+# configurations run three different clang-formats (the Ubuntu image's, Homebrew's
+# and the Windows image's LLVM) and disagree with each other and with developers —
+# which is exactly how a commit lands green on macOS and Windows and red on Linux.
+#
+# The pinned version lives in .clang-format-version so that this file and the CI
+# workflow read the same number. Bumping it means bumping that file and
+# reformatting the tree in the same commit.
+file(READ ${CMAKE_SOURCE_DIR}/.clang-format-version EXPECTED_CLANG_FORMAT_VERSION)
+string(STRIP "${EXPECTED_CLANG_FORMAT_VERSION}" EXPECTED_CLANG_FORMAT_VERSION)
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 if(CLANG_FORMAT_EXE)
+  execute_process(
+    COMMAND ${CLANG_FORMAT_EXE} --version
+    OUTPUT_VARIABLE CLANG_FORMAT_VERSION_OUTPUT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" FOUND_CLANG_FORMAT_VERSION
+               "${CLANG_FORMAT_VERSION_OUTPUT}")
+
+  # A warning rather than an error: a mismatched clang-format still builds and
+  # runs everything else, and refusing to configure over a formatting tool would
+  # be worse than the problem. CI installs the pin, so CI stays authoritative.
+  if(NOT FOUND_CLANG_FORMAT_VERSION VERSION_EQUAL EXPECTED_CLANG_FORMAT_VERSION)
+    message(
+      WARNING
+        "clang-format ${FOUND_CLANG_FORMAT_VERSION} found, but this project is "
+        "formatted with ${EXPECTED_CLANG_FORMAT_VERSION}. The 'format' and "
+        "'format-check' targets will disagree with CI. Install the pinned "
+        "version with:\n"
+        "    pip install clang-format==${EXPECTED_CLANG_FORMAT_VERSION}")
+  endif()
   file(
     GLOB_RECURSE
     FORMAT_SOURCES
@@ -149,7 +177,9 @@ if(CLANG_FORMAT_EXE)
     ${CMAKE_SOURCE_DIR}/src/*.hpp
     ${CMAKE_SOURCE_DIR}/engine/*/include/*.h
     ${CMAKE_SOURCE_DIR}/engine/*/include/*.hpp
-    ${CMAKE_SOURCE_DIR}/engine/*/src/*.cpp)
+    ${CMAKE_SOURCE_DIR}/engine/*/src/*.cpp
+    ${CMAKE_SOURCE_DIR}/engine/*/src/*.h
+    ${CMAKE_SOURCE_DIR}/engine/*/src/*.hpp)
 
   add_custom_target(
     format
@@ -193,6 +223,7 @@ engine_header_self_containment(
   LINK_LIBRARIES
   Engine::Core
   Engine::Platform
+  Engine::RHI
   SDL3::SDL3
   Vulkan::Vulkan
   GPUOpen::VulkanMemoryAllocator
@@ -220,6 +251,7 @@ target_link_libraries(
   VulkanApp
   PRIVATE Engine::Core
           Engine::Platform
+          Engine::RHI
           SDL3::SDL3
           Vulkan::Vulkan
           GPUOpen::VulkanMemoryAllocator

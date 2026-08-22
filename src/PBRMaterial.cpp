@@ -3,15 +3,17 @@
 #include "assimp/material.h"
 
 #include "ResourceManager.h"
-#include "Utility.h"
 
-PBRMaterial::PBRMaterial(vk::raii::Device& device, vk::raii::DescriptorPool& descriptorPool,
-                         vk::raii::DescriptorSetLayout& setLayout, vk::raii::Sampler& sampler,
+#include <rhi/vulkan/DebugNames.h>
+#include <rhi/vulkan/VulkanNative.h>
+
+PBRMaterial::PBRMaterial(Rhi::IDevice& rhiDevice, DescriptorAllocator& descriptorAllocator,
+                         vk::raii::DescriptorSetLayout& setLayout, Rhi::SamplerHandle sampler,
                          aiMaterial* mat, const std::string& texturesParentFolder)
     : Material(mat)
 {
     LoadTextures(mat, texturesParentFolder);
-    CreateDescriptorSet(device, descriptorPool, setLayout, sampler);
+    CreateDescriptorSet(rhiDevice, descriptorAllocator, setLayout, sampler);
 }
 
 void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParentFolder)
@@ -32,7 +34,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParen
         mat->GetTexture(aiTextureType::aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_Albedo = ResourceManager::Get()->LoadTexture(path, vk::Format::eR8G8B8A8Srgb);
+        m_Albedo = ResourceManager::Get()->LoadTexture(path, Rhi::Format::RGBA8Srgb);
         m_MatData.bHasAlbedoTex = (m_Albedo != nullptr);
     }
     else if (mat->Get(AI_MATKEY_BASE_COLOR, baseColor) == AI_SUCCESS)
@@ -47,7 +49,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParen
     if (mat->GetTexture(aiTextureType::aiTextureType_NORMALS, 0, &texturePath) == AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_Normal = ResourceManager::Get()->LoadTexture(path, vk::Format::eR8G8B8A8Unorm);
+        m_Normal = ResourceManager::Get()->LoadTexture(path, Rhi::Format::RGBA8Unorm);
         m_MatData.bHasNormalTex = (m_Normal != nullptr);
     }
 
@@ -55,7 +57,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParen
         AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_MetallicRoughness = ResourceManager::Get()->LoadTexture(path, vk::Format::eR8G8B8A8Unorm);
+        m_MetallicRoughness = ResourceManager::Get()->LoadTexture(path, Rhi::Format::RGBA8Unorm);
         m_MatData.bHasMetallicRoughnessTex = (m_MetallicRoughness != nullptr);
     }
 
@@ -63,34 +65,36 @@ void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParen
     mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, m_MatData.Roughness);
 }
 
-void PBRMaterial::CreateDescriptorSet(vk::raii::Device& device,
-                                      vk::raii::DescriptorPool& descriptorPool,
+void PBRMaterial::CreateDescriptorSet(Rhi::IDevice& rhiDevice,
+                                      DescriptorAllocator& descriptorAllocator,
                                       vk::raii::DescriptorSetLayout& materialSetLayout,
-                                      vk::raii::Sampler& sampler)
+                                      Rhi::SamplerHandle sampler)
 {
-    std::vector<vk::DescriptorSetLayout> layouts(1, materialSetLayout);
-    vk::DescriptorSetAllocateInfo allocInfo{.descriptorPool = descriptorPool,
-                                            .descriptorSetCount =
-                                                static_cast<uint32_t>(layouts.size()),
-                                            .pSetLayouts = layouts.data()};
+    // Descriptor writes still take raw Vulkan objects: the binding model is the
+    // one part of Stage 5 that stays Vulkan-shaped (plan D7), so this is where
+    // the handles are resolved back.
+    vk::raii::Device& device = Rhi::Vulkan::GetDevice(rhiDevice);
+    const vk::Sampler vkSampler = Rhi::Vulkan::GetSampler(rhiDevice, sampler);
 
-    auto sets = device.allocateDescriptorSets(allocInfo);
-    m_DescriptorSet = std::move(sets.front());
+    const auto viewOf = [&rhiDevice](const std::shared_ptr<Texture>& texture)
+    {
+        return texture ? Rhi::Vulkan::GetImageView(rhiDevice, texture->GetView()) : vk::ImageView{};
+    };
+
+    m_DescriptorSet = descriptorAllocator.Allocate(*materialSetLayout);
     SetVkDebugName(device, *m_DescriptorSet, vk::ObjectType::eDescriptorSet,
                    std::format("{} Material Descriptor Set", m_Name).c_str());
 
-    vk::DescriptorImageInfo albedoInfo{.sampler = sampler,
-                                       .imageView =
-                                           m_Albedo ? m_Albedo->GetImageView() : VK_NULL_HANDLE,
+    vk::DescriptorImageInfo albedoInfo{.sampler = vkSampler,
+                                       .imageView = viewOf(m_Albedo),
                                        .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
-    vk::DescriptorImageInfo normalInfo{.sampler = sampler,
-                                       .imageView =
-                                           m_Normal ? m_Normal->GetImageView() : VK_NULL_HANDLE,
+    vk::DescriptorImageInfo normalInfo{.sampler = vkSampler,
+                                       .imageView = viewOf(m_Normal),
                                        .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
-    vk::DescriptorImageInfo metallicRoughnessInfo{
-        .sampler = sampler,
-        .imageView = m_MetallicRoughness ? m_MetallicRoughness->GetImageView() : VK_NULL_HANDLE,
-        .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+    vk::DescriptorImageInfo metallicRoughnessInfo{.sampler = vkSampler,
+                                                  .imageView = viewOf(m_MetallicRoughness),
+                                                  .imageLayout =
+                                                      vk::ImageLayout::eShaderReadOnlyOptimal};
 
     std::vector<vk::WriteDescriptorSet> writeDescriptors;
     if (m_Albedo)

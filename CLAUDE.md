@@ -31,9 +31,13 @@ and everything outside steps 24–34 stays governed by the architecture plan.
 dismantling across Stages 4–9. Touching it outside its scheduled step creates conflicts with
 the plan. Fix what the step asks for; note anything else you spot rather than fixing it.
 
-**Verify every change with `scripts/precommit.sh`** (configure + build + build tests + ctest
-+ format-check) before reporting a change as done. That is exactly what CI enforces. Report
-failures with the actual output — never claim a build passed without running it.
+**Verify every change with `scripts/precommit.sh`** (configure + build + build tests +
+`ctest -L unit` + `ctest -L gpu` + format-check) before reporting a change as done. It is a
+superset of CI: everything CI enforces, plus the GPU tests, which CI cannot run because its
+runners have no Vulkan ICD. Those skip rather than fail on a machine without one, so a green
+precommit on such a machine has proved less than it looks — check whether they ran before
+relying on them. Report failures with the actual output — never claim a build passed without
+running it.
 
 **For changes that could alter rendering, also compare against the baseline** (see
 *Regression checking* below). "It still builds" is not evidence a refactor preserved
@@ -80,8 +84,8 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 2 — Header self-containment | 12–14 | ✅ done (`HeaderSelfContainment` target, enforced in CI) |
 | 3 — Core library | 15–19 | ✅ done (`Engine::Core`, `IJobSystem` injected into `App`) |
 | 4 — Platform library | 20–23 | ✅ done (`Engine::Platform`, `Paths` + `content/` root, `CommandLine`) |
-| **5 — RHI extraction** | **R1–R17** | **← next: `engine/rhi` with a backend-neutral API, handle-based resources, batched uploads, growable descriptors. Planned in `docs/rhi_extraction_plan.md`, which supersedes Part IV steps 24–34.** |
-| 6 — Headless capability | 35–40 | not started |
+| 5 — RHI extraction | R1–R17 | ✅ done (`Engine::RHI` — backend-neutral API, handle-based resources, batched uploads, growable descriptors, a pipeline cache, and GPU tests) |
+| **6 — Headless capability** | **35–40** | **← next** |
 | 7 — Engine shell + DI | 41–47 | not started — **CI goal met at step 47** |
 | 8+ — Frame graph, DOD, scalability | 48–76 | not started |
 
@@ -99,12 +103,14 @@ Requires `VULKAN_SDK` and `VCPKG_ROOT` to be set; `slangc` must be on `PATH`.
 ./build.sh ninja-release-linux      # or any preset
 cmake --workflow --preset ninja-debug-linux   # what build.sh wraps
 
-tests/scripts/build_tests.sh        # build the core_tests + platform_tests targets
+tests/scripts/build_tests.sh        # build every test target
 tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
+tests/scripts/run_gpu_tests.sh      # ctest -L gpu --output-on-failure (needs a Vulkan ICD)
 tests/scripts/header_check.sh       # compile every header standalone, no PCH
+tests/scripts/rhi_boundary_check.sh # the RHI seam: neutral headers, and who may bypass them
 tests/scripts/format_check.sh       # dry-run, -Werror
 scripts/format.sh                   # clang-format -i over src/ and engine/
-scripts/precommit.sh                # all of the above, in CI order
+scripts/precommit.sh                # all of the above, CI's checks in CI's order
 ```
 
 `header_check.sh` builds the `HeaderSelfContainment` aggregate: one check target per layer
@@ -160,10 +166,18 @@ engine/core/     # Engine::Core static lib — Log, Timer, MyMacros, SwapbackArr
                  #   ThreadPool, IJobSystem + SerialJobSystem + SharedQueueJobSystem
 engine/platform/ # Engine::Platform static lib — IPlatform/SdlPlatform, Paths, FileSystem,
                  #   CommandLine
+engine/rhi/      # Engine::RHI static lib — the graphics abstraction.
+                 #   include/rhi/         backend-neutral: IDevice, ICommandList, barriers,
+                 #                        handles, descs, IUploadContext, IPipelineCache
+                 #   include/rhi/vulkan/  the transitional area that may expose Vulkan —
+                 #                        the native escape hatch plus what Stages 6-8 have
+                 #                        not taken over yet. Frozen; see below.
+                 #   src/vulkan/          the backend. Invisible outside the module.
 cmake/           # EngineModule.cmake (engine_module), Testing.cmake (engine_test),
                  #   HeaderSelfContainment.cmake, Warnings.cmake
-tests/unit/      # Catch2 tests, CTest label "unit"
-tests/support/   # shared test helpers (TestPaths.h, CaptureStream.h)
+tests/unit/      # Catch2 tests, CTest label "unit" — no GPU, run by CI
+tests/gpu/       # Catch2 tests needing a real device, CTest label "gpu" — not run by CI
+tests/support/   # shared test helpers (TestPaths.h, CaptureStream.h, RhiTestFixture.h)
 content/         # runtime content root — models/ scenes/ textures/ shaders/ (.spv is gitignored)
 ```
 
@@ -176,7 +190,9 @@ Source lists are explicit, not globbed — a new `.cpp` will silently not build 
   call in `engine/<module>/CMakeLists.txt`.
 - `tests/unit/**/*.cpp` → append to the matching `engine_test(...)` call in
   `tests/CMakeLists.txt` — `core_tests` for `unit/core/`, `platform_tests` for
-  `unit/platform/`.
+  `unit/platform/`, `rhi_tests` for `unit/rhi/`.
+- `tests/gpu/**/*.cpp` → append to `rhi_gpu_tests` in the same file. `engine_test` takes a
+  `LABEL` naming the CTest label its cases get; it defaults to `unit`, and these pass `gpu`.
 
 Headers *are* globbed (into the header checks and the format targets), so a new header is
 checked automatically.
@@ -205,6 +221,15 @@ Two non-obvious rules that the whole test strategy rests on:
 - **`Render` must not link `Scene`.** It consumes a POD `FrameSnapshot`, so renderer tests
   build inputs by hand.
 
+**The RHI's public API is backend-neutral, and that is checked rather than trusted.** Nothing
+under `engine/rhi/include/rhi/` may name a Vulkan or VMA type; the backend lives in
+`engine/rhi/src/vulkan/`, where nothing outside the module can reach it. The one exception is
+`engine/rhi/include/rhi/vulkan/`, which is *frozen*: seven headers covering what Stages 6–8
+have not taken over yet, and sixteen allowlisted include sites outside the module. Adding
+either fails `rhi_boundary_check`, and so does leaving an allowlist entry behind after its
+include goes — the list is meant to shrink to nothing. New entries are argued for in
+`cmake/RhiBoundaryCheck.cmake`, next to the reason each existing one is still there.
+
 Full target table, per-module header lists and directory layout: architecture plan §8–§9.
 
 Design principles that should shape any new code (plan §7): everything hardware-facing sits
@@ -221,6 +246,19 @@ number in the run report.
 Formatting is enforced by `.clang-format` (LLVM base, Allman braces, 4-space indent, 100
 columns, left-aligned `*`/`&`) — run `scripts/format.sh` rather than hand-matching.
 
+**The clang-format version is pinned in `.clang-format-version`, and it matters.**
+clang-format's output is not stable across major versions — the same `.clang-format` gives
+different results from clang-format 18 and 22, with no option that reconciles them. Left to
+whatever is on `PATH`, the nine CI configurations run three different clang-formats and
+disagree with each other. CI installs the pin; CMake warns at configure time if the local
+one differs and tells you what to install:
+
+```bash
+pip install clang-format==$(cat .clang-format-version)
+```
+
+Bumping the pin means editing that file and reformatting the whole tree in the same commit.
+
 Naming, as used throughout the codebase:
 
 | Kind | Style | Example |
@@ -228,7 +266,7 @@ Naming, as used throughout the codebase:
 | Types, functions, methods | PascalCase | `CloudSystem`, `RecordDispatch` |
 | Public/struct data members | PascalCase | `Options::ScenePath`, `LightData::Position` |
 | Private members | `m_` + PascalCase | `m_SwapchainExtent` |
-| Statics / globals | `s_` / `g_` | `s_Instance`, `g_ValidationErrorCount` |
+| Statics / globals | `s_` / `g_` | `s_Instance`, `g_bShouldClose` |
 | Locals, parameters | camelCase | `frameIndex`, `createInfo` |
 | `constexpr` constants | `kPascalCase` or `UPPER_SNAKE` | `kCameraPresets`, `MAX_INSTANCE_COUNT` |
 | Booleans | `b` prefix | `bFixedDt`, `m_bCursorVisible` |
@@ -254,8 +292,32 @@ Other rules:
   `"Header.h"` quotes for siblings and `"lib/Header.h"` for third-party.
 - **Errors:** exceptions for unrecoverable init failures; asset loading and parsing should
   log and skip rather than unwind through the frame loop.
+- **RHI naming follows D3D12, not Vulkan**, wherever the two APIs name the same concept
+  differently — `Copy` not `Transfer`, `CommandList` not `CommandBuffer`, `Pixel` not
+  `Fragment`, `UnorderedAccess` not `Storage`. This applies to the Vulkan-side helpers too, so
+  that a Vulkan term appearing in an interface reads as a mistake rather than as normal. Where
+  only one API has the concept at all, its term stands. Utility headers under `rhi/vulkan/`
+  take a uniform `Util` suffix (`BufferUtil.h`, `CommandListUtil.h`). Rationale and the full
+  list: RHI plan D13.
+- **`[[nodiscard]]` only where discarding causes real harm** — a leak, a bug, or wasted work.
+  Returning a loaded resource, a RAII handle that would be destroyed immediately, or an owning
+  pointer qualifies; a plain getter does not. `engine/core` and `engine/platform` have none, and
+  `src/`'s handful are all on loaders that return something the caller must keep. Marking
+  trivial accessors trains the reader to skip the attribute, which costs its value on the calls
+  that need it.
 - Comments in this codebase explain *why* (non-obvious platform quirks, ABI hazards,
   boundary-condition rules). Match that — do not narrate what the code already says.
+- **The reasoning belongs in the source, not in a doc.** If a decision is non-obvious enough to
+  need explaining, explain it where the code is, so the reader finds it without knowing a doc
+  exists. Point at a doc only when the full argument is genuinely too long to sit in a comment
+  — and even then, put the conclusion and the one-line reason inline and cite the doc for the
+  detail, so the comment still stands on its own if the doc is retired.
+- **Comments must not outlive what they describe.** When finishing a piece of work, delete the
+  comments that pointed forward to it ("split out by R4", "R8 will replace this"). Keep such a
+  comment only if it still tells the reader something they need, and then rewrite it to stand
+  on its own: state the constraint or the rationale directly rather than citing a plan step or
+  a doc, because those get retired once the work lands. Comments about genuinely outstanding
+  work are fine, and should describe the intended end state rather than the ticket number.
 
 ---
 
@@ -277,5 +339,8 @@ Other rules:
   prebuilt libraries; removing it produces LNK2038 errors.
 - **macOS is tagged experimental** — it builds in CI but is exercised far less than
   Linux/Windows.
-- **Fixed ceilings that abort rather than grow:** `MAX_INSTANCE_COUNT` 1024, and a
-  100-material descriptor pool limit. Growable replacements land in steps 31–32.
+- **The instance buffer and the descriptor pools grow** — both were fixed ceilings that
+  aborted, and no longer are. Growing the instance buffer reallocates storage the GPU may
+  still be reading, so the wait before the swap is the load-bearing part, not the
+  reallocation. Read `DescriptorAllocator::Grow` and `App::GrowInstanceBuffers` before
+  changing either.

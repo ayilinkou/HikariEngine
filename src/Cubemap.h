@@ -2,9 +2,11 @@
 
 #include <string>
 
-#include "vulkan/vulkan_raii.hpp"
+#include <rhi/Handles.h>
+#include <rhi/IDevice.h>
+#include <rhi/RhiTypes.h>
 
-#include "AllocatedImage.h"
+#include "Texture.h"
 
 struct CubemapCreateInfo
 {
@@ -15,7 +17,7 @@ struct CubemapCreateInfo
     std::string FrontPath = "";
     std::string BackPath = "";
     std::string Name = "Cubemap";
-    vk::Format Format = vk::Format::eUndefined;
+    Rhi::Format Format = Rhi::Format::Undefined;
 
     std::string Key() const
     {
@@ -23,22 +25,26 @@ struct CubemapCreateInfo
     }
 };
 
+// Six square faces in one texture, viewed as a cube.
+//
+// A Texture underneath, because that is what a cubemap is in both APIs: a 2D
+// texture with six array layers, plus a view that says "cube". Only the view
+// differs from any other texture, so only the view is worth a separate type.
 class Cubemap
 {
 public:
     Cubemap() = default;
-    Cubemap(AllocatedImage image, vk::raii::ImageView imageView,
-            const CubemapCreateInfo& createInfo);
+    Cubemap(Rhi::IDevice& device, const CubemapCreateInfo& createInfo, Rhi::Extent2D faceExtent);
 
-    vk::Image GetImage() { return m_Image.Image; }
-    vk::ImageView GetImageView() { return *m_ImageView; }
+    Rhi::TextureHandle GetHandle() const { return m_Texture.GetHandle(); }
+    Rhi::TextureViewHandle GetView() const { return m_Texture.GetView(); }
 
     const std::string& GetName() const { return m_CreateInfo.Name; }
-    const CubemapCreateInfo& GetCreateInfo() const { return m_CreateInfo; };
+    const CubemapCreateInfo& GetCreateInfo() const { return m_CreateInfo; }
+
+    static constexpr uint32_t kFaceCount = 6u;
 
 private:
-    AllocatedImage m_Image{};
-    vk::raii::ImageView m_ImageView = nullptr;
-
+    Texture m_Texture;
     CubemapCreateInfo m_CreateInfo{};
 };

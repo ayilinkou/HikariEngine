@@ -1,7 +1,17 @@
 #include "Cubemap.h"
 
-Cubemap::Cubemap(AllocatedImage image, vk::raii::ImageView imageView,
-                 const CubemapCreateInfo& createInfo)
-    : m_Image(std::move(image)), m_ImageView(std::move(imageView)), m_CreateInfo(createInfo)
+#include <format>
+
+Cubemap::Cubemap(Rhi::IDevice& device, const CubemapCreateInfo& createInfo,
+                 Rhi::Extent2D faceExtent)
+    : m_Texture(device,
+                Rhi::TextureDesc{.Format = createInfo.Format,
+                                 .Extent = {faceExtent.Width, faceExtent.Height, 1u},
+                                 .ArrayLayers = kFaceCount,
+                                 .Usage = Rhi::TextureUsage::Sampled | Rhi::TextureUsage::CopyDst,
+                                 .bCubeCompatible = true,
+                                 .DebugName = std::format("{} Cubemap", createInfo.Name)},
+                Rhi::TextureViewDimension::TextureCube),
+      m_CreateInfo(createInfo)
 {
 }

@@ -9,7 +9,8 @@ ModelData::ModelData(const std::string& path, std::vector<std::unique_ptr<Materi
     m_Meshes.resize(meshCount);
 }
 
-void ModelData::Init(AllocatedBuffer vertexBuffer, AllocatedBuffer indexBuffer,
+void ModelData::Init(Rhi::UniqueHandle<Rhi::BufferHandle> vertexBuffer,
+                     Rhi::UniqueHandle<Rhi::BufferHandle> indexBuffer,
                      std::unique_ptr<Node> rootNode)
 {
     m_VertexBuffer = std::move(vertexBuffer);

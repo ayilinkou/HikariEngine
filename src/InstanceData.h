@@ -7,6 +7,8 @@
 
 #include "vulkan/vulkan.hpp"
 
+#include <rhi/Handles.h>
+
 class Material;
 
 struct InstanceData
@@ -64,6 +66,6 @@ struct MeshBatch
     uint32_t FirstIndex = 0u;
     uint32_t IndexCount = 0u;
     Material* pMaterial = nullptr;
-    vk::Buffer IndexBuffer;
-    vk::Buffer VertexBuffer;
+    Rhi::BufferHandle IndexBuffer;
+    Rhi::BufferHandle VertexBuffer;
 };

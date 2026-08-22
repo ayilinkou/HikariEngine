@@ -1,33 +1,25 @@
 #include "TextureLoader.h"
-#include "AllocatedBuffer.h"
-#include "AllocatedImage.h"
-#include "Barrier.h"
-#include "vulkan/vulkan.hpp"
+
+#include <span>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-#include "Utility.h"
 #include <core/Log.h>
 
 constexpr LogCategory LogTextureLoader("Texture Loader");
 
-TextureLoader::TextureLoader(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
-                             vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                             VmaAllocator allocator)
-    : m_Device(device), m_PhysicalDevice(physicalDevice), m_CommandPool(commandPool),
-      m_TransferQueue(transferQueue), m_Allocator(allocator)
+TextureLoader::TextureLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
+    : m_RhiDevice(rhiDevice), m_UploadContext(uploadContext)
 {
 }
 
-void TextureLoader::Init(vk::raii::Device& device, vk::raii::PhysicalDevice& physicalDevice,
-                         vk::raii::CommandPool& commandPool, vk::raii::Queue& transferQueue,
-                         VmaAllocator allocator)
+void TextureLoader::Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
 {
     if (s_Instance)
         throw std::runtime_error("TextureLoader singleton is already initialised!");
 
-    s_Instance = new TextureLoader(device, physicalDevice, commandPool, transferQueue, allocator);
+    s_Instance = new TextureLoader(rhiDevice, uploadContext);
 }
 
 void TextureLoader::Shutdown()
@@ -39,13 +31,12 @@ void TextureLoader::Shutdown()
     s_Instance = nullptr;
 }
 
-std::shared_ptr<Texture> TextureLoader::Load(const std::string& path, const vk::Format format)
+std::shared_ptr<Texture> TextureLoader::Load(const std::string& path, const Rhi::Format format)
 {
     LogMsg(LogSeverity::Info, LogTextureLoader, "Loading texture: {}", path.c_str());
 
     int width, height, channels;
     stbi_uc* pixels = stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
-    vk::DeviceSize imageSize = width * height * 4;
 
     if (!pixels)
     {
@@ -53,63 +44,43 @@ std::shared_ptr<Texture> TextureLoader::Load(const std::string& path, const vk::
         return nullptr;
     }
 
+    const uint64_t imageSize = static_cast<uint64_t>(width) * height * 4u;
     std::shared_ptr<Texture> texture =
-        CreateTextureFromPixels(pixels, width, height, format, imageSize, path);
+        CreateTextureFromPixels(pixels, static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+                                format, imageSize, path);
     stbi_image_free(pixels);
     return texture;
 }
 
-std::shared_ptr<Texture> TextureLoader::CreateTextureFromPixels(stbi_uc* pixels, const int width,
-                                                                const int height,
-                                                                const vk::Format format,
-                                                                const vk::DeviceSize size,
-                                                                const std::string& path)
+std::shared_ptr<Texture>
+TextureLoader::CreateTextureFromPixels(stbi_uc* pixels, const uint32_t width, const uint32_t height,
+                                       const Rhi::Format format, const uint64_t size,
+                                       const std::string& path)
 {
-    AllocatedBuffer stagingBuffer = CreateBuffer(
-        m_Allocator, size, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+    auto texture = std::make_shared<Texture>(
+        m_RhiDevice,
+        Rhi::TextureDesc{.Format = format,
+                         .Extent = {width, height, 1u},
+                         .Usage = Rhi::TextureUsage::Sampled | Rhi::TextureUsage::CopyDst,
+                         .DebugName = path},
+        Rhi::TextureViewDimension::Texture2D, path);
 
-    // Vulkan ensures that these CPU writes are visible to the GPU before
-    // the command buffer starts executing.
-    memcpy(stagingBuffer.AllocationInfo.pMappedData, pixels, size);
+    // The context copies the pixels into staging before returning, so the
+    // caller's stbi buffer can be freed as soon as this call is done. The
+    // texture itself only holds them once a flush covering it has returned,
+    // which ResourceManager does before handing the resource back.
+    m_UploadContext.UploadTexture(
+        texture->GetHandle(),
+        Rhi::TextureUpload{.Data = std::span(reinterpret_cast<const std::byte*>(pixels), size),
+                           .Extent = {width, height, 1u}});
 
-    vk::ImageCreateInfo imageInfo{};
-    imageInfo.imageType = vk::ImageType::e2D;
-    imageInfo.extent =
-        vk::Extent3D{static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1u};
-    imageInfo.mipLevels = 1u;
-    imageInfo.arrayLayers = 1u;
-    imageInfo.format = format;
-    imageInfo.tiling = vk::ImageTiling::eOptimal;
-    imageInfo.initialLayout = vk::ImageLayout::eUndefined;
-    imageInfo.usage = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
-    imageInfo.samples = vk::SampleCountFlagBits::e1;
-    imageInfo.sharingMode = vk::SharingMode::eExclusive;
-
-    AllocatedImage image = CreateImage(m_Allocator, imageInfo);
-    SetVkDebugName(m_Device, image.Image, vk::ObjectType::eImage,
-                   std::format("{} Image", path).c_str());
-    vmaSetAllocationName(m_Allocator, image.Allocation, std::format("{} Allocation", path).c_str());
-
-    auto cmd = BeginSingleTimeCommand(m_Device, m_CommandPool);
-    RecordImageBarrier(cmd, image, Barriers::UndefinedToTransferDst());
-    CopyBufferToImage(cmd, stagingBuffer.Buffer, image.Image, static_cast<uint32_t>(width),
-                      static_cast<uint32_t>(height));
-    RecordImageBarrier(cmd, image, Barriers::TransferDstToShaderRead());
-    EndSingleTimeCommand(cmd, m_TransferQueue);
-
-    vk::raii::ImageView imageView = CreateImageView(m_Device, image.Image, vk::ImageViewType::e2D,
-                                                    format, vk::ImageAspectFlagBits::eColor, 1u);
-    SetVkDebugName(m_Device, *imageView, vk::ObjectType::eImageView,
-                   std::format("{} Image View", path).c_str());
-
-    return std::make_shared<Texture>(std::move(image), std::move(imageView), path);
+    return texture;
 }
 
-std::shared_ptr<Texture> TextureLoader::LoadFallbackTexture(const vk::Format format)
+std::shared_ptr<Texture> TextureLoader::LoadFallbackTexture(const Rhi::Format format)
 {
     LogMsg(LogSeverity::Error, LogTextureLoader, "Loading fallback texture...");
     stbi_uc fallbackPixels[] = {255, 0, 255, 255};
-    return CreateTextureFromPixels(fallbackPixels, 1, 1, format,
+    return CreateTextureFromPixels(fallbackPixels, 1u, 1u, format,
                                    sizeof(fallbackPixels) / sizeof(stbi_uc), "FallbackTexture");
 }
