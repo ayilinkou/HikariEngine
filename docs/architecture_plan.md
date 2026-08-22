@@ -593,8 +593,10 @@ Rationale for the moves that aren't obvious:
 
 - **`shaders/` out of `src/`.** Shader source is not C++ source; it has its own compiler,
   its own dependency graph and its own test (`spirv-val`, pipeline creation). Compiled
-  `.spv` lands in `content/shaders/`, which is inside the content root and therefore found
-  the same way as every other asset.
+  `.spv` lands beside the executable, in `<exe dir>/shaders/`, and is reached through
+  `Paths::Shader()` rather than `Paths::Content()`. It is a build output, not an asset: the
+  same sources compile differently per configuration, so a shared directory under the content
+  root had debug and release silently overwriting each other.
 - **`content/` as a single root.** One env var / one CLI flag (`--content <dir>`) makes
   every asset path resolvable from any CWD, which is prerequisite #8 in §6.
 - **`tests/support/` is a library, not headers copy-pasted between tests.** The validation
@@ -2421,7 +2423,7 @@ step is then cheap to verify and safe to revert — which is the whole point.
 | `FrameData.h` | `render/FrameResources.h` | pass-agnostic |
 | `CloudSystem.*` | `render/passes/CloudPass.*` + `render/CloudNoiseBaker.*` | no `Device&` members |
 | `XmlParser.*` | `scene/serialization/{SceneReader,SceneWriter,XmlBackend}.*` | `SceneDesc` in/out |
-| `src/shaders/*` | `shaders/` (+ `shaders/include/`) | output to `content/shaders/` |
+| `src/shaders/*` | `shaders/` (+ `shaders/include/`) | output to `<exe dir>/shaders/` |
 | `models/` `textures/` `scenes/` | `content/` | single content root |
 
 ## Appendix B — Frame budget model

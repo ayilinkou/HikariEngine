@@ -161,7 +161,7 @@ Note `--headless` is parsed but not yet implemented (Stage 6); today this still 
 
 ```
 src/             # the application — one class per file, plus main.cpp (App + everything unmoved)
-src/shaders/     # Slang source (.slang, .slangh); compiled to content/shaders/*.spv at build time
+src/shaders/     # Slang source (.slang, .slangh); compiled to <exe dir>/shaders/*.spv
 engine/core/     # Engine::Core static lib — Log, Timer, MyMacros, SwapbackArray,
                  #   ThreadPool, IJobSystem + SerialJobSystem + SharedQueueJobSystem
 engine/platform/ # Engine::Platform static lib — IPlatform/SdlPlatform, Paths, FileSystem,
@@ -325,10 +325,14 @@ Other rules:
 
 - **`src/main.cpp` holds `App` and the whole renderer** (~2,600 lines). Grep before assuming
   something lives in its own file. Dismantling it is scheduled work, not incidental work.
-- **Shaders compile via `slangc` as a build step** into `content/shaders/*.spv` (gitignored). The
-  dependency tracking is coarse — every shader depends on every `.slangh`, so a header edit
-  rebuilds all of them. Vertex/fragment entry points are `vertMain`/`fragMain`; compute is
-  `main`, keyed off the `.comp.slang` suffix.
+- **Shaders compile via `slangc` as a build step** into `<exe dir>/shaders/*.spv` — so
+  `build/<preset>/shaders/`, one set per configuration, reached at runtime through
+  `Paths::Shader()` rather than the content root. They are a build output, not content: the
+  same sources compile with different flags per configuration, and a shared output directory
+  had debug and release silently overwriting each other. Dependencies come from `slangc
+  -depfile`, so a header edit rebuilds only the shaders that include it — `src/Common.h`
+  included. Vertex/fragment entry points are `vertMain`/`fragMain`; compute is `main`, keyed
+  off the `.comp.slang` suffix.
 - **GPU struct layouts are declared twice by hand** — once in C++, once in Slang — with no
   `static_assert` linking them. Changing one without the other produces silent corruption.
   Unified in step 48.

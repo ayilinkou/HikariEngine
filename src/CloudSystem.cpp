@@ -107,7 +107,7 @@ void CloudSystem::CreatePipeline(const Paths& paths, Rhi::IPipelineCache& pipeli
                               .size = sizeof(CloudPushConstants)}};
 
     auto [layout, pipeline] = ComputePipelineBuilder(m_Device)
-                                  .Shader(paths.Content("shaders/clouds.comp.spv").string())
+                                  .Shader(paths.Shader("clouds.comp.spv").string())
                                   .Layout(setLayouts, pushRanges)
                                   .DebugName("Clouds")
                                   .Cache(pipelineCache)
@@ -125,13 +125,12 @@ void CloudSystem::CreateBakePipeline(const Paths& paths, Rhi::IPipelineCache& pi
                               .offset = 0,
                               .size = sizeof(BakeConstants)}};
 
-    auto [layout, pipeline] =
-        ComputePipelineBuilder(m_Device)
-            .Shader(paths.Content("shaders/bakePerlinWorley.comp.spv").string())
-            .Layout(setLayouts, pushRanges)
-            .DebugName("Bake Perlin Worley")
-            .Cache(pipelineCache)
-            .Build();
+    auto [layout, pipeline] = ComputePipelineBuilder(m_Device)
+                                  .Shader(paths.Shader("bakePerlinWorley.comp.spv").string())
+                                  .Layout(setLayouts, pushRanges)
+                                  .DebugName("Bake Perlin Worley")
+                                  .Cache(pipelineCache)
+                                  .Build();
 
     m_BakePipelineLayout = std::move(layout);
     m_BakePipeline = std::move(pipeline);
