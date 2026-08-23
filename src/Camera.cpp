@@ -2,19 +2,7 @@
 
 Camera::Camera()
 {
-    m_View = glm::mat4(1.f);
-    m_FOV = 90.f;
-    m_NearPlane = 0.1f;
-    m_FarPlane = 10000.f;
-    m_Proj = glm::perspective(glm::radians(m_FOV), 16.f / 9.f, m_NearPlane, m_FarPlane);
-    m_RotationMatrix = glm::mat4(1.f);
-
-    m_ForwardVector = {0.f, 0.f, -1.f};
-    m_UpVector = {0.f, 1.f, 0.f};
-    m_RightVector = {1.f, 0.f, 0.f};
-
-    m_MoveSpeed = 5.f;
-    m_LookSens = 0.1f;
+    SetProjection(m_FOV, 16.f / 9.f, m_NearPlane, m_FarPlane);
 }
 
 void Camera::Tick()

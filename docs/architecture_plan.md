@@ -2339,23 +2339,23 @@ validation errors".
 
 | Item | Where | Size |
 |---|---|---|
-| P0/P1 correctness fixes from `suggested_work.md` | various | S–M each |
+| [IN PROGRESS] P0/P1 correctness fixes from `suggested_work.md` — 3.2 done (batched uploads); 1.6, 3.1 open | various | S–M each |
 | Expose cloud push-constants in ImGui (`m_CloudData` is pushed but never written) | `CloudSystem` + editor UI | S |
 | [DONE] Guard `DirLights[0]` when `DirLightCount == 0` (currently NaNs) | `clouds.comp.slang:106` | XS |
 | Epsilon on `dir.y` instead of `== 0.f` | `clouds.comp.slang:24,96` | XS |
 | Hoist sun-slab setup inside `if (density > 0)` | `clouds.comp.slang:119` | XS |
-| [DONE] Delete unused `VS_Out::Color : TEXCOORD1` interpolator | `opaque.slang:56`, `weightedBlendedOIT.slang:55` | XS |
-| Delete dead `transmit` arithmetic | `weightedBlendedOIT.slang:178` | XS |
+| [IN PROGRESS] Delete unused `VS_Out::Color : TEXCOORD1` interpolator — `opaque.slang` done | `weightedBlendedOIT.slang:54` | XS |
+| Delete dead `transmit` arithmetic | `weightedBlendedOIT.slang:177-180` | XS |
 | `surface.slangh` to de-duplicate ~130 lines across the two surface shaders | `shaders/` | M |
 | Split `pbr.slangh` into `brdf`/`tonemap`/`phase` | `shaders/` | S |
-| `-warnings-as-errors` + `spirv-val` on shader compilation | `cmake/Shaders.cmake` | S |
+| [IN PROGRESS] `-warnings-as-errors` + `spirv-val` on shader compilation — warnings done, `spirv-val` open | `cmake/Shaders.cmake` | S |
 | Document the matrix convention once and apply it consistently | `opaque.slang` header comment | S |
 | `CubemapCreateInfo` → `std::array<std::string,6> FacePaths`, delete the 6-case switch | `CubemapLoader.cpp` | S |
-| Hash all six faces into the cubemap cache key (currently keyed on `RightPath` alone → collisions) | `ResourceManager` | S |
-| Delete the duplicated `GetDefaultTransform()` on `Entity` and `Model` | `Entity.h:76`, `Model.h:23` | XS |
-| In-class initialisers for `Camera::m_MoveSpeed` / `m_LookSens` | `Camera.h:45-46` | XS |
+| [DONE] Hash all six faces into the cubemap cache key | `Cubemap.h:22` | S |
+| Delete the duplicated `GetDefaultTransform()` on `Entity` and `Model` | `Entity.h:82`, `Model.h:27` | XS |
+| [DONE] In-class initialisers for `Camera::m_MoveSpeed` / `m_LookSens` | `Camera.h:45-46` | XS |
 | Warn once when lights are clamped instead of silently dropping | `UpdateGlobalBuffer` | XS |
-| Finish the skybox (loaded at `main.cpp:314`, never rendered) and reuse it for IBL | new pass | M–L |
+| Finish the skybox (loaded at `main.cpp:552`, never rendered) and reuse it for IBL | new pass | M–L |
 | `.map` format `version` attribute | `XmlParser` | XS |
 
 ---
