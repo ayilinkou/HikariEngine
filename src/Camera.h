@@ -31,17 +31,17 @@ private:
     void CalcViewMatrix();
 
 private:
-    glm::mat4 m_View;
+    glm::mat4 m_View = glm::mat4(1.f);
     glm::mat4 m_Proj;
-    glm::mat4 m_RotationMatrix;
-    float m_FOV;
-    float m_NearPlane;
-    float m_FarPlane;
+    glm::mat4 m_RotationMatrix = glm::mat4(1.f);
+    float m_FOV = 90.f;
+    float m_NearPlane = 0.1f;
+    float m_FarPlane = 10000.f;
 
-    glm::vec3 m_ForwardVector;
-    glm::vec3 m_UpVector;
-    glm::vec3 m_RightVector;
+    glm::vec3 m_ForwardVector{0.f, 0.f, -1.f};
+    glm::vec3 m_UpVector = {0.f, 1.f, 0.f};
+    glm::vec3 m_RightVector = {1.f, 0.f, 0.f};
 
-    float m_MoveSpeed;
-    float m_LookSens;
+    float m_MoveSpeed = 5.f;
+    float m_LookSens = 0.1f;
 };
