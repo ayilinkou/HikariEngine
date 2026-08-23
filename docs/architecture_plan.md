@@ -2348,7 +2348,7 @@ validation errors".
 | Delete dead `transmit` arithmetic | `weightedBlendedOIT.slang:177-180` | XS |
 | `surface.slangh` to de-duplicate ~130 lines across the two surface shaders | `shaders/` | M |
 | Split `pbr.slangh` into `brdf`/`tonemap`/`phase` | `shaders/` | S |
-| [IN PROGRESS] `-warnings-as-errors` + `spirv-val` on shader compilation — warnings done, `spirv-val` open | `cmake/Shaders.cmake` | S |
+| [DONE] `-warnings-as-errors` + `spirv-val` on shader compilation | `cmake/Shaders.cmake` | S |
 | Document the matrix convention once and apply it consistently | `opaque.slang` header comment | S |
 | `CubemapCreateInfo` → `std::array<std::string,6> FacePaths`, delete the 6-case switch | `CubemapLoader.cpp` | S |
 | [DONE] Hash all six faces into the cubemap cache key | `Cubemap.h:22` | S |
