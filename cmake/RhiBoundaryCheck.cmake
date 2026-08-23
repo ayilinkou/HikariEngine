@@ -187,8 +187,15 @@ set(transitional_headers
     # Names Vulkan objects the application still creates for itself. Shrinks as
     # those move behind the RHI; it is a template, so it cannot move to src/.
     "DebugNames.h"
-    # Pure functions over surface query results. The swapchain lives in App
-    # until IPresentTarget exists (Stage 6, plan §7).
+    # Pure functions over surface query results. Its only production caller is
+    # now SwapchainTarget, inside the module, so this could move to src/vulkan/
+    # and shrink the list. It is kept here deliberately: the functions are pure
+    # and device-free so that they can be unit tested, and src/vulkan/ is on a
+    # PRIVATE include path, which would put them permanently out of a test's
+    # reach. SwapchainUtilTests.cpp is the test that reach buys — it puts a
+    # surface into states a real display cannot be asked for on demand, a zero
+    # extent among them. Reconsider if it grows past choosing surface
+    # parameters, or if it acquires state or a device dependency.
     "SwapchainUtil.h"
     # Begin/submit/wait for a one-shot command buffer. The remaining caller
     # records a compute dispatch, which ICommandList cannot express until draw
@@ -244,7 +251,6 @@ endforeach()
 set(transitional_allowlist
     "src/main.cpp|VulkanNative.h|ImGui_ImplVulkan_Init needs instance/device/queue (D9)"
     "src/main.cpp|PipelineBuilder.h|Graphics pipeline creation is Vulkan-side (D8)"
-    "src/main.cpp|SwapchainUtil.h|The swapchain lives in App until IPresentTarget (Stage 6)"
     "src/main.cpp|DebugNames.h|Names the swapchain, pools, sets and sync objects App still owns"
     "src/CloudSystem.cpp|VulkanNative.h|Raw dispatch recording needs the device (D9)"
     "src/CloudSystem.cpp|ComputePipelineBuilder.h|Compute pipeline creation is Vulkan-side (D8)"

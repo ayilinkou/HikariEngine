@@ -14,6 +14,7 @@
 #include <rhi/Diagnostics.h>
 #include <rhi/Handles.h>
 #include <rhi/IDevice.h>
+#include <rhi/IPresentTarget.h>
 #include <rhi/PipelineCache.h>
 #include <rhi/RhiTypes.h>
 #include <rhi/SamplerDesc.h>
@@ -26,6 +27,7 @@
 #include "vulkan/VulkanAllocator.h"
 #include "vulkan/VulkanBuffer.h"
 #include "vulkan/VulkanSampler.h"
+#include "vulkan/VulkanSemaphore.h"
 #include "vulkan/VulkanTexture.h"
 #include "vulkan/VulkanTextureView.h"
 
@@ -63,14 +65,27 @@ public:
     [[nodiscard]] std::unique_ptr<IPipelineCache>
     CreatePipelineCache(const PipelineCacheDesc& desc) override;
 
+    [[nodiscard]] std::unique_ptr<IPresentTarget>
+    CreatePresentTarget(const PresentTargetDesc& desc) override;
+
+    // Binary semaphores, for the present path only — IDevice deliberately does
+    // not expose these (see SemaphoreHandle in <rhi/Handles.h>). SwapchainTarget
+    // creates them through the device rather than owning vk::raii::Semaphore
+    // itself so that a handle can be resolved from outside the module, which is
+    // what lets the application keep recording its own submit.
+    SemaphoreHandle CreateSemaphore(std::string_view debugName);
+    void Destroy(SemaphoreHandle handle);
+    vk::Semaphore GetSemaphore(SemaphoreHandle handle) const;
+
     // Gives an image the device did not allocate a pool slot, so that barriers,
     // views and copies can name it by handle like any other texture. Destroying
     // the returned handle releases the slot and does not touch the image.
     //
-    // Exists for the swapchain, whose images belong to the presentation engine.
-    // It retires when Stage 6's IPresentTarget owns the swapchain and hands out
-    // the handle itself; until then the swapchain lives in the renderer and this
-    // is what lets the rest of the RHI treat its images normally.
+    // Exists for the swapchain, whose images belong to the presentation engine
+    // rather than to us. SwapchainTarget is the only caller and the only one
+    // there should be: a handle to memory the device did not allocate cannot be
+    // destroyed, resized or aliased like a real one, and the target is what
+    // keeps that distinction from escaping.
     TextureHandle RegisterExternalTexture(vk::Image image, const TextureDesc& desc);
 
     // The Vulkan objects behind a handle, or a null object if it is stale. These
@@ -193,6 +208,12 @@ private:
     // rather than something the driver diagnoses.
     HandlePool<VulkanTextureView, TextureViewTag> m_TextureViews;
     HandlePool<VulkanSampler, SamplerTag> m_Samplers;
+
+    // The present target is destroyed before the device that owns its
+    // semaphores, so this only has to outlive the target — but it sits with the
+    // other pools rather than after them because a semaphore depends on nothing
+    // else here.
+    HandlePool<VulkanSemaphore, SemaphoreTag> m_Semaphores;
 
     QueueFamilies m_QueueFamilies;
 

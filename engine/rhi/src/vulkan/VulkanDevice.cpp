@@ -20,6 +20,7 @@
 
 #include <rhi/vulkan/DebugNames.h>
 
+#include "vulkan/SwapchainTarget.h"
 #include "vulkan/VulkanConversions.h"
 #include "vulkan/VulkanPipelineCache.h"
 #include "vulkan/VulkanUploadContext.h"
@@ -436,6 +437,48 @@ std::unique_ptr<IUploadContext> VulkanDevice::CreateUploadContext(const UploadCo
 std::unique_ptr<IPipelineCache> VulkanDevice::CreatePipelineCache(const PipelineCacheDesc& desc)
 {
     return std::make_unique<VulkanPipelineCache>(m_Device, m_PhysicalDevice.getProperties(), desc);
+}
+
+std::unique_ptr<IPresentTarget> VulkanDevice::CreatePresentTarget(const PresentTargetDesc& desc)
+{
+    if (*m_Surface == nullptr)
+    {
+        throw std::runtime_error(
+            "Rhi::IDevice::CreatePresentTarget: this device was created without presentation "
+            "support, so it has no surface to build a swapchain on.");
+    }
+
+    return std::make_unique<SwapchainTarget>(*this, desc);
+}
+
+SemaphoreHandle VulkanDevice::CreateSemaphore(std::string_view debugName)
+{
+    VulkanSemaphore semaphore{vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo{})};
+
+    if (!debugName.empty())
+    {
+        SetVkDebugName(m_Device, *semaphore.Semaphore, vk::ObjectType::eSemaphore,
+                       std::string(debugName).c_str());
+    }
+
+    return m_Semaphores.Create(std::move(semaphore));
+}
+
+void VulkanDevice::Destroy(SemaphoreHandle handle)
+{
+    if (m_Semaphores.Release(handle))
+        return;
+
+    ReportDiagnostic(DiagnosticSeverity::Error,
+                     std::format("Rhi::VulkanDevice::Destroy(SemaphoreHandle): handle {:#010x} is "
+                                 "stale or was never valid; it may have been destroyed already.",
+                                 handle.Value));
+}
+
+vk::Semaphore VulkanDevice::GetSemaphore(SemaphoreHandle handle) const
+{
+    const VulkanSemaphore* pSemaphore = m_Semaphores.Get(handle);
+    return pSemaphore ? *pSemaphore->Semaphore : vk::Semaphore{};
 }
 
 void VulkanDevice::ReportStaleHandle(std::string_view what) const

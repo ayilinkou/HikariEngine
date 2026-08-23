@@ -11,11 +11,14 @@ architecture, and prefer them over inventing a design:
   (Part III), and the **76-step incremental work order (Part IV)** that the project follows.
 - `docs/suggested_work.md` — the code review that motivated the plan; open it for
   the *why* behind a known defect.
-- `docs/rhi_extraction_plan.md` — **temporary; authoritative for Stage 5 only.**
-  Replaces Part IV steps 24–34 with a 17-step sequence (R1–R17) that makes the RHI's public
-  API backend-neutral so a D3D12 backend is possible later. Records the design decisions
-  (D0–D12) behind that. **Delete it when Stage 5 completes** — see its §10 for what to
-  promote into the architecture plan first.
+- `docs/rhi_extraction_plan.md` — **retained past Stage 5, which it drove.** Replaced Part IV
+  steps 24–34 with a 17-step sequence (R1–R17) that made the RHI's public API backend-neutral
+  so a D3D12 backend is possible later, and records the design decisions (D0–D12) behind that.
+  Stage 5 is complete, so R1–R17 are history; the **decisions remain live**, because they
+  govern what the RHI's public seam is allowed to say and Part IV's own §10 predates them.
+  Read it before touching anything under `engine/rhi/include/`. Its §10 lists what should
+  eventually be promoted into the architecture plan; retiring it is a deliberate future
+  decision, not a step in the roadmap.
 
 ---
 
@@ -23,9 +26,11 @@ architecture, and prefer them over inventing a design:
 
 **Follow Part IV strictly, one step at a time.** Each step is sized to end in a compiling,
 running application. Do not start work outside the current stage, and do not combine steps,
-without asking first. **While Stage 5 is in progress, follow `docs/rhi_extraction_plan.md`
-steps R1–R17 instead of Part IV steps 24–34** — that document wins where the two disagree,
-and everything outside steps 24–34 stays governed by the architecture plan.
+without asking first. Stage 5 is complete, so Part IV is the work order again — but where
+`docs/rhi_extraction_plan.md`'s decisions (D0–D12) and Part IV disagree about the RHI's
+public seam, **the RHI plan still wins**. Part IV was written before the seam was
+neutralised, so its later stages still spell interfaces in raw Vulkan; §10.2 is one such
+place. Re-express rather than copy, and amend Part IV as you go.
 
 **Do not opportunistically refactor.** `src/main.cpp` is ~2,600 lines and is scheduled for
 dismantling across Stages 4–9. Touching it outside its scheduled step creates conflicts with

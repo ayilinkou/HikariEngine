@@ -76,9 +76,9 @@ vk::Sampler GetSampler(IDevice& device, SamplerHandle handle)
     return AsVulkan(device).GetSampler(handle);
 }
 
-TextureHandle RegisterExternalTexture(IDevice& device, vk::Image image, const TextureDesc& desc)
+vk::Semaphore GetSemaphore(IDevice& device, SemaphoreHandle handle)
 {
-    return AsVulkan(device).RegisterExternalTexture(image, desc);
+    return AsVulkan(device).GetSemaphore(handle);
 }
 
 std::unique_ptr<ICommandList> WrapCommandList(IDevice& device, vk::CommandBuffer cmd)

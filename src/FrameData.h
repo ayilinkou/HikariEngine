@@ -23,7 +23,6 @@ struct FrameData
     vk::raii::CommandBuffer CompositeCommandBuffer = nullptr;
     vk::raii::CommandBuffer ImGuiCommandBuffer = nullptr;
     vk::raii::CommandBuffer PresentLayoutCommandBuffer = nullptr;
-    vk::raii::Semaphore PresentCompleteSemaphore = nullptr;
     vk::raii::Fence DrawFence = nullptr;
     vk::raii::DescriptorSet GlobalBufferDescriptorSet = nullptr;
     vk::raii::DescriptorSet CompositeDescriptorSet = nullptr;

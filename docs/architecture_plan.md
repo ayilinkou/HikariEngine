@@ -637,13 +637,14 @@ deterministically without an OS window.
 ### 10.2 Presentation seam
 
 ```cpp
-// rhi/IPresentTarget.h
+// rhi/IPresentTarget.h — as built in step 35.
 struct AcquiredImage
 {
-    vk::Image      Image;
-    vk::ImageView  View;
-    uint32_t       Index;
-    bool           bNeedsRecreate;
+    TextureHandle     Texture;
+    TextureViewHandle View;
+    uint32_t          Index;
+    SemaphoreHandle   Available;   // signalled by the target; the caller waits
+    bool              bNeedsRecreate;
 };
 
 class IPresentTarget
@@ -651,20 +652,31 @@ class IPresentTarget
 public:
     virtual ~IPresentTarget() = default;
 
-    virtual vk::Format     GetFormat()  const = 0;
-    virtual vk::Extent2D   GetExtent()  const = 0;
-    virtual uint32_t       GetImageCount() const = 0;
+    virtual Format   GetFormat() const = 0;
+    virtual Extent2D GetExtent() const = 0;
+    virtual uint32_t GetImageCount() const = 0;
 
-    virtual AcquiredImage  Acquire(vk::Semaphore signalOnAvailable) = 0;
-    virtual void           Present(vk::Queue, uint32_t index,
-                                   vk::Semaphore waitOnRenderComplete) = 0;
-    virtual void           Recreate(vk::Extent2D newExtent) = 0;
-
-    // Only meaningful offscreen; returns std::nullopt for a swapchain target
-    // unless the surface was created with eTransferSrc.
-    virtual std::optional<ImageReadback> Readback(uint32_t index) = 0;
+    [[nodiscard]] virtual AcquiredImage Acquire() = 0;
+    virtual SemaphoreHandle GetRenderCompleteSemaphore(uint32_t index) const = 0;
+    virtual bool Present(uint32_t index) = 0;      // false => recreate
+    virtual void Recreate(Extent2D newExtent) = 0;
 };
 ```
+
+Everything here is spelled in the neutral vocabulary, because
+`cmake/RhiBoundaryCheck.cmake` rejects a `vk::` type under `include/rhi/` outright — this
+section predates the Stage 5 neutralisation and originally named `vk::Image`,
+`vk::Semaphore` and `vk::Queue`. Three consequences worth keeping:
+
+- **The target owns its semaphores.** `Acquire()` takes none and returns the one it
+  signalled; `Present()` takes no queue. `SemaphoreHandle` (added to `rhi/Handles.h` in
+  step 35) exists only so a caller can name one for its own submit, which is what
+  `Handles.h` had reserved the shape for. While the frame loop still records its own
+  submit it resolves both through `Rhi::Vulkan::GetSemaphore`; that goes away in Stage 8.
+- **Out-of-date is a value, not an error.** `bNeedsRecreate` and `Present()`'s `bool`
+  cover suboptimal and out-of-date alike, because a resize races every frame.
+- **`Readback` is not here.** It arrives with `OffscreenTarget` in step 39 rather than
+  being a member `SwapchainTarget` would only stub.
 
 Two implementations:
 
@@ -2025,10 +2037,11 @@ independently of the headless goal, so this stage is worth doing even if you sto
 - **Size:** L · **Needs:** 26
 
 ### 36. Recreate sync objects on image-count change
-- **Do:** `SwapchainTarget::Recreate` reports the new image count; `App` reacts by clearing
-  and rebuilding `m_RenderCompleteSemaphores` (note `CreateSyncObjects` currently uses
-  `emplace_back` with no `clear()`, so it must be fixed to be re-entrant) and updating
-  `ImGui_ImplVulkan_SetMinImageCount`.
+- **Do:** Step 35 shrank this. The per-image semaphores moved into `SwapchainTarget`, which
+  rebuilds them with the images they order access to, so the `m_RenderCompleteSemaphores`
+  half of this step and the `CreateSyncObjects` re-entrancy bug are already gone. What
+  remains is `App` reacting to a changed `GetImageCount()` across `Recreate` — updating
+  `ImGui_ImplVulkan_SetMinImageCount`, and auditing anything else sized to the old count.
 - **Verify:** Enter and leave fullscreen (where drivers commonly change image count) with
   zero validation errors and no out-of-bounds indexing. Under ASan this is now a hard check.
 - **Size:** S · **Needs:** 35

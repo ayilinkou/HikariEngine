@@ -7,6 +7,7 @@
 #include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/Handles.h>
+#include <rhi/IPresentTarget.h>
 #include <rhi/PipelineCache.h>
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
@@ -129,6 +130,15 @@ public:
     // caches only learn half of what one would.
     [[nodiscard]] virtual std::unique_ptr<IPipelineCache>
     CreatePipelineCache(const PipelineCacheDesc& desc) = 0;
+
+    // --- Presentation ---
+    //
+    // Which kind of target comes back is the device's to decide, not the
+    // caller's: a device created without presentation support has no surface to
+    // build a swapchain on, and the whole point of the interface is that the
+    // renderer cannot tell. Throws if the device cannot present at all.
+    [[nodiscard]] virtual std::unique_ptr<IPresentTarget>
+    CreatePresentTarget(const PresentTargetDesc& desc) = 0;
 
 protected:
     IDevice() = default;

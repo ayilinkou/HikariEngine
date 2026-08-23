@@ -75,14 +75,14 @@ vk::Buffer GetBuffer(IDevice& device, BufferHandle handle);
 vk::ImageView GetImageView(IDevice& device, TextureViewHandle handle);
 vk::Sampler GetSampler(IDevice& device, SamplerHandle handle);
 
-// Adopts a VkImage the device did not allocate, so that barriers, views and
-// copies can name it by handle. Destroying the returned handle frees nothing.
+// The semaphore a handle names, or a null vk::Semaphore if the handle is stale.
 //
-// This exists for the swapchain and nothing else. Its images belong to the
-// presentation engine, and the swapchain itself stays in the renderer until
-// Stage 6's IPresentTarget takes it — at which point IPresentTarget hands out
-// the handle and this goes away.
-TextureHandle RegisterExternalTexture(IDevice& device, vk::Image image, const TextureDesc& desc);
+// Only IPresentTarget produces a SemaphoreHandle, and this is how the caller
+// turns one into something it can put in its own VkSubmitInfo. It exists because
+// the frame loop still builds and submits its own command buffers; when
+// submission moves behind the RHI in Stage 8, the target waits and signals
+// internally and this goes with it.
+vk::Semaphore GetSemaphore(IDevice& device, SemaphoreHandle handle);
 
 // A neutral command list recording into a VkCommandBuffer the caller owns and
 // submits. Records only barriers and copies; draws stay on the raw buffer until
