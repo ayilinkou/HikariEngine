@@ -3,6 +3,27 @@ if(NOT SLANGC_EXE)
   message(FATAL_ERROR "slangc not found!")
 endif()
 
+# The Vulkan specification makes valid SPIR-V the application's responsibility,
+# not the driver's — VUID-VkShaderModuleCreateInfo-pCode-08736 — so a driver is
+# free to assume validity and skip checking. Invalid SPIR-V is then undefined
+# behaviour that renders correctly on the driver it was written against and
+# fails somewhere else.
+#
+# The validation layers do call spirv-val at runtime, but only on the modules a
+# run actually creates, and only where a Vulkan ICD exists. CI has none, so the
+# GPU tests skip there and the layers never load: this is the only shader
+# correctness check CI can run. slangc does not stand in for it — it accepts
+# modules spirv-val rejects.
+#
+# Searched beside the SDK rather than on PATH alone, and fatal rather than
+# optional, because a check that silently disappears on one of the nine CI
+# configurations is worse than no check: the build stays green and the coverage
+# is imaginary.
+find_program(SPIRV_VAL_EXE spirv-val HINTS $ENV{VULKAN_SDK}/bin)
+if(NOT SPIRV_VAL_EXE)
+  message(FATAL_ERROR "spirv-val not found! Expected it in $ENV{VULKAN_SDK}/bin.")
+endif()
+
 # Compiles .slang sources to SPIR-V beside the executable that loads them.
 #
 # The output directory is VULKANAPP_EXE_DIR/shaders — set next to
@@ -59,6 +80,11 @@ function(add_slang_shader_target target)
         -emit-spirv-directly -warnings-as-errors all -fvk-use-entrypoint-name ${entry_points} -o
         ${output_file} -depfile ${depfile} $<IF:$<CONFIG:Debug>,-g1,-g0>
         $<IF:$<CONFIG:Debug>,-O0,-O3>
+      # Same command as the compile, so validation runs exactly when a shader
+      # recompiles and a failure fails the build. The target environment is
+      # stated rather than left at spirv-val's universal default, which would
+      # miss the Vulkan-specific rules; it matches VulkanDevice's kApiVersion.
+      COMMAND ${SPIRV_VAL_EXE} --target-env vulkan1.4 ${output_file}
       DEPENDS ${shader}
       DEPFILE ${depfile}
       COMMENT "Compiling shader ${rel_path}"
