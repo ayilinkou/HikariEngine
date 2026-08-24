@@ -1822,6 +1822,10 @@ private:
 
     void RecreateSwapchainAndRenderImages()
     {
+        // Read here rather than beside its use at the end of the function: the
+        // rebuild below is what changes it.
+        const uint32_t previousImageCount = m_PresentTarget->GetImageCount();
+
         // A target that refuses to rebuild is the state a minimised window
         // leaves the surface in. Alt-tabbing out of exclusive fullscreen is the
         // common way to reach it: SDL minimises the window itself on focus loss
@@ -1871,6 +1875,30 @@ private:
         pipelineInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
         pipelineInfo.PipelineRenderingCreateInfo = pipelineRenderingInfo;
         ImGui_ImplVulkan_CreateMainPipeline(&pipelineInfo);
+
+        // A recreate may hand back a different number of images than the last
+        // one — entering or leaving fullscreen is the usual cause, because the
+        // driver switches between composited and direct presentation. Nothing
+        // this class owns is sized to that count (every per-frame array is
+        // NUM_FRAMES_IN_FLIGHT long, and the per-image semaphores belong to the
+        // target), but ImGui's Vulkan backend cached it at init, so it is the
+        // one thing that has to be told.
+        const uint32_t imageCount = m_PresentTarget->GetImageCount();
+        if (imageCount != previousImageCount)
+        {
+            LogMsg(LogSeverity::Info, LogRenderer, "Swapchain image count changed: {} -> {}",
+                   previousImageCount, imageCount);
+
+            // Discards the vertex/index buffer ring the backend built for the
+            // old count. The ring is rebuilt from InitInfo::ImageCount, which
+            // stays at the value Init() was given — ImGui exposes no setter for
+            // it — so it does not track this. That is safe rather than merely
+            // tolerable: the ring is only reused once every Count frames, and
+            // Count is at least 2, which is NUM_FRAMES_IN_FLIGHT. The draw
+            // fence waited on at the top of a frame therefore always covers the
+            // frame whose slot is about to be overwritten.
+            ImGui_ImplVulkan_SetMinImageCount(imageCount);
+        }
     }
 
     void CreateDescriptorSetLayouts()
