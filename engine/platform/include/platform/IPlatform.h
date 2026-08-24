@@ -3,21 +3,39 @@
 #include <cstdint>
 #include <string>
 
-// Deliberately not vk::Extent2D: Platform links no Vulkan, so the two call
-// sites in App that feed a swapchain convert at the boundary.
-struct Extent2D
-{
-    uint32_t Width = 0u;
-    uint32_t Height = 0u;
-};
+#include <platform/Extent2D.h>
 
 struct WindowDesc
 {
-    uint32_t Width = 1920u;
-    uint32_t Height = 1080u;
+    // Zero asks the platform to pick a size from the display it opens on. It
+    // cannot be a default here: how big the display is, and which one is the
+    // main one, are unknown until the window system has been initialised.
+    uint32_t Width = 0u;
+    uint32_t Height = 0u;
     std::string Title = "Vulkan App";
     bool bResizable = true;
-    bool bBorderless = true;
+    bool bBorderless = false;
+};
+
+// How the window covers the display. One value rather than a bool plus a mode,
+// because "windowed, but exclusive" is not a state that exists.
+enum class WindowMode
+{
+    Windowed,
+
+    // The window is resized to fill the display and loses its decorations, but
+    // stays an ordinary composited window and the display's video mode is not
+    // touched. Alt-tab is immediate and nothing else on the desktop is
+    // disturbed, which is why this is the one to reach for by default.
+    BorderlessFullscreen,
+
+    // A real display mode is selected for the fullscreen window. What that
+    // buys differs by platform: on Windows it is a video mode change, while on
+    // Wayland — where a client cannot mode-set at all — the compositor scales
+    // a surface sized to the mode instead. Neither grants exclusive ownership
+    // of the display in the Vulkan sense; that is VK_EXT_full_screen_exclusive,
+    // which is Windows-only and not something the RHI asks for.
+    ExclusiveFullscreen,
 };
 
 // The windowing/OS seam. SdlPlatform is the only implementation today;
@@ -39,6 +57,11 @@ public:
     // Reveals the window, which is created hidden so that initialisation is
     // not visible as a blank frame.
     virtual void Show() = 0;
+
+    // Asynchronous on some window systems, and a request the window system is
+    // allowed to refuse. The resulting size change arrives as a normal resize
+    // event, so callers rebuild nothing here.
+    virtual void SetWindowMode(WindowMode mode) = 0;
 
     virtual void SetRelativeMouseMode(bool bEnabled) = 0;
     virtual void WarpMouse(float x, float y) = 0;

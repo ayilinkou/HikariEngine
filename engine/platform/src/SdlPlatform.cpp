@@ -10,7 +10,50 @@
 namespace
 {
 constexpr LogCategory LogSDL("SDL");
+
+// How much of the display a window with no size of its own takes. A window the
+// size of the display looks like borderless fullscreen but is not one: its
+// title bar and its edges sit off-screen or under the taskbar, so it can be
+// neither moved nor resized. Three quarters leaves all of them reachable.
+constexpr float kDefaultDisplayFraction = 0.75f;
+
+// Only used when the display cannot be queried at all. Small enough to fit on
+// any display that could plausibly be attached.
+constexpr Extent2D kFallbackWindowSize{1280u, 720u};
+
+Extent2D DefaultWindowSize(SDL_DisplayID display)
+{
+    // Screen coordinates, which is what SDL_CreateWindow sizes in — the pixel
+    // count differs from this on a high-density display, and is the swapchain's
+    // business rather than the window's.
+    SDL_Rect bounds{};
+    if (!SDL_GetDisplayBounds(display, &bounds) || bounds.w <= 0 || bounds.h <= 0)
+    {
+        LogMsg(LogSeverity::Warning, LogSDL,
+               "Failed to query the display bounds ({}); using {}x{}.", SDL_GetError(),
+               kFallbackWindowSize.Width, kFallbackWindowSize.Height);
+        return kFallbackWindowSize;
+    }
+
+    return {static_cast<uint32_t>(static_cast<float>(bounds.w) * kDefaultDisplayFraction),
+            static_cast<uint32_t>(static_cast<float>(bounds.h) * kDefaultDisplayFraction)};
 }
+
+const char* WindowModeName(WindowMode mode)
+{
+    switch (mode)
+    {
+        case WindowMode::Windowed:
+            return "windowed";
+        case WindowMode::BorderlessFullscreen:
+            return "borderless fullscreen";
+        case WindowMode::ExclusiveFullscreen:
+            return "exclusive fullscreen";
+    }
+
+    return "unknown";
+}
+} // namespace
 
 SDLException::SDLException(const std::string& message)
     : std::runtime_error(std::format("{} {}", message, SDL_GetError()))
@@ -35,12 +78,30 @@ SdlPlatform::SdlPlatform(const WindowDesc& desc)
     if (desc.bBorderless)
         flags |= SDL_WINDOW_BORDERLESS;
 
-    m_pWindow = SDL_CreateWindow(desc.Title.c_str(), static_cast<int>(desc.Width),
-                                 static_cast<int>(desc.Height), flags);
+    const SDL_DisplayID display = SDL_GetPrimaryDisplay();
+    Extent2D size{desc.Width, desc.Height};
+    if (size.Width == 0u || size.Height == 0u)
+        size = DefaultWindowSize(display);
+
+    m_pWindow = SDL_CreateWindow(desc.Title.c_str(), static_cast<int>(size.Width),
+                                 static_cast<int>(size.Height), flags);
     if (m_pWindow == nullptr)
         throw SDLException("Failed to create window!");
 
-    SDL_SetWindowFullscreen(m_pWindow, false);
+    // SDL_CreateWindow takes no position, so without this the window manager
+    // places the window — on Windows, cascaded down from the top left. Setting
+    // it while the window is still hidden means it is never seen anywhere else.
+    // SDL centres within the display's usable bounds, so the taskbar does not
+    // push the title bar off-screen.
+    //
+    // Logged rather than warned about because a Wayland client cannot position
+    // itself at all: SDL_SetWindowPosition fails by design there, and the
+    // compositor's placement is the correct outcome, not a fallback.
+    if (!SDL_SetWindowPosition(m_pWindow, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED))
+        LogMsg(LogSeverity::Info, LogSDL, "The window system placed the window itself: {}",
+               SDL_GetError());
+
+    LogMsg(LogSeverity::Info, LogSDL, "Created a {}x{} window", size.Width, size.Height);
 }
 
 SdlPlatform::~SdlPlatform()
@@ -70,6 +131,68 @@ Extent2D SdlPlatform::GetFramebufferExtent() const
 void SdlPlatform::Show()
 {
     SDL_ShowWindow(m_pWindow);
+}
+
+void SdlPlatform::SetWindowMode(WindowMode mode)
+{
+    // The fullscreen mode is a property of the window that SDL remembers
+    // whether or not it is fullscreen right now, so it has to be chosen before
+    // the fullscreen request rather than passed with it. A null mode is what
+    // asks for borderless desktop fullscreen.
+    if (mode == WindowMode::ExclusiveFullscreen)
+    {
+        const SDL_DisplayID display = SDL_GetDisplayForWindow(m_pWindow);
+
+        // Matched against the desktop mode rather than one of our choosing:
+        // the point of this path is to change how the window is presented, not
+        // to change the user's resolution behind their back. High-density
+        // modes are included so a HiDPI display gives us its native pixels,
+        // which is what the swapchain is sized in.
+        const SDL_DisplayMode* pDesktopMode = SDL_GetDesktopDisplayMode(display);
+
+        SDL_DisplayMode closest{};
+        const bool bHaveMode =
+            pDesktopMode != nullptr &&
+            SDL_GetClosestFullscreenDisplayMode(display, pDesktopMode->w, pDesktopMode->h,
+                                                pDesktopMode->refresh_rate, true, &closest);
+
+        // A display that advertises no fullscreen modes cannot do this at all.
+        // Falling back to borderless beats leaving the window windowed: the
+        // user asked to go fullscreen, and that part is still possible.
+        if (!bHaveMode)
+        {
+            LogMsg(LogSeverity::Warning, LogSDL,
+                   "No exclusive fullscreen mode available ({}); using borderless instead.",
+                   SDL_GetError());
+            mode = WindowMode::BorderlessFullscreen;
+        }
+        else if (!SDL_SetWindowFullscreenMode(m_pWindow, &closest))
+        {
+            LogMsg(LogSeverity::Warning, LogSDL,
+                   "Failed to select fullscreen display mode ({}); using borderless instead.",
+                   SDL_GetError());
+            mode = WindowMode::BorderlessFullscreen;
+        }
+    }
+
+    if (mode != WindowMode::ExclusiveFullscreen && !SDL_SetWindowFullscreenMode(m_pWindow, nullptr))
+    {
+        LogMsg(LogSeverity::Warning, LogSDL, "Failed to clear the fullscreen display mode: {}",
+               SDL_GetError());
+    }
+
+    // Deliberately not followed by SDL_SyncWindow: the transition is
+    // asynchronous on some window systems, and the size change arrives as an
+    // ordinary resize event that the renderer already handles. Blocking here
+    // would stall the frame loop for the length of a compositor animation.
+    if (!SDL_SetWindowFullscreen(m_pWindow, mode != WindowMode::Windowed))
+    {
+        LogMsg(LogSeverity::Warning, LogSDL, "Failed to change the fullscreen state: {}",
+               SDL_GetError());
+        return;
+    }
+
+    LogMsg(LogSeverity::Info, LogSDL, "Requested window mode: {}", WindowModeName(mode));
 }
 
 void SdlPlatform::SetRelativeMouseMode(bool bEnabled)

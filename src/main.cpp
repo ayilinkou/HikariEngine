@@ -168,6 +168,14 @@ struct Options
     bool bStrictValidation = false; // exit non-zero on any validation error
     Rhi::ValidationPolicy ValidationPolicy = Rhi::ValidationPolicy::Count;
     bool bHeadless = false; // TODO
+
+    // --resolution. Zero in either half leaves the choice to the platform,
+    // which sizes the window from the display it opens on.
+    Extent2D WindowSize{};
+
+    // --borderless / --fullscreen. One field rather than two flags, so that
+    // "borderless and exclusive at once" cannot be represented past parsing.
+    WindowMode StartWindowMode = WindowMode::Windowed;
     int JobCount =
         -1; // -1 = default, 0 = SerialJobSystem, N>0 = SharedQueueJobSystem with N worker threads
 
@@ -222,6 +230,13 @@ void PrintUsage()
                      "validation error occurred\n"
                      "  --validation-policy <p> ignore | count | failfast "
                      "(default: count; failfast aborts on the first error)\n"
+                     "  --resolution <W>x<H>    Start with a window of this size (default: "
+                     "three quarters of\n"
+                     "                          the display)\n"
+                     "  --borderless            Start covering the display as a borderless "
+                     "window\n"
+                     "  --fullscreen            Start in exclusive fullscreen, selecting a "
+                     "display mode\n"
                      "  --headless              Run without a window "
                      "(reserved, not yet implemented)\n"
                      "  --jobs <N>              Worker thread count (0 = SerialJobSystem, "
@@ -242,6 +257,21 @@ void PrintUsage()
 {
     PrintUsage();
     std::exit(code);
+}
+
+// --borderless and --fullscreen name two different ways of covering the
+// display, so a command line carrying both asks for nothing coherent. Rejected
+// rather than settled by precedence or by order: a launcher passing both is
+// misconfigured, and honouring one of them quietly hides that. Repeating the
+// same flag is not a conflict.
+void RejectConflictingWindowMode(WindowMode current, WindowMode requested, const std::string& flag)
+{
+    if (current == WindowMode::Windowed || current == requested)
+        return;
+
+    LogMsg(LogSeverity::Error, LogMain, "{} cannot be combined with {}", flag,
+           current == WindowMode::BorderlessFullscreen ? "--borderless" : "--fullscreen");
+    ExitWithUsage(EXIT_FAILURE);
 }
 
 std::string GenerateTimestamp()
@@ -326,6 +356,22 @@ Options ParseArgs(int argc, char** argv)
                            "--validation-policy expects ignore, count or failfast, got: {}", value);
                     ExitWithUsage(EXIT_FAILURE);
                 }
+            }
+            else if (flag == "--resolution")
+                options.WindowSize = option.RequireExtent2D();
+            else if (flag == "--borderless")
+            {
+                option.RequireNoValue();
+                RejectConflictingWindowMode(options.StartWindowMode,
+                                            WindowMode::BorderlessFullscreen, flag);
+                options.StartWindowMode = WindowMode::BorderlessFullscreen;
+            }
+            else if (flag == "--fullscreen")
+            {
+                option.RequireNoValue();
+                RejectConflictingWindowMode(options.StartWindowMode,
+                                            WindowMode::ExclusiveFullscreen, flag);
+                options.StartWindowMode = WindowMode::ExclusiveFullscreen;
             }
             else if (flag == "--headless")
             {
@@ -859,6 +905,15 @@ private:
                 else
                     ShowCursor();
                 break;
+            case SDLK_F9:
+                m_Platform.SetWindowMode(WindowMode::Windowed);
+                break;
+            case SDLK_F10:
+                m_Platform.SetWindowMode(WindowMode::BorderlessFullscreen);
+                break;
+            case SDLK_F11:
+                m_Platform.SetWindowMode(WindowMode::ExclusiveFullscreen);
+                break;
         }
     }
 
@@ -909,6 +964,16 @@ private:
         // Fences coordinate CPU to GPU synchronisation, for times when
         // the CPU needs to know that the GPU has finished a task. Must be
         // explicitely reset by the host.
+
+        // A recreation that was deferred means the surface had no area when it
+        // was last asked. Retry it here, and skip the frame while the answer
+        // has not changed: there is nothing to draw into.
+        if (m_bSwapchainOutOfDate)
+        {
+            RecreateSwapchainAndRenderImages();
+            if (m_bSwapchainOutOfDate)
+                return;
+        }
 
         FrameData& frameData = m_Frames[m_FrameIndex];
         auto fenceResult = m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
@@ -1845,17 +1910,33 @@ private:
 
     void RecreateSwapchainAndRenderImages()
     {
+        // A surface with no area cannot back a swapchain (CanCreateSwapchain),
+        // which is the state a minimised window is in. Alt-tabbing out of
+        // exclusive fullscreen is the common way to reach it: SDL minimises the
+        // window itself on focus loss there, so that the desktop video mode
+        // comes back.
+        //
+        // Deferring rather than blocking keeps the event loop running, so the
+        // window can be restored — or the application closed — while it lasts.
+        // The existing swapchain is left alone: presenting to a window with no
+        // area is legal, and DrawFrame skips the frames until this succeeds.
+        const vk::SurfaceCapabilitiesKHR capabilities =
+            m_PhysicalDevice.getSurfaceCapabilitiesKHR(*m_Surface);
+        const Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
+        if (!CanCreateSwapchain(capabilities,
+                                vk::Extent2D{framebufferExtent.Width, framebufferExtent.Height}))
+        {
+            if (!m_bSwapchainOutOfDate)
+                LogMsg(LogSeverity::Info, LogRenderer,
+                       "Surface has no area; deferring swapchain recreation.");
+
+            m_bSwapchainOutOfDate = true;
+            return;
+        }
+
         LogMsg(LogSeverity::Info, LogRenderer, "Recreating swapchain and render images...");
 
-        // Blocks while the window is minimised — a zero-sized framebuffer is
-        // not a legal swapchain extent.
-        Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
-        while (framebufferExtent.Width == 0 || framebufferExtent.Height == 0)
-        {
-            framebufferExtent = m_Platform.GetFramebufferExtent();
-            SDL_Event event;
-            SDL_WaitEvent(&event);
-        }
+        m_bSwapchainOutOfDate = false;
 
         m_Device.waitIdle();
 
@@ -2436,6 +2517,9 @@ private:
     std::vector<Rhi::UniqueHandle<Rhi::TextureHandle>> m_SwapTextures;
     std::vector<Rhi::UniqueHandle<Rhi::TextureViewHandle>> m_SwapImageViews;
     uint32_t m_MinImageCount = 0;
+    // Set when a recreation could not be carried out because the surface had no
+    // area. The frame loop retries and draws nothing until it clears.
+    bool m_bSwapchainOutOfDate = false;
 
     std::array<FrameData, NUM_FRAMES_IN_FLIGHT> m_Frames;
 
@@ -2515,7 +2599,15 @@ int main(int argc, char** argv)
 
     try
     {
-        pPlatform = std::make_unique<SdlPlatform>(WindowDesc{});
+        pPlatform = std::make_unique<SdlPlatform>(
+            WindowDesc{.Width = options.WindowSize.Width, .Height = options.WindowSize.Height});
+
+        // Before the device, so that the first swapchain is built at the size
+        // the window ends up rather than at the windowed one. Where the
+        // transition is asynchronous the resize still arrives late, as a
+        // resize event, which costs one recreation and nothing else.
+        if (options.StartWindowMode != WindowMode::Windowed)
+            pPlatform->SetWindowMode(options.StartWindowMode);
 
         if (options.JobCount == 0)
         {

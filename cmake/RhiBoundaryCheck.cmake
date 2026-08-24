@@ -256,6 +256,7 @@ set(transitional_allowlist
     "src/PBRMaterial.h|DescriptorAllocator.h|Descriptors are isolated, not abstracted (D7)"
     "src/PBRMaterial.cpp|VulkanNative.h|Writes descriptor sets directly (D7)"
     "src/PBRMaterial.cpp|DebugNames.h|Names the material descriptor set"
+    "tests/unit/rhi/SwapchainUtilTests.cpp|SwapchainUtil.h|Surface states a real display cannot be put into on demand"
     "tests/gpu/rhi/DeviceTests.cpp|VulkanNative.h|The escape hatch is what these cases assert on"
     "tests/support/GpuReadback.h|VulkanNative.h|Readback records raw copies to a host-visible buffer"
 )

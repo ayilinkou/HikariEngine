@@ -560,7 +560,21 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
     const vk::Bool32 bSyncValEnabled = VK_TRUE;
     const vk::Bool32 bBestPracticesValEnabled = VK_TRUE;
 
-    std::array<vk::LayerSettingEXT, 2> settings = {
+    // VUIDs the validation layer must not emit. The best-practices layer raises a
+    // performance warning for every VK_SUBOPTIMAL_KHR returned by
+    // vkQueuePresentKHR, but a suboptimal swapchain is precisely the signal the
+    // frame loop acts on — it recreates the swapchain on the next iteration. A
+    // live resize makes that fire once per frame, which is noise rather than a
+    // defect. The id names vkCreateSharedSwapchainsKHR for historical reasons but
+    // is the one the present-time check actually uses (Vulkan-ValidationLayers
+    // bp_wsi.cpp, PostCallRecordQueuePresentKHR). Muted at the layer via
+    // message_id_filter so it is never generated, keeping DebugCallback generic
+    // and the run report's validation counts clean.
+    static constexpr const char* kMutedMessageIds[] = {
+        "BestPractices-vkCreateSharedSwapchainsKHR-SuboptimalSwapchain",
+    };
+
+    std::array<vk::LayerSettingEXT, 3> settings = {
         vk::LayerSettingEXT{.pLayerName = kValidationLayerName,
                             .pSettingName = "validate_sync",
                             .type = vk::LayerSettingTypeEXT::eBool32,
@@ -571,6 +585,11 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
                             .type = vk::LayerSettingTypeEXT::eBool32,
                             .valueCount = 1,
                             .pValues = &bBestPracticesValEnabled},
+        vk::LayerSettingEXT{.pLayerName = kValidationLayerName,
+                            .pSettingName = "message_id_filter",
+                            .type = vk::LayerSettingTypeEXT::eString,
+                            .valueCount = static_cast<uint32_t>(std::size(kMutedMessageIds)),
+                            .pValues = kMutedMessageIds},
     };
 
     vk::LayerSettingsCreateInfoEXT layerSettingsInfo{

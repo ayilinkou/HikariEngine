@@ -1,6 +1,7 @@
 #include <platform/CommandLine.h>
 
 #include <format>
+#include <limits>
 #include <string_view>
 
 namespace
@@ -62,6 +63,46 @@ uint64_t CommandLineOption::RequireUint64() const
     {
         throw CommandLineError(
             std::format("Invalid unsigned integer value for {}: {}", Flag, value));
+    }
+}
+
+Extent2D CommandLineOption::RequireExtent2D() const
+{
+    const std::string value = RequireValue();
+
+    // Both spellings, because "1600X900" is what a user who typed it in a
+    // launcher config is as likely to write as "1600x900".
+    const size_t separator = value.find_first_of("xX");
+
+    const auto parseComponent = [&value](size_t begin, size_t end) -> uint32_t
+    {
+        const std::string component = value.substr(begin, end - begin);
+
+        // stoul takes a leading sign and stoull wraps a negative round to a
+        // huge positive, so reject the sign before converting.
+        if (component.empty() || component[0] == '-' || component[0] == '+')
+            throw std::invalid_argument("not a plain unsigned number");
+
+        size_t consumed = 0;
+        const unsigned long long parsed = std::stoull(component, &consumed);
+        if (consumed != component.size() || parsed == 0 ||
+            parsed > std::numeric_limits<uint32_t>::max())
+            throw std::invalid_argument("out of range");
+
+        return static_cast<uint32_t>(parsed);
+    };
+
+    try
+    {
+        if (separator == std::string::npos)
+            throw std::invalid_argument("no separator");
+
+        return {parseComponent(0, separator), parseComponent(separator + 1, value.size())};
+    }
+    catch (const std::exception&)
+    {
+        throw CommandLineError(
+            std::format("Invalid <width>x<height> value for {}: {}", Flag, value));
     }
 }
 
