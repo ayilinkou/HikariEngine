@@ -859,6 +859,15 @@ private:
                 else
                     ShowCursor();
                 break;
+            case SDLK_F9:
+                m_Platform.SetWindowMode(WindowMode::Windowed);
+                break;
+            case SDLK_F10:
+                m_Platform.SetWindowMode(WindowMode::BorderlessFullscreen);
+                break;
+            case SDLK_F11:
+                m_Platform.SetWindowMode(WindowMode::ExclusiveFullscreen);
+                break;
         }
     }
 
