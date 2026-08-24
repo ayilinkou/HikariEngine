@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <platform/Extent2D.h>
+
 // Thrown when an option's value is missing or malformed. The message names the
 // flag, so a caller can log it verbatim.
 class CommandLineError : public std::runtime_error
@@ -22,11 +24,17 @@ struct CommandLineOption
     std::string Flag{};
     std::optional<std::string> Value{};
 
-    // All three throw CommandLineError, naming this flag, when the value is
+    // All of these throw CommandLineError, naming this flag, when the value is
     // absent or cannot be converted.
     std::string RequireValue() const;
     int RequireInt() const;
     uint64_t RequireUint64() const;
+
+    // A `<width>x<height>` pair, as a resolution is conventionally written.
+    // Zero is rejected in either half: it is the "choose one for me" sentinel
+    // elsewhere, so accepting it here would mean a command line that asks for
+    // an explicit size and silently gets a chosen one.
+    Extent2D RequireExtent2D() const;
 
     // For flags that take no value. A value is attached to whatever flag
     // precedes it, so without this a boolean flag would silently swallow a

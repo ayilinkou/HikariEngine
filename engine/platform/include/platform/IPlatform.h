@@ -3,13 +3,7 @@
 #include <cstdint>
 #include <string>
 
-// Deliberately not vk::Extent2D: Platform links no Vulkan, so the two call
-// sites in App that feed a swapchain convert at the boundary.
-struct Extent2D
-{
-    uint32_t Width = 0u;
-    uint32_t Height = 0u;
-};
+#include <platform/Extent2D.h>
 
 struct WindowDesc
 {

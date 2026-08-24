@@ -146,6 +146,56 @@ TEST_CASE("A valid unsigned value converts", "[CommandLine]")
     REQUIRE(Parse({"--frames", "1000"}).Options()[0].RequireUint64() == 1000u);
 }
 
+TEST_CASE("A resolution converts, in either spelling of the separator", "[CommandLine]")
+{
+    const Extent2D lower = Parse({"--resolution", "1600x900"}).Options()[0].RequireExtent2D();
+    REQUIRE(lower.Width == 1600u);
+    REQUIRE(lower.Height == 900u);
+
+    const Extent2D upper = Parse({"--resolution=2560X1440"}).Options()[0].RequireExtent2D();
+    REQUIRE(upper.Width == 2560u);
+    REQUIRE(upper.Height == 1440u);
+}
+
+TEST_CASE("A resolution missing a half is an error", "[CommandLine]")
+{
+    REQUIRE_THROWS_AS(Parse({"--resolution", "1600"}).Options()[0].RequireExtent2D(),
+                      CommandLineError);
+    REQUIRE_THROWS_AS(Parse({"--resolution", "1600x"}).Options()[0].RequireExtent2D(),
+                      CommandLineError);
+    REQUIRE_THROWS_AS(Parse({"--resolution", "x900"}).Options()[0].RequireExtent2D(),
+                      CommandLineError);
+}
+
+TEST_CASE("A zero-sized resolution is an error rather than a request to choose", "[CommandLine]")
+{
+    REQUIRE_THROWS_AS(Parse({"--resolution", "0x900"}).Options()[0].RequireExtent2D(),
+                      CommandLineError);
+    REQUIRE_THROWS_AS(Parse({"--resolution", "1600x0"}).Options()[0].RequireExtent2D(),
+                      CommandLineError);
+}
+
+TEST_CASE("A malformed resolution is an error", "[CommandLine]")
+{
+    // A signed half would otherwise wrap round, and a third component would be
+    // silently dropped by a parser that stopped at the first separator.
+    REQUIRE_THROWS_AS(Parse({"--resolution", "-1600x900"}).Options()[0].RequireExtent2D(),
+                      CommandLineError);
+    REQUIRE_THROWS_AS(Parse({"--resolution", "1600x-900"}).Options()[0].RequireExtent2D(),
+                      CommandLineError);
+    REQUIRE_THROWS_AS(Parse({"--resolution", "1600x900x2"}).Options()[0].RequireExtent2D(),
+                      CommandLineError);
+    REQUIRE_THROWS_AS(Parse({"--resolution", "wide"}).Options()[0].RequireExtent2D(),
+                      CommandLineError);
+    REQUIRE_THROWS_AS(Parse({"--resolution", "5000000000x900"}).Options()[0].RequireExtent2D(),
+                      CommandLineError);
+}
+
+TEST_CASE("A resolution with no value at all is an error", "[CommandLine]")
+{
+    REQUIRE_THROWS_AS(Parse({"--resolution"}).Options()[0].RequireExtent2D(), CommandLineError);
+}
+
 TEST_CASE("A value on a flag that takes none is an error", "[CommandLine]")
 {
     REQUIRE_THROWS_AS(Parse({"--fixed-dt=yes"}).Options()[0].RequireNoValue(), CommandLineError);

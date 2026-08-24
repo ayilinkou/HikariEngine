@@ -168,6 +168,14 @@ struct Options
     bool bStrictValidation = false; // exit non-zero on any validation error
     Rhi::ValidationPolicy ValidationPolicy = Rhi::ValidationPolicy::Count;
     bool bHeadless = false; // TODO
+
+    // --resolution. Zero in either half leaves the choice to the platform,
+    // which sizes the window from the display it opens on.
+    Extent2D WindowSize{};
+
+    // --borderless / --fullscreen. One field rather than two flags, so that
+    // "borderless and exclusive at once" cannot be represented past parsing.
+    WindowMode StartWindowMode = WindowMode::Windowed;
     int JobCount =
         -1; // -1 = default, 0 = SerialJobSystem, N>0 = SharedQueueJobSystem with N worker threads
 
@@ -222,6 +230,13 @@ void PrintUsage()
                      "validation error occurred\n"
                      "  --validation-policy <p> ignore | count | failfast "
                      "(default: count; failfast aborts on the first error)\n"
+                     "  --resolution <W>x<H>    Start with a window of this size (default: "
+                     "three quarters of\n"
+                     "                          the display)\n"
+                     "  --borderless            Start covering the display as a borderless "
+                     "window\n"
+                     "  --fullscreen            Start in exclusive fullscreen, selecting a "
+                     "display mode\n"
                      "  --headless              Run without a window "
                      "(reserved, not yet implemented)\n"
                      "  --jobs <N>              Worker thread count (0 = SerialJobSystem, "
@@ -242,6 +257,21 @@ void PrintUsage()
 {
     PrintUsage();
     std::exit(code);
+}
+
+// --borderless and --fullscreen name two different ways of covering the
+// display, so a command line carrying both asks for nothing coherent. Rejected
+// rather than settled by precedence or by order: a launcher passing both is
+// misconfigured, and honouring one of them quietly hides that. Repeating the
+// same flag is not a conflict.
+void RejectConflictingWindowMode(WindowMode current, WindowMode requested, const std::string& flag)
+{
+    if (current == WindowMode::Windowed || current == requested)
+        return;
+
+    LogMsg(LogSeverity::Error, LogMain, "{} cannot be combined with {}", flag,
+           current == WindowMode::BorderlessFullscreen ? "--borderless" : "--fullscreen");
+    ExitWithUsage(EXIT_FAILURE);
 }
 
 std::string GenerateTimestamp()
@@ -326,6 +356,22 @@ Options ParseArgs(int argc, char** argv)
                            "--validation-policy expects ignore, count or failfast, got: {}", value);
                     ExitWithUsage(EXIT_FAILURE);
                 }
+            }
+            else if (flag == "--resolution")
+                options.WindowSize = option.RequireExtent2D();
+            else if (flag == "--borderless")
+            {
+                option.RequireNoValue();
+                RejectConflictingWindowMode(options.StartWindowMode,
+                                            WindowMode::BorderlessFullscreen, flag);
+                options.StartWindowMode = WindowMode::BorderlessFullscreen;
+            }
+            else if (flag == "--fullscreen")
+            {
+                option.RequireNoValue();
+                RejectConflictingWindowMode(options.StartWindowMode,
+                                            WindowMode::ExclusiveFullscreen, flag);
+                options.StartWindowMode = WindowMode::ExclusiveFullscreen;
             }
             else if (flag == "--headless")
             {
@@ -2553,7 +2599,15 @@ int main(int argc, char** argv)
 
     try
     {
-        pPlatform = std::make_unique<SdlPlatform>(WindowDesc{});
+        pPlatform = std::make_unique<SdlPlatform>(
+            WindowDesc{.Width = options.WindowSize.Width, .Height = options.WindowSize.Height});
+
+        // Before the device, so that the first swapchain is built at the size
+        // the window ends up rather than at the windowed one. Where the
+        // transition is asynchronous the resize still arrives late, as a
+        // resize event, which costs one recreation and nothing else.
+        if (options.StartWindowMode != WindowMode::Windowed)
+            pPlatform->SetWindowMode(options.StartWindowMode);
 
         if (options.JobCount == 0)
         {
