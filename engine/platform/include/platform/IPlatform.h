@@ -13,8 +13,11 @@ struct Extent2D
 
 struct WindowDesc
 {
-    uint32_t Width = 1920u;
-    uint32_t Height = 1080u;
+    // Zero asks the platform to pick a size from the display it opens on. It
+    // cannot be a default here: how big the display is, and which one is the
+    // main one, are unknown until the window system has been initialised.
+    uint32_t Width = 0u;
+    uint32_t Height = 0u;
     std::string Title = "Vulkan App";
     bool bResizable = true;
     bool bBorderless = false;
