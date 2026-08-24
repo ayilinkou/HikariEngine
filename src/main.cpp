@@ -919,6 +919,16 @@ private:
         // the CPU needs to know that the GPU has finished a task. Must be
         // explicitely reset by the host.
 
+        // A recreation that was deferred means the surface had no area when it
+        // was last asked. Retry it here, and skip the frame while the answer
+        // has not changed: there is nothing to draw into.
+        if (m_bSwapchainOutOfDate)
+        {
+            RecreateSwapchainAndRenderImages();
+            if (m_bSwapchainOutOfDate)
+                return;
+        }
+
         FrameData& frameData = m_Frames[m_FrameIndex];
         auto fenceResult = m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
         if (fenceResult != vk::Result::eSuccess)
@@ -1854,17 +1864,33 @@ private:
 
     void RecreateSwapchainAndRenderImages()
     {
+        // A surface with no area cannot back a swapchain (CanCreateSwapchain),
+        // which is the state a minimised window is in. Alt-tabbing out of
+        // exclusive fullscreen is the common way to reach it: SDL minimises the
+        // window itself on focus loss there, so that the desktop video mode
+        // comes back.
+        //
+        // Deferring rather than blocking keeps the event loop running, so the
+        // window can be restored — or the application closed — while it lasts.
+        // The existing swapchain is left alone: presenting to a window with no
+        // area is legal, and DrawFrame skips the frames until this succeeds.
+        const vk::SurfaceCapabilitiesKHR capabilities =
+            m_PhysicalDevice.getSurfaceCapabilitiesKHR(*m_Surface);
+        const Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
+        if (!CanCreateSwapchain(capabilities,
+                                vk::Extent2D{framebufferExtent.Width, framebufferExtent.Height}))
+        {
+            if (!m_bSwapchainOutOfDate)
+                LogMsg(LogSeverity::Info, LogRenderer,
+                       "Surface has no area; deferring swapchain recreation.");
+
+            m_bSwapchainOutOfDate = true;
+            return;
+        }
+
         LogMsg(LogSeverity::Info, LogRenderer, "Recreating swapchain and render images...");
 
-        // Blocks while the window is minimised — a zero-sized framebuffer is
-        // not a legal swapchain extent.
-        Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
-        while (framebufferExtent.Width == 0 || framebufferExtent.Height == 0)
-        {
-            framebufferExtent = m_Platform.GetFramebufferExtent();
-            SDL_Event event;
-            SDL_WaitEvent(&event);
-        }
+        m_bSwapchainOutOfDate = false;
 
         m_Device.waitIdle();
 
@@ -2445,6 +2471,9 @@ private:
     std::vector<Rhi::UniqueHandle<Rhi::TextureHandle>> m_SwapTextures;
     std::vector<Rhi::UniqueHandle<Rhi::TextureViewHandle>> m_SwapImageViews;
     uint32_t m_MinImageCount = 0;
+    // Set when a recreation could not be carried out because the surface had no
+    // area. The frame loop retries and draws nothing until it clears.
+    bool m_bSwapchainOutOfDate = false;
 
     std::array<FrameData, NUM_FRAMES_IN_FLIGHT> m_Frames;
 

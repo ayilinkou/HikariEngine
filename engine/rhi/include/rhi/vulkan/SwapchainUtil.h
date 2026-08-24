@@ -62,6 +62,25 @@ inline vk::Extent2D ChooseSwapchainExtent(const vk::SurfaceCapabilitiesKHR& capa
                        capabilities.maxImageExtent.height)};
 }
 
+// Whether a surface in this state can back a swapchain at all. A window with no
+// area reports a zero extent, and VUID-VkSwapchainCreateInfoKHR-imageExtent-01689
+// rejects a zero imageExtent, so the only thing to do is wait for the size to
+// change. The Win32 and XCB surfaces both allow this: the spec requires
+// currentExtent to equal the window size there and says the window size may
+// become (0, 0) — a minimized window — "and so a swapchain cannot be created
+// until the size changes" (WSI chapter, VkSurfaceCapabilitiesKHR).
+//
+// The surface has to be asked rather than the window: SDL reports the size a
+// window had before it was minimized, because a minimized Win32 window has an
+// empty client rect and SDL_GetWindowSizeInPixels falls back to the last one it
+// saw. A window-side check for this therefore never fires.
+inline bool CanCreateSwapchain(const vk::SurfaceCapabilitiesKHR& capabilities,
+                               vk::Extent2D framebufferExtent)
+{
+    const vk::Extent2D extent = ChooseSwapchainExtent(capabilities, framebufferExtent);
+    return extent.width != 0 && extent.height != 0;
+}
+
 // Tries to get at least 3 images.
 inline uint32_t ChooseSwapMinImageCount(const vk::SurfaceCapabilitiesKHR& capabilities)
 {
