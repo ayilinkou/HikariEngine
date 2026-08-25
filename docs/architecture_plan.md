@@ -2352,7 +2352,7 @@ validation errors".
 | Document the matrix convention once and apply it consistently | `opaque.slang` header comment | S |
 | `CubemapCreateInfo` → `std::array<std::string,6> FacePaths`, delete the 6-case switch | `CubemapLoader.cpp` | S |
 | [DONE] Hash all six faces into the cubemap cache key | `Cubemap.h:22` | S |
-| Delete the duplicated `GetDefaultTransform()` on `Entity` and `Model` | `Entity.h:82`, `Model.h:27` | XS |
+| [DONE] Delete the duplicated `GetDefaultTransform()` on `Entity` and `Model` | `Entity.h:82`, `Model.h:27` | XS |
 | [DONE] In-class initialisers for `Camera::m_MoveSpeed` / `m_LookSens` | `Camera.h:45-46` | XS |
 | Warn once when lights are clamped instead of silently dropping | `UpdateGlobalBuffer` | XS |
 | Finish the skybox (loaded at `main.cpp:552`, never rendered) and reuse it for IBL | new pass | M–L |

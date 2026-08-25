@@ -79,7 +79,6 @@ public:
     SceneComponent* GetRootComponent() { return &m_RootComponent; }
     Transform& GetTransform() { return m_RootComponent.GetTransform(); }
     const std::string& GetName() const { return m_Name; }
-    static constexpr Transform GetDefaultTransform() { return Transform{}; }
 
     void SetName(const std::string& newName) { m_Name = newName; }
 
