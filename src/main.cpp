@@ -2079,6 +2079,18 @@ private:
                 m_SceneGraph->DirLights[dirLightCount]->GetData();
         }
 
+        if (m_SceneGraph->PointLights.size() > MAX_POINT_LIGHTS ||
+            m_SceneGraph->DirLights.size() > MAX_DIR_LIGHTS)
+        {
+            const uint32_t pointLightTotal =
+                static_cast<uint32_t>(m_SceneGraph->PointLights.size());
+            const uint32_t dirLightTotal = static_cast<uint32_t>(m_SceneGraph->DirLights.size());
+            LogMsg(LogSeverity::Warning, LogRenderer,
+                   "Scene defines more lights than the shader supports; excess lights are "
+                   "dropped. PointLights: {} (max {}), DirLights: {} (max {})",
+                   pointLightTotal, MAX_POINT_LIGHTS, dirLightTotal, MAX_DIR_LIGHTS);
+        }
+
         memcpy(m_RhiDevice->GetMappedData(m_Frames[frameIndex].GlobalBuffer.Get()), &m_GlobalBuffer,
                sizeof(m_GlobalBuffer));
     }

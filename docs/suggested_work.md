@@ -279,8 +279,8 @@ src/
   `GetFace(size_t)` accessor) and loop.
 - **`Camera.h`** — `m_MoveSpeed` and `m_LookSens` have no in-class initialisers (only
   `Camera()` sets them). Add defaults so a future constructor can't forget.
-- **`Entity.h:76`, `Model.h:19`** — `static constexpr Transform GetDefaultTransform()`
-  is duplicated and just returns `Transform{}`. Delete both; `Transform{}` is clearer.
+- [DONE] **`Entity.h:76`, `Model.h:19`** — `static constexpr Transform GetDefaultTransform()`
+  was duplicated and just returned `Transform{}`. Deleted both; `Transform{}` is clearer.
 - **`Entity.h:22-71`** — the four `GetComponents`/`GetFirstComponent` overloads use
   `dynamic_cast` in a loop. Fine at current scale; if the scene grows, a type-id keyed
   map is the usual next step.

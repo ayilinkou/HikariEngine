@@ -24,8 +24,6 @@ public:
     std::vector<Drawable> GetDrawables() const;
     const std::string& GetPath() const { return m_Path; }
 
-    static constexpr Transform GetDefaultTransform() { return Transform{}; }
-
 private:
     std::shared_ptr<ModelData> m_ModelData = nullptr;
     std::string m_Path;

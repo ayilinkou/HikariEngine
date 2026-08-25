@@ -52,9 +52,9 @@ struct VS_Out
 {
 	float4 Pos : SV_Position;
 	float3 WorldPos : TEXCOORD0;
-	float2 TexCoord : TEXCOORD2;
-	float3 Normal : TEXCOORD3;
-	float4 Tangent : TEXCOORD4;
+	float2 TexCoord : TEXCOORD1;
+	float3 Normal : TEXCOORD2;
+	float4 Tangent : TEXCOORD3;
 };
 
 [shader("vertex")]
