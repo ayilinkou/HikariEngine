@@ -38,11 +38,13 @@ the plan. Fix what the step asks for; note anything else you spot rather than fi
 
 **Verify every change with `scripts/precommit.sh`** (configure + build + build tests +
 `ctest -L unit` + `ctest -L gpu` + format-check) before reporting a change as done. It is a
-superset of CI: everything CI enforces, plus the GPU tests, which CI cannot run because its
-runners have no Vulkan ICD. Those skip rather than fail on a machine without one, so a green
-precommit on such a machine has proved less than it looks — check whether they ran before
-relying on them. Report failures with the actual output — never claim a build passed without
-running it.
+superset of CI: everything CI enforces, plus two things CI does not run — the GPU tests
+(CI's runners have no Vulkan ICD) and `rhi_boundary_check` (an oversight, tracked in the
+plan's independent-work table; CI does still enforce header *neutrality* through
+`HeaderSelfContainment_RHI_Neutral`, but not the allowlist ratchet). The GPU tests skip
+rather than fail on a machine without an ICD, so a green precommit on such a machine has
+proved less than it looks — check whether they ran before relying on them. Report failures
+with the actual output — never claim a build passed without running it.
 
 **For changes that could alter rendering, also compare against the baseline** (see
 *Regression checking* below). "It still builds" is not evidence a refactor preserved
@@ -73,9 +75,12 @@ Authoritative sources, local copies first (they match the installed SDK version)
 The validation layers are the empirical check, not a substitute for the spec — a clean
 validation run proves nothing was caught, not that the code is correct. Synchronization
 validation in particular is off by default and worth enabling when touching barriers.
-`grep`ping this repo for prior art is also not a source: `docs/suggested_work.md`
-§1.15 (sync objects not recreated when the swapchain image count changes) is a known-wrong
-place to copy from, and §2.6's fixed ceilings abort rather than grow.
+`grep`ping this repo for prior art is also not a source. Known-wrong places to copy from
+today: `ModelData::Init` (`suggested_work.md` §1.6 — a live P0 that dereferences a null
+material), `WriteScreenshot`'s hardcoded BGRA swizzle, `ChooseSwapchainFormat`'s fallback
+(it can hand `FromNativeFormat` a format the neutral list cannot name), and
+`Drawable::operator<`, which orders by pointer value and so is not reproducible across
+processes.
 
 **Never run git commands that change state.** No commits, branches, stashes, or pushes —
 even when a task feels finished. Reading (`git status`, `git log`, `git diff`) is fine.
@@ -90,8 +95,8 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 3 — Core library | 15–19 | ✅ done (`Engine::Core`, `IJobSystem` injected into `App`) |
 | 4 — Platform library | 20–23 | ✅ done (`Engine::Platform`, `Paths` + `content/` root, `CommandLine`) |
 | 5 — RHI extraction | R1–R17 | ✅ done (`Engine::RHI` — backend-neutral API, handle-based resources, batched uploads, growable descriptors, a pipeline cache, and GPU tests) |
-| **6 — Headless capability** | **35–40** | **← next** |
-| 7 — Engine shell + DI | 41–47 | not started — **CI goal met at step 47** |
+| **6 — Headless capability** | **35–40a** | **in progress** |
+| 7 — Engine shell + DI | 40b, 41–47 | not started — **CI goal met at step 47** |
 | 8+ — Frame graph, DOD, scalability | 48–76 | not started |
 
 Update this table when a stage completes.
@@ -151,14 +156,29 @@ a PNG and a JSON report:
 ```bash
 tests/scripts/baseline_test.sh   # --scene (default scenes/test_scene.map) --frames (default 1000)
                                  # --fixed-dt --camera-preset 1 --screenshot --report
+                                 # --resolution 1920x1080 --borderless
 ```
 
 Output goes to `tests/screenshots/` and `tests/reports/` (both gitignored). Compare against
-the committed `tests/baseline/`. The report is the primary signal — it carries
-`validationErrors`, `validationWarnings`, `drawCalls`, `batches`, `instances`,
-`meanFrameTimeMs`, `p99FrameTimeMs`. Validation errors must stay at 0.
+the committed `tests/baseline/`. Two signals, and **both are usable**:
 
-Note `--headless` is parsed but not yet implemented (Stage 6); today this still opens a window.
+- **The report** carries `validationErrors`, `validationWarnings`, `drawCalls`, `batches`,
+  `instances`, `barriers`, `barrierCalls`. Validation errors must stay at 0. Ignore
+  `meanFrameTimeMs`/`p99FrameTimeMs` — under `--fixed-dt` the app records the *timestep*
+  rather than measured cost, so both read exactly 16.6667 regardless of performance. That is
+  a known defect, tracked in the plan's independent-work table.
+- **A pixel diff of the screenshot**, which is the stronger check and is now reliable: the
+  script forces `--resolution 1920x1080 --borderless`, so captures come out at a fixed extent
+  instead of at whatever size the window manager chose. **Never byte-compare** — PNG encoding
+  is not reproducible, so `cmp`/`md5sum` on a pixel-identical pair still differs. Compare
+  decoded pixels (`PIL.ImageChops.difference(a, b).getbbox() is None`).
+
+`--borderless` rather than `--resolution` alone is what makes that work: a window size is a
+request the window system may refuse, and a tiling compositor always does. The rationale is
+in the script, next to the flags.
+
+Note `--headless` is parsed but not yet implemented (step 40a); today this still opens a
+window.
 
 ---
 
@@ -168,7 +188,9 @@ Note `--headless` is parsed but not yet implemented (Stage 6); today this still 
 src/             # the application — one class per file, plus main.cpp (App + everything unmoved)
 src/shaders/     # Slang source (.slang, .slangh); compiled to <exe dir>/shaders/*.spv
 engine/core/     # Engine::Core static lib — Log, Timer, MyMacros, SwapbackArray,
-                 #   ThreadPool, IJobSystem + SerialJobSystem + SharedQueueJobSystem
+                 #   ThreadPool, IJobSystem + SerialJobSystem + SharedQueueJobSystem,
+                 #   Handle + HandlePool. Extent2D/Extent3D move here (planned) — they
+                 #   exist twice today, as ::Extent2D in Platform and Rhi::Extent2D.
 engine/platform/ # Engine::Platform static lib — IPlatform/SdlPlatform, Paths, FileSystem,
                  #   CommandLine
 engine/rhi/      # Engine::RHI static lib — the graphics abstraction.
