@@ -18,9 +18,14 @@ struct PushConstants
 };
 [[vk::push_constant]] PushConstants pc;
 
+static const float kSlabEpsilon = 1e-5f;
+
 void IntersectHeightSlab(float3 origin, float3 dir, float minH, float maxH, float margin,
                           out float tNear, out float tFar)
 {
+    // Near-horizontal dir never meaningfully crosses the slab planes; bail out
+    // so t doesn't go to infinity. Callers treat tNear > tFar as "no hit".
+    if (abs(dir.y) < kSlabEpsilon) { tNear = 1.f; tFar = 0.f; return; }
     float tMinPlane = ((minH - margin) - origin.y) / dir.y;
     float tMaxPlane = ((maxH + margin) - origin.y) / dir.y;
     tNear = min(tMinPlane, tMaxPlane);
@@ -93,7 +98,7 @@ void main(uint3 dispatchId : SV_DispatchThreadID)
     tNear = max(tNear, 0.f);
     tFar = min(tFar, sceneDist);
 
-    if (tFar <= tNear || rayDir.y == 0.f)
+    if (tFar <= tNear || abs(rayDir.y) < kSlabEpsilon)
 	{
         outputImage[pixel] = float4(0.f, 0.f, 0.f, 0.f);
         return;
@@ -117,14 +122,14 @@ void main(uint3 dispatchId : SV_DispatchThreadID)
         float density = SampleDensity(samplePos);
 
 		float sunTNear, sunTFar;
-		IntersectHeightSlab(samplePos, sunDir, pc.minHeight, pc.maxHeight, pc.boundaryDisplacement, sunTNear, sunTFar);
-		sunTNear = max(sunTNear, 0.f);
-
-		float sunStepSize = (sunTFar - sunTNear) / float(pc.sunStepCount);
-		float sunT = sunTNear;
-
         if (density > 0.f)
 		{
+            IntersectHeightSlab(samplePos, sunDir, pc.minHeight, pc.maxHeight, pc.boundaryDisplacement, sunTNear, sunTFar);
+            sunTNear = max(sunTNear, 0.f);
+
+            float sunStepSize = (sunTFar - sunTNear) / float(pc.sunStepCount);
+            float sunT = sunTNear;
+
 			float sigmaT = density * extinction;
 			float sunTransmittance = 1.f;
 
