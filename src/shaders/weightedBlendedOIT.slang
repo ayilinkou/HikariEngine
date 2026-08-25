@@ -51,10 +51,9 @@ struct VS_Out
 {
 	float4 Pos : SV_Position;
 	float3 WorldPos : TEXCOORD0;
-	float3 Color : TEXCOORD1;
-	float2 TexCoord : TEXCOORD2;
-	float3 Normal : TEXCOORD3;
-	float4 Tangent : TEXCOORD4;
+	float2 TexCoord : TEXCOORD1;
+	float3 Normal : TEXCOORD2;
+	float4 Tangent : TEXCOORD3;
 };
 
 [shader("vertex")]
@@ -174,6 +173,7 @@ FS_Out fragMain(VS_Out f)
 	Lo += ambientReflection;
 
 	float4 premultipliedReflect = float4(Lo * opacity, opacity);
+	// TODO: add transmission
 	const float3 transmit = float3(0.f, 0.f, 0.f);
 	const float ndcZ = f.Pos.z;
 
