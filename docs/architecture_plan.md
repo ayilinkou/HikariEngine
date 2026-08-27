@@ -676,25 +676,25 @@ Two implementations:
   `presentKHR`, extracted. Fixes S1-15 from the companion doc naturally, because
   `GetImageCount()` changing on `Recreate` becomes an explicit, observable event that the
   renderer reacts to rather than something it forgets.
-- **`OffscreenTarget`** — step 38, not started. N color images
+- **`OffscreenTarget`** — ✅ done, step 38. N color images
   (`eColorAttachment | eTransferSrc | eSampled`), no surface, no swapchain, no
-  `VK_KHR_swapchain`. `Acquire` returns `(frameCounter % N)`; `Present` is a no-op;
-  `Readback` copies into a host-visible staging buffer, waits a fence and returns tightly
-  packed bytes.
+  `VK_KHR_swapchain`. N is `FramesInFlight`; `Acquire` returns `(acquireCount % N)` and
+  never reports `bNeedsRecreate`; `Present` records only that the caller signalled that
+  image's render-complete semaphore, which the next `Acquire` of the same image hands back
+  as its wait. `Readback` is still step 39.
 
 **Which target a device hands back is already decided by `IDevice::CreatePresentTarget`,**
 not by the caller — the header says so, and today it throws when there is no surface. That
 throw is where `OffscreenTarget` attaches, so step 38 needs no new entry point.
 
-Two decisions step 38 has to settle, both of which the sketch above left open:
+Two decisions step 38 had to settle, both of which the sketch above left open:
 
-- **The acquire wait becomes a span — decided, see step 38.** `AcquiredImage::Available`
-  (one `SemaphoreHandle`, documented as null only when `bNeedsRecreate` is set) becomes
+- **The acquire wait is a span — ✅ done in step 38.** `AcquiredImage::Available`
+  (one `SemaphoreHandle`, documented as null only when `bNeedsRecreate` is set) became
   `std::span<const SemaphoreHandle> WaitSemaphores`, empty when there is nothing to wait on.
   An empty set is not a sentinel, and the submit already takes a count and an array, so the
-  empty case costs no branch. This also stops the question from depending on whether an
-  offscreen target turns out to need a wait — if it does, it fills the span like any other
-  target.
+  empty case costs no branch. The offscreen target does turn out to need a wait, and fills
+  the span like any other target — see step 38 for why it is not optional.
 - **Readback is format-driven, and the existing screenshot writer is not.** `WriteScreenshot`
   hardcodes a BGRA→RGBA swizzle, correct only because `ChooseSwapchainFormat` asks for
   `BGRA8Unorm` first. An offscreen target picks its own format, so the swizzle has to be
@@ -2055,9 +2055,9 @@ independently of the headless goal, so this stage is worth doing even if you sto
 
 ## Stage 6 — Headless capability (steps 35–40a)
 
-Steps 35 and 36 are done; **37 was delivered early, during Stage 5** — the gpu tests needed a
-surfaceless device before Stage 6 did. What remains is 38, 39 and 40a. Step 40's event half
-became 40b and moved to Stage 7, for the reason recorded there.
+Steps 35, 36 and 38 are done; **37 was delivered early, during Stage 5** — the gpu tests
+needed a surfaceless device before Stage 6 did. What remains is 39 and 40a. Step 40's event
+half became 40b and moved to Stage 7, for the reason recorded there.
 
 ### 35. `IPresentTarget` + `SwapchainTarget` — ✅ done
 - **Do:** Define the interface from §10.2. Move `CreateSwapchain`,
@@ -2094,7 +2094,7 @@ became 40b and moved to Stage 7, for the reason recorded there.
   goes further than the step required and creates every device surfaceless. Nothing remains;
   §10.3 records the one loose end (choosing a software ICD in CI), which belongs to step 47.
 
-### 38. `OffscreenTarget` ← **next**
+### 38. `OffscreenTarget` — ✅ done
 - **Do:** Implement `IPresentTarget` over N owned color images
   (`eColorAttachment | eTransferSrc | eSampled`), no surface, no swapchain. `Acquire` returns
   `frame % N`; `Present` is a no-op; `Recreate` reallocates. Return it from
@@ -2129,6 +2129,34 @@ became 40b and moved to Stage 7, for the reason recorded there.
   `CompositePass`-equivalent path into an `OffscreenTarget` for 3 frames with zero validation
   errors.
 - **Size:** M · **Needs:** 37
+- **What was built:** `engine/rhi/src/vulkan/OffscreenTarget.{h,cpp}`, returned from
+  `VulkanDevice::CreatePresentTarget` where it used to throw. `AcquiredImage::Available`
+  became `WaitSemaphores`, as decided above. `tests/gpu/rhi/PresentTargetTests.cpp` covers
+  it, including three overlapping frames whose pixels are read back and compared exactly.
+- **The wait turned out to be real, and for a reason the step did not anticipate.** N *is*
+  `FramesInFlight`, so the caller's own fence ring already covers the write-after-write
+  hazard the step was worried about — but the semaphore has to be waited on regardless.
+  `GetRenderCompleteSemaphore` is signalled by the caller's submit every frame, and with no
+  presentation engine nothing consumes it; a binary semaphore must be unsignalled when a
+  signal operation reaches the device (`VUID-vkQueueSubmit-pSignalSemaphores-00067`), so the
+  second frame to reach a given image would signal an already-signalled semaphore. The
+  target therefore hands that semaphore back as the next `Acquire`'s wait, which both
+  unsignals it and states the real dependency. Deleting the wait fails the gpu test with
+  that exact VUID, which is what makes the case worth having.
+- **`BarrierPresets::AcquiredSwapchainToRenderTarget` is now `AcquiredImageToRenderTarget`.**
+  Both targets hand back an acquired image on the same terms, and the preset was only ever
+  named after one of them. Its `SrcStage` was already `RenderTarget` rather than `None`, and
+  that is load-bearing — a layout transition is ordered after a semaphore wait only if the
+  barrier's source stage covers the stage waited at — so the reason is now written down
+  beside it.
+- **Left for 40a: what layout a finished offscreen frame ends in.** The renderer records
+  `RenderTargetToPresent()` unconditionally, and an offscreen image can never be in
+  `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR`: the enum belongs to `VK_KHR_swapchain`, which a device
+  with no surface does not enable. Nothing breaks today because nothing yet builds an
+  offscreen target from `App` — that starts with `HeadlessPlatform`. The fix is one query on
+  `IPresentTarget` (the layout the target requires at `Present`: `Present` for a swapchain,
+  `ShaderResource` for an offscreen target) plus a parameter on the two `…ToPresent` presets.
+  It is listed under 40a rather than done here because 40a is its first caller.
 
 ### 39. `OffscreenTarget::Readback`
 - **Do:** `CopyTextureToBuffer` into a host-visible staging buffer, fence, return tightly
@@ -2175,6 +2203,16 @@ became 40b and moved to Stage 7, for the reason recorded there.
   existing borderless-vs-fullscreen check — a window mode for a run with no window asks for
   nothing coherent. `--resolution` is the natural way to size the offscreen target, and
   should be honoured rather than rejected.
+- **Also, and required before a headless frame can be recorded:** ask the target what layout
+  it wants its image left in, instead of assuming `Present`. `RecordSwapImageToPresentLayout`
+  records `RenderTargetToPresent()` / `CopySrcToPresent()` unconditionally, and
+  `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR` is a `VK_KHR_swapchain` enumerator that a surfaceless
+  device has not enabled — so a headless frame would raise a validation error on its last
+  barrier. Add the query to `IPresentTarget` (`Present` for `SwapchainTarget`,
+  `ShaderResource` for `OffscreenTarget`, which matches its `Sampled` usage and is where
+  step 39's readback wants to start), take the destination layout as a parameter on the two
+  `…ToPresent` presets, and rename them for what they now mean. Step 38 left this here
+  deliberately: 40a is the first caller that can be broken by it.
 - **Verify:** Unit test constructs it with no SDL video subsystem initialised. Windowed app
   output unchanged.
 - **Size:** S · **Needs:** 20, 37
@@ -2471,8 +2509,8 @@ The long pole, and the only strictly serial chain:
                      41 → 42 → 44 ──────────────┘
 ```
 
-The spine starts much further along than it reads: **35 and 37 are both done**, so the next
-link in the chain is 38. Step 40a is off the spine entirely — 46 needs it, but 38 and 39 do
+The spine starts much further along than it reads: **35, 37 and 38 are all done**, so the
+next link in the chain is 39. Step 40a is off the spine entirely — 46 needs it, and 39 does
 not.
 
 Everything else hangs off that spine. Notably parallel:

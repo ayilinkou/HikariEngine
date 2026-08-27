@@ -18,14 +18,23 @@
 // rather than needing a new preset for a variation.
 namespace Rhi::BarrierPresets
 {
-// The swapchain image just acquired from the presentation engine, made ready to
-// render into.
+// The image just acquired from a present target, made ready to render into.
+// Named for the acquire rather than for the swapchain because a headless target
+// hands one back on exactly the same terms.
 //
 // Undefined as the old layout is deliberate and not laziness: the contents of
 // an acquired image are undefined by definition, so there is nothing to
 // preserve, and naming the real previous layout would only force the driver to
 // keep pixels the next pass overwrites.
-inline constexpr TextureBarrier AcquiredSwapchainToRenderTarget()
+//
+// The source stage is RenderTarget rather than None, and that is load-bearing:
+// an acquire hands back semaphores the submit waits on at the stage of its
+// first write, and a layout transition is only ordered after a semaphore wait
+// if the barrier's source stage covers the stage that was waited at. With an
+// empty source scope the transition may run before the wait completes — the
+// classic under-synchronized acquire, which is correct on the driver it was
+// written on and a corrupt first frame elsewhere.
+inline constexpr TextureBarrier AcquiredImageToRenderTarget()
 {
     return TextureBarrier{
         .SrcStage = PipelineStage::RenderTarget,

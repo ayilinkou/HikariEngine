@@ -1050,23 +1050,42 @@ private:
             frameData.TransparentCommandBuffer,  frameData.CloudCommandBuffer,
             frameData.CompositeCommandBuffer,    frameData.ImGuiCommandBuffer,
             frameData.PresentLayoutCommandBuffer};
-        // Both semaphores belong to the present target; the submit is still the
-        // renderer's, so it names them through the native accessor.
-        const vk::Semaphore waitOnAvailable =
-            Rhi::Vulkan::GetSemaphore(*m_RhiDevice, image.Available);
+        // Every semaphore here belongs to the present target; the submit is still
+        // the renderer's, so it names them through the native accessor.
+        //
+        // The waits arrive as a span because how many there are is the target's
+        // business: a swapchain hands back the one its acquire signalled, and a
+        // headless target hands back the previous write of the same image, or
+        // nothing at all on the first pass. They share one destination stage
+        // because they say the same thing — this image is not safe to write yet
+        // — and the first write to it is the colour attachment output.
+        //
+        // Fixed capacity rather than a per-frame allocation. Both targets hand
+        // back at most one today; a target that grew a third would fail here
+        // rather than quietly having a wait dropped.
+        std::array<vk::Semaphore, 4> waitSemaphores{};
+        std::array<vk::PipelineStageFlags, waitSemaphores.size()> waitStages{};
+        if (image.WaitSemaphores.size() > waitSemaphores.size())
+            throw std::runtime_error("The present target asked for more acquire waits than the "
+                                     "frame loop can submit!");
+
+        for (size_t i = 0; i < image.WaitSemaphores.size(); i++)
+        {
+            waitSemaphores[i] = Rhi::Vulkan::GetSemaphore(*m_RhiDevice, image.WaitSemaphores[i]);
+            waitStages[i] = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        }
+
         const vk::Semaphore signalOnComplete = Rhi::Vulkan::GetSemaphore(
             *m_RhiDevice, m_PresentTarget->GetRenderCompleteSemaphore(image.Index));
 
-        vk::PipelineStageFlags waitDestinationStageFlags(
-            vk::PipelineStageFlagBits::eColorAttachmentOutput);
-        vk::SubmitInfo submitInfo{.waitSemaphoreCount = 1u,
-                                  .pWaitSemaphores = &waitOnAvailable,
-                                  .pWaitDstStageMask = &waitDestinationStageFlags,
-                                  .commandBufferCount =
-                                      static_cast<uint32_t>(commandBuffers.size()),
-                                  .pCommandBuffers = commandBuffers.data(),
-                                  .signalSemaphoreCount = 1u,
-                                  .pSignalSemaphores = &signalOnComplete};
+        vk::SubmitInfo submitInfo{
+            .waitSemaphoreCount = static_cast<uint32_t>(image.WaitSemaphores.size()),
+            .pWaitSemaphores = waitSemaphores.data(),
+            .pWaitDstStageMask = waitStages.data(),
+            .commandBufferCount = static_cast<uint32_t>(commandBuffers.size()),
+            .pCommandBuffers = commandBuffers.data(),
+            .signalSemaphoreCount = 1u,
+            .pSignalSemaphores = &signalOnComplete};
         m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
 
         if (!m_PresentTarget->Present(image.Index))
@@ -1767,7 +1786,7 @@ private:
         std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(*m_RhiDevice, *cmd);
         list->Begin();
         m_MainThreadBarrierCounts +=
-            list->Barrier(Rhi::BarrierPresets::AcquiredSwapchainToRenderTarget().On(image.Texture));
+            list->Barrier(Rhi::BarrierPresets::AcquiredImageToRenderTarget().On(image.Texture));
         list->End();
     }
 

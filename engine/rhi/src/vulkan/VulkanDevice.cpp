@@ -20,6 +20,7 @@
 
 #include <rhi/vulkan/DebugNames.h>
 
+#include "vulkan/OffscreenTarget.h"
 #include "vulkan/SwapchainTarget.h"
 #include "vulkan/VulkanConversions.h"
 #include "vulkan/VulkanPipelineCache.h"
@@ -441,12 +442,12 @@ std::unique_ptr<IPipelineCache> VulkanDevice::CreatePipelineCache(const Pipeline
 
 std::unique_ptr<IPresentTarget> VulkanDevice::CreatePresentTarget(const PresentTargetDesc& desc)
 {
+    // The caller does not choose, and cannot tell: a device with a surface
+    // presents through a swapchain, one without renders into images of its own.
+    // That is the whole seam — everything above this line is written once and
+    // runs both ways.
     if (*m_Surface == nullptr)
-    {
-        throw std::runtime_error(
-            "Rhi::IDevice::CreatePresentTarget: this device was created without presentation "
-            "support, so it has no surface to build a swapchain on.");
-    }
+        return std::make_unique<OffscreenTarget>(*this, desc);
 
     return std::make_unique<SwapchainTarget>(*this, desc);
 }

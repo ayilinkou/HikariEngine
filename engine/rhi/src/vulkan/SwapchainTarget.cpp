@@ -1,6 +1,7 @@
 #include "vulkan/SwapchainTarget.h"
 
 #include <format>
+#include <span>
 #include <stdexcept>
 #include <tuple>
 #include <vector>
@@ -130,7 +131,8 @@ void SwapchainTarget::Destroy()
 
 AcquiredImage SwapchainTarget::Acquire()
 {
-    const SemaphoreHandle available = m_AcquireSemaphores[m_AcquireIndex];
+    const size_t acquireIndex = m_AcquireIndex;
+    const SemaphoreHandle available = m_AcquireSemaphores[acquireIndex];
 
     // vk::raii throws on the error results, so the out-of-date case — which is
     // ordinary rather than exceptional, since a resize races every frame —
@@ -166,10 +168,14 @@ AcquiredImage SwapchainTarget::Acquire()
     m_AcquireIndex = (m_AcquireIndex + 1u) % m_FramesInFlight;
 
     const Image& image = m_Images[imageIndex];
+
+    // The span points at the ring slot rather than at a copy, so it stays valid
+    // exactly as long as AcquiredImage documents: until the next Acquire or
+    // Recreate, neither of which resizes the ring without rebuilding it.
     return AcquiredImage{.Texture = image.Texture,
                          .View = image.View,
                          .Index = imageIndex,
-                         .Available = available,
+                         .WaitSemaphores = std::span(&m_AcquireSemaphores[acquireIndex], 1u),
                          .bNeedsRecreate = false};
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 
 #include <rhi/Handles.h>
 #include <rhi/RhiTypes.h>
@@ -37,9 +38,15 @@ struct AcquiredImage
     // counts are unrelated and drivers do change the former across a Recreate.
     uint32_t Index = 0u;
 
-    // Signalled by the target when the image is safe to write. The caller's
-    // submit must wait on it. Null when bNeedsRecreate is set.
-    SemaphoreHandle Available;
+    // The semaphores the caller's submit must wait on before writing this
+    // image, all of them at a stage no earlier than the first write. Empty when
+    // nothing needs waiting on, which is not a sentinel: the submit already
+    // takes a count and an array, so an empty set costs no branch at the call
+    // site and means exactly what it says.
+    //
+    // Points into the target; valid until the next Acquire() or Recreate().
+    // Empty when bNeedsRecreate is set.
+    std::span<const SemaphoreHandle> WaitSemaphores;
 
     // The target could not produce an image and the caller should Recreate. Not
     // an error: a resize races every frame and this is the ordinary way to find
@@ -62,6 +69,14 @@ public:
     // accept it. Per image rather than per frame because presentation reads the
     // image: the wait belongs to whoever last wrote that image, and which frame
     // that was is not something the caller can assume.
+    //
+    // What consumes that signal is the target's business, and the two
+    // implementations differ. A swapchain hands it to the presentation engine.
+    // A target with no presentation engine has nothing to hand it to, so it
+    // gives the semaphore back through the next Acquire() of the same image,
+    // where it is both the real "this image is free again" dependency and the
+    // wait that leaves a binary semaphore unsignalled for the next signal.
+    // Either way the caller signals it exactly once per Acquire/Present pair.
     virtual SemaphoreHandle GetRenderCompleteSemaphore(uint32_t index) const = 0;
 
     // False means the target needs recreating, on the same terms as

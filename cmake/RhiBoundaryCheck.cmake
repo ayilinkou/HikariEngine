@@ -264,6 +264,7 @@ set(transitional_allowlist
     "src/PBRMaterial.cpp|DebugNames.h|Names the material descriptor set"
     "tests/unit/rhi/SwapchainUtilTests.cpp|SwapchainUtil.h|Surface states a real display cannot be put into on demand"
     "tests/gpu/rhi/DeviceTests.cpp|VulkanNative.h|The escape hatch is what these cases assert on"
+    "tests/gpu/rhi/PresentTargetTests.cpp|VulkanNative.h|A frame is recorded neutrally but submitted with the target's semaphores, and the RHI hands out no queue (Stage 8)"
     "tests/support/GpuReadback.h|VulkanNative.h|Readback records raw copies to a host-visible buffer"
 )
 

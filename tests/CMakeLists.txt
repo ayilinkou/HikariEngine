@@ -29,8 +29,8 @@ target_include_directories(rhi_tests
 # of nothing but skips looks identical to a run of tests that were passing
 # vacuously. tests/scripts/run_gpu_tests.sh is what executes them.
 engine_test(rhi_gpu_tests SOURCES gpu/rhi/DeviceTests.cpp
-  gpu/rhi/UploadRoundTripTests.cpp support/RhiDeviceListener.cpp
-  LIBS Engine::RHI LABEL gpu)
+  gpu/rhi/PresentTargetTests.cpp gpu/rhi/UploadRoundTripTests.cpp
+  support/RhiDeviceListener.cpp LIBS Engine::RHI LABEL gpu)
 
 # The same reach into the module's own sources that rhi_tests makes, plus the
 # shared fixture: submitting a command list needs a queue, and the RHI hands out
