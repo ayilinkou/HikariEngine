@@ -55,12 +55,13 @@ supports (a) headless + automated runtime testing, (b) data-oriented performance
 28. [Stage 4 — Platform library](#stage-4--platform-library-steps-2023)
 29. [Stage 5 — RHI extraction](#stage-5--rhi-extraction-steps-2434)
 30. [Stage 6 — Headless capability](#stage-6--headless-capability-steps-3540a)
-31. [Stage 7 — Engine shell & dependency injection](#stage-7--engine-shell--dependency-injection-steps-40b47)
-32. [Stage 8 — Passes & frame graph](#stage-8--passes--frame-graph-steps-4856)
-33. [Stage 9 — Data-oriented rewrite](#stage-9--data-oriented-rewrite-steps-5768)
-34. [Stage 10 — Scalability features](#stage-10--scalability-features-steps-6976)
-35. [Dependency summary](#dependency-summary)
-36. [Independent work — pick up any time](#independent-work--pick-up-any-time)
+31. [Between Stage 6 and Stage 7 — a cleanup PR](#between-stage-6-and-stage-7--a-cleanup-pr)
+32. [Stage 7 — Engine shell & dependency injection](#stage-7--engine-shell--dependency-injection-steps-40b47)
+33. [Stage 8 — Passes & frame graph](#stage-8--passes--frame-graph-steps-4856)
+34. [Stage 9 — Data-oriented rewrite](#stage-9--data-oriented-rewrite-steps-5768)
+35. [Stage 10 — Scalability features](#stage-10--scalability-features-steps-6976)
+36. [Dependency summary](#dependency-summary)
+37. [Independent work — pick up any time](#independent-work--pick-up-any-time)
 
 **Appendices**
 21. [Appendix A — File relocation table](#appendix-a--file-relocation-table)
@@ -2234,58 +2235,120 @@ became 40b and moved to Stage 7, for the reason recorded there.
   composite pass clears the whole render area, but the reason is a deliberate discard rather
   than an absence of contents. Comment corrected.
 
-### 40a. `HeadlessPlatform` (no events)
-- **Do:** Implement `IPlatform` with `IsHeadless() == true`, `GetFramebufferExtent` returning
-  the configured offscreen extent, `GetNativeWindowHandle` → `nullptr`, and `Show`,
-  `SetWindowMode`, `SetRelativeMouseMode` and `WarpMouse` as no-ops. **Much smaller than this
-  step originally was**: surface creation and instance-extension enumeration moved into the
-  RHI (§10.1), so there is nothing Vulkan-shaped left to stub.
-- **Also:** reject `--headless` combined with `--borderless` / `--fullscreen`, alongside the
-  existing borderless-vs-fullscreen check — a window mode for a run with no window asks for
-  nothing coherent. `--resolution` is the natural way to size the offscreen target, and
-  should be honoured rather than rejected.
-- **Also, and required before a headless frame can be recorded:** ask the target what layout
-  it wants its image left in, instead of assuming `Present`. `RecordSwapImageToPresentLayout`
-  records `RenderTargetToPresent()` / `CopySrcToPresent()` unconditionally, and
-  `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR` is a `VK_KHR_swapchain` enumerator that a surfaceless
-  device has not enabled — so a headless frame would raise a validation error on its last
-  barrier. Add the query to `IPresentTarget` (`Present` for `SwapchainTarget`,
-  `ShaderResource` for `OffscreenTarget`, which matches its `Sampled` usage and is where
-  step 39's readback wants to start), take the destination layout as a parameter on the two
-  `…ToPresent` presets, and rename them for what they now mean. Step 38 left this here
-  deliberately: 40a is the first caller that can be broken by it.
-- **Also, and the second thing step 39 left here:** decide how a headless `--screenshot`
-  reaches the pixels. There are two working mechanisms and the app must pick one.
-  - **The in-frame copy it already has.** `RecordSwapImageToPresentLayout` copies the image
-    into `m_ScreenshotStagingBuffer` inside the frame, and that works unchanged for an
-    offscreen image — it carries `CopySrc` like a swapchain's. Needs the layout query above,
-    since its last barrier targets `Present`. Nothing new, and it captures exactly the frame
-    that was "presented".
-  - **`OffscreenTarget::Readback`.** Takes the capture out of the frame loop entirely, which
-    suits a headless run and suits Stage 7's dismantling of `App` — but it is not reachable
-    through `IPresentTarget`, so the app would have to be handed the concrete target or the
-    interface would have to grow the member §10.2 argues it should not have.
-  - **A third option, and the better one: put the *recorded* capture on the interface.**
-    `virtual void RecordCapture(ICommandList&, uint32_t index, BufferHandle destination)`
-    is a member both targets can honour identically, because it is issued exactly where a
-    presentable image may be used — between the acquire and the present. It is the app's
-    existing in-frame copy with the barriers moved behind the seam, so it costs no extra
-    submit, no fence and no extra semaphore, and it deletes the hand-rolled copy from
-    `RecordSwapImageToPresentLayout` rather than leaving it there for Stage 7 to move. The
-    caller sizes the destination buffer with `Rhi::BytesPerTexel(GetFormat())`, which step 39
-    added. Note this also subsumes the layout item above: a target that records the capture
-    can record the transition that follows it, so the app stops naming `Present` at all.
-  - Recommendation: `RecordCapture`. The in-frame copy is the fallback if that turns out to
-    want more of Stage 8's command-list vocabulary than exists yet.
-  - **And then reconsider `Readback`.** If `RecordCapture` lands, `Readback` has no
-    production caller: the gpu tests already record and submit their own command buffers, so
-    they would slot into `RecordCapture` directly — and exercising the path production uses
-    is worth more than exercising one only they use. Deleting it at that point is the likely
-    right answer, and this is the step that can tell. Keep it only if something genuinely
-    wants pixels *outside* a frame, which is the one thing `RecordCapture` cannot give.
-- **Verify:** Unit test constructs it with no SDL video subsystem initialised. Windowed app
-  output unchanged.
-- **Size:** S · **Needs:** 20, 37
+### 40a. `HeadlessPlatform` (no events) ← **next**
+
+Everything below is decided. The options that were weighed and rejected are recorded at the
+bottom, so that a fresh session can start work without re-opening them.
+
+- **Do:** Implement `IPlatform` in `engine/platform/` with `IsHeadless() == true`,
+  `GetFramebufferExtent` returning the configured offscreen extent, `GetNativeWindowHandle`
+  → `nullptr`, and `Show`, `SetWindowMode`, `SetRelativeMouseMode` and `WarpMouse` as no-ops.
+  **Much smaller than this step originally was**: surface creation and instance-extension
+  enumeration moved into the RHI (§10.1), so there is nothing Vulkan-shaped left to stub.
+- **It needs no SDL at all**, which is worth knowing before writing it. `SdlPlatform` calls
+  `SDL_Vulkan_LoadLibrary`, but nothing consumes SDL's loader: the RHI reaches Vulkan through
+  vulkan.hpp's own dispatcher. The proof is already in the tree — the gpu tests create real
+  devices with no SDL anywhere. So `HeadlessPlatform` is a plain class with no window-system
+  dependency, and the unit test this step asks for needs no SDL subsystem.
+- **Extent when `--resolution` is absent:** 1280×720. There is no display to size against, so
+  it has to be a documented constant; that one matches `SdlPlatform`'s existing
+  `kFallbackWindowSize`. `--resolution` overrides it and is honoured rather than rejected.
+
+#### Option validation
+
+Both checks belong in `ParseOptions`' post-parse block, beside the existing
+`--strict-validation` one, **not** in the flag loop — they have to hold whichever order the
+flags arrive in.
+
+- **Reject `--headless` with `--borderless` or `--fullscreen`.** A window mode for a run with
+  no window asks for nothing coherent.
+- **Reject `--headless` without `--frames`.** The frame loop has exactly two exits:
+  `g_bShouldClose`, set by `SDL_EVENT_QUIT` or ImGui's Quit button — both of which need a
+  window — and the frame counter, which sets it only when `Frames != 0`. Headless with
+  `--frames 0` therefore runs forever. Ctrl-C is not the answer: it kills the process before
+  `WriteScreenshot` and `WriteReport`, so the run produces nothing.
+
+#### The present-layout seam (deferred here from step 38)
+
+Every frame ends with a barrier to `TextureLayout::Present` — `CopySrcToPresent()` when
+capturing a screenshot and `RenderTargetToPresent()` otherwise, both in
+`RecordSwapImageToPresentLayout`. `Present` maps to `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR`, a
+`VK_KHR_swapchain` enumerator that a surfaceless device never enabled, so a headless frame
+raises a validation error on its last barrier. `App` has to stop hardcoding it.
+
+**Decided: add the query, and nothing more.**
+
+- `TextureLayout GetPresentLayout() const` on `IPresentTarget`. `SwapchainTarget` returns
+  `Present`; `OffscreenTarget` returns `ShaderResource`, which matches its `Sampled` usage
+  and is where a readback wants to start from.
+- Both `…ToPresent` presets take the destination layout as a parameter, and are renamed for
+  what they then mean.
+- `App`'s existing in-frame screenshot copy needs no other change: an offscreen image carries
+  `CopySrc` exactly like a swapchain's.
+- **The name stands even though an offscreen target never presents.** `TextureLayout::Present`
+  is already the neutral vocabulary's spelling and D3D12 calls the same idea
+  `D3D12_RESOURCE_STATE_PRESENT`; the app's real target is a surface, and the headless one
+  exists for CI and the baseline. Leave a line on the declaration saying that a target with
+  no presentation engine answers it too, and with what.
+
+#### ImGui runs headless
+
+The ImGui panel is **in the committed baseline screenshot** — `m_bCursorVisible` defaults to
+`true`, so `DrawImGuiFrame()` runs every frame and the panel occupies a 423×443 block in the
+top-left. So whether ImGui renders headless decides whether step 46's comparison of a
+headless capture against a windowed one can ever hold.
+
+**Decided: it renders, through the Vulkan backend only.** CI should be exercising ImGui, not
+skipping it.
+
+- Skip `ImGui_ImplSDL3_InitForVulkan`, `ImGui_ImplSDL3_ProcessEvent`,
+  `ImGui_ImplSDL3_NewFrame` and `ImGui_ImplSDL3_Shutdown`.
+- Set `io.DisplaySize` and `io.DeltaTime` by hand in their place — that is what the SDL3
+  backend was supplying, and ImGui with no platform backend is a supported configuration.
+- `ImGui_ImplVulkan_*` needs no window and is used unchanged.
+
+#### Wiring
+
+- `main()` holds `std::unique_ptr<IPlatform>`, not `std::unique_ptr<SdlPlatform>`, and picks
+  the implementation from `options.bHeadless`. `SdlPlatform::ShowErrorMessageBox` is static,
+  so the `SDLException` handler is unaffected.
+- `MakeDeviceDesc`: `desc.Requirements.bPresent = !m_Platform.IsHeadless()`. **This is the
+  line that makes the whole thing work** — `bPresent = false` means no surface, which is what
+  makes `CreatePresentTarget` hand back an `OffscreenTarget`.
+- Guard the two direct SDL calls left in `App`: `SDL_PollEvent` in `Run` and
+  `SDL_GetKeyboardState` in `HandleMovement`. Both run against an SDL that was never
+  initialised. This is not step 40b's event seam arriving early — it is the minimum that
+  stops a headless run touching an uninitialised subsystem.
+
+#### Order of work
+
+Land the layout seam first and confirm the windowed baseline is pixel-identical before
+touching anything headless. That is the checkpoint; it needs no renumbering of 40b, and the
+seam half on its own is not a milestone worth recording as a step.
+
+- **Verify:** Unit test constructs `HeadlessPlatform` with no SDL video subsystem
+  initialised. Windowed app output unchanged — baseline screenshot pixel-identical and report
+  unchanged. Then a real run: `--headless --frames 5 --screenshot` exits 0, writes a PNG at
+  the requested extent, and reports zero validation errors.
+- **Size:** M, not the S this step used to carry — the layout seam and the headless wiring
+  both arrived here after it was written. **Needs:** 20, 37
+
+#### Rejected, and why — do not re-open without new information
+
+- **`RecordCapture(ICommandList&, index, BufferHandle)` on `IPresentTarget`,** moving the
+  screenshot copy behind the seam. It was recommended here on the claim that it subsumed the
+  layout query. It does not: it covers only the capturing branch, and the ordinary frame
+  still ends with a transition to a layout `App` has to know. So the query is needed either
+  way, and `RecordCapture` is a second interface member with real behaviour in both
+  implementations plus a gpu test — for a refactor Stage 7 revisits anyway when it dismantles
+  `App`. Reconsider it there, not here.
+- **Skipping ImGui headless.** Cheapest, but it puts a fifth of the frame in one capture and
+  not the other, which kills step 46's comparison.
+- **Splitting this step in two and renumbering 40b → 40c.** The natural cut is after the
+  layout seam, but that half is a seam change whose only observable effect is that the
+  windowed baseline still matches — not a milestone. 40b is referenced from the Stage 7
+  header, the dependency table and this entry, so the renumber is doc churn for no gain. The
+  ordering above gives the same checkpoint without it.
 
 ### 40b. Event seam + scripted input
 - **Do:** The member this plan called `PumpEvents` never shipped, and nothing replaced it —
@@ -2301,6 +2364,38 @@ became 40b and moved to Stage 7, for the reason recorded there.
   half of 47's tests: `--frames N --screenshot` requires no input at all, so 40a alone is
   enough for the first genuinely headless artefact. Keeping them together would have made the
   smallest remaining step in Stage 6 into its largest.
+
+---
+
+## Between Stage 6 and Stage 7 — a cleanup PR
+
+Stage 6 ends with the engine able to run without a window. Before Stage 7 starts pulling
+`App` apart, one small PR to clear the things Stage 6 surfaced and to take a pass over the
+independent-work table below. None of it blocks Stage 7; all of it gets harder once `App` is
+in pieces.
+
+**`--no-ui`, and re-baseline onto it.** The baseline test exists to detect that *the
+rendered scene* changed, and today a fifth of the captured frame is the ImGui panel. Worse,
+that panel is not reproducible on principle: nothing warps the cursor at startup, and the
+capture shows a hover highlight on whichever widget the mouse was last over. It has been
+stable in practice only because the mouse has not moved between runs. Add a flag that
+suppresses the UI, pass it from `tests/scripts/baseline_test.sh`, and promote the new
+screenshot and report together. This also makes a headless capture and a windowed one
+comparable on the scene alone, which is what step 46 wants to assert.
+
+**Then pick from the independent-work table.** The ones Stage 6 either created or made
+cheaper:
+
+- `Extent2D` / `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and
+  `Rhi::Extent2D`. Step 40a adds another conversion site when the offscreen target is sized
+  from `--resolution`.
+- `ChooseSwapchainFormat`'s fallback, which hands `FromNativeFormat` a format it throws on.
+- Frame-time counters recording the timestep rather than wall clock under `--fixed-dt`, which
+  is why `meanFrameTimeMs` and `p99FrameTimeMs` are constants in every report so far.
+- `rhi_boundary_check` running in precommit but not in CI.
+- `App::m_Surface` — bound, never read, and the only caller of `Rhi::Vulkan::GetSurface`.
+- Whether `OffscreenTarget::Readback` survives. If nothing outside the gpu tests has called
+  it by then, delete it and put those cases back on `tests/support/GpuReadback.h`.
 
 ---
 
@@ -2636,6 +2731,7 @@ validation errors".
 | [DONE] Warn once when lights are clamped instead of silently dropping | `UpdateGlobalBuffer` | XS |
 | Finish the skybox (loaded at `main.cpp:598`, never rendered) and reuse it for IBL | new pass | M–L |
 | `.map` format `version` attribute | `XmlParser` | XS |
+| `--no-ui`, and re-baseline onto it — the baseline captures a fifth of the frame as ImGui, whose hover state depends on where the mouse was left | `main.cpp`, `tests/scripts/baseline_test.sh`, `tests/baseline/` | S |
 | Move `Extent2D` and `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and `Rhi::Extent2D` | `core/`, `platform/`, `rhi/` | S |
 | [DONE] Drive `WriteScreenshot`'s channel swizzle from `IPresentTarget::GetFormat()` instead of hardcoding BGRA | `main.cpp` | S |
 | `ChooseSwapchainFormat`'s fallback hands `FromNativeFormat` something it may not be able to name | `rhi/vulkan/SwapchainUtil.h` | XS |
@@ -2645,7 +2741,10 @@ validation errors".
 | [DONE] Promote `BytesPerTexel` out of `tests/support/GpuReadback.h` into neutral RHI API | `rhi/RhiTypes.h` | XS |
 | `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to mailbox; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `main.cpp` | S |
 
-Seven of those are new since the original review, and five are worth expanding on because they
+The top of that list is scheduled rather than merely available: see *Between Stage 6 and
+Stage 7 — a cleanup PR*, which takes `--no-ui` and whichever of the rest are worth the trip.
+
+Eight of those are new since the original review, and five are worth expanding on because they
 are latent defects or carry a decision:
 
 - **`Extent2D` in two places.** `::Extent2D` (Platform) and `Rhi::Extent2D` are the same two
@@ -2653,7 +2752,7 @@ are latent defects or carry a decision:
   it is where the type belongs, and `Extent3D` goes with it rather than being stranded alone
   in `RhiTypes.h`. Delete the `Rhi::` spellings rather than aliasing them — one type reachable
   under two names is what makes a reader stop and check whether they differ. Roughly five call
-  sites. Worth doing before step 38, which adds more conversion sites when the offscreen
+  sites. Worth doing before step 40a, which adds another conversion site when the offscreen
   target is sized from `--resolution`.
 - **The screenshot swizzle — ✅ done in step 39.** `WriteScreenshot` read mapped bytes as BGRA
   and swapped R and B. That was correct only because `ChooseSwapchainFormat` asks for
