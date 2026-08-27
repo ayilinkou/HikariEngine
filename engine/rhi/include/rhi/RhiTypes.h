@@ -144,6 +144,58 @@ constexpr bool HasStencilComponent(Format format)
     return format == Format::D24UnormS8Uint || format == Format::D32FloatS8Uint;
 }
 
+// The size of one texel of `format` in a tightly packed buffer, or 0 where
+// there is no single answer.
+//
+// Exists because sizing a buffer for a copy is impossible without it: a
+// readback allocates Width * Height * this, and both APIs leave the caller to
+// work it out. Named for a texel rather than a block because every format in
+// the list above is uncompressed and one texel wide; a block-compressed format
+// added here would need a different question asked of it.
+//
+// Zero for three of them, and it is not a failure code so much as the honest
+// answer to a question that has none:
+//
+//   * Undefined names no memory at all.
+//   * The two combined depth/stencil formats have a size per *aspect*, and the
+//     two differ — a copy names one aspect, so the caller that knows which one
+//     is the only one that can size the buffer. D24UnormS8Uint is 4 bytes of
+//     depth and 1 of stencil; D32FloatS8Uint is 4 and 1.
+//
+// A caller that sizes a buffer from this therefore has to reject 0 rather than
+// allocate nothing, which is what makes the sentinel visible instead of
+// silently producing an empty copy.
+constexpr uint32_t BytesPerTexel(Format format)
+{
+    // No default label, so adding a Format that is not sized here fails the
+    // build rather than falling through to a plausible number — the same deal
+    // the conversion tables make.
+    switch (format)
+    {
+        case Format::Undefined:
+        case Format::D24UnormS8Uint:
+        case Format::D32FloatS8Uint:
+            return 0u;
+
+        case Format::R8Unorm:
+            return 1u;
+
+        case Format::D16Unorm:
+            return 2u;
+
+        case Format::RGBA8Unorm:
+        case Format::RGBA8Srgb:
+        case Format::BGRA8Unorm:
+        case Format::D32Float:
+            return 4u;
+
+        case Format::RGBA16Float:
+            return 8u;
+    }
+
+    return 0u;
+}
+
 // Which parts of a texture a barrier or a view refers to. Kept separate from
 // Format because a depth/stencil format has two aspects and an operation
 // usually names one of them.

@@ -22,10 +22,14 @@ namespace Rhi::BarrierPresets
 // Named for the acquire rather than for the swapchain because a headless target
 // hands one back on exactly the same terms.
 //
-// Undefined as the old layout is deliberate and not laziness: the contents of
-// an acquired image are undefined by definition, so there is nothing to
-// preserve, and naming the real previous layout would only force the driver to
-// keep pixels the next pass overwrites.
+// Undefined as the old layout is a deliberate discard, not a shortcut past
+// naming the real one — and specifically not because the contents are
+// unreadable. They are not: reacquiring a presented image and transitioning it
+// out of the present layout gives back exactly what was presented, unless
+// something outside Vulkan has touched the window (Vulkan 1.4, *Presenting
+// Images*). Discarding is correct anyway, because the pass that follows clears
+// the whole render area, so naming the previous layout would only make the
+// driver preserve pixels that are overwritten a command later.
 //
 // The source stage is RenderTarget rather than None, and that is load-bearing:
 // an acquire hands back semaphores the submit waits on at the stage of its

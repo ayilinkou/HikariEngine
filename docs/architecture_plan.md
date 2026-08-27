@@ -676,12 +676,13 @@ Two implementations:
   `presentKHR`, extracted. Fixes S1-15 from the companion doc naturally, because
   `GetImageCount()` changing on `Recreate` becomes an explicit, observable event that the
   renderer reacts to rather than something it forgets.
-- **`OffscreenTarget`** — ✅ done, step 38. N color images
+- **`OffscreenTarget`** — ✅ done, steps 38 and 39. N color images
   (`eColorAttachment | eTransferSrc | eSampled`), no surface, no swapchain, no
   `VK_KHR_swapchain`. N is `FramesInFlight`; `Acquire` returns `(acquireCount % N)` and
   never reports `bNeedsRecreate`; `Present` records only that the caller signalled that
   image's render-complete semaphore, which the next `Acquire` of the same image hands back
-  as its wait. `Readback` is still step 39.
+  as its wait. `Readback` arrived in step 39 as a member of this class rather than of the
+  interface, for the reason given above, and consumes that same signal to order its copy.
 
 **Which target a device hands back is already decided by `IDevice::CreatePresentTarget`,**
 not by the caller — the header says so, and today it throws when there is no surface. That
@@ -695,12 +696,11 @@ Two decisions step 38 had to settle, both of which the sketch above left open:
   An empty set is not a sentinel, and the submit already takes a count and an array, so the
   empty case costs no branch. The offscreen target does turn out to need a wait, and fills
   the span like any other target — see step 38 for why it is not optional.
-- **Readback is format-driven, and the existing screenshot writer is not.** `WriteScreenshot`
-  hardcodes a BGRA→RGBA swizzle, correct only because `ChooseSwapchainFormat` asks for
-  `BGRA8Unorm` first. An offscreen target picks its own format, so the swizzle has to be
-  driven by `GetFormat()` before the writer can be shared. See the independent-work table —
-  it is worth doing on its own, since the hardcoding is already a latent bug on any surface
-  that does not offer BGRA8Unorm.
+- **Readback is format-driven, and the screenshot writer now is too — ✅ done in step 39.**
+  `WriteScreenshot` hardcoded a BGRA→RGBA swizzle, correct only because
+  `ChooseSwapchainFormat` asks for `BGRA8Unorm` first. It reads `GetFormat()` for both the
+  texel size and the channel order, and refuses a format `stbi_write_png` cannot take rather
+  than reinterpreting the bytes.
 
 `tests/support/GpuReadback.h` already records the copy, submits it, fences and reads the
 mapped bytes — but only part of it is genuinely shareable with step 39. See that step for
@@ -2055,9 +2055,9 @@ independently of the headless goal, so this stage is worth doing even if you sto
 
 ## Stage 6 — Headless capability (steps 35–40a)
 
-Steps 35, 36 and 38 are done; **37 was delivered early, during Stage 5** — the gpu tests
-needed a surfaceless device before Stage 6 did. What remains is 39 and 40a. Step 40's event
-half became 40b and moved to Stage 7, for the reason recorded there.
+Steps 35, 36, 38 and 39 are done; **37 was delivered early, during Stage 5** — the gpu tests
+needed a surfaceless device before Stage 6 did. What remains is 40a. Step 40's event half
+became 40b and moved to Stage 7, for the reason recorded there.
 
 ### 35. `IPresentTarget` + `SwapchainTarget` — ✅ done
 - **Do:** Define the interface from §10.2. Move `CreateSwapchain`,
@@ -2158,7 +2158,7 @@ half became 40b and moved to Stage 7, for the reason recorded there.
   `ShaderResource` for an offscreen target) plus a parameter on the two `…ToPresent` presets.
   It is listed under 40a rather than done here because 40a is its first caller.
 
-### 39. `OffscreenTarget::Readback`
+### 39. `OffscreenTarget::Readback` — ✅ done
 - **Do:** `CopyTextureToBuffer` into a host-visible staging buffer, fence, return tightly
   packed bytes. Reuse step 5's PNG writer, now shared by both targets.
 - **Prerequisite:** the PNG writer is not shareable as written — `WriteScreenshot` hardcodes
@@ -2192,6 +2192,47 @@ half became 40b and moved to Stage 7, for the reason recorded there.
 - **Verify:** gpu test asserts exact pixel values for a solid clear colour, and correct
   dimensions/stride for a non-square, non-power-of-two extent (e.g. 253×101).
 - **Size:** M · **Needs:** 38
+- **What was built:**
+  - `Rhi::BytesPerTexel(Format)` in `rhi/RhiTypes.h`, `constexpr` and total, covered by
+    `tests/unit/rhi/FormatTests.cpp`. It returns **0** for `Undefined` and for both combined
+    depth/stencil formats, because those have a size per *aspect* and the two differ — a
+    caller that sizes a buffer has to reject 0 rather than allocate nothing. `GpuReadback.h`
+    calls it and its private copy is gone.
+  - `WriteScreenshot` reads `IPresentTarget::GetFormat()` for both the texel size and the
+    channel order, so the BGRA swizzle now happens because the target said BGRA. A format
+    that is not 8-bit four-channel is refused with a message rather than reinterpreted.
+  - `OffscreenTarget::Readback(index, currentLayout)`, returning tightly packed bytes.
+- **`currentLayout` is a parameter, and that is the interesting part.** The target records no
+  commands during a frame, so it cannot know what the caller's last barrier left the image
+  in; naming it is what keeps the transition correct rather than plausible. The image is left
+  in `CopySrc`, which costs nothing — the next `Acquire` transitions from `Undefined`.
+- **The wait reuses step 38's chain rather than a `WaitIdle`.** `Readback` consumes the same
+  render-complete signal `Acquire` would have, so the copy is ordered after the rendering and
+  the semaphore is left unsignalled for the next frame to signal. A readback between two
+  frames therefore stands in for one link of the chain instead of breaking it, and the host
+  fence wait covers the next write to that image.
+- **The allowlist entry did not shrink after all.** This step hoped
+  `tests/support/GpuReadback.h|VulkanNative.h` could go once the offscreen cases stopped
+  reaching through the hatch. They have — `PresentTargetTests.cpp` calls `Readback` and no
+  longer includes `GpuReadback.h` — but `UploadRoundTripTests.cpp` still needs `ReadBuffer`
+  and `ReadTextureLayers`, which is what that entry is really for. It goes when upload
+  verification has a neutral way to read bytes back, not here.
+- **`Readback` is on `OffscreenTarget`, not on `IPresentTarget`** — §10.2's reasoning held up
+  under implementation, and the spec is what settles it: *"Use of a presentable image must
+  occur only after the image is returned by `vkAcquireNextImageKHR`, and before it is
+  presented by `vkQueuePresentKHR`"*, and *"presented images must not be used again before
+  they have been reacquired"* (Vulkan 1.4, *Presenting Images*). A standalone readback is by
+  definition outside that window, and `WriteScreenshot` runs after the loop, when nothing is
+  acquired at all. The two implementations would therefore differ in *when they may be
+  called*, which is the one thing an interface exists to make impossible. The gpu tests reach
+  it by `dynamic_cast`, which also asserts that a surfaceless device really does hand back an
+  offscreen target.
+- **A correction this step turned up.** `BarrierPresets::AcquiredImageToRenderTarget` claimed
+  the contents of an acquired image are "undefined by definition". They are not — the spec
+  guarantees a reacquired image still holds what was presented, unless something outside
+  Vulkan modified the window. The `Undefined` old layout is right regardless, because the
+  composite pass clears the whole render area, but the reason is a deliberate discard rather
+  than an absence of contents. Comment corrected.
 
 ### 40a. `HeadlessPlatform` (no events)
 - **Do:** Implement `IPlatform` with `IsHeadless() == true`, `GetFramebufferExtent` returning
@@ -2213,6 +2254,35 @@ half became 40b and moved to Stage 7, for the reason recorded there.
   step 39's readback wants to start), take the destination layout as a parameter on the two
   `…ToPresent` presets, and rename them for what they now mean. Step 38 left this here
   deliberately: 40a is the first caller that can be broken by it.
+- **Also, and the second thing step 39 left here:** decide how a headless `--screenshot`
+  reaches the pixels. There are two working mechanisms and the app must pick one.
+  - **The in-frame copy it already has.** `RecordSwapImageToPresentLayout` copies the image
+    into `m_ScreenshotStagingBuffer` inside the frame, and that works unchanged for an
+    offscreen image — it carries `CopySrc` like a swapchain's. Needs the layout query above,
+    since its last barrier targets `Present`. Nothing new, and it captures exactly the frame
+    that was "presented".
+  - **`OffscreenTarget::Readback`.** Takes the capture out of the frame loop entirely, which
+    suits a headless run and suits Stage 7's dismantling of `App` — but it is not reachable
+    through `IPresentTarget`, so the app would have to be handed the concrete target or the
+    interface would have to grow the member §10.2 argues it should not have.
+  - **A third option, and the better one: put the *recorded* capture on the interface.**
+    `virtual void RecordCapture(ICommandList&, uint32_t index, BufferHandle destination)`
+    is a member both targets can honour identically, because it is issued exactly where a
+    presentable image may be used — between the acquire and the present. It is the app's
+    existing in-frame copy with the barriers moved behind the seam, so it costs no extra
+    submit, no fence and no extra semaphore, and it deletes the hand-rolled copy from
+    `RecordSwapImageToPresentLayout` rather than leaving it there for Stage 7 to move. The
+    caller sizes the destination buffer with `Rhi::BytesPerTexel(GetFormat())`, which step 39
+    added. Note this also subsumes the layout item above: a target that records the capture
+    can record the transition that follows it, so the app stops naming `Present` at all.
+  - Recommendation: `RecordCapture`. The in-frame copy is the fallback if that turns out to
+    want more of Stage 8's command-list vocabulary than exists yet.
+  - **And then reconsider `Readback`.** If `RecordCapture` lands, `Readback` has no
+    production caller: the gpu tests already record and submit their own command buffers, so
+    they would slot into `RecordCapture` directly — and exercising the path production uses
+    is worth more than exercising one only they use. Deleting it at that point is the likely
+    right answer, and this is the step that can tell. Keep it only if something genuinely
+    wants pixels *outside* a frame, which is the one thing `RecordCapture` cannot give.
 - **Verify:** Unit test constructs it with no SDL video subsystem initialised. Windowed app
   output unchanged.
 - **Size:** S · **Needs:** 20, 37
@@ -2504,14 +2574,16 @@ The long pole, and the only strictly serial chain:
 
 ```
 13 → 15 → 20 → 24 → 25 → 26 → 35 → 37 → 38 → 39 ┐
-└──────────── all done ─────────────┘   ↑        ├→ 46 → 47   ← CI goal
-                                      next      │
+└───────────────── all done ──────────────────┘ ├→ 46 → 47   ← CI goal
+                                                │
                      41 → 42 → 44 ──────────────┘
+                     ↑
+                    next
 ```
 
-The spine starts much further along than it reads: **35, 37 and 38 are all done**, so the
-next link in the chain is 39. Step 40a is off the spine entirely — 46 needs it, and 39 does
-not.
+The spine starts much further along than it reads: **35, 37, 38 and 39 are all done**, so
+the next link in the chain is 41. Step 40a is off the spine entirely — 46 needs it, and
+nothing on the spine does.
 
 Everything else hangs off that spine. Notably parallel:
 
@@ -2565,12 +2637,12 @@ validation errors".
 | Finish the skybox (loaded at `main.cpp:598`, never rendered) and reuse it for IBL | new pass | M–L |
 | `.map` format `version` attribute | `XmlParser` | XS |
 | Move `Extent2D` and `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and `Rhi::Extent2D` | `core/`, `platform/`, `rhi/` | S |
-| Drive `WriteScreenshot`'s channel swizzle from `IPresentTarget::GetFormat()` instead of hardcoding BGRA | `main.cpp` | S |
+| [DONE] Drive `WriteScreenshot`'s channel swizzle from `IPresentTarget::GetFormat()` instead of hardcoding BGRA | `main.cpp` | S |
 | `ChooseSwapchainFormat`'s fallback hands `FromNativeFormat` something it may not be able to name | `rhi/vulkan/SwapchainUtil.h` | XS |
 | Frame-time counters record the timestep, not wall clock, under `--fixed-dt` | `App::Run` | XS |
 | `rhi_boundary_check` runs in precommit but not in CI | `.github/workflows/ci.yml` | XS |
 | Delete `App::m_Surface` — bound, never read, and the only caller of `Rhi::Vulkan::GetSurface` | `main.cpp`, `rhi/vulkan/VulkanNative.h` | XS |
-| Promote `BytesPerTexel` out of `tests/support/GpuReadback.h` into neutral RHI API | `rhi/RhiTypes.h` | XS |
+| [DONE] Promote `BytesPerTexel` out of `tests/support/GpuReadback.h` into neutral RHI API | `rhi/RhiTypes.h` | XS |
 | `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to mailbox; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `main.cpp` | S |
 
 Seven of those are new since the original review, and five are worth expanding on because they
@@ -2583,11 +2655,12 @@ are latent defects or carry a decision:
   under two names is what makes a reader stop and check whether they differ. Roughly five call
   sites. Worth doing before step 38, which adds more conversion sites when the offscreen
   target is sized from `--resolution`.
-- **The screenshot swizzle.** `WriteScreenshot` reads mapped bytes as BGRA and swaps R and B.
-  That is correct only because `ChooseSwapchainFormat` asks for `BGRA8Unorm` first; the shader
-  itself is channel-order agnostic, since it writes `SV_Target` component 0 and the hardware
-  maps it to whatever the format's first component is. An `OffscreenTarget` picks its own
-  format, so step 39 cannot share this writer until it reads `GetFormat()`.
+- **The screenshot swizzle — ✅ done in step 39.** `WriteScreenshot` read mapped bytes as BGRA
+  and swapped R and B. That was correct only because `ChooseSwapchainFormat` asks for
+  `BGRA8Unorm` first; the shader itself is channel-order agnostic, since it writes
+  `SV_Target` component 0 and the hardware maps it to whatever the format's first component
+  is. It now reads `GetFormat()`, so an `OffscreenTarget` that picked a different format
+  would be written correctly rather than with its channels crossed.
 - **The format fallback.** `ChooseSwapchainFormat` returns `formats[0]` when its preference is
   absent, and the very next line calls `FromNativeFormat`, which throws on anything the
   curated `Rhi::Format` list cannot name. `Rhi::Format` has `BGRA8Unorm` but no `BGRA8Srgb` —

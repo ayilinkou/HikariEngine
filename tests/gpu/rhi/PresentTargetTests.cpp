@@ -16,7 +16,8 @@
 #include <rhi/RhiTypes.h>
 #include <rhi/vulkan/VulkanNative.h>
 
-#include "GpuReadback.h"
+#include "vulkan/OffscreenTarget.h"
+
 #include "RhiTestFixture.h"
 #include "ValidationGuard.h"
 
@@ -80,41 +81,80 @@ FrameCommands MakeFrameCommands(IDevice& device)
     return frame;
 }
 
-// Clears `acquired` to `color` through a dynamic-rendering pass, which is the
-// same shape as the renderer's composite pass: acquire, transition, render into
-// the acquired view, transition to what comes next.
+// One clear: a colour and the rectangle of the image it covers. A render pass
+// clears its render area and nothing else, so a list of these paints a
+// deliberately non-uniform image without a shader or a vertex buffer — which is
+// what a stride check needs, since a solid colour looks the same however the
+// rows are laid out.
+struct ClearRect
+{
+    std::array<float, 4> Color{};
+    vk::Rect2D Area{};
+};
+
+vk::Rect2D WholeImage(Extent2D extent)
+{
+    return vk::Rect2D{.offset = {0, 0}, .extent = vk::Extent2D{extent.Width, extent.Height}};
+}
+
+// Records `clears` in order into `acquired`, each through a dynamic-rendering
+// pass of its own — the same shape as the renderer's composite pass: acquire,
+// transition, render into the acquired view, transition to what comes next.
 //
 // It leaves the image in ShaderResource rather than Present. An offscreen image
 // is not presentable and never can be — VK_IMAGE_LAYOUT_PRESENT_SRC_KHR belongs
 // to VK_KHR_swapchain, which a device with no surface does not enable — so
 // ShaderResource is the finished state that matches the target's Sampled usage,
-// and it is what RhiTest::ReadTextureLayers expects to copy from.
-void RecordClearFrame(IDevice& device, vk::CommandBuffer cmd, const AcquiredImage& acquired,
-                      const std::array<float, 4>& color, Extent2D extent)
+// and the layout the readbacks below hand to OffscreenTarget::Readback.
+void RecordClears(IDevice& device, vk::CommandBuffer cmd, const AcquiredImage& acquired,
+                  std::span<const ClearRect> clears)
 {
     const std::unique_ptr<ICommandList> list = Vulkan::WrapCommandList(device, cmd);
     list->Begin();
     list->Barrier(BarrierPresets::AcquiredImageToRenderTarget().On(acquired.Texture));
 
-    const vk::ClearValue clearValue = vk::ClearColorValue(color[0], color[1], color[2], color[3]);
-    const vk::RenderingAttachmentInfo colorAttachment{
-        .imageView = Vulkan::GetImageView(device, acquired.View),
-        .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
-        .loadOp = vk::AttachmentLoadOp::eClear,
-        .storeOp = vk::AttachmentStoreOp::eStore,
-        .clearValue = clearValue};
+    for (size_t i = 0; i < clears.size(); i++)
+    {
+        if (i > 0u)
+        {
+            // Two passes writing the same attachment are not implicitly
+            // ordered against each other. PreserveRenderTarget as written
+            // describes a pass that *loads* what the last one wrote; here the
+            // second pass clears instead, so the destination access is the
+            // write rather than the read.
+            TextureBarrier betweenPasses = BarrierPresets::PreserveRenderTarget();
+            betweenPasses.DstAccess = AccessFlags::RenderTargetWrite;
+            list->Barrier(betweenPasses.On(acquired.Texture));
+        }
 
-    const vk::RenderingInfo renderingInfo{
-        .renderArea = {.offset = {0, 0}, .extent = vk::Extent2D{extent.Width, extent.Height}},
-        .layerCount = 1u,
-        .colorAttachmentCount = 1u,
-        .pColorAttachments = &colorAttachment};
+        const std::array<float, 4>& color = clears[i].Color;
+        const vk::ClearValue clearValue =
+            vk::ClearColorValue(color[0], color[1], color[2], color[3]);
+        const vk::RenderingAttachmentInfo colorAttachment{
+            .imageView = Vulkan::GetImageView(device, acquired.View),
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp = vk::AttachmentLoadOp::eClear,
+            .storeOp = vk::AttachmentStoreOp::eStore,
+            .clearValue = clearValue};
 
-    cmd.beginRendering(renderingInfo);
-    cmd.endRendering();
+        const vk::RenderingInfo renderingInfo{.renderArea = clears[i].Area,
+                                              .layerCount = 1u,
+                                              .colorAttachmentCount = 1u,
+                                              .pColorAttachments = &colorAttachment};
+
+        cmd.beginRendering(renderingInfo);
+        cmd.endRendering();
+    }
 
     list->Barrier(BarrierPresets::RenderTargetToShaderResource().On(acquired.Texture));
     list->End();
+}
+
+void RecordClearFrame(IDevice& device, vk::CommandBuffer cmd, const AcquiredImage& acquired,
+                      const std::array<float, 4>& color, Extent2D extent)
+{
+    const std::array clears{ClearRect{.Color = color, .Area = WholeImage(extent)}};
+    RecordClears(device, cmd, acquired, clears);
 }
 
 // Submits `cmd` with the waits the acquire asked for and the signal the target
@@ -152,6 +192,22 @@ void SubmitFrame(IDevice& device, vk::CommandBuffer cmd, std::span<const Semapho
 // Written out rather than assumed, because getting it wrong is precisely the
 // mistake a readback is meant to catch — the renderer's screenshot writer has a
 // hardcoded BGRA swizzle for exactly this reason.
+// The target the device hands back, as the concrete type Readback lives on.
+//
+// A downcast rather than a member on IPresentTarget: reading an image outside a
+// frame is a question only a target that owns its images can answer, so the
+// interface deliberately does not ask it (architecture plan §10.2). Doing it
+// through dynamic_cast rather than by constructing an OffscreenTarget directly
+// keeps the device's own choice under test — a device that started handing back
+// something else would fail here rather than silently testing a target the
+// renderer would never be given.
+Vulkan::OffscreenTarget& AsOffscreen(IPresentTarget& target)
+{
+    auto* pOffscreen = dynamic_cast<Vulkan::OffscreenTarget*>(&target);
+    REQUIRE(pOffscreen != nullptr);
+    return *pOffscreen;
+}
+
 std::array<std::byte, 4> ExpectedTexel(Format format, const std::array<float, 4>& color)
 {
     const auto quantize = [](float value)
@@ -259,7 +315,10 @@ TEST_CASE("Three overlapping frames render into an offscreen target", "[rhi][gpu
         CHECK(target->Present(acquired.Index));
     }
 
-    device.WaitIdle();
+    // No WaitIdle: Readback waits on the render-complete semaphore the frame
+    // signalled and fences its own copy, so the ordering it needs is ordering it
+    // establishes. A stray WaitIdle here would hide a Readback that established
+    // none.
 
     // Image 0 was written by frames 0 and 2, image 1 by frame 1, so what
     // survives is the last colour each of them was cleared to. Checking both
@@ -272,11 +331,8 @@ TEST_CASE("Three overlapping frames render into an offscreen target", "[rhi][gpu
         const std::array<std::byte, 4> expected =
             ExpectedTexel(target->GetFormat(), kFrameColors[lastFrameForImage[index]]);
 
-        const std::vector<std::vector<std::byte>> layers =
-            RhiTest::ReadTextureLayers(device, imagesByIndex[index]);
-        REQUIRE(layers.size() == 1u);
-
-        const std::vector<std::byte>& pixels = layers.front();
+        const std::vector<std::byte> pixels =
+            AsOffscreen(*target).Readback(index, TextureLayout::ShaderResource);
         REQUIRE(pixels.size() == static_cast<size_t>(kExtent.Width) * kExtent.Height * 4u);
 
         // Every texel, not a sample of them: a copy that got the row pitch
@@ -292,6 +348,10 @@ TEST_CASE("Three overlapping frames render into an offscreen target", "[rhi][gpu
         }
         CHECK(mismatches == 0u);
     }
+
+    // imagesByIndex only exists to prove the two acquires handed back two
+    // different images; the readbacks above name them by index instead.
+    CHECK(imagesByIndex[0] != imagesByIndex[1]);
 }
 
 TEST_CASE("Recreating an offscreen target resizes it", "[rhi][gpu][present]")
@@ -386,4 +446,148 @@ TEST_CASE("An offscreen target frees its images when it is destroyed", "[rhi][gp
 
     CHECK(device.GetLiveTextureCount() == texturesBefore);
     CHECK(device.GetLiveTextureViewCount() == viewsBefore);
+}
+
+// Step 39's first check: the bytes that come back are the bytes that were
+// rendered, in the target's own channel order.
+//
+// The clear components are 0 or 1 and the four channels differ from one
+// another, so a swizzled readback, a stale image and a half-written one are all
+// distinguishable from a correct result — which a grey or a black clear would
+// not be.
+TEST_CASE("Readback returns the exact pixels of a solid clear", "[rhi][gpu][present]")
+{
+    IDevice& device = RhiTest::RequireDevice();
+    const RhiTest::ValidationGuard guard(device);
+
+    const std::unique_ptr<IPresentTarget> target =
+        device.CreatePresentTarget(PresentTargetDesc{.Extent = kExtent, .FramesInFlight = 2u});
+
+    constexpr std::array<float, 4> kColor{1.f, 0.f, 1.f, 1.f};
+
+    const FrameCommands frame = MakeFrameCommands(device);
+    const AcquiredImage acquired = target->Acquire();
+    RecordClearFrame(device, *frame.Buffer, acquired, kColor, kExtent);
+    SubmitFrame(device, *frame.Buffer, acquired.WaitSemaphores,
+                target->GetRenderCompleteSemaphore(acquired.Index));
+    REQUIRE(target->Present(acquired.Index));
+
+    const std::vector<std::byte> pixels =
+        AsOffscreen(*target).Readback(acquired.Index, TextureLayout::ShaderResource);
+
+    const uint32_t bytesPerTexel = BytesPerTexel(target->GetFormat());
+    REQUIRE(bytesPerTexel == 4u);
+    REQUIRE(pixels.size() == static_cast<size_t>(kExtent.Width) * kExtent.Height * bytesPerTexel);
+
+    const std::array<std::byte, 4> expected = ExpectedTexel(target->GetFormat(), kColor);
+    size_t mismatches = 0u;
+    for (size_t texel = 0; texel < pixels.size() / 4u; texel++)
+    {
+        for (size_t channel = 0; channel < 4u; channel++)
+        {
+            if (pixels[texel * 4u + channel] != expected[channel])
+                mismatches++;
+        }
+    }
+    CHECK(mismatches == 0u);
+}
+
+// Step 39's second check, and the one a solid colour cannot make: that the
+// returned bytes are tightly packed and row-major at an extent that is neither
+// square nor a power of two.
+//
+// 253x101 with a 100x50 rectangle in one corner pins down every way this can go
+// wrong. A row pitch rounded up to an alignment shears the rectangle
+// diagonally; width and height transposed puts it in the wrong place and
+// changes its shape; a buffer sized from the wrong extent truncates. All three
+// survive a uniform clear untouched, which is why this case exists next to the
+// one above rather than instead of it.
+TEST_CASE("Readback packs a non-square, non-power-of-two extent tightly", "[rhi][gpu][present]")
+{
+    IDevice& device = RhiTest::RequireDevice();
+    const RhiTest::ValidationGuard guard(device);
+
+    const std::unique_ptr<IPresentTarget> target =
+        device.CreatePresentTarget(PresentTargetDesc{.Extent = kExtent, .FramesInFlight = 2u});
+
+    constexpr std::array<float, 4> kBackground{1.f, 0.f, 0.f, 1.f};
+    constexpr std::array<float, 4> kCorner{0.f, 0.f, 1.f, 1.f};
+    constexpr uint32_t kCornerWidth = 100u;
+    constexpr uint32_t kCornerHeight = 50u;
+
+    const std::array clears{
+        ClearRect{.Color = kBackground, .Area = WholeImage(kExtent)},
+        ClearRect{.Color = kCorner,
+                  .Area = vk::Rect2D{.offset = {0, 0},
+                                     .extent = vk::Extent2D{kCornerWidth, kCornerHeight}}},
+    };
+
+    const FrameCommands frame = MakeFrameCommands(device);
+    const AcquiredImage acquired = target->Acquire();
+    RecordClears(device, *frame.Buffer, acquired, clears);
+    SubmitFrame(device, *frame.Buffer, acquired.WaitSemaphores,
+                target->GetRenderCompleteSemaphore(acquired.Index));
+    REQUIRE(target->Present(acquired.Index));
+
+    const std::vector<std::byte> pixels =
+        AsOffscreen(*target).Readback(acquired.Index, TextureLayout::ShaderResource);
+
+    const uint32_t bytesPerTexel = BytesPerTexel(target->GetFormat());
+    REQUIRE(pixels.size() == static_cast<size_t>(kExtent.Width) * kExtent.Height * bytesPerTexel);
+
+    const std::array<std::byte, 4> background = ExpectedTexel(target->GetFormat(), kBackground);
+    const std::array<std::byte, 4> corner = ExpectedTexel(target->GetFormat(), kCorner);
+
+    // Indexed as row * Width + column, which is the packing being asserted:
+    // reading it back this way and getting the rectangle where it was drawn is
+    // the whole claim.
+    size_t mismatches = 0u;
+    for (uint32_t y = 0u; y < kExtent.Height; y++)
+    {
+        for (uint32_t x = 0u; x < kExtent.Width; x++)
+        {
+            const bool bInCorner = x < kCornerWidth && y < kCornerHeight;
+            const std::array<std::byte, 4>& expected = bInCorner ? corner : background;
+
+            const size_t texel = static_cast<size_t>(y) * kExtent.Width + x;
+            for (size_t channel = 0; channel < 4u; channel++)
+            {
+                if (pixels[texel * 4u + channel] != expected[channel])
+                    mismatches++;
+            }
+        }
+    }
+    CHECK(mismatches == 0u);
+}
+
+// The staging buffer Readback allocates is freed on the way out, and the copy
+// it fenced on is finished by then. Neither is visible from the bytes returned,
+// so the counters say it instead: a Readback that leaked its buffer would grow
+// the device's live count once per capture, which in a run capturing every
+// frame is a leak that scales with the run.
+TEST_CASE("Readback leaves nothing behind on the device", "[rhi][gpu][present]")
+{
+    IDevice& device = RhiTest::RequireDevice();
+    const RhiTest::ValidationGuard guard(device);
+
+    const std::unique_ptr<IPresentTarget> target =
+        device.CreatePresentTarget(PresentTargetDesc{.Extent = kExtent, .FramesInFlight = 2u});
+
+    const uint32_t buffersBefore = device.GetLiveBufferCount();
+
+    for (int capture = 0; capture < 3; capture++)
+    {
+        const FrameCommands frame = MakeFrameCommands(device);
+        const AcquiredImage acquired = target->Acquire();
+        RecordClearFrame(device, *frame.Buffer, acquired, kFrameColors[0], kExtent);
+        SubmitFrame(device, *frame.Buffer, acquired.WaitSemaphores,
+                    target->GetRenderCompleteSemaphore(acquired.Index));
+        REQUIRE(target->Present(acquired.Index));
+
+        const std::vector<std::byte> pixels =
+            AsOffscreen(*target).Readback(acquired.Index, TextureLayout::ShaderResource);
+        CHECK_FALSE(pixels.empty());
+    }
+
+    CHECK(device.GetLiveBufferCount() == buffersBefore);
 }

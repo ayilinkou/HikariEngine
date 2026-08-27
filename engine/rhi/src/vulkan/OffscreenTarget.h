@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
+#include <rhi/Barrier.h>
 #include <rhi/Handles.h>
 #include <rhi/IPresentTarget.h>
 #include <rhi/RhiTypes.h>
@@ -42,6 +44,28 @@ public:
     SemaphoreHandle GetRenderCompleteSemaphore(uint32_t index) const override;
     bool Present(uint32_t index) override;
     [[nodiscard]] bool Recreate(Extent2D newExtent) override;
+
+    // The contents of image `index`, tightly packed and row-major:
+    // Width * Height * BytesPerTexel(GetFormat()) bytes, no row padding.
+    //
+    // Not on IPresentTarget, and not an oversight. A swapchain's images belong
+    // to the presentation engine and may only be touched between an acquire and
+    // the present that hands them back, so "read that image now" is not a
+    // question a swapchain can answer at all — a caller wanting a windowed
+    // capture copies the image inside its own frame instead. This target owns
+    // its images outright, which is exactly what makes the question answerable.
+    //
+    // `currentLayout` is the layout the caller's last barrier left the image in.
+    // The target records no commands of its own during a frame, so it cannot
+    // know; naming it is what keeps the transition correct instead of plausible.
+    // The image is left in CopySrc, which costs the caller nothing — the next
+    // Acquire transitions from Undefined regardless.
+    //
+    // Blocks until the copy has completed, and allocates a staging buffer per
+    // call. Both are deliberate: this is a capture, taken once or twice in a
+    // run, and a buffer kept alive between captures would outlive the extent it
+    // was sized for.
+    [[nodiscard]] std::vector<std::byte> Readback(uint32_t index, TextureLayout currentLayout);
 
 private:
     struct Image

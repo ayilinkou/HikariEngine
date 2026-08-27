@@ -7,7 +7,6 @@
 #include <functional>
 #include <limits>
 #include <memory>
-#include <stdexcept>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -33,27 +32,6 @@
 // rewrite their bodies.
 namespace RhiTest
 {
-namespace Detail
-{
-// Only the formats these tests use. Deliberately not a general helper: the RHI
-// has no texel-size query, and inventing one here would be a public API
-// decision made in a test.
-inline uint32_t BytesPerTexel(Rhi::Format format)
-{
-    switch (format)
-    {
-        case Rhi::Format::R8Unorm:
-            return 1u;
-        case Rhi::Format::RGBA8Unorm:
-        case Rhi::Format::RGBA8Srgb:
-        case Rhi::Format::BGRA8Unorm:
-            return 4u;
-        default:
-            throw std::runtime_error("RhiTest::BytesPerTexel: unhandled format.");
-    }
-}
-} // namespace Detail
-
 // Records `record` into a command list of its own, submits it to the graphics
 // queue, and blocks until the GPU has finished with it.
 //
@@ -147,8 +125,16 @@ ReadTextureLayers(Rhi::IDevice& device, Rhi::TextureHandle source, uint32_t mipL
                                std::max(pDesc->Extent.Depth >> mipLevel, 1u)};
 
     const uint32_t layerCount = pDesc->ArrayLayers;
-    const uint64_t layerSize = static_cast<uint64_t>(extent.Width) * extent.Height * extent.Depth *
-                               Detail::BytesPerTexel(pDesc->Format);
+
+    // Zero means the format has no single texel size, which for a combined
+    // depth/stencil format is the truth rather than a failure — this helper
+    // copies one aspect and cannot pick. No test needs that today, so it is a
+    // hard stop rather than an extra parameter nothing would pass.
+    const uint32_t bytesPerTexel = Rhi::BytesPerTexel(pDesc->Format);
+    REQUIRE(bytesPerTexel != 0u);
+
+    const uint64_t layerSize =
+        static_cast<uint64_t>(extent.Width) * extent.Height * extent.Depth * bytesPerTexel;
 
     const Rhi::UniqueHandle<Rhi::BufferHandle> readback(
         device, device.CreateBuffer(Rhi::BufferDesc{.Size = layerSize * layerCount,

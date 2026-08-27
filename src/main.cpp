@@ -206,6 +206,19 @@ constexpr CameraPresetData kCameraPresets[] = {
 constexpr int kNumCameraPresets =
     static_cast<int>(sizeof(kCameraPresets) / sizeof(kCameraPresets[0]));
 
+// Whether a screenshot can be written from a present target in `format`.
+//
+// stbi_write_png takes 8 bits per channel and nothing else, so a 16-bit float
+// target — which nothing asks for today but the neutral format list can name —
+// would need tone mapping rather than a channel swap. Rejected with a message
+// instead of silently reinterpreting the bytes, which is what a bare
+// BytesPerTexel check would allow.
+constexpr bool IsWritablePngFormat(Rhi::Format format)
+{
+    return format == Rhi::Format::BGRA8Unorm || format == Rhi::Format::RGBA8Unorm ||
+           format == Rhi::Format::RGBA8Srgb;
+}
+
 void PrintUsage()
 {
     std::cout << "VulkanApp\n"
@@ -835,22 +848,40 @@ private:
             return;
         }
 
+        // Driven by what the target actually chose, not by what a swapchain
+        // usually chooses. A present target picks its own format — an offscreen
+        // one need not agree with a surface — so a hardcoded channel order is
+        // a latent bug even before a headless run exists to trip over it.
+        const Rhi::Format format = m_PresentTarget->GetFormat();
+        const uint32_t bytesPerPixel = Rhi::BytesPerTexel(format);
+        if (!IsWritablePngFormat(format))
+        {
+            LogMsg(LogSeverity::Error, LogMain,
+                   "Cannot write a screenshot: the present target's format is not an 8-bit "
+                   "four-channel one, which is all stbi_write_png can take.");
+            return;
+        }
+
         const uint32_t width = SwapchainExtent().width;
         const uint32_t height = SwapchainExtent().height;
-        constexpr uint32_t bytesPerPixel = 4;
         const vk::DeviceSize bufferSize =
             static_cast<vk::DeviceSize>(width) * height * bytesPerPixel;
 
-        // The swapchain format is BGRA; swizzle to RGBA before writing.
+        // PNG is RGBA, so a BGRA target needs its first and third channels
+        // swapped and an RGBA one needs nothing. The shader is indifferent
+        // either way: it writes SV_Target component 0 and the hardware maps
+        // that to whatever the format's first component is.
+        const bool bSwapRedAndBlue = format == Rhi::Format::BGRA8Unorm;
+
         const auto* src = static_cast<const uint8_t*>(
             m_RhiDevice->GetMappedData(m_ScreenshotStagingBuffer.Get()));
         std::vector<uint8_t> pixels(static_cast<size_t>(bufferSize));
         for (size_t i = 0; i < static_cast<size_t>(width) * height; i++)
         {
-            pixels[i * 4 + 0] = src[i * 4 + 2]; // R <- B
-            pixels[i * 4 + 1] = src[i * 4 + 1]; // G <- G
-            pixels[i * 4 + 2] = src[i * 4 + 0]; // B <- R
-            pixels[i * 4 + 3] = src[i * 4 + 3]; // A <- A
+            pixels[i * 4 + 0] = bSwapRedAndBlue ? src[i * 4 + 2] : src[i * 4 + 0];
+            pixels[i * 4 + 1] = src[i * 4 + 1];
+            pixels[i * 4 + 2] = bSwapRedAndBlue ? src[i * 4 + 0] : src[i * 4 + 2];
+            pixels[i * 4 + 3] = src[i * 4 + 3];
         }
 
         std::string path = m_Options.bScreenshotAutoPath ? DEFAULT_PATH + CaptureTimestamp()
@@ -1014,8 +1045,9 @@ private:
 
         if (captureScreenshot && !m_bScreenshotBufferReady)
         {
-            const vk::DeviceSize bufferSize =
-                static_cast<vk::DeviceSize>(SwapchainExtent().width) * SwapchainExtent().height * 4;
+            const vk::DeviceSize bufferSize = static_cast<vk::DeviceSize>(SwapchainExtent().width) *
+                                              SwapchainExtent().height *
+                                              Rhi::BytesPerTexel(m_PresentTarget->GetFormat());
             m_ScreenshotStagingBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
                 *m_RhiDevice,
                 m_RhiDevice->CreateBuffer(Rhi::BufferDesc{.Size = bufferSize,
