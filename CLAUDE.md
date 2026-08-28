@@ -50,6 +50,15 @@ with the actual output — never claim a build passed without running it.
 *Regression checking* below). "It still builds" is not evidence a refactor preserved
 behaviour.
 
+**Never change an expected test result without asking.** If a change makes an existing
+expectation wrong — a unit or gpu test's assertion, a counter in a report, `tests/baseline/`'s
+screenshot, a golden image — stop before touching the expectation. Say what moved, what in the
+change caused it, and why the new value is the correct one, and get the go-ahead; then update
+it. This is the one edit that turns a regression into the new normal without anyone noticing,
+because afterwards the suite is green either way — a test edited to match new behaviour proves
+only that the two agree, not that the behaviour is right. Adding tests for new behaviour is
+ordinary work and needs no approval; only changing what an existing one expects does.
+
 **Never guess at graphics API semantics — read the specification.** This applies to Vulkan,
 Slang/SPIR-V, VMA, and D3D12 once that backend exists. If you are not certain about a
 pipeline stage mask, an access mask, an image layout transition, a queue-family ownership

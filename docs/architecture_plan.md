@@ -2249,7 +2249,8 @@ bottom, so that a fresh session can start work without re-opening them.
   `SDL_Vulkan_LoadLibrary`, but nothing consumes SDL's loader: the RHI reaches Vulkan through
   vulkan.hpp's own dispatcher. The proof is already in the tree — the gpu tests create real
   devices with no SDL anywhere. So `HeadlessPlatform` is a plain class with no window-system
-  dependency, and the unit test this step asks for needs no SDL subsystem.
+  dependency, and the unit test this step asks for needs no SDL subsystem. That call turns out
+  to be redundant in `SdlPlatform` too, for a second reason — see the independent-work table.
 - **Extent when `--resolution` is absent:** 1280×720. There is no display to size against, so
   it has to be a documented constant; that one matches `SdlPlatform`'s existing
   `kFallbackWindowSize`. `--resolution` overrides it and is honoured rather than rejected.
@@ -2738,13 +2739,14 @@ validation errors".
 | Frame-time counters record the timestep, not wall clock, under `--fixed-dt` | `App::Run` | XS |
 | `rhi_boundary_check` runs in precommit but not in CI | `.github/workflows/ci.yml` | XS |
 | Delete `App::m_Surface` — bound, never read, and the only caller of `Rhi::Vulkan::GetSurface` | `main.cpp`, `rhi/vulkan/VulkanNative.h` | XS |
+| `SdlPlatform`'s explicit `SDL_Vulkan_LoadLibrary`/`UnloadLibrary` pair is redundant — a `SDL_WINDOW_VULKAN` window loads and unloads the library itself | `platform/SdlPlatform.cpp`, `SdlPlatform.h` | XS |
 | [DONE] Promote `BytesPerTexel` out of `tests/support/GpuReadback.h` into neutral RHI API | `rhi/RhiTypes.h` | XS |
 | `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to mailbox; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `main.cpp` | S |
 
 The top of that list is scheduled rather than merely available: see *Between Stage 6 and
 Stage 7 — a cleanup PR*, which takes `--no-ui` and whichever of the rest are worth the trip.
 
-Eight of those are new since the original review, and five are worth expanding on because they
+Nine of those are new since the original review, and six are worth expanding on because they
 are latent defects or carry a decision:
 
 - **`Extent2D` in two places.** `::Extent2D` (Platform) and `Rhi::Extent2D` are the same two
@@ -2774,6 +2776,30 @@ are latent defects or carry a decision:
   counters can never detect a regression in the one mode that is supposed to detect
   regressions. §14 already says the fix: measure wall clock separately from the simulation
   timestep, and report raw values. Do this before any step starts making performance claims.
+- **`SdlPlatform`'s explicit Vulkan loader calls.** The constructor calls
+  `SDL_Vulkan_LoadLibrary(nullptr)` and the destructor `SDL_Vulkan_UnloadLibrary()`, and
+  neither is needed. SDL 3.4's `SDL_CreateWindow` documents that *"if the window is created
+  with any of the `SDL_WINDOW_OPENGL` or `SDL_WINDOW_VULKAN` flags, then the corresponding
+  LoadLibrary function … is called and the corresponding UnloadLibrary function is called by
+  `SDL_DestroyWindow()`"* (`SDL3/SDL_video.h`), and `SdlPlatform` always passes
+  `SDL_WINDOW_VULKAN`. The two SDL entry points that need the library loaded —
+  `SDL_Vulkan_GetInstanceExtensions` and `SDL_Vulkan_CreateSurface` — both run after the
+  window exists, and both are skipped entirely when `bPresent` is false. Nothing else consumes
+  SDL's loader: `SDL_Vulkan_GetVkGetInstanceProcAddr` is never called, because
+  `vk::raii::Context`'s default constructor builds its dispatcher from vulkan.hpp's own
+  `vk::detail::DynamicLoader`, which opens `vulkan-1.dll` / `libvulkan.so.1` itself. Removing
+  the pair also removes an asymmetry: a throw from `SDL_CreateWindow` skips the destructor, so
+  today's explicit load goes unpaired until `SDL_Quit`.
+
+  Two things not to lose with it. The explicit load is what produces *"Failed to load Vulkan
+  library!"* on a machine with no driver, where `SDL_CreateWindow` would fail with *"Failed to
+  create window!"* instead — `SDL_GetError()` still names the real cause, so the message that
+  survives should say so rather than blaming the window. And `SdlPlatform.h`'s class comment
+  ("Because the destructor calls `SDL_Vulkan_UnloadLibrary()`, an `SdlPlatform` must outlive
+  every object holding a Vulkan handle") needs rewriting rather than deleting: the ordering
+  constraint is real, but its cause is `SDL_DestroyWindow` invalidating the surface, not the
+  unload. The loader was never the reason — the app's own `DynamicLoader` holds a reference to
+  the library whatever SDL does with its own.
 - **`--present-mode`, and why the two failure policies differ.** The default stays what it is
   today: prefer mailbox, fall back to FIFO. **An explicitly requested mode that the surface
   does not offer is a hard error naming what was asked for and listing what is available** —
