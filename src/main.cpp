@@ -25,6 +25,7 @@
 
 #include <platform/CommandLine.h>
 #include <platform/FileSystem.h>
+#include <platform/HeadlessPlatform.h>
 #include <platform/IPlatform.h>
 #include <platform/Paths.h>
 #include <platform/SdlPlatform.h>
@@ -167,7 +168,7 @@ struct Options
     bool bReportAutoPath = false;
     bool bStrictValidation = false; // exit non-zero on any validation error
     Rhi::ValidationPolicy ValidationPolicy = Rhi::ValidationPolicy::Count;
-    bool bHeadless = false; // TODO
+    bool bHeadless = false; // --headless: render with no window
 
     // --resolution. Zero in either half leaves the choice to the platform,
     // which sizes the window from the display it opens on.
@@ -250,8 +251,10 @@ void PrintUsage()
                      "window\n"
                      "  --fullscreen            Start in exclusive fullscreen, selecting a "
                      "display mode\n"
-                     "  --headless              Run without a window "
-                     "(reserved, not yet implemented)\n"
+                     "  --headless              Run without a window, rendering into an "
+                     "offscreen target.\n"
+                     "                          Requires --frames, and cannot be combined with "
+                     "--borderless or --fullscreen\n"
                      "  --jobs <N>              Worker thread count (0 = SerialJobSystem, "
                      "no threads; default = hardware_concurrency() - 1)\n"
                      "  --vk-disable-extension <name>\n"
@@ -413,6 +416,36 @@ Options ParseArgs(int argc, char** argv)
         ExitWithUsage(EXIT_FAILURE);
     }
 
+    // A window mode for a run with no window asks for nothing coherent.
+    if (options.bHeadless && options.StartWindowMode != WindowMode::Windowed)
+    {
+        LogMsg(LogSeverity::Error, LogMain,
+               "--headless cannot be combined with {}: a run with no window has no window mode",
+               options.StartWindowMode == WindowMode::BorderlessFullscreen ? "--borderless"
+                                                                           : "--fullscreen");
+        ExitWithUsage(EXIT_FAILURE);
+    }
+
+    // Of the frame loop's three exits, two need a window (SDL_EVENT_QUIT and
+    // ImGui's Quit button) and the third is the frame counter, which only fires
+    // when Frames != 0. So a headless run without --frames ends on a signal —
+    // and headless exists for CI, where nobody is there to send one. The job
+    // burns its whole timeout and dies to SIGTERM, which nothing handles, so it
+    // writes neither screenshot nor report.
+    //
+    // Ctrl-C does work interactively (HandleSIGINT sets g_bShouldClose and the
+    // artefacts are still written), which is what makes an unbounded run
+    // defensible at a terminal — a soak, say. Rejected anyway because the
+    // failure it prevents is silent and expensive in the place this mode is
+    // for, and Frames is a uint64_t if someone really wants to soak.
+    if (options.bHeadless && options.Frames == 0)
+    {
+        LogMsg(LogSeverity::Error, LogMain,
+               "--headless requires --frames: with no window there is nothing that can end the "
+               "run, so it would render forever and write nothing");
+        ExitWithUsage(EXIT_FAILURE);
+    }
+
     // Ignore stops errors ever being counted, so --strict-validation would pass
     // a run that had them. Rejected rather than silently preferred either way:
     // in CI that combination reads as "validation is enforced" and is not.
@@ -490,8 +523,12 @@ public:
             float currentFPS = 1.f / m_DeltaTime;
             m_DisplayFPS = (m_DisplayFPS * smoothing) + (currentFPS * (1.f - smoothing));
 
+            // Guarded rather than abstracted: a headless run never initialised
+            // SDL, so polling it is not merely pointless but a call into a
+            // subsystem that does not exist. The event seam that removes the
+            // direct call altogether is its own step.
             SDL_Event event;
-            while (SDL_PollEvent(&event))
+            while (!m_Platform.IsHeadless() && SDL_PollEvent(&event))
             {
                 ImGui_ImplSDL3_ProcessEvent(&event);
 
@@ -562,7 +599,10 @@ private:
         desc.ApplicationName = "Vulkan App";
         desc.bEnableValidation = bEnableValidationLayers;
         desc.pDiagnostics = &m_Diagnostics;
-        desc.Requirements.bPresent = true;
+        // The line the whole headless path turns on: no present requirement
+        // means the device creates no surface, and CreatePresentTarget hands
+        // back an OffscreenTarget instead of a SwapchainTarget.
+        desc.Requirements.bPresent = !m_Platform.IsHeadless();
         desc.Requirements.NativeWindowHandle = m_Platform.GetNativeWindowHandle();
         desc.DisabledOptionalExtensions = m_Options.DisabledVulkanExtensions;
         desc.bForceSingleQueue = m_Options.bForceSingleQueue;
@@ -673,7 +713,22 @@ private:
         initInfo.Allocator = nullptr;
         initInfo.CheckVkResultFn = nullptr;
 
-        ImGui_ImplSDL3_InitForVulkan(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()));
+        // The platform backend is the only half of ImGui that needs a window.
+        // Skipping it leaves ImGui with no platform backend at all, which is a
+        // supported configuration: what the backend supplies is io.DisplaySize
+        // and io.DeltaTime, and DrawImGuiFrame sets both by hand instead.
+        //
+        // The renderer backend needs nothing from the window system. Everything
+        // surface-shaped in it lives in the optional ImGui_ImplVulkanH_* helper
+        // family, which this app has never called — it records ImGui's draws
+        // into a dynamic-rendering pass of its own, against whatever image the
+        // present target handed back.
+        if (!m_Platform.IsHeadless())
+        {
+            ImGui_ImplSDL3_InitForVulkan(
+                static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()));
+        }
+
         ImGui_ImplVulkan_Init(&initInfo);
     }
 
@@ -921,7 +976,8 @@ private:
     void ShutdownImGui()
     {
         ImGui_ImplVulkan_Shutdown();
-        ImGui_ImplSDL3_Shutdown();
+        if (!m_Platform.IsHeadless())
+            ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
     }
 
@@ -972,7 +1028,11 @@ private:
     // delay.
     void HandleMovement()
     {
-        if (m_bCursorVisible || m_Options.CameraPreset >= 0)
+        // Headless for the same reason the event pump is guarded: SDL was never
+        // initialised. Unreachable in practice today, since m_bCursorVisible
+        // starts true and only a key event can clear it, but that is a property
+        // of the current defaults rather than something to rely on.
+        if (m_Platform.IsHeadless() || m_bCursorVisible || m_Options.CameraPreset >= 0)
             return;
 
         glm::vec3 camOffset = {0.f, 0.f, 0.f};
@@ -1070,7 +1130,7 @@ private:
             RecordCloudsCommandBuffer();
             RecordCompositeCommandBuffer(image);
             RecordImGui(image);
-            RecordSwapImageToPresentLayout(image, captureScreenshot);
+            RecordSwapImageToFinalLayout(image, captureScreenshot);
 
             m_JobSystem.Wait();
             LogBarrierCounts();
@@ -1078,10 +1138,10 @@ private:
 
         // TODO: even when ImGui is not showing, it's being submitted
         std::array<vk::CommandBuffer, 7> commandBuffers = {
-            frameData.DrawLayoutCommandBuffer,   frameData.OpaqueCommandBuffer,
-            frameData.TransparentCommandBuffer,  frameData.CloudCommandBuffer,
-            frameData.CompositeCommandBuffer,    frameData.ImGuiCommandBuffer,
-            frameData.PresentLayoutCommandBuffer};
+            frameData.DrawLayoutCommandBuffer,  frameData.OpaqueCommandBuffer,
+            frameData.TransparentCommandBuffer, frameData.CloudCommandBuffer,
+            frameData.CompositeCommandBuffer,   frameData.ImGuiCommandBuffer,
+            frameData.FinalLayoutCommandBuffer};
         // Every semaphore here belongs to the present target; the submit is still
         // the renderer's, so it names them through the native accessor.
         //
@@ -1129,7 +1189,21 @@ private:
     void DrawImGuiFrame()
     {
         ImGui_ImplVulkan_NewFrame();
-        ImGui_ImplSDL3_NewFrame();
+        if (m_Platform.IsHeadless())
+        {
+            // Standing in for the platform backend. DeltaTime is the
+            // load-bearing one — NewFrame asserts it is positive, where
+            // DisplaySize need only be non-negative.
+            ImGuiIO& io = ImGui::GetIO();
+            io.DisplaySize = ImVec2(static_cast<float>(SwapchainExtent().width),
+                                    static_cast<float>(SwapchainExtent().height));
+            io.DeltaTime = m_DeltaTime;
+        }
+        else
+        {
+            ImGui_ImplSDL3_NewFrame();
+        }
+
         ImGui::NewFrame();
 
         if (ImGui::Begin("Menu"))
@@ -1429,9 +1503,9 @@ private:
             SetVkDebugName(m_Device, *frame.ImGuiCommandPool, vk::ObjectType::eCommandPool,
                            std::format("ImGui Command Pool Frame {}", i).c_str());
 
-            frame.PresentLayoutCommandPool = vk::raii::CommandPool(m_Device, createInfo);
-            SetVkDebugName(m_Device, *frame.PresentLayoutCommandPool, vk::ObjectType::eCommandPool,
-                           std::format("Present Layout Command Pool Frame {}", i).c_str());
+            frame.FinalLayoutCommandPool = vk::raii::CommandPool(m_Device, createInfo);
+            SetVkDebugName(m_Device, *frame.FinalLayoutCommandPool, vk::ObjectType::eCommandPool,
+                           std::format("Final Layout Command Pool Frame {}", i).c_str());
         }
     }
 
@@ -1500,15 +1574,15 @@ private:
             SetVkDebugName(m_Device, *frame.ImGuiCommandBuffer, vk::ObjectType::eCommandBuffer,
                            std::format("ImGui Command Buffer Frame {}", i).c_str());
 
-            allocInfo = vk::CommandBufferAllocateInfo{.commandPool = frame.PresentLayoutCommandPool,
+            allocInfo = vk::CommandBufferAllocateInfo{.commandPool = frame.FinalLayoutCommandPool,
                                                       .level = vk::CommandBufferLevel::ePrimary,
                                                       .commandBufferCount = 1u};
             cmd = std::move(vk::raii::CommandBuffers(m_Device, allocInfo).front());
 
-            frame.PresentLayoutCommandBuffer = std::move(cmd);
-            SetVkDebugName(m_Device, *frame.PresentLayoutCommandBuffer,
+            frame.FinalLayoutCommandBuffer = std::move(cmd);
+            SetVkDebugName(m_Device, *frame.FinalLayoutCommandBuffer,
                            vk::ObjectType::eCommandBuffer,
-                           std::format("Present Layout Command Buffer Frame {}", i).c_str());
+                           std::format("Final Layout Command Buffer Frame {}", i).c_str());
         }
     }
 
@@ -1822,14 +1896,22 @@ private:
         list->End();
     }
 
-    void RecordSwapImageToPresentLayout(const Rhi::AcquiredImage& image, bool captureScreenshot)
+    void RecordSwapImageToFinalLayout(const Rhi::AcquiredImage& image, bool captureScreenshot)
     {
-        m_Frames[m_FrameIndex].PresentLayoutCommandPool.reset();
-        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].PresentLayoutCommandBuffer;
+        m_Frames[m_FrameIndex].FinalLayoutCommandPool.reset();
+        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].FinalLayoutCommandBuffer;
         std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(*m_RhiDevice, *cmd);
         list->Begin();
 
         const Rhi::TextureHandle swapTexture = image.Texture;
+
+        // Undefined means the target requires no particular layout, and then the
+        // frame ends with no closing barrier at all. Only a target with a
+        // presentation engine answers otherwise; the command buffer still goes
+        // out, empty, because the submit takes a fixed array of seven and the
+        // ImGui one is already empty whenever the panel is hidden.
+        const Rhi::TextureLayout finalLayout = m_PresentTarget->GetRequiredFinalLayout();
+        const bool bNeedsFinalTransition = finalLayout != Rhi::TextureLayout::Undefined;
 
         if (captureScreenshot)
         {
@@ -1843,13 +1925,16 @@ private:
                 Rhi::BufferTextureCopyRegion{
                     .Extent = {SwapchainExtent().width, SwapchainExtent().height, 1u}});
 
-            m_MainThreadBarrierCounts +=
-                list->Barrier(Rhi::BarrierPresets::CopySrcToPresent().On(swapTexture));
+            if (bNeedsFinalTransition)
+            {
+                m_MainThreadBarrierCounts +=
+                    list->Barrier(Rhi::BarrierPresets::CopySrcToFinal(finalLayout).On(swapTexture));
+            }
         }
-        else
+        else if (bNeedsFinalTransition)
         {
-            m_MainThreadBarrierCounts +=
-                list->Barrier(Rhi::BarrierPresets::RenderTargetToPresent().On(swapTexture));
+            m_MainThreadBarrierCounts += list->Barrier(
+                Rhi::BarrierPresets::RenderTargetToFinal(finalLayout).On(swapTexture));
         }
 
         list->End();
@@ -2575,20 +2660,35 @@ int main(int argc, char** argv)
 
     // will be destroyed in reverse order of declaration. The platform must
     // outlive App: destroying it unloads the Vulkan library.
-    std::unique_ptr<SdlPlatform> pPlatform = nullptr;
+    //
+    // IPlatform rather than SdlPlatform because which implementation this is
+    // depends on --headless. SdlPlatform::ShowErrorMessageBox is static, so the
+    // SDLException handler below still works without an instance.
+    std::unique_ptr<IPlatform> pPlatform = nullptr;
     std::unique_ptr<Paths> pPaths = nullptr;
     std::unique_ptr<IJobSystem> pJobSystem = nullptr;
     std::unique_ptr<App> pApp = nullptr;
 
     try
     {
-        pPlatform = std::make_unique<SdlPlatform>(
-            WindowDesc{.Width = options.WindowSize.Width, .Height = options.WindowSize.Height});
+        const WindowDesc windowDesc{.Width = options.WindowSize.Width,
+                                    .Height = options.WindowSize.Height};
+
+        // One description, either implementation. A zero size means "you
+        // decide" to both of them: SdlPlatform asks the display, and
+        // HeadlessPlatform, having none, uses its documented constant.
+        if (options.bHeadless)
+            pPlatform = std::make_unique<HeadlessPlatform>(windowDesc);
+        else
+            pPlatform = std::make_unique<SdlPlatform>(windowDesc);
 
         // Before the device, so that the first swapchain is built at the size
         // the window ends up rather than at the windowed one. Where the
         // transition is asynchronous the resize still arrives late, as a
         // resize event, which costs one recreation and nothing else.
+        //
+        // Unreachable headless: --headless with a window-mode flag is rejected
+        // during parsing, so this is always Windowed there.
         if (options.StartWindowMode != WindowMode::Windowed)
             pPlatform->SetWindowMode(options.StartWindowMode);
 

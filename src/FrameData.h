@@ -15,14 +15,14 @@ struct FrameData
     vk::raii::CommandPool TransparentCommandPool = nullptr;
     vk::raii::CommandPool CompositeCommandPool = nullptr;
     vk::raii::CommandPool ImGuiCommandPool = nullptr;
-    vk::raii::CommandPool PresentLayoutCommandPool = nullptr;
+    vk::raii::CommandPool FinalLayoutCommandPool = nullptr;
     vk::raii::CommandBuffer DrawLayoutCommandBuffer = nullptr;
     vk::raii::CommandBuffer OpaqueCommandBuffer = nullptr;
     vk::raii::CommandBuffer CloudCommandBuffer = nullptr;
     vk::raii::CommandBuffer TransparentCommandBuffer = nullptr;
     vk::raii::CommandBuffer CompositeCommandBuffer = nullptr;
     vk::raii::CommandBuffer ImGuiCommandBuffer = nullptr;
-    vk::raii::CommandBuffer PresentLayoutCommandBuffer = nullptr;
+    vk::raii::CommandBuffer FinalLayoutCommandBuffer = nullptr;
     vk::raii::Fence DrawFence = nullptr;
     vk::raii::DescriptorSet GlobalBufferDescriptorSet = nullptr;
     vk::raii::DescriptorSet CompositeDescriptorSet = nullptr;

@@ -40,6 +40,12 @@ public:
     Extent2D GetExtent() const override { return m_Extent; }
     uint32_t GetImageCount() const override { return static_cast<uint32_t>(m_Images.size()); }
 
+    // None: this target imposes no layout on the image it hands back, so the
+    // frame that drew it records no closing barrier. See the declaration on
+    // IPresentTarget for why Undefined is the right way to say that, and why no
+    // real layout would be an improvement.
+    TextureLayout GetRequiredFinalLayout() const override { return TextureLayout::Undefined; }
+
     [[nodiscard]] AcquiredImage Acquire() override;
     SemaphoreHandle GetRenderCompleteSemaphore(uint32_t index) const override;
     bool Present(uint32_t index) override;

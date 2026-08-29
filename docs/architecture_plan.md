@@ -9,7 +9,7 @@
 supports (a) headless + automated runtime testing, (b) data-oriented performance,
 (c) scalability as features are added.
 
-**Status:** Stage 5 complete. Stage 6 in progress.
+**Status:** Stage 6 complete. Next: the cleanup PR, then Stage 7.
 
 > Companion document: `suggested_work.md` covers *correctness bugs* and
 > localised fixes. This document deliberately does **not** repeat them. Where a bug is
@@ -2056,9 +2056,11 @@ independently of the headless goal, so this stage is worth doing even if you sto
 
 ## Stage 6 — Headless capability (steps 35–40a)
 
-Steps 35, 36, 38 and 39 are done; **37 was delivered early, during Stage 5** — the gpu tests
-needed a surfaceless device before Stage 6 did. What remains is 40a. Step 40's event half
-became 40b and moved to Stage 7, for the reason recorded there.
+**Done.** **37 was delivered early, during Stage 5** — the gpu tests needed a surfaceless
+device before Stage 6 did — and step 40's event half became 40b and moved to Stage 7, for the
+reason recorded there. The engine now runs with no window: `--headless --frames N
+--screenshot` renders into an `OffscreenTarget` and writes a PNG, ImGui included, with zero
+validation errors.
 
 ### 35. `IPresentTarget` + `SwapchainTarget` — ✅ done
 - **Do:** Define the interface from §10.2. Move `CreateSwapchain`,
@@ -2235,7 +2237,7 @@ became 40b and moved to Stage 7, for the reason recorded there.
   composite pass clears the whole render area, but the reason is a deliberate discard rather
   than an absence of contents. Comment corrected.
 
-### 40a. `HeadlessPlatform` (no events) ← **next**
+### 40a. `HeadlessPlatform` (no events) — ✅ done
 
 Everything below is decided. The options that were weighed and rejected are recorded at the
 bottom, so that a fresh session can start work without re-opening them.
@@ -2251,9 +2253,17 @@ bottom, so that a fresh session can start work without re-opening them.
   devices with no SDL anywhere. So `HeadlessPlatform` is a plain class with no window-system
   dependency, and the unit test this step asks for needs no SDL subsystem. That call turns out
   to be redundant in `SdlPlatform` too, for a second reason — see the independent-work table.
-- **Extent when `--resolution` is absent:** 1280×720. There is no display to size against, so
-  it has to be a documented constant; that one matches `SdlPlatform`'s existing
-  `kFallbackWindowSize`. `--resolution` overrides it and is honoured rather than rejected.
+- **Takes a `WindowDesc`, exactly like `SdlPlatform`**, so `main()` builds one description
+  and hands it to whichever implementation it picked — which is the swap the seam exists to
+  make possible. `Title`, `bResizable` and `bBorderless` are ignored; say so on the class.
+  They are ignored only in states they can reach, since `--headless` with a window-mode flag
+  is rejected below.
+- **Extent when `--resolution` is absent:** 1280×720, resolved *inside* `HeadlessPlatform` so
+  that the zero-means-default rule stays where `SdlPlatform` keeps it rather than splitting
+  across `main()`. There is no display to size against, so it has to be a documented constant;
+  that one matches `SdlPlatform`'s existing `kFallbackWindowSize`. `--resolution` overrides it
+  and is honoured rather than rejected. A zero *component* cannot arrive —
+  `RequireExtent2D` rejects `1920x0` at parse time (`CommandLine.cpp:88`).
 
 #### Option validation
 
@@ -2263,11 +2273,20 @@ flags arrive in.
 
 - **Reject `--headless` with `--borderless` or `--fullscreen`.** A window mode for a run with
   no window asks for nothing coherent.
-- **Reject `--headless` without `--frames`.** The frame loop has exactly two exits:
-  `g_bShouldClose`, set by `SDL_EVENT_QUIT` or ImGui's Quit button — both of which need a
-  window — and the frame counter, which sets it only when `Frames != 0`. Headless with
-  `--frames 0` therefore runs forever. Ctrl-C is not the answer: it kills the process before
-  `WriteScreenshot` and `WriteReport`, so the run produces nothing.
+- **Reject `--headless` without `--frames`.** Of the frame loop's three exits, two need a
+  window: `SDL_EVENT_QUIT` and ImGui's Quit button. The third is the frame counter, which sets
+  `g_bShouldClose` only when `Frames != 0`. So headless with `--frames 0` ends only on a
+  signal — and headless exists for CI and the baseline, where nobody is there to send one.
+  The job then burns its whole timeout and dies to `SIGTERM`, which nothing handles, so it
+  writes neither screenshot nor report.
+
+  Note that Ctrl-C *does* work, contrary to what this entry used to claim: `HandleSIGINT`
+  sets `g_bShouldClose` (`main.cpp:91`), so an interactive headless run leaves the loop the
+  ordinary way and still writes its artefacts. That makes an unbounded run defensible at a
+  terminal — a soak test, say — which is why this is a rejection rather than an impossibility.
+  It stays rejected because the failure it prevents is silent and expensive in the place this
+  mode is actually for, and `Frames` is a `uint64_t` if someone wants to soak. Lift it the day
+  that use case is real.
 
 #### The present-layout seam (deferred here from step 38)
 
@@ -2277,36 +2296,68 @@ capturing a screenshot and `RenderTargetToPresent()` otherwise, both in
 `VK_KHR_swapchain` enumerator that a surfaceless device never enabled, so a headless frame
 raises a validation error on its last barrier. `App` has to stop hardcoding it.
 
-**Decided: add the query, and nothing more.**
+**Decided: add the query, and let it answer "no requirement".**
 
-- `TextureLayout GetPresentLayout() const` on `IPresentTarget`. `SwapchainTarget` returns
-  `Present`; `OffscreenTarget` returns `ShaderResource`, which matches its `Sampled` usage
-  and is where a readback wants to start from.
-- Both `…ToPresent` presets take the destination layout as a parameter, and are renamed for
-  what they then mean.
+- `TextureLayout GetRequiredFinalLayout() const` on `IPresentTarget`. `SwapchainTarget`
+  returns `Present`, which is a hard requirement of the present call itself
+  (VUID-VkPresentInfoKHR-pImageIndices-01430). `OffscreenTarget` returns
+  `TextureLayout::Undefined`, meaning it requires no particular layout, and `App` records no
+  trailing barrier at all when it gets that answer.
+- **`Undefined` is safe to mean "none" because it is illegal as a barrier destination**
+  (VUID-VkImageMemoryBarrier2-newLayout-01198). A caller who forgets to check and transitions
+  *to* it raises a validation error immediately, which the headless verify already gates on —
+  the mistake cannot be made quietly.
+- **Why not a real layout.** An offscreen target genuinely requires none: it owns its images,
+  nothing reads them between frames, and `Acquire` discards to `Undefined` on the way back in.
+  Every real value is therefore an invented requirement, and none is even free — `RenderTarget`
+  costs a pointless transition on the capturing frame, which has already moved the image to
+  `CopySrc`, and `CopySrc` costs one on every other frame. `ShaderResource` was the earlier
+  answer here, justified by the images' `Sampled` usage and by "where a readback wants to
+  start from". The second half is wrong — `Readback` takes `currentLayout` and transitions
+  itself (`OffscreenTarget.cpp:232`) — and the first has no consumer: nothing in Stages 8–10
+  samples the frame result. Steps 50–56 write *into* the present image; step 56's layout
+  tracker consumes this query rather than the image, and "no terminal constraint" is a more
+  useful thing to tell it than an invented one.
+- **Naming.** `GetRequiredFinalLayout`, not `GetPresentLayout`: the word *required* is what
+  makes "none" a legal answer instead of a hole, where "the present layout is `Undefined`"
+  reads as an uninitialised value. The two `…ToPresent` presets become
+  `RenderTargetToFinal(layout)` and `CopySrcToFinal(layout)`; `RenderTargetToCopySrc` is
+  untouched. `TextureLayout::Present`'s own spelling still stands — it is the neutral
+  vocabulary's word and D3D12 calls the same idea `D3D12_RESOURCE_STATE_PRESENT`.
+- **Skipping the barrier leaves the command buffer empty, and it is still submitted.** The
+  frame loop submits a fixed array of seven, and the ImGui one already goes out empty when
+  the panel is hidden (the `TODO` at `main.cpp:1078`). Step 56 culls both properly; doing one
+  of them here would leave the other looking like an oversight.
 - `App`'s existing in-frame screenshot copy needs no other change: an offscreen image carries
   `CopySrc` exactly like a swapchain's.
-- **The name stands even though an offscreen target never presents.** `TextureLayout::Present`
-  is already the neutral vocabulary's spelling and D3D12 calls the same idea
-  `D3D12_RESOURCE_STATE_PRESENT`; the app's real target is a surface, and the headless one
-  exists for CI and the baseline. Leave a line on the declaration saying that a target with
-  no presentation engine answers it too, and with what.
 
 #### ImGui runs headless
 
 The ImGui panel is **in the committed baseline screenshot** — `m_bCursorVisible` defaults to
 `true`, so `DrawImGuiFrame()` runs every frame and the panel occupies a 423×443 block in the
-top-left. So whether ImGui renders headless decides whether step 46's comparison of a
-headless capture against a windowed one can ever hold.
+top-left.
 
-**Decided: it renders, through the Vulkan backend only.** CI should be exercising ImGui, not
-skipping it.
+**Decided: it renders, through the Vulkan backend only.** The reason is coverage: a headless
+CI run should be exercising ImGui's bring-up and drawing, not skipping a fifth of the frame.
+It is explicitly *not* about making the headless capture comparable to a windowed one —
+step 46 compares captures taken with `--no-ui`, because the panel carries a hover highlight
+that no headless run can reproduce.
 
 - Skip `ImGui_ImplSDL3_InitForVulkan`, `ImGui_ImplSDL3_ProcessEvent`,
   `ImGui_ImplSDL3_NewFrame` and `ImGui_ImplSDL3_Shutdown`.
 - Set `io.DisplaySize` and `io.DeltaTime` by hand in their place — that is what the SDL3
   backend was supplying, and ImGui with no platform backend is a supported configuration.
-- `ImGui_ImplVulkan_*` needs no window and is used unchanged.
+  `io.DeltaTime` is the load-bearing one: `NewFrame` asserts it is positive, where
+  `DisplaySize` need only be non-negative.
+- `ImGui_ImplVulkan_*` needs no window and is used unchanged. Everything surface-shaped in
+  that backend lives in the optional `ImGui_ImplVulkanH_*` helper family, which this app has
+  never called — it records ImGui's draws into a dynamic-rendering pass it opens itself,
+  against whatever image the present target handed back and whatever format that target
+  chose.
+- **`MinImageCount` is fed `GetImageCount()`, and ImGui documents it as `>= 2`.** An
+  `OffscreenTarget` creates one image per frame in flight, so `NUM_FRAMES_IN_FLIGHT = 2` meets
+  that exactly, with no margin. Step 41 makes that count runtime and its verify asks for
+  `--frames-in-flight 1`, which would violate it — deal with it there.
 
 #### Wiring
 
@@ -2328,9 +2379,11 @@ touching anything headless. That is the checkpoint; it needs no renumbering of 4
 seam half on its own is not a milestone worth recording as a step.
 
 - **Verify:** Unit test constructs `HeadlessPlatform` with no SDL video subsystem
-  initialised. Windowed app output unchanged — baseline screenshot pixel-identical and report
-  unchanged. Then a real run: `--headless --frames 5 --screenshot` exits 0, writes a PNG at
-  the requested extent, and reports zero validation errors.
+  initialised, asserting `IsHeadless()`, the configured extent, the 1280×720 default, a null
+  native handle, and that the no-ops are callable. Windowed app output unchanged — baseline
+  screenshot pixel-identical and report unchanged, which is the checkpoint the layout seam
+  has to clear on its own. Then a real run: `--headless --frames 5 --screenshot` exits 0,
+  writes a PNG at the requested extent, and reports zero validation errors.
 - **Size:** M, not the S this step used to carry — the layout seam and the headless wiring
   both arrived here after it was written. **Needs:** 20, 37
 
@@ -2343,28 +2396,19 @@ seam half on its own is not a milestone worth recording as a step.
   way, and `RecordCapture` is a second interface member with real behaviour in both
   implementations plus a gpu test — for a refactor Stage 7 revisits anyway when it dismantles
   `App`. Reconsider it there, not here.
-- **Skipping ImGui headless.** Cheapest, but it puts a fifth of the frame in one capture and
-  not the other, which kills step 46's comparison.
+- **Skipping ImGui headless.** Cheapest, and it no longer costs step 46 anything now that
+  that comparison runs with `--no-ui` on both sides. Rejected on coverage alone: headless CI
+  is the only place ImGui's bring-up and drawing get exercised automatically, and a mode that
+  skips it proves less than it appears to.
+- **A warning when a headless run writes no screenshot and no report.** That invocation is a
+  smoke test, not a mistake — with `--strict-validation` the exit code carries the whole
+  result, and it is the shape step 47's `scene_launch_test` is built around. A warning would
+  fire on the most common headless run in CI and train everyone past it.
 - **Splitting this step in two and renumbering 40b → 40c.** The natural cut is after the
   layout seam, but that half is a seam change whose only observable effect is that the
   windowed baseline still matches — not a milestone. 40b is referenced from the Stage 7
   header, the dependency table and this entry, so the renumber is doc churn for no gain. The
   ordering above gives the same checkpoint without it.
-
-### 40b. Event seam + scripted input
-- **Do:** The member this plan called `PumpEvents` never shipped, and nothing replaced it —
-  `App::Run` still calls `SDL_PollEvent` directly and `HandleMovement` reads
-  `SDL_GetKeyboardState` (§10.1). Define the event abstraction, move SDL's polling behind
-  `SdlPlatform`, and give `HeadlessPlatform` an in-memory queue fed by §14's scripted input.
-- **Verify:** Windowed input unchanged by hand. A headless run replays
-  `tests/data/input/orbit.txt` and produces the frame count, resizes and screenshot the
-  script asks for.
-- **Size:** M–L · **Needs:** 40a
-- **Note:** deliberately split out of step 40 and **deferred to Stage 7**, next to the other
-  loop-shaped work (`IClock`, `RunSpec`). Nothing in steps 41–47 needs it except the scripted
-  half of 47's tests: `--frames N --screenshot` requires no input at all, so 40a alone is
-  enough for the first genuinely headless artefact. Keeping them together would have made the
-  smallest remaining step in Stage 6 into its largest.
 
 ---
 
@@ -2372,8 +2416,9 @@ seam half on its own is not a milestone worth recording as a step.
 
 Stage 6 ends with the engine able to run without a window. Before Stage 7 starts pulling
 `App` apart, one small PR to clear the things Stage 6 surfaced and to take a pass over the
-independent-work table below. None of it blocks Stage 7; all of it gets harder once `App` is
-in pieces.
+independent-work table below. Nothing here blocks Stage 7 *starting*, but `--no-ui` is not
+optional past step 46, whose comparison is defined on captures taken without the panel — so it
+has to land by then, here or alongside 46. All of it gets harder once `App` is in pieces.
 
 **`--no-ui`, and re-baseline onto it.** The baseline test exists to detect that *the
 rendered scene* changed, and today a fifth of the captured frame is the ImGui panel. Worse,
@@ -2382,7 +2427,8 @@ capture shows a hover highlight on whichever widget the mouse was last over. It 
 stable in practice only because the mouse has not moved between runs. Add a flag that
 suppresses the UI, pass it from `tests/scripts/baseline_test.sh`, and promote the new
 screenshot and report together. This also makes a headless capture and a windowed one
-comparable on the scene alone, which is what step 46 wants to assert.
+comparable on the scene alone, which is what step 46 asserts — and the reason that step needs
+this flag rather than merely benefiting from it.
 
 **Then pick from the independent-work table.** The ones Stage 6 either created or made
 cheaper:
@@ -2404,6 +2450,21 @@ cheaper:
 
 Step 40b (the event seam) joins this stage from Stage 6 — it is loop-shaped work and belongs
 next to `IClock` and `RunSpec` rather than next to `HeadlessPlatform`.
+
+### 40b. Event seam + scripted input
+- **Do:** The member this plan called `PumpEvents` never shipped, and nothing replaced it —
+  `App::Run` still calls `SDL_PollEvent` directly and `HandleMovement` reads
+  `SDL_GetKeyboardState` (§10.1). Define the event abstraction, move SDL's polling behind
+  `SdlPlatform`, and give `HeadlessPlatform` an in-memory queue fed by §14's scripted input.
+- **Verify:** Windowed input unchanged by hand. A headless run replays
+  `tests/data/input/orbit.txt` and produces the frame count, resizes and screenshot the
+  script asks for.
+- **Size:** M–L · **Needs:** 40a
+- **Note:** deliberately split out of step 40 and **deferred here from Stage 6**, next to the other
+  loop-shaped work (`IClock`, `RunSpec`). Nothing in steps 41–47 needs it except the scripted
+  half of 47's tests: `--frames N --screenshot` requires no input at all, so 40a alone is
+  enough for the first genuinely headless artefact. Keeping them together would have made the
+  smallest remaining step in Stage 6 into its largest.
 
 ### 41. `Engine` + `EngineConfig` + `RunSpec` + `RunReport`
 - **Do:** Rename `App` → `Engine` in `engine/engine`. Promote the surviving `constexpr`s
@@ -2468,9 +2529,18 @@ next to `IClock` and `RunSpec` rather than next to `HeadlessPlatform`.
   `src/main.cpp` ceases to exist.
 - **Verify:** **`VulkanAppHeadless --scene content/scenes/test_scene.map --frames 5
   --report r.json --screenshot h.png` runs with no window and exits 0.** Compare `h.png`
-  against the windowed screenshot — they should match closely (identical if the composite
-  path is truly shared).
-- **Size:** M · **Needs:** 40, 41, 44
+  against a windowed capture of the same scene, **both taken with `--no-ui`**, and require
+  them to be pixel-identical rather than merely close: with the panel suppressed the only
+  thing left that can differ is the composite path, which is exactly what this comparison
+  exists to detect. Compare decoded pixels, never bytes — PNG encoding is not reproducible.
+
+  The panel has to be out of both captures, and suppressing it is the only way to get there:
+  nothing warps the cursor at startup, so a windowed run carries a hover highlight on
+  whichever widget the mouse was last over, while a headless run has no mouse at all. That
+  difference is guaranteed, and it says nothing about the renderer. ImGui still *renders*
+  headless — see 40a — so this costs no CI coverage of it; step 47's assertions run against a
+  build that drew the panel.
+- **Size:** M · **Needs:** 40a, 41, 44, and `--no-ui` from the cleanup PR
 
 ### 47. Wire headless tests into CI
 > 🚧 **Blocked on a decision:** this job runs on a runner that may expose both a real GPU and
@@ -2715,6 +2785,8 @@ validation errors".
 | Item | Where | Size |
 |---|---|---|
 | [IN PROGRESS] P0/P1 correctness fixes from `suggested_work.md` — 3.2 done (batched uploads); 1.6, 3.1 open | various | S–M each |
+| `SIGTERM` goes unhandled, so a CI timeout kills even a bounded run before it writes its screenshot and report — `SIGINT` is handled and `SIGTERM` should be too | `main.cpp:2562` | XS |
+| Ctrl-C with `--screenshot` usually writes no PNG, only the "called without a captured frame" error. `WriteScreenshot` does run — `HandleSIGINT` leaves the loop the ordinary way — but whether anything was captured is a race: the capture is recorded in-frame, decided at `main.cpp:569` from `g_bShouldClose`, so a signal arriving after that line in the last iteration exits at the top of the next one with nothing staged. Capture on the way out instead when the flag was asked for and `m_bScreenshotBufferReady` is false | `main.cpp:493-575` | S |
 | Expose cloud push-constants in ImGui (`m_CloudData` is pushed but never written) | `CloudSystem` + editor UI | S |
 | [DONE] Guard `DirLights[0]` when `DirLightCount == 0` (currently NaNs) | `clouds.comp.slang:106` | XS |
 | [DONE] Epsilon on `dir.y` instead of `== 0.f` | `clouds.comp.slang:24,96` | XS |

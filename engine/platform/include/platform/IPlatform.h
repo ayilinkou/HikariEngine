@@ -38,9 +38,10 @@ enum class WindowMode
     ExclusiveFullscreen,
 };
 
-// The windowing/OS seam. SdlPlatform is the only implementation today;
-// HeadlessPlatform (step 40) is the second, and having two is what lets the
-// engine run in CI with no display attached.
+// The windowing/OS seam, with two implementations: SdlPlatform opens a real
+// window, HeadlessPlatform has none at all. Having both is what lets the engine
+// run in CI with no display attached — and what keeps the renderer above this
+// line unable to tell which it got.
 class IPlatform
 {
 public:

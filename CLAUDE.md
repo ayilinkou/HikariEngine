@@ -104,8 +104,8 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 3 — Core library | 15–19 | ✅ done (`Engine::Core`, `IJobSystem` injected into `App`) |
 | 4 — Platform library | 20–23 | ✅ done (`Engine::Platform`, `Paths` + `content/` root, `CommandLine`) |
 | 5 — RHI extraction | R1–R17 | ✅ done (`Engine::RHI` — backend-neutral API, handle-based resources, batched uploads, growable descriptors, a pipeline cache, and GPU tests) |
-| **6 — Headless capability** | **35–40a** | **in progress** |
-| 7 — Engine shell + DI | 40b, 41–47 | not started — **CI goal met at step 47** |
+| 6 — Headless capability | 35–40a | ✅ done (`HeadlessPlatform`, `--headless`, the present-layout seam) |
+| **7 — Engine shell + DI** | **40b, 41–47** | **next** — a cleanup PR first; **CI goal met at step 47** |
 | 8+ — Frame graph, DOD, scalability | 48–76 | not started |
 
 Update this table when a stage completes.
@@ -186,8 +186,10 @@ the committed `tests/baseline/`. Two signals, and **both are usable**:
 request the window system may refuse, and a tiling compositor always does. The rationale is
 in the script, next to the flags.
 
-Note `--headless` is parsed but not yet implemented (step 40a); today this still opens a
-window.
+`--headless` renders into an offscreen target with no window at all. It requires
+`--frames` — nothing else can end the run — and cannot be combined with `--borderless` or
+`--fullscreen`. ImGui still draws, so a headless capture and a windowed one of the same frame
+come out pixel-identical.
 
 ---
 

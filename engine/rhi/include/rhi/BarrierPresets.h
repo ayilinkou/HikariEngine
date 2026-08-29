@@ -97,13 +97,20 @@ inline constexpr TextureBarrier PreserveRenderTarget()
     };
 }
 
-// The finished swapchain image, handed back to the presentation engine.
+// The finished image at the end of the frame, left in the layout its present
+// target requires — IPresentTarget::GetRequiredFinalLayout(), which is
+// TextureLayout::Present for a swapchain.
+//
+// Takes the layout rather than naming one because what the frame owes at its end
+// is the target's business, not the renderer's: a target with no presentation
+// engine requires nothing at all, and its caller records no barrier instead of
+// calling this.
 //
 // Nothing waits on this transition inside the command list, which is what the
 // empty destination scope says. What makes it safe is the semaphore the present
 // waits on: its signal happens after every command in the submission, this one
 // included.
-inline constexpr TextureBarrier RenderTargetToPresent()
+inline constexpr TextureBarrier RenderTargetToFinal(TextureLayout finalLayout)
 {
     return TextureBarrier{
         .SrcStage = PipelineStage::RenderTarget,
@@ -111,7 +118,7 @@ inline constexpr TextureBarrier RenderTargetToPresent()
         .DstStage = PipelineStage::None,
         .DstAccess = AccessFlags::None,
         .OldLayout = TextureLayout::RenderTarget,
-        .NewLayout = TextureLayout::Present,
+        .NewLayout = finalLayout,
     };
 }
 
@@ -129,9 +136,10 @@ inline constexpr TextureBarrier RenderTargetToCopySrc()
     };
 }
 
-// The same image once the capture copy has read it, handed back to the
-// presentation engine. See RenderTargetToPresent() for why nothing waits.
-inline constexpr TextureBarrier CopySrcToPresent()
+// The same image once the capture copy has read it, left in the layout its
+// present target requires. See RenderTargetToFinal() for both the parameter and
+// why nothing waits.
+inline constexpr TextureBarrier CopySrcToFinal(TextureLayout finalLayout)
 {
     return TextureBarrier{
         .SrcStage = PipelineStage::Copy,
@@ -139,7 +147,7 @@ inline constexpr TextureBarrier CopySrcToPresent()
         .DstStage = PipelineStage::None,
         .DstAccess = AccessFlags::None,
         .OldLayout = TextureLayout::CopySrc,
-        .NewLayout = TextureLayout::Present,
+        .NewLayout = finalLayout,
     };
 }
 

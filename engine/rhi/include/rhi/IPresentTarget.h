@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <span>
 
+#include <rhi/Barrier.h>
 #include <rhi/Handles.h>
 #include <rhi/RhiTypes.h>
 
@@ -62,6 +63,30 @@ public:
     virtual Format GetFormat() const = 0;
     virtual Extent2D GetExtent() const = 0;
     virtual uint32_t GetImageCount() const = 0;
+
+    // The layout this target needs an image left in when the frame that drew it
+    // ends, or TextureLayout::Undefined if it needs none — in which case the
+    // caller records no closing barrier at all.
+    //
+    // A swapchain answers Present, and that is a hard requirement of the present
+    // call rather than a convention: the presented subresource must be in
+    // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR (VUID-VkPresentInfoKHR-pImageIndices-01430),
+    // and D3D12 spells the same idea D3D12_RESOURCE_STATE_PRESENT.
+    //
+    // A target with no presentation engine requires nothing, and Undefined says
+    // so rather than naming a layout nobody asked for. It owns its images, no
+    // one reads them between frames, and the next Acquire discards to Undefined
+    // regardless — so any real answer would be an invented requirement, and none
+    // of them is even free: RenderTarget costs a transition on the frame that
+    // captured a screenshot (already in CopySrc by then), CopySrc costs one on
+    // every other frame.
+    //
+    // Undefined is safe to mean "none" precisely because it cannot mean anything
+    // else: it is illegal as a barrier destination
+    // (VUID-VkImageMemoryBarrier2-newLayout-01198), so a caller who forgets to
+    // check and transitions *to* this answer gets a validation error rather than
+    // a subtly wrong frame.
+    virtual TextureLayout GetRequiredFinalLayout() const = 0;
 
     [[nodiscard]] virtual AcquiredImage Acquire() = 0;
 

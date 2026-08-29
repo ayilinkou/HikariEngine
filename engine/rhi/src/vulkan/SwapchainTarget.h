@@ -33,6 +33,10 @@ public:
     Extent2D GetExtent() const override;
     uint32_t GetImageCount() const override { return static_cast<uint32_t>(m_Images.size()); }
 
+    // Required rather than chosen: vkQueuePresentKHR rejects an image in any
+    // other layout (VUID-VkPresentInfoKHR-pImageIndices-01430).
+    TextureLayout GetRequiredFinalLayout() const override { return TextureLayout::Present; }
+
     [[nodiscard]] AcquiredImage Acquire() override;
     SemaphoreHandle GetRenderCompleteSemaphore(uint32_t index) const override;
     bool Present(uint32_t index) override;
