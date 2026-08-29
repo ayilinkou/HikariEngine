@@ -10,12 +10,14 @@ target_compile_definitions(
 
 # Separate from core_tests so that Core's tests keep linking nothing but Core.
 engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
-  unit/platform/CommandLineTests.cpp LIBS Engine::Platform)
+  unit/platform/CommandLineTests.cpp unit/platform/HeadlessPlatformTests.cpp
+  LIBS Engine::Platform)
 
 engine_test(rhi_tests SOURCES unit/rhi/ConversionTests.cpp
-  unit/rhi/DiagnosticsTests.cpp unit/rhi/OwnershipTransferTests.cpp
-  unit/rhi/QueueFamilyTests.cpp unit/rhi/SwapchainUtilTests.cpp
-  unit/rhi/UniqueHandleTests.cpp LIBS Engine::RHI)
+  unit/rhi/DiagnosticsTests.cpp unit/rhi/FormatTests.cpp
+  unit/rhi/OwnershipTransferTests.cpp unit/rhi/QueueFamilyTests.cpp
+  unit/rhi/SwapchainUtilTests.cpp unit/rhi/UniqueHandleTests.cpp
+  LIBS Engine::RHI)
 
 # The conversion tables and the queue-family selection live in src/vulkan/, not
 # in the module's public include path — they are backend-internal by design
@@ -29,8 +31,8 @@ target_include_directories(rhi_tests
 # of nothing but skips looks identical to a run of tests that were passing
 # vacuously. tests/scripts/run_gpu_tests.sh is what executes them.
 engine_test(rhi_gpu_tests SOURCES gpu/rhi/DeviceTests.cpp
-  gpu/rhi/UploadRoundTripTests.cpp support/RhiDeviceListener.cpp
-  LIBS Engine::RHI LABEL gpu)
+  gpu/rhi/PresentTargetTests.cpp gpu/rhi/UploadRoundTripTests.cpp
+  support/RhiDeviceListener.cpp LIBS Engine::RHI LABEL gpu)
 
 # The same reach into the module's own sources that rhi_tests makes, plus the
 # shared fixture: submitting a command list needs a queue, and the RHI hands out

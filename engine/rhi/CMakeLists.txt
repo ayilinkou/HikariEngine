@@ -6,6 +6,8 @@ engine_module(
   src/vulkan/QueueFamilies.cpp
   src/vulkan/OwnershipTransfer.cpp
   src/vulkan/VulkanDevice.cpp
+  src/vulkan/SwapchainTarget.cpp
+  src/vulkan/OffscreenTarget.cpp
   src/vulkan/VulkanNative.cpp
   src/vulkan/VulkanBuffer.cpp
   src/vulkan/VulkanTexture.cpp

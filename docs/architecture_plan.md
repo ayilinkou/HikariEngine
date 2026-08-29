@@ -9,7 +9,7 @@
 supports (a) headless + automated runtime testing, (b) data-oriented performance,
 (c) scalability as features are added.
 
-**Status:** Stage 4 complete.
+**Status:** Stage 6 complete. Next: the cleanup PR, then Stage 7.
 
 > Companion document: `suggested_work.md` covers *correctness bugs* and
 > localised fixes. This document deliberately does **not** repeat them. Where a bug is
@@ -54,13 +54,14 @@ supports (a) headless + automated runtime testing, (b) data-oriented performance
 27. [Stage 3 — Core library](#stage-3--core-library-steps-1519)
 28. [Stage 4 — Platform library](#stage-4--platform-library-steps-2023)
 29. [Stage 5 — RHI extraction](#stage-5--rhi-extraction-steps-2434)
-30. [Stage 6 — Headless capability](#stage-6--headless-capability-steps-3540)
-31. [Stage 7 — Engine shell & dependency injection](#stage-7--engine-shell--dependency-injection-steps-4147)
-32. [Stage 8 — Passes & frame graph](#stage-8--passes--frame-graph-steps-4856)
-33. [Stage 9 — Data-oriented rewrite](#stage-9--data-oriented-rewrite-steps-5768)
-34. [Stage 10 — Scalability features](#stage-10--scalability-features-steps-6976)
-35. [Dependency summary](#dependency-summary)
-36. [Independent work — pick up any time](#independent-work--pick-up-any-time)
+30. [Stage 6 — Headless capability](#stage-6--headless-capability-steps-3540a)
+31. [Between Stage 6 and Stage 7 — a cleanup PR](#between-stage-6-and-stage-7--a-cleanup-pr)
+32. [Stage 7 — Engine shell & dependency injection](#stage-7--engine-shell--dependency-injection-steps-40b47)
+33. [Stage 8 — Passes & frame graph](#stage-8--passes--frame-graph-steps-4856)
+34. [Stage 9 — Data-oriented rewrite](#stage-9--data-oriented-rewrite-steps-5768)
+35. [Stage 10 — Scalability features](#stage-10--scalability-features-steps-6976)
+36. [Dependency summary](#dependency-summary)
+37. [Independent work — pick up any time](#independent-work--pick-up-any-time)
 
 **Appendices**
 21. [Appendix A — File relocation table](#appendix-a--file-relocation-table)
@@ -609,109 +610,150 @@ This is the section that unlocks the CI goal. Three seams are needed.
 
 ### 10.1 Platform seam
 
-```cpp
-// platform/IPlatform.h
-struct WindowDesc { uint32_t Width, Height; std::string Title; bool bResizable; };
+**Built, and not in the shape this section originally drew.** Read
+`engine/platform/include/platform/IPlatform.h` for the interface; what follows is why it
+differs, because the difference changes what step 40 has to do.
 
-class IPlatform
-{
-public:
-    virtual ~IPlatform() = default;
+The original sketch gave `IPlatform` three Vulkan-facing members —
+`GetRequiredInstanceExtensions`, `CreateSurface(VkInstance, VkSurfaceKHR*)` and
+`PumpEvents(EventQueue&)`. The first two are gone: **surface creation and instance-extension
+enumeration moved into the RHI**, where `VulkanDevice::CreateSurface` does the work and
+`DeviceRequirements::NativeWindowHandle` carries the only thing it needs from the platform.
+That is a better split than the sketch — Platform links no Vulkan at all now, so the type
+`CreateSurface` would have returned cannot even be named there — and it means
+`HeadlessPlatform` has nothing to stub for either.
 
-    virtual bool                     IsHeadless() const = 0;
-    virtual Extent2D                 GetFramebufferExtent() const = 0;
-    // Empty for headless — the RHI must tolerate that.
-    virtual std::span<const char*>   GetRequiredInstanceExtensions() const = 0;
-    virtual bool                     CreateSurface(VkInstance, VkSurfaceKHR* out) = 0;
-    virtual void                     PumpEvents(EventQueue& out) = 0;
-    virtual void                     Show() {}
-    virtual void                     SetRelativeMouseMode(bool) {}
-};
-```
+What shipped instead is `IsHeadless`, `GetFramebufferExtent`, `Show`, `SetWindowMode`,
+`SetRelativeMouseMode`, `WarpMouse` and a temporary `GetNativeWindowHandle`. `SetWindowMode`
+and the `WindowMode` enum (windowed / borderless / exclusive fullscreen) arrived with the
+window-mode work and were never in this plan.
 
-`SdlPlatform` is the current code, moved. `HeadlessPlatform` returns `IsHeadless() == true`,
-an empty extension list, `CreateSurface` → `false`, and `PumpEvents` drains a
-**scripted event queue** (§14) so a test can drive camera movement and window resizes
-deterministically without an OS window.
+**`PumpEvents` did not ship, and nothing replaced it.** `App::Run` still calls
+`SDL_PollEvent` directly, and `HandleMovement` still reads `SDL_GetKeyboardState`. So there
+is no event seam, and §14's scripted input (`frame 15 key.up W`) has nowhere to attach. That
+is now the larger half of step 40 rather than an incidental part of it — see the step, which
+splits accordingly.
+
+`GetNativeWindowHandle` is the one member marked temporary: Vulkan surface creation and the
+ImGui SDL3 backend both still need a concrete `SDL_Window*`, and it disappears when the
+second of those moves into `engine/editor`.
 
 ### 10.2 Presentation seam
 
-```cpp
-// rhi/IPresentTarget.h
-struct AcquiredImage
-{
-    vk::Image      Image;
-    vk::ImageView  View;
-    uint32_t       Index;
-    bool           bNeedsRecreate;
-};
+**Built in step 35.** `engine/rhi/include/rhi/IPresentTarget.h` is the interface and carries
+the reasoning for each member; the sketch that used to sit here has been removed rather than
+maintained in parallel, because a second copy of a signature is a second thing to get wrong.
+Two ways the built version differs from what this section drew:
 
-class IPresentTarget
-{
-public:
-    virtual ~IPresentTarget() = default;
+- **`Recreate` returns `[[nodiscard]] bool`, not `void`.** False means it cannot rebuild yet
+  and touched nothing — the state a minimised window leaves a surface in, which a caller
+  cannot test for itself without knowing it holds a swapchain. It is `[[nodiscard]]` where
+  `Present` is not because the two fail differently when dropped: a dropped `Present` costs
+  one frame and the loop corrects itself, while a dropped `Recreate` leaves the caller
+  rebuilding per-image state against a target still at the old extent, and nothing asks
+  again.
+- **`PresentTargetDesc` exists**, carrying the creation extent and `FramesInFlight` — the
+  latter sizes the ring of acquire semaphores and is deliberately *not* the image count,
+  which the target chooses and reports.
 
-    virtual vk::Format     GetFormat()  const = 0;
-    virtual vk::Extent2D   GetExtent()  const = 0;
-    virtual uint32_t       GetImageCount() const = 0;
+Everything here is spelled in the neutral vocabulary, because
+`cmake/RhiBoundaryCheck.cmake` rejects a `vk::` type under `include/rhi/` outright — this
+section predates the Stage 5 neutralisation and originally named `vk::Image`,
+`vk::Semaphore` and `vk::Queue`. Three consequences worth keeping:
 
-    virtual AcquiredImage  Acquire(vk::Semaphore signalOnAvailable) = 0;
-    virtual void           Present(vk::Queue, uint32_t index,
-                                   vk::Semaphore waitOnRenderComplete) = 0;
-    virtual void           Recreate(vk::Extent2D newExtent) = 0;
-
-    // Only meaningful offscreen; returns std::nullopt for a swapchain target
-    // unless the surface was created with eTransferSrc.
-    virtual std::optional<ImageReadback> Readback(uint32_t index) = 0;
-};
-```
+- **The target owns its semaphores.** `Acquire()` takes none and returns the one it
+  signalled; `Present()` takes no queue. `SemaphoreHandle` (added to `rhi/Handles.h` in
+  step 35) exists only so a caller can name one for its own submit, which is what
+  `Handles.h` had reserved the shape for. While the frame loop still records its own
+  submit it resolves both through `Rhi::Vulkan::GetSemaphore`; that goes away in Stage 8.
+- **Out-of-date is a value, not an error.** `bNeedsRecreate` and `Present()`'s `bool`
+  cover suboptimal and out-of-date alike, because a resize races every frame.
+- **`Readback` is not here.** It arrives with `OffscreenTarget` in step 39 rather than
+  being a member `SwapchainTarget` would only stub.
 
 Two implementations:
 
-- **`SwapchainTarget`** — today's `CreateSwapchain` / `acquireNextImage` / `presentKHR`,
-  extracted. Fixes S1-15 from the companion doc naturally, because
+- **`SwapchainTarget`** — ✅ done. The old `CreateSwapchain` / `acquireNextImage` /
+  `presentKHR`, extracted. Fixes S1-15 from the companion doc naturally, because
   `GetImageCount()` changing on `Recreate` becomes an explicit, observable event that the
-  renderer reacts to (recreating per-image semaphores) rather than something it forgets.
-- **`OffscreenTarget`** — N color images (`eColorAttachment | eTransferSrc | eSampled`), no
-  surface, no swapchain, no `VK_KHR_swapchain`. `Acquire` returns
-  `(frameCounter % N)` and signals the semaphore via an empty submit (or the target simply
-  reports "no wait needed" and the renderer omits the wait semaphore).
-  `Present` is a no-op or, if `--screenshot` is set, records a `copyImageToBuffer` into a
-  host-visible staging buffer and signals a fence. `Readback` waits that fence and returns
-  tightly-packed RGBA8.
+  renderer reacts to rather than something it forgets.
+- **`OffscreenTarget`** — ✅ done, steps 38 and 39. N color images
+  (`eColorAttachment | eTransferSrc | eSampled`), no surface, no swapchain, no
+  `VK_KHR_swapchain`. N is `FramesInFlight`; `Acquire` returns `(acquireCount % N)` and
+  never reports `bNeedsRecreate`; `Present` records only that the caller signalled that
+  image's render-complete semaphore, which the next `Acquire` of the same image hands back
+  as its wait. `Readback` arrived in step 39 as a member of this class rather than of the
+  interface, for the reason given above, and consumes that same signal to order its copy.
+
+**Which target a device hands back is already decided by `IDevice::CreatePresentTarget`,**
+not by the caller — the header says so, and today it throws when there is no surface. That
+throw is where `OffscreenTarget` attaches, so step 38 needs no new entry point.
+
+Two decisions step 38 had to settle, both of which the sketch above left open:
+
+- **The acquire wait is a span — ✅ done in step 38.** `AcquiredImage::Available`
+  (one `SemaphoreHandle`, documented as null only when `bNeedsRecreate` is set) became
+  `std::span<const SemaphoreHandle> WaitSemaphores`, empty when there is nothing to wait on.
+  An empty set is not a sentinel, and the submit already takes a count and an array, so the
+  empty case costs no branch. The offscreen target does turn out to need a wait, and fills
+  the span like any other target — see step 38 for why it is not optional.
+- **Readback is format-driven, and the screenshot writer now is too — ✅ done in step 39.**
+  `WriteScreenshot` hardcoded a BGRA→RGBA swizzle, correct only because
+  `ChooseSwapchainFormat` asks for `BGRA8Unorm` first. It reads `GetFormat()` for both the
+  texel size and the channel order, and refuses a format `stbi_write_png` cannot take rather
+  than reinterpreting the bytes.
+
+`tests/support/GpuReadback.h` already records the copy, submits it, fences and reads the
+mapped bytes — but only part of it is genuinely shareable with step 39. See that step for
+which part, and why copying the rest would be the wrong move.
 
 `Renderer` talks only to `IPresentTarget`. It never sees `vk::SwapchainKHR`.
 
 ### 10.3 Device-creation seam
 
-`IsPhysicalDeviceSuitable` and `CreateLogicalDevice` currently conflate three different
-requirement sets. Split them:
+**✅ Done, during Stage 5 rather than Stage 6 — this is what step 37 asked for, delivered
+early.** See `engine/rhi/include/rhi/DeviceDesc.h`.
 
-```cpp
-// rhi/DeviceFeatures.h
-struct DeviceRequirements
-{
-    uint32_t                 MinApiVersion   = VK_API_VERSION_1_3;
-    std::vector<const char*> Extensions;         // always required
-    std::vector<const char*> PresentExtensions;  // only when bNeedsPresent
-    bool bNeedsPresent      = true;
-    bool bNeedsGraphics     = true;
-    bool bNeedsCompute      = true;
-    bool bPreferDedicatedTransferQueue = true;
-    bool bPreferDiscreteGpu = true;              // false for CI: prefer the software ICD
-    RequiredFeatures Features;                   // one struct, statically asserted
-};
-```
+The shipped `DeviceRequirements` is far smaller than the struct this section drew: two
+fields, `bPresent` and an opaque `NativeWindowHandle`. Everything the sketch wanted to
+express as caller-supplied policy — API version, extension lists, the required feature set —
+stayed *inside* the backend instead, because none of it can be spelled in a backend-neutral
+header without leaking Vulkan's vocabulary into it, and a caller has no basis on which to
+vary it. That is the D0–D12 rule from `rhi_extraction_plan.md` applied: the seam says what is
+wanted, not how it is spelled.
 
-Headless drops `VK_KHR_swapchain` from the required set and drops the
-`getSurfaceSupportKHR` term from queue-family selection. Everything else — dynamic
-rendering, sync2, extended dynamic state, descriptor indexing, anisotropy, independent
-blend — stays required, which is what makes the headless test *meaningful*: it exercises
-the same feature set the real app does.
+When `bPresent` is false the backend creates no surface, requests neither the surface
+instance extensions nor `VK_KHR_swapchain`, and drops the `getSurfaceSupportKHR` term from
+queue-family selection. Everything else stays required, which is what makes the headless test
+*meaningful*: it exercises the same feature set the real app does. Queue families are
+enumerated properly (graphics / compute / copy), which resolved the two `main.cpp` `TODO`s
+and unblocked the batched `UploadContext`.
 
-**Queue families should also be enumerated properly here** (graphics / compute / transfer),
-which resolves the two `TODO`s in `main.cpp` about dedicated compute and transfer queues,
-and unblocks the batched `UploadContext`.
+The gpu tests already run this way — `RhiTestFixture` creates **every** device with
+`bPresent = false`, across four device shapes — so the surfaceless path is exercised
+continuously rather than by one case.
+
+**One idea from the sketch has no home yet and is still needed:** `bPreferDiscreteGpu =
+false`, "for CI: prefer the software ICD".
+
+Worth being precise about the starting point, because both this plan and the obvious reading
+of the code overstate it. **There is no device preference implemented at all.**
+`PickPhysicalDevice` is `std::ranges::find_if(devices, IsPhysicalDeviceSuitable)` — the first
+suitable device in enumeration order, no scoring. So `bPreferDiscreteGpu` is not a field that
+went missing; the behaviour it names was never written. On a machine with an integrated and a
+discrete GPU you get whichever the loader lists first, which is why §14 counts device
+selection as a source of non-determinism.
+
+> 🚧 **Undecided — confirm before building anything that depends on it.** The shape of the fix
+> is open: a `DeviceRequirements` field, a `--gpu <name-substring|index>` flag, relying on
+> `VK_DRIVER_FILES` to make lavapipe the only visible ICD in CI, or some combination. Note
+> that `vkEnumeratePhysicalDevices` order is not guaranteed stable across driver updates or
+> between machines, so a bare index is a poor persistent identifier. Do **not** implement a
+> selection mechanism as a side effect of step 47 — raise it and agree the approach first.
+>
+> Independently of which is chosen, **log the selected device name and driver version and put
+> them in the run report**: two reports cannot be compared without knowing what produced
+> them, and that part needs no decision.
 
 ### 10.4 CI device availability
 
@@ -1149,8 +1191,8 @@ For a headless test to be a *test* rather than a coin flip:
 | Source of non-determinism | Fix |
 |---|---|
 | `high_resolution_clock` delta time | `FixedStepClock` when `bDeterministic` |
-| Smoothed FPS/frame time feedback loop | Report raw values; smoothing is a UI concern |
-| `eMailbox` present mode | Force `eFifo` in deterministic mode |
+| Smoothed FPS/frame time feedback loop | Report raw values; smoothing is a UI concern. **The current code overshoots this**: under `--fixed-dt` it records the *timestep* rather than measured cost, so the reported frame times are a constant. Measure wall clock separately from simulation dt — see the independent-work table |
+| `eMailbox` present mode | **Not a determinism problem — struck.** Present mode changes timing, not pixels, and forcing FIFO would cap frame times at the refresh interval and hide real regressions. See step 45 |
 | Thread pool completion order affecting sort/batch order | Serial job system, plus: keys must be **total orders** (include instance index as a tiebreaker) so the sort is stable regardless of algorithm |
 | `unordered_map` iteration order (`ModelData::m_MeshLocalTransforms`, caches) | Never iterate a hash map to produce ordered output; use sorted vectors in the hot path |
 | Pointer values used as sort keys (`pMesh < other.pMesh` in `Drawable::operator<`) | **This is a real determinism bug today**: batch order depends on heap addresses. Handles fix it. |
@@ -2012,9 +2054,15 @@ independently of the headless goal, so this stage is worth doing even if you sto
 
 ---
 
-## Stage 6 — Headless capability (steps 35–40)
+## Stage 6 — Headless capability (steps 35–40a)
 
-### 35. `IPresentTarget` + `SwapchainTarget`
+**Done.** **37 was delivered early, during Stage 5** — the gpu tests needed a surfaceless
+device before Stage 6 did — and step 40's event half became 40b and moved to Stage 7, for the
+reason recorded there. The engine now runs with no window: `--headless --frames N
+--screenshot` renders into an `OffscreenTarget` and writes a PNG, ImGui included, with zero
+validation errors.
+
+### 35. `IPresentTarget` + `SwapchainTarget` — ✅ done
 - **Do:** Define the interface from §10.2. Move `CreateSwapchain`,
   `CreateSwapchainImageViews` and the swapchain half of
   `RecreateSwapchainAndRenderImages` into `SwapchainTarget`. `App` calls
@@ -2024,16 +2072,17 @@ independently of the headless goal, so this stage is worth doing even if you sto
   riskiest step in Stage 6.
 - **Size:** L · **Needs:** 26
 
-### 36. Recreate sync objects on image-count change
-- **Do:** `SwapchainTarget::Recreate` reports the new image count; `App` reacts by clearing
-  and rebuilding `m_RenderCompleteSemaphores` (note `CreateSyncObjects` currently uses
-  `emplace_back` with no `clear()`, so it must be fixed to be re-entrant) and updating
-  `ImGui_ImplVulkan_SetMinImageCount`.
+### 36. Recreate sync objects on image-count change — ✅ done
+- **Do:** Step 35 shrank this. The per-image semaphores moved into `SwapchainTarget`, which
+  rebuilds them with the images they order access to, so the `m_RenderCompleteSemaphores`
+  half of this step and the `CreateSyncObjects` re-entrancy bug are already gone. What
+  remains is `App` reacting to a changed `GetImageCount()` across `Recreate` — updating
+  `ImGui_ImplVulkan_SetMinImageCount`, and auditing anything else sized to the old count.
 - **Verify:** Enter and leave fullscreen (where drivers commonly change image count) with
   zero validation errors and no out-of-bounds indexing. Under ASan this is now a hard check.
 - **Size:** S · **Needs:** 35
 
-### 37. Split device requirements: present vs non-present
+### 37. Split device requirements: present vs non-present — ✅ done, during Stage 5
 - **Do:** Introduce `DeviceRequirements` (§10.3) with `bNeedsPresent`. When false, drop
   `VK_KHR_swapchain` from the required extensions and drop the `getSurfaceSupportKHR` term
   from queue-family selection. Keep every other feature required.
@@ -2041,43 +2090,397 @@ independently of the headless goal, so this stage is worth doing even if you sto
   `bNeedsPresent = false` and **no surface at all**, asserting it succeeds. First genuinely
   headless artefact.
 - **Size:** M · **Needs:** 26, 35
+- **What actually happened:** the RHI extraction needed this before Stage 6 did — a test
+  binary has no window, so the gpu tests could not create a device at all until presentation
+  was optional. It landed as `DeviceRequirements::bPresent`, and the test this step asks for
+  exists as *"A headless device is created and reports no presentation"*. `RhiTestFixture`
+  goes further than the step required and creates every device surfaceless. Nothing remains;
+  §10.3 records the one loose end (choosing a software ICD in CI), which belongs to step 47.
 
-### 38. `OffscreenTarget`
+### 38. `OffscreenTarget` — ✅ done
 - **Do:** Implement `IPresentTarget` over N owned color images
   (`eColorAttachment | eTransferSrc | eSampled`), no surface, no swapchain. `Acquire` returns
-  `frame % N`; `Present` is a no-op; `Recreate` reallocates.
+  `frame % N`; `Present` is a no-op; `Recreate` reallocates. Return it from
+  `IDevice::CreatePresentTarget` where that currently throws for a device with no surface —
+  the interface already says the device decides which kind of target comes back, so there is
+  no new entry point to add.
+- **Decided:** `AcquiredImage::Available` becomes a span, not a single handle:
+
+  ```cpp
+  // The semaphores the caller's submit must wait on before writing this image.
+  // Empty when nothing needs waiting on. Points into the target; valid until the
+  // next Acquire() or Recreate().
+  std::span<const SemaphoreHandle> WaitSemaphores;
+  ```
+
+  An empty set is not a sentinel, so nothing has to be explained and there is no "invalid
+  means fine" to trip over. `std::optional<SemaphoreHandle>` was the alternative and is worse
+  here: `SemaphoreHandle` is a `Handle<Tag>`, which already has `kInvalid`, so an optional
+  would give the struct two ways to spell "nothing" and a reader would have to work out
+  whether they differ.
+
+  The call site decides it. The submit already takes a count and an array, so a span becomes
+  `waitSemaphoreCount = waits.size()` and the empty case needs **no branch at all** — where a
+  null handle would need an `if`. It also generalises for free if a target ever needs more
+  than one wait, which makes the next point cheap rather than a redesign.
+- **Check before assuming there is nothing to wait on.** With N images and `frame % N`, the
+  previous write to image *i* must have completed before it is written again. The frame loop's
+  `DrawFence` covers that only while N equals `FramesInFlight`. If this step lets those
+  differ, the offscreen target has a real dependency to express and should signal a genuine
+  semaphore — which the span carries exactly like a swapchain's, with no special case.
 - **Verify:** A gpu test renders a known clear colour through the real
   `CompositePass`-equivalent path into an `OffscreenTarget` for 3 frames with zero validation
   errors.
 - **Size:** M · **Needs:** 37
+- **What was built:** `engine/rhi/src/vulkan/OffscreenTarget.{h,cpp}`, returned from
+  `VulkanDevice::CreatePresentTarget` where it used to throw. `AcquiredImage::Available`
+  became `WaitSemaphores`, as decided above. `tests/gpu/rhi/PresentTargetTests.cpp` covers
+  it, including three overlapping frames whose pixels are read back and compared exactly.
+- **The wait turned out to be real, and for a reason the step did not anticipate.** N *is*
+  `FramesInFlight`, so the caller's own fence ring already covers the write-after-write
+  hazard the step was worried about — but the semaphore has to be waited on regardless.
+  `GetRenderCompleteSemaphore` is signalled by the caller's submit every frame, and with no
+  presentation engine nothing consumes it; a binary semaphore must be unsignalled when a
+  signal operation reaches the device (`VUID-vkQueueSubmit-pSignalSemaphores-00067`), so the
+  second frame to reach a given image would signal an already-signalled semaphore. The
+  target therefore hands that semaphore back as the next `Acquire`'s wait, which both
+  unsignals it and states the real dependency. Deleting the wait fails the gpu test with
+  that exact VUID, which is what makes the case worth having.
+- **`BarrierPresets::AcquiredSwapchainToRenderTarget` is now `AcquiredImageToRenderTarget`.**
+  Both targets hand back an acquired image on the same terms, and the preset was only ever
+  named after one of them. Its `SrcStage` was already `RenderTarget` rather than `None`, and
+  that is load-bearing — a layout transition is ordered after a semaphore wait only if the
+  barrier's source stage covers the stage waited at — so the reason is now written down
+  beside it.
+- **Left for 40a: what layout a finished offscreen frame ends in.** The renderer records
+  `RenderTargetToPresent()` unconditionally, and an offscreen image can never be in
+  `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR`: the enum belongs to `VK_KHR_swapchain`, which a device
+  with no surface does not enable. Nothing breaks today because nothing yet builds an
+  offscreen target from `App` — that starts with `HeadlessPlatform`. The fix is one query on
+  `IPresentTarget` (the layout the target requires at `Present`: `Present` for a swapchain,
+  `ShaderResource` for an offscreen target) plus a parameter on the two `…ToPresent` presets.
+  It is listed under 40a rather than done here because 40a is its first caller.
 
-### 39. `OffscreenTarget::Readback`
-- **Do:** `copyImageToBuffer` into a host-visible staging buffer, fence, return tightly
-  packed RGBA8. Reuse step 5's PNG writer, now shared by both targets.
+### 39. `OffscreenTarget::Readback` — ✅ done
+- **Do:** `CopyTextureToBuffer` into a host-visible staging buffer, fence, return tightly
+  packed bytes. Reuse step 5's PNG writer, now shared by both targets.
+- **Prerequisite:** the PNG writer is not shareable as written — `WriteScreenshot` hardcodes
+  a BGRA→RGBA swizzle. Drive it from `IPresentTarget::GetFormat()` first. Worth doing
+  independently of this step; see the independent-work table for why it is already a latent
+  bug.
+- **Share, do not copy:** `tests/support/GpuReadback.h` already does record → submit → fence
+  → read mapped bytes against the neutral `ICommandList`. Exactly one piece of it should move
+  rather than be duplicated:
+  - **`Detail::BytesPerTexel` becomes real RHI API.** Its own comment says why it is stuck in
+    a test — "the RHI has no texel-size query, and inventing one here would be a public API
+    decision made in a test". This step *is* that decision: sizing a tightly packed readback
+    buffer is impossible without it. Promote it to a neutral free function beside `Format`
+    (`Rhi::BytesPerTexel(Format)`), covered by a unit test, and have the test helper call it.
+  - **The rest stays in `tests/support/`, and is not what step 39 builds on.** It reads
+    `REQUIRE` from Catch2, which production cannot link; it creates a command pool and fence
+    per call, which its comment justifies specifically because tests run it a handful of
+    times; and `ReadTextureLayers` returns a vector per array layer and assumes the texture
+    arrives in `ShaderResource` — the layout `IUploadContext` leaves it in. `Readback` needs
+    one mip of one layer of a *render target*, in a different layout, packed into one buffer.
+    The shapes only look alike.
+  - Moving the whole file into `engine/rhi/src/vulkan/` would therefore relocate test-only
+    code into the production module to be used by nobody but the tests, which is worse than
+    where it is. What *does* shrink is the other direction: once `Readback` exists, the
+    offscreen cases call it instead of the hatch, and the
+    `tests/support/GpuReadback.h|VulkanNative.h` allowlist entry may be able to go.
+  - `OffscreenTarget` lives inside the module, so its implementation needs no escape hatch at
+    all — it has `VulkanDevice` directly. That is the other reason the test helper's body is
+    not reusable: most of it exists to get *through* a boundary that step 39 is on the far
+    side of.
 - **Verify:** gpu test asserts exact pixel values for a solid clear colour, and correct
   dimensions/stride for a non-square, non-power-of-two extent (e.g. 253×101).
 - **Size:** M · **Needs:** 38
+- **What was built:**
+  - `Rhi::BytesPerTexel(Format)` in `rhi/RhiTypes.h`, `constexpr` and total, covered by
+    `tests/unit/rhi/FormatTests.cpp`. It returns **0** for `Undefined` and for both combined
+    depth/stencil formats, because those have a size per *aspect* and the two differ — a
+    caller that sizes a buffer has to reject 0 rather than allocate nothing. `GpuReadback.h`
+    calls it and its private copy is gone.
+  - `WriteScreenshot` reads `IPresentTarget::GetFormat()` for both the texel size and the
+    channel order, so the BGRA swizzle now happens because the target said BGRA. A format
+    that is not 8-bit four-channel is refused with a message rather than reinterpreted.
+  - `OffscreenTarget::Readback(index, currentLayout)`, returning tightly packed bytes.
+- **`currentLayout` is a parameter, and that is the interesting part.** The target records no
+  commands during a frame, so it cannot know what the caller's last barrier left the image
+  in; naming it is what keeps the transition correct rather than plausible. The image is left
+  in `CopySrc`, which costs nothing — the next `Acquire` transitions from `Undefined`.
+- **The wait reuses step 38's chain rather than a `WaitIdle`.** `Readback` consumes the same
+  render-complete signal `Acquire` would have, so the copy is ordered after the rendering and
+  the semaphore is left unsignalled for the next frame to signal. A readback between two
+  frames therefore stands in for one link of the chain instead of breaking it, and the host
+  fence wait covers the next write to that image.
+- **The allowlist entry did not shrink after all.** This step hoped
+  `tests/support/GpuReadback.h|VulkanNative.h` could go once the offscreen cases stopped
+  reaching through the hatch. They have — `PresentTargetTests.cpp` calls `Readback` and no
+  longer includes `GpuReadback.h` — but `UploadRoundTripTests.cpp` still needs `ReadBuffer`
+  and `ReadTextureLayers`, which is what that entry is really for. It goes when upload
+  verification has a neutral way to read bytes back, not here.
+- **`Readback` is on `OffscreenTarget`, not on `IPresentTarget`** — §10.2's reasoning held up
+  under implementation, and the spec is what settles it: *"Use of a presentable image must
+  occur only after the image is returned by `vkAcquireNextImageKHR`, and before it is
+  presented by `vkQueuePresentKHR`"*, and *"presented images must not be used again before
+  they have been reacquired"* (Vulkan 1.4, *Presenting Images*). A standalone readback is by
+  definition outside that window, and `WriteScreenshot` runs after the loop, when nothing is
+  acquired at all. The two implementations would therefore differ in *when they may be
+  called*, which is the one thing an interface exists to make impossible. The gpu tests reach
+  it by `dynamic_cast`, which also asserts that a surfaceless device really does hand back an
+  offscreen target.
+- **A correction this step turned up.** `BarrierPresets::AcquiredImageToRenderTarget` claimed
+  the contents of an acquired image are "undefined by definition". They are not — the spec
+  guarantees a reacquired image still holds what was presented, unless something outside
+  Vulkan modified the window. The `Undefined` old layout is right regardless, because the
+  composite pass clears the whole render area, but the reason is a deliberate discard rather
+  than an absence of contents. Comment corrected.
 
-### 40. `HeadlessPlatform`
-- **Do:** Implement `IPlatform` with `IsHeadless() == true`, an empty required-extension
-  list, `CreateSurface` → `false`, and `PumpEvents` draining an in-memory queue.
-- **Verify:** Unit test constructs it with no SDL video subsystem initialised. Windowed app
-  output unchanged.
-- **Size:** S · **Needs:** 20, 37
+### 40a. `HeadlessPlatform` (no events) — ✅ done
+
+Everything below is decided. The options that were weighed and rejected are recorded at the
+bottom, so that a fresh session can start work without re-opening them.
+
+- **Do:** Implement `IPlatform` in `engine/platform/` with `IsHeadless() == true`,
+  `GetFramebufferExtent` returning the configured offscreen extent, `GetNativeWindowHandle`
+  → `nullptr`, and `Show`, `SetWindowMode`, `SetRelativeMouseMode` and `WarpMouse` as no-ops.
+  **Much smaller than this step originally was**: surface creation and instance-extension
+  enumeration moved into the RHI (§10.1), so there is nothing Vulkan-shaped left to stub.
+- **It needs no SDL at all**, which is worth knowing before writing it. `SdlPlatform` calls
+  `SDL_Vulkan_LoadLibrary`, but nothing consumes SDL's loader: the RHI reaches Vulkan through
+  vulkan.hpp's own dispatcher. The proof is already in the tree — the gpu tests create real
+  devices with no SDL anywhere. So `HeadlessPlatform` is a plain class with no window-system
+  dependency, and the unit test this step asks for needs no SDL subsystem. That call turns out
+  to be redundant in `SdlPlatform` too, for a second reason — see the independent-work table.
+- **Takes a `WindowDesc`, exactly like `SdlPlatform`**, so `main()` builds one description
+  and hands it to whichever implementation it picked — which is the swap the seam exists to
+  make possible. `Title`, `bResizable` and `bBorderless` are ignored; say so on the class.
+  They are ignored only in states they can reach, since `--headless` with a window-mode flag
+  is rejected below.
+- **Extent when `--resolution` is absent:** 1280×720, resolved *inside* `HeadlessPlatform` so
+  that the zero-means-default rule stays where `SdlPlatform` keeps it rather than splitting
+  across `main()`. There is no display to size against, so it has to be a documented constant;
+  that one matches `SdlPlatform`'s existing `kFallbackWindowSize`. `--resolution` overrides it
+  and is honoured rather than rejected. A zero *component* cannot arrive —
+  `RequireExtent2D` rejects `1920x0` at parse time (`CommandLine.cpp:88`).
+
+#### Option validation
+
+Both checks belong in `ParseOptions`' post-parse block, beside the existing
+`--strict-validation` one, **not** in the flag loop — they have to hold whichever order the
+flags arrive in.
+
+- **Reject `--headless` with `--borderless` or `--fullscreen`.** A window mode for a run with
+  no window asks for nothing coherent.
+- **Reject `--headless` without `--frames`.** Of the frame loop's three exits, two need a
+  window: `SDL_EVENT_QUIT` and ImGui's Quit button. The third is the frame counter, which sets
+  `g_bShouldClose` only when `Frames != 0`. So headless with `--frames 0` ends only on a
+  signal — and headless exists for CI and the baseline, where nobody is there to send one.
+  The job then burns its whole timeout and dies to `SIGTERM`, which nothing handles, so it
+  writes neither screenshot nor report.
+
+  Note that Ctrl-C *does* work, contrary to what this entry used to claim: `HandleSIGINT`
+  sets `g_bShouldClose` (`main.cpp:91`), so an interactive headless run leaves the loop the
+  ordinary way and still writes its artefacts. That makes an unbounded run defensible at a
+  terminal — a soak test, say — which is why this is a rejection rather than an impossibility.
+  It stays rejected because the failure it prevents is silent and expensive in the place this
+  mode is actually for, and `Frames` is a `uint64_t` if someone wants to soak. Lift it the day
+  that use case is real.
+
+#### The present-layout seam (deferred here from step 38)
+
+Every frame ends with a barrier to `TextureLayout::Present` — `CopySrcToPresent()` when
+capturing a screenshot and `RenderTargetToPresent()` otherwise, both in
+`RecordSwapImageToPresentLayout`. `Present` maps to `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR`, a
+`VK_KHR_swapchain` enumerator that a surfaceless device never enabled, so a headless frame
+raises a validation error on its last barrier. `App` has to stop hardcoding it.
+
+**Decided: add the query, and let it answer "no requirement".**
+
+- `TextureLayout GetRequiredFinalLayout() const` on `IPresentTarget`. `SwapchainTarget`
+  returns `Present`, which is a hard requirement of the present call itself
+  (VUID-VkPresentInfoKHR-pImageIndices-01430). `OffscreenTarget` returns
+  `TextureLayout::Undefined`, meaning it requires no particular layout, and `App` records no
+  trailing barrier at all when it gets that answer.
+- **`Undefined` is safe to mean "none" because it is illegal as a barrier destination**
+  (VUID-VkImageMemoryBarrier2-newLayout-01198). A caller who forgets to check and transitions
+  *to* it raises a validation error immediately, which the headless verify already gates on —
+  the mistake cannot be made quietly.
+- **Why not a real layout.** An offscreen target genuinely requires none: it owns its images,
+  nothing reads them between frames, and `Acquire` discards to `Undefined` on the way back in.
+  Every real value is therefore an invented requirement, and none is even free — `RenderTarget`
+  costs a pointless transition on the capturing frame, which has already moved the image to
+  `CopySrc`, and `CopySrc` costs one on every other frame. `ShaderResource` was the earlier
+  answer here, justified by the images' `Sampled` usage and by "where a readback wants to
+  start from". The second half is wrong — `Readback` takes `currentLayout` and transitions
+  itself (`OffscreenTarget.cpp:232`) — and the first has no consumer: nothing in Stages 8–10
+  samples the frame result. Steps 50–56 write *into* the present image; step 56's layout
+  tracker consumes this query rather than the image, and "no terminal constraint" is a more
+  useful thing to tell it than an invented one.
+- **Naming.** `GetRequiredFinalLayout`, not `GetPresentLayout`: the word *required* is what
+  makes "none" a legal answer instead of a hole, where "the present layout is `Undefined`"
+  reads as an uninitialised value. The two `…ToPresent` presets become
+  `RenderTargetToFinal(layout)` and `CopySrcToFinal(layout)`; `RenderTargetToCopySrc` is
+  untouched. `TextureLayout::Present`'s own spelling still stands — it is the neutral
+  vocabulary's word and D3D12 calls the same idea `D3D12_RESOURCE_STATE_PRESENT`.
+- **Skipping the barrier leaves the command buffer empty, and it is still submitted.** The
+  frame loop submits a fixed array of seven, and the ImGui one already goes out empty when
+  the panel is hidden (the `TODO` at `main.cpp:1078`). Step 56 culls both properly; doing one
+  of them here would leave the other looking like an oversight.
+- `App`'s existing in-frame screenshot copy needs no other change: an offscreen image carries
+  `CopySrc` exactly like a swapchain's.
+
+#### ImGui runs headless
+
+The ImGui panel is **in the committed baseline screenshot** — `m_bCursorVisible` defaults to
+`true`, so `DrawImGuiFrame()` runs every frame and the panel occupies a 423×443 block in the
+top-left.
+
+**Decided: it renders, through the Vulkan backend only.** The reason is coverage: a headless
+CI run should be exercising ImGui's bring-up and drawing, not skipping a fifth of the frame.
+It is explicitly *not* about making the headless capture comparable to a windowed one —
+step 46 compares captures taken with `--no-ui`, because the panel carries a hover highlight
+that no headless run can reproduce.
+
+- Skip `ImGui_ImplSDL3_InitForVulkan`, `ImGui_ImplSDL3_ProcessEvent`,
+  `ImGui_ImplSDL3_NewFrame` and `ImGui_ImplSDL3_Shutdown`.
+- Set `io.DisplaySize` and `io.DeltaTime` by hand in their place — that is what the SDL3
+  backend was supplying, and ImGui with no platform backend is a supported configuration.
+  `io.DeltaTime` is the load-bearing one: `NewFrame` asserts it is positive, where
+  `DisplaySize` need only be non-negative.
+- `ImGui_ImplVulkan_*` needs no window and is used unchanged. Everything surface-shaped in
+  that backend lives in the optional `ImGui_ImplVulkanH_*` helper family, which this app has
+  never called — it records ImGui's draws into a dynamic-rendering pass it opens itself,
+  against whatever image the present target handed back and whatever format that target
+  chose.
+- **`MinImageCount` is fed `GetImageCount()`, and ImGui documents it as `>= 2`.** An
+  `OffscreenTarget` creates one image per frame in flight, so `NUM_FRAMES_IN_FLIGHT = 2` meets
+  that exactly, with no margin. Step 41 makes that count runtime and its verify asks for
+  `--frames-in-flight 1`, which would violate it — deal with it there.
+
+#### Wiring
+
+- `main()` holds `std::unique_ptr<IPlatform>`, not `std::unique_ptr<SdlPlatform>`, and picks
+  the implementation from `options.bHeadless`. `SdlPlatform::ShowErrorMessageBox` is static,
+  so the `SDLException` handler is unaffected.
+- `MakeDeviceDesc`: `desc.Requirements.bPresent = !m_Platform.IsHeadless()`. **This is the
+  line that makes the whole thing work** — `bPresent = false` means no surface, which is what
+  makes `CreatePresentTarget` hand back an `OffscreenTarget`.
+- Guard the two direct SDL calls left in `App`: `SDL_PollEvent` in `Run` and
+  `SDL_GetKeyboardState` in `HandleMovement`. Both run against an SDL that was never
+  initialised. This is not step 40b's event seam arriving early — it is the minimum that
+  stops a headless run touching an uninitialised subsystem.
+
+#### Order of work
+
+Land the layout seam first and confirm the windowed baseline is pixel-identical before
+touching anything headless. That is the checkpoint; it needs no renumbering of 40b, and the
+seam half on its own is not a milestone worth recording as a step.
+
+- **Verify:** Unit test constructs `HeadlessPlatform` with no SDL video subsystem
+  initialised, asserting `IsHeadless()`, the configured extent, the 1280×720 default, a null
+  native handle, and that the no-ops are callable. Windowed app output unchanged — baseline
+  screenshot pixel-identical and report unchanged, which is the checkpoint the layout seam
+  has to clear on its own. Then a real run: `--headless --frames 5 --screenshot` exits 0,
+  writes a PNG at the requested extent, and reports zero validation errors.
+- **Size:** M, not the S this step used to carry — the layout seam and the headless wiring
+  both arrived here after it was written. **Needs:** 20, 37
+
+#### Rejected, and why — do not re-open without new information
+
+- **`RecordCapture(ICommandList&, index, BufferHandle)` on `IPresentTarget`,** moving the
+  screenshot copy behind the seam. It was recommended here on the claim that it subsumed the
+  layout query. It does not: it covers only the capturing branch, and the ordinary frame
+  still ends with a transition to a layout `App` has to know. So the query is needed either
+  way, and `RecordCapture` is a second interface member with real behaviour in both
+  implementations plus a gpu test — for a refactor Stage 7 revisits anyway when it dismantles
+  `App`. Reconsider it there, not here.
+- **Skipping ImGui headless.** Cheapest, and it no longer costs step 46 anything now that
+  that comparison runs with `--no-ui` on both sides. Rejected on coverage alone: headless CI
+  is the only place ImGui's bring-up and drawing get exercised automatically, and a mode that
+  skips it proves less than it appears to.
+- **A warning when a headless run writes no screenshot and no report.** That invocation is a
+  smoke test, not a mistake — with `--strict-validation` the exit code carries the whole
+  result, and it is the shape step 47's `scene_launch_test` is built around. A warning would
+  fire on the most common headless run in CI and train everyone past it.
+- **Splitting this step in two and renumbering 40b → 40c.** The natural cut is after the
+  layout seam, but that half is a seam change whose only observable effect is that the
+  windowed baseline still matches — not a milestone. 40b is referenced from the Stage 7
+  header, the dependency table and this entry, so the renumber is doc churn for no gain. The
+  ordering above gives the same checkpoint without it.
 
 ---
 
-## Stage 7 — Engine shell & dependency injection (steps 41–47)
+## Between Stage 6 and Stage 7 — a cleanup PR
+
+Stage 6 ends with the engine able to run without a window. Before Stage 7 starts pulling
+`App` apart, one small PR to clear the things Stage 6 surfaced and to take a pass over the
+independent-work table below. Nothing here blocks Stage 7 *starting*, but `--no-ui` is not
+optional past step 46, whose comparison is defined on captures taken without the panel — so it
+has to land by then, here or alongside 46. All of it gets harder once `App` is in pieces.
+
+**`--no-ui`, and re-baseline onto it.** The baseline test exists to detect that *the
+rendered scene* changed, and today a fifth of the captured frame is the ImGui panel. Worse,
+that panel is not reproducible on principle: nothing warps the cursor at startup, and the
+capture shows a hover highlight on whichever widget the mouse was last over. It has been
+stable in practice only because the mouse has not moved between runs. Add a flag that
+suppresses the UI, pass it from `tests/scripts/baseline_test.sh`, and promote the new
+screenshot and report together. This also makes a headless capture and a windowed one
+comparable on the scene alone, which is what step 46 asserts — and the reason that step needs
+this flag rather than merely benefiting from it.
+
+**Then pick from the independent-work table.** The ones Stage 6 either created or made
+cheaper:
+
+- `Extent2D` / `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and
+  `Rhi::Extent2D`. Step 40a adds another conversion site when the offscreen target is sized
+  from `--resolution`.
+- `ChooseSwapchainFormat`'s fallback, which hands `FromNativeFormat` a format it throws on.
+- Frame-time counters recording the timestep rather than wall clock under `--fixed-dt`, which
+  is why `meanFrameTimeMs` and `p99FrameTimeMs` are constants in every report so far.
+- `rhi_boundary_check` running in precommit but not in CI.
+- `App::m_Surface` — bound, never read, and the only caller of `Rhi::Vulkan::GetSurface`.
+- Whether `OffscreenTarget::Readback` survives. If nothing outside the gpu tests has called
+  it by then, delete it and put those cases back on `tests/support/GpuReadback.h`.
+
+---
+
+## Stage 7 — Engine shell & dependency injection (steps 40b–47)
+
+Step 40b (the event seam) joins this stage from Stage 6 — it is loop-shaped work and belongs
+next to `IClock` and `RunSpec` rather than next to `HeadlessPlatform`.
+
+### 40b. Event seam + scripted input
+- **Do:** The member this plan called `PumpEvents` never shipped, and nothing replaced it —
+  `App::Run` still calls `SDL_PollEvent` directly and `HandleMovement` reads
+  `SDL_GetKeyboardState` (§10.1). Define the event abstraction, move SDL's polling behind
+  `SdlPlatform`, and give `HeadlessPlatform` an in-memory queue fed by §14's scripted input.
+- **Verify:** Windowed input unchanged by hand. A headless run replays
+  `tests/data/input/orbit.txt` and produces the frame count, resizes and screenshot the
+  script asks for.
+- **Size:** M–L · **Needs:** 40a
+- **Note:** deliberately split out of step 40 and **deferred here from Stage 6**, next to the other
+  loop-shaped work (`IClock`, `RunSpec`). Nothing in steps 41–47 needs it except the scripted
+  half of 47's tests: `--frames N --screenshot` requires no input at all, so 40a alone is
+  enough for the first genuinely headless artefact. Keeping them together would have made the
+  smallest remaining step in Stage 6 into its largest.
 
 ### 41. `Engine` + `EngineConfig` + `RunSpec` + `RunReport`
-- **Do:** Rename `App` → `Engine` in `engine/engine`. Promote the `constexpr`s at
-  `main.cpp:52-56` (`WIDTH`, `HEIGHT`, `MAX_INSTANCE_COUNT`, `NUM_FRAMES_IN_FLIGHT`,
-  `SKY_COLOR`) into `EngineConfig`. Promote step 1's `Options` into `RunSpec` and step 6's
-  JSON into `RunReport`, returned from `Engine::Run(RunSpec)`.
+- **Do:** Rename `App` → `Engine` in `engine/engine`. Promote the surviving `constexpr`s
+  (`INITIAL_INSTANCE_CAPACITY`, `NUM_FRAMES_IN_FLIGHT`, `SKY_COLOR`) into `EngineConfig`.
+  Promote step 1's `Options` into `RunSpec` and step 6's JSON into `RunReport`, returned from
+  `Engine::Run(RunSpec)`.
 - **Verify:** Output unchanged. `NUM_FRAMES_IN_FLIGHT` is now runtime, so test
   `--frames-in-flight 1` and `3` and confirm both render correctly — a good latent-bug
   detector, since it's currently a compile-time constant baked into array sizes.
 - **Size:** L · **Needs:** 23, 35
+- **Note:** this step used to name `WIDTH` and `HEIGHT` as well. They no longer exist — the
+  window-mode work replaced them with `WindowDesc` plus `--resolution`, where zero means "ask
+  the display". `RunSpec` should carry the resolution and the window mode rather than
+  reintroducing fixed dimensions, and `MAX_INSTANCE_COUNT` is now
+  `INITIAL_INSTANCE_CAPACITY` — a starting size rather than the ceiling this plan was
+  written against.
 
 ### 42. Inject `ResourceManager` and the loaders
 - **Do:** Delete the `Get()` singletons for `ResourceManager`, `TextureLoader`,
@@ -2102,15 +2505,23 @@ independently of the headless goal, so this stage is worth doing even if you sto
   `Model` with **no** `ModelManager` in existence.
 - **Size:** L · **Needs:** 42
 
-### 45. Deterministic clock and present mode
+### 45. Deterministic clock
 - **Do:** `IClock` with `RealClock` and `FixedStepClock`. In `bDeterministic` mode force
-  `eFifo` present, `SerialJobSystem`, and fixed dt. Add `--seed`.
+  `SerialJobSystem` and fixed dt. Add `--seed`.
 - **Verify:** Two deterministic runs produce byte-identical screenshots **and** identical
   `RunReport` counters, on both windowed and offscreen targets.
 - **Size:** M · **Needs:** 41
 - **Caveat:** Batch order still depends on pointer values via `Drawable::operator<`
-  (`Drawable.h:20-22`), so ordering is only stable within a single process. Fully
+  (`Drawable.h:16-22`), so ordering is only stable within a single process. Fully
   deterministic ordering arrives at step 58.
+- **"Force FIFO in deterministic mode" was dropped from this step, deliberately.** It does
+  not do what it looks like it does. Present mode affects *timing*, not pixels — the loop
+  renders every frame either way — so it buys nothing for byte-identical screenshots. And for
+  the counters it would actively hurt: FIFO blocks on vblank, capping frame time at the
+  refresh interval, so every regression faster than 16.67 ms becomes invisible. A measurement
+  harness wants vsync **off**, not on. Once step 38 lands the deterministic path has no
+  swapchain at all, which settles it. Choosing a present mode is still worth having on its own
+  merits and lives in the independent-work table as `--present-mode`.
 
 ### 46. `apps/` split
 - **Do:** `apps/vulkanapp/main.cpp` (SDL + Editor, ~40 lines) and
@@ -2118,11 +2529,23 @@ independently of the headless goal, so this stage is worth doing even if you sto
   `src/main.cpp` ceases to exist.
 - **Verify:** **`VulkanAppHeadless --scene content/scenes/test_scene.map --frames 5
   --report r.json --screenshot h.png` runs with no window and exits 0.** Compare `h.png`
-  against the windowed screenshot — they should match closely (identical if the composite
-  path is truly shared).
-- **Size:** M · **Needs:** 40, 41, 44
+  against a windowed capture of the same scene, **both taken with `--no-ui`**, and require
+  them to be pixel-identical rather than merely close: with the panel suppressed the only
+  thing left that can differ is the composite path, which is exactly what this comparison
+  exists to detect. Compare decoded pixels, never bytes — PNG encoding is not reproducible.
+
+  The panel has to be out of both captures, and suppressing it is the only way to get there:
+  nothing warps the cursor at startup, so a windowed run carries a hover highlight on
+  whichever widget the mouse was last over, while a headless run has no mouse at all. That
+  difference is guaranteed, and it says nothing about the renderer. ImGui still *renders*
+  headless — see 40a — so this costs no CI coverage of it; step 47's assertions run against a
+  build that drew the panel.
+- **Size:** M · **Needs:** 40a, 41, 44, and `--no-ui` from the cleanup PR
 
 ### 47. Wire headless tests into CI
+> 🚧 **Blocked on a decision:** this job runs on a runner that may expose both a real GPU and
+> lavapipe, and nothing currently chooses between them (§10.3). Confirm the device-selection
+> approach before starting, rather than inventing one here.
 - **Do:** `tests/data/scenes/{empty,single_cube,two_materials,lights_only,transparent_only}.map`
   plus a tiny committed `cube.gltf`. Write `scene_launch_test.cpp` asserting `bSucceeded`,
   `ValidationErrors == 0`, expected `FramesRendered`, `DrawCalls > 0`, and expected batch
@@ -2167,11 +2590,20 @@ independently of the headless goal, so this stage is worth doing even if you sto
   revertable commits.
 - **Size:** M each · **Needs:** 49 (then sequential)
 
-### 55. `BarrierBatcher`
+### 55. `BarrierBatcher` — half already built
 - **Do:** Collect barriers and emit one `pipelineBarrier2` per batch instead of one per
   barrier (the `TODO` at `rhi/Barrier.h`, formerly `Utility.h:234`).
-- **Verify:** Output unchanged; `RunReport.BarrierCount` drops; zero validation errors.
-- **Size:** M · **Needs:** 54
+- **Already done by Stage 5:** `ICommandList::Barrier(std::span<const TextureBarrier>)` emits
+  a batch as one command and returns `BarrierCounts`, and the run report already carries
+  `barriers` and `barrierCalls` (14 in 9 calls on the baseline scene). The *mechanism* and the
+  *measurement* both exist. What remains is a collector that groups automatically instead of
+  each call site choosing — and the frame graph in step 56 does exactly that when it inserts
+  barriers from declared reads and writes.
+- **Therefore:** consider folding this into 56 rather than building a `BarrierBatcher` that
+  56 would then replace. Keep it separate only if 56 slips.
+- **Verify:** Output unchanged; `barriers`/`barrierCalls` in the report move as expected;
+  zero validation errors.
+- **Size:** S (was M) · **Needs:** 54
 
 ### 56. Frame graph with declared reads/writes
 - **Do:** `PassBuilder` declarations, topological sort, automatic layout tracking and barrier
@@ -2188,11 +2620,17 @@ independently of the headless goal, so this stage is worth doing even if you sto
 
 ## Stage 9 — Data-oriented rewrite (steps 57–68)
 
-### 57. `Handle` / `HandlePool`
+### 57. `Handle` / `HandlePool` — ✅ done, during Stage 5
 - **Do:** Implement both plus unit tests. Not yet used anywhere.
 - **Verify:** `ctest -L unit` covers packing, generation bump on reuse, stale-handle
   rejection, exhaustion. Zero effect on the app.
 - **Size:** M · **Needs:** 17
+- **What actually happened:** the RHI's handle-based resource model needed these four stages
+  early, so they live in `engine/core/include/core/{Handle,HandlePool}.h` with
+  `HandleTests.cpp` covering exactly the cases above. Note the free list is FIFO, which is
+  what makes eight generation bits enough — a high-churn per-frame user would invalidate that
+  reasoning and want a wider field. **Step 58 is untouched:** `Drawable` still holds `Mesh*`
+  and `Material*`, so the determinism caveat on step 45 stands in full.
 
 ### 58. Convert `Mesh*`/`Material*` to handles
 - **Do:** `MeshHandle`/`MaterialHandle` in `Drawable`, `MeshBatch` and `InstanceData`.
@@ -2302,19 +2740,26 @@ The long pole, and the only strictly serial chain:
 
 ```
 13 → 15 → 20 → 24 → 25 → 26 → 35 → 37 → 38 → 39 ┐
-                                                 ├→ 46 → 47   ← CI goal
-                     41 → 42 → 44 ───────────────┘
+└───────────────── all done ──────────────────┘ ├→ 46 → 47   ← CI goal
+                                                │
+                     41 → 42 → 44 ──────────────┘
+                     ↑
+                    next
 ```
+
+The spine starts much further along than it reads: **35, 37, 38 and 39 are all done**, so
+the next link in the chain is 41. Step 40a is off the spine entirely — 46 needs it, and
+nothing on the spine does.
 
 Everything else hangs off that spine. Notably parallel:
 
 - **Steps 7–11** (build hygiene) share nothing with the spine — do them any time, or hand
-  them to someone else.
+  them to someone else. ✅ done.
 - **Steps 29–33** (uploads, descriptors, instance buffer, pipeline cache) only need step 26.
   They are the best value-per-hour in the document and are worth doing even if you never go
-  headless.
+  headless. ✅ done.
 - **Steps 57, 59** (handles, arena) only need step 17 and can be written and unit-tested
-  long before they are wired in.
+  long before they are wired in. **57 is done**; 59 is not.
 - **Steps 48, 49** only need 41 and are independent of the pass conversions.
 - **Stage 10** items are mutually independent.
 
@@ -2340,6 +2785,8 @@ validation errors".
 | Item | Where | Size |
 |---|---|---|
 | [IN PROGRESS] P0/P1 correctness fixes from `suggested_work.md` — 3.2 done (batched uploads); 1.6, 3.1 open | various | S–M each |
+| `SIGTERM` goes unhandled, so a CI timeout kills even a bounded run before it writes its screenshot and report — `SIGINT` is handled and `SIGTERM` should be too | `main.cpp:2562` | XS |
+| Ctrl-C with `--screenshot` usually writes no PNG, only the "called without a captured frame" error. `WriteScreenshot` does run — `HandleSIGINT` leaves the loop the ordinary way — but whether anything was captured is a race: the capture is recorded in-frame, decided at `main.cpp:569` from `g_bShouldClose`, so a signal arriving after that line in the last iteration exits at the top of the next one with nothing staged. Capture on the way out instead when the flag was asked for and `m_bScreenshotBufferReady` is false | `main.cpp:493-575` | S |
 | Expose cloud push-constants in ImGui (`m_CloudData` is pushed but never written) | `CloudSystem` + editor UI | S |
 | [DONE] Guard `DirLights[0]` when `DirLightCount == 0` (currently NaNs) | `clouds.comp.slang:106` | XS |
 | [DONE] Epsilon on `dir.y` instead of `== 0.f` | `clouds.comp.slang:24,96` | XS |
@@ -2355,27 +2802,115 @@ validation errors".
 | [DONE] Delete the duplicated `GetDefaultTransform()` on `Entity` and `Model` | `Entity.h:82`, `Model.h:27` | XS |
 | [DONE] In-class initialisers for `Camera::m_MoveSpeed` / `m_LookSens` | `Camera.h:45-46` | XS |
 | [DONE] Warn once when lights are clamped instead of silently dropping | `UpdateGlobalBuffer` | XS |
-| Finish the skybox (loaded at `main.cpp:552`, never rendered) and reuse it for IBL | new pass | M–L |
+| Finish the skybox (loaded at `main.cpp:598`, never rendered) and reuse it for IBL | new pass | M–L |
 | `.map` format `version` attribute | `XmlParser` | XS |
+| `--no-ui`, and re-baseline onto it — the baseline captures a fifth of the frame as ImGui, whose hover state depends on where the mouse was left | `main.cpp`, `tests/scripts/baseline_test.sh`, `tests/baseline/` | S |
+| Move `Extent2D` and `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and `Rhi::Extent2D` | `core/`, `platform/`, `rhi/` | S |
+| [DONE] Drive `WriteScreenshot`'s channel swizzle from `IPresentTarget::GetFormat()` instead of hardcoding BGRA | `main.cpp` | S |
+| `ChooseSwapchainFormat`'s fallback hands `FromNativeFormat` something it may not be able to name | `rhi/vulkan/SwapchainUtil.h` | XS |
+| Frame-time counters record the timestep, not wall clock, under `--fixed-dt` | `App::Run` | XS |
+| `rhi_boundary_check` runs in precommit but not in CI | `.github/workflows/ci.yml` | XS |
+| Delete `App::m_Surface` — bound, never read, and the only caller of `Rhi::Vulkan::GetSurface` | `main.cpp`, `rhi/vulkan/VulkanNative.h` | XS |
+| `SdlPlatform`'s explicit `SDL_Vulkan_LoadLibrary`/`UnloadLibrary` pair is redundant — a `SDL_WINDOW_VULKAN` window loads and unloads the library itself | `platform/SdlPlatform.cpp`, `SdlPlatform.h` | XS |
+| [DONE] Promote `BytesPerTexel` out of `tests/support/GpuReadback.h` into neutral RHI API | `rhi/RhiTypes.h` | XS |
+| `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to mailbox; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `main.cpp` | S |
 
----
+The top of that list is scheduled rather than merely available: see *Between Stage 6 and
+Stage 7 — a cleanup PR*, which takes `--no-ui` and whichever of the rest are worth the trip.
 
-## Suggested first week
+Nine of those are new since the original review, and six are worth expanding on because they
+are latent defects or carry a decision:
 
-If you want a concrete starting point:
+- **`Extent2D` in two places.** `::Extent2D` (Platform) and `Rhi::Extent2D` are the same two
+  `uint32_t`s; only the RHI's has `operator==`. `Core` is what both modules already link, so
+  it is where the type belongs, and `Extent3D` goes with it rather than being stranded alone
+  in `RhiTypes.h`. Delete the `Rhi::` spellings rather than aliasing them — one type reachable
+  under two names is what makes a reader stop and check whether they differ. Roughly five call
+  sites. Worth doing before step 40a, which adds another conversion site when the offscreen
+  target is sized from `--resolution`.
+- **The screenshot swizzle — ✅ done in step 39.** `WriteScreenshot` read mapped bytes as BGRA
+  and swapped R and B. That was correct only because `ChooseSwapchainFormat` asks for
+  `BGRA8Unorm` first; the shader itself is channel-order agnostic, since it writes
+  `SV_Target` component 0 and the hardware maps it to whatever the format's first component
+  is. It now reads `GetFormat()`, so an `OffscreenTarget` that picked a different format
+  would be written correctly rather than with its channels crossed.
+- **The format fallback.** `ChooseSwapchainFormat` returns `formats[0]` when its preference is
+  absent, and the very next line calls `FromNativeFormat`, which throws on anything the
+  curated `Rhi::Format` list cannot name. `Rhi::Format` has `BGRA8Unorm` but no `BGRA8Srgb` —
+  and on an X11 surface with RADV the *only* two formats offered are `B8G8R8A8_SRGB` and
+  `B8G8R8A8_UNORM`, so `formats[0]` is exactly the unnameable one. The "fallback" is therefore
+  a trap: it hands the next line something that aborts startup. Either restrict it to formats
+  the list covers, or fail there with a message naming what the surface offered.
+- **Frame times under `--fixed-dt`.** `App::Run` computes `currentFrameTime` from
+  `m_DeltaTime`, which `--fixed-dt` *sets* to 1/60 — so `m_FrameTimesMs` records the timestep
+  rather than the cost, and `meanFrameTimeMs`/`p99FrameTimeMs` read exactly 16.6667 whatever
+  the frame actually took. `baseline_test.sh` always passes `--fixed-dt`, so those two
+  counters can never detect a regression in the one mode that is supposed to detect
+  regressions. §14 already says the fix: measure wall clock separately from the simulation
+  timestep, and report raw values. Do this before any step starts making performance claims.
+- **`SdlPlatform`'s explicit Vulkan loader calls.** The constructor calls
+  `SDL_Vulkan_LoadLibrary(nullptr)` and the destructor `SDL_Vulkan_UnloadLibrary()`, and
+  neither is needed. SDL 3.4's `SDL_CreateWindow` documents that *"if the window is created
+  with any of the `SDL_WINDOW_OPENGL` or `SDL_WINDOW_VULKAN` flags, then the corresponding
+  LoadLibrary function … is called and the corresponding UnloadLibrary function is called by
+  `SDL_DestroyWindow()`"* (`SDL3/SDL_video.h`), and `SdlPlatform` always passes
+  `SDL_WINDOW_VULKAN`. The two SDL entry points that need the library loaded —
+  `SDL_Vulkan_GetInstanceExtensions` and `SDL_Vulkan_CreateSurface` — both run after the
+  window exists, and both are skipped entirely when `bPresent` is false. Nothing else consumes
+  SDL's loader: `SDL_Vulkan_GetVkGetInstanceProcAddr` is never called, because
+  `vk::raii::Context`'s default constructor builds its dispatcher from vulkan.hpp's own
+  `vk::detail::DynamicLoader`, which opens `vulkan-1.dll` / `libvulkan.so.1` itself. Removing
+  the pair also removes an asymmetry: a throw from `SDL_CreateWindow` skips the destructor, so
+  today's explicit load goes unpaired until `SDL_Quit`.
 
-| Day | Steps | Result |
-|---|---|---|
-| 1 | 1, 2, 3 | `VulkanApp --scene X --frames 30` exits cleanly |
-| 2 | 4, 5, 6 | Byte-identical screenshots + counter JSON. **Baseline committed.** |
-| 3 | 9, 7, 8 | ASan actually runs (expect real bugs); formatting locked |
-| 4 | 11, 12 | CTest pipeline alive; header worklist generated |
-| 5 | 13 (partial) | ~15 of ~25 headers self-contained |
+  Two things not to lose with it. The explicit load is what produces *"Failed to load Vulkan
+  library!"* on a machine with no driver, where `SDL_CreateWindow` would fail with *"Failed to
+  create window!"* instead — `SDL_GetError()` still names the real cause, so the message that
+  survives should say so rather than blaming the window. And `SdlPlatform.h`'s class comment
+  ("Because the destructor calls `SDL_Vulkan_UnloadLibrary()`, an `SdlPlatform` must outlive
+  every object holding a Vulkan handle") needs rewriting rather than deleting: the ordering
+  constraint is real, but its cause is `SDL_DestroyWindow` invalidating the surface, not the
+  unload. The loader was never the reason — the app's own `DynamicLoader` holds a reference to
+  the library whatever SDL does with its own.
+- **`--present-mode`, and why the two failure policies differ.** The default stays what it is
+  today: prefer mailbox, fall back to FIFO. **An explicitly requested mode that the surface
+  does not offer is a hard error naming what was asked for and listing what is available** —
+  never a silent downgrade. The whole reason to pass the flag is to test a specific mode, and
+  a run that quietly measured a different one is worse than a run that refused: it produces a
+  number that looks valid and is not.
 
-At the end of that week you have objective regression testing, a working sanitizer, a live
-test pipeline, and you have not moved a single file into a new directory. Every subsequent
-step is then cheap to verify and safe to revert — which is the whole point.
+  That is deliberately the opposite policy from `DeviceDesc::DisabledOptionalExtensions`,
+  which reports and ignores a name it does not recognise. The cases differ: disabling an
+  extension that was never present still achieves the intent, whereas asking for immediate
+  and getting FIFO means the measurement is of something else.
 
+  Two constraints on the implementation. **The default must stay a preference**, because only
+  FIFO is guaranteed by the spec — mailbox is not, and a strict default would refuse to launch
+  on a surface without it. And the *mode* is neutral vocabulary under D13 ("where only one API
+  has the concept at all, its term stands"): Vulkan names these, D3D12 spells the same
+  behaviour as `SyncInterval` plus `ALLOW_TEARING`, so this is `--present-mode` rather than
+  `--vk-present-mode`.
+
+  Reject `--present-mode` together with `--headless`, alongside the borderless/fullscreen
+  check step 40a adds — an offscreen target does not present, so there is no mode to choose.
+
+  **Log the mode that was actually chosen**, so a fallback is visible rather than inferred.
+  The place for it is the existing one-line summary at the end of `SwapchainTarget::Create` —
+  `"Swapchain: {}x{}, {} images"` — which becomes `"Swapchain: {}x{}, {} images, {}"`. Not
+  surface creation: the surface exists before any mode is chosen, and `ChoosePresentMode` runs
+  against `getSurfacePresentModesKHR` during swapchain creation, so the surface has nothing to
+  report yet. `Create` is also called from `Recreate`, so the line already fires on every
+  resize and fullscreen toggle and already carries an extent that changes each time — the mode
+  rides along at no extra noise, and a mode that changed across a recreate shows up without a
+  second log site or a "did it change" comparison.
+
+  That one line covers both paths. An explicit mode that is unavailable throws before this
+  point, naming what the surface offers; the default path cannot throw, so printing what it
+  settled on is the only way a mailbox→FIFO fallback is ever visible.
+
+  Worth pairing with the frame-time fix above: once the report carries real wall-clock
+  timings, it should also carry the present mode, because two reports taken under different
+  modes are not comparable.
 
 ---
 

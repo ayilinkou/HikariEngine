@@ -75,6 +75,11 @@ public:
         return nullptr;
     }
 
+    std::unique_ptr<IPresentTarget> CreatePresentTarget(const PresentTargetDesc&) override
+    {
+        return nullptr;
+    }
+
     uint32_t GetLiveTextureCount() const override
     {
         return static_cast<uint32_t>(DestroyedTextures.size());

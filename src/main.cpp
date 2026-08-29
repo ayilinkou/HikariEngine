@@ -25,6 +25,7 @@
 
 #include <platform/CommandLine.h>
 #include <platform/FileSystem.h>
+#include <platform/HeadlessPlatform.h>
 #include <platform/IPlatform.h>
 #include <platform/Paths.h>
 #include <platform/SdlPlatform.h>
@@ -36,6 +37,7 @@
 #include <rhi/Handles.h>
 #include <rhi/ICommandList.h>
 #include <rhi/IDevice.h>
+#include <rhi/IPresentTarget.h>
 #include <rhi/RhiTypes.h>
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
@@ -44,7 +46,6 @@
 #include <rhi/UploadContext.h>
 #include <rhi/vulkan/DebugNames.h>
 #include <rhi/vulkan/PipelineBuilder.h>
-#include <rhi/vulkan/SwapchainUtil.h>
 #include <rhi/vulkan/VulkanNative.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -167,7 +168,7 @@ struct Options
     bool bReportAutoPath = false;
     bool bStrictValidation = false; // exit non-zero on any validation error
     Rhi::ValidationPolicy ValidationPolicy = Rhi::ValidationPolicy::Count;
-    bool bHeadless = false; // TODO
+    bool bHeadless = false; // --headless: render with no window
 
     // --resolution. Zero in either half leaves the choice to the platform,
     // which sizes the window from the display it opens on.
@@ -206,6 +207,19 @@ constexpr CameraPresetData kCameraPresets[] = {
 constexpr int kNumCameraPresets =
     static_cast<int>(sizeof(kCameraPresets) / sizeof(kCameraPresets[0]));
 
+// Whether a screenshot can be written from a present target in `format`.
+//
+// stbi_write_png takes 8 bits per channel and nothing else, so a 16-bit float
+// target — which nothing asks for today but the neutral format list can name —
+// would need tone mapping rather than a channel swap. Rejected with a message
+// instead of silently reinterpreting the bytes, which is what a bare
+// BytesPerTexel check would allow.
+constexpr bool IsWritablePngFormat(Rhi::Format format)
+{
+    return format == Rhi::Format::BGRA8Unorm || format == Rhi::Format::RGBA8Unorm ||
+           format == Rhi::Format::RGBA8Srgb;
+}
+
 void PrintUsage()
 {
     std::cout << "VulkanApp\n"
@@ -237,8 +251,10 @@ void PrintUsage()
                      "window\n"
                      "  --fullscreen            Start in exclusive fullscreen, selecting a "
                      "display mode\n"
-                     "  --headless              Run without a window "
-                     "(reserved, not yet implemented)\n"
+                     "  --headless              Run without a window, rendering into an "
+                     "offscreen target.\n"
+                     "                          Requires --frames, and cannot be combined with "
+                     "--borderless or --fullscreen\n"
                      "  --jobs <N>              Worker thread count (0 = SerialJobSystem, "
                      "no threads; default = hardware_concurrency() - 1)\n"
                      "  --vk-disable-extension <name>\n"
@@ -400,6 +416,36 @@ Options ParseArgs(int argc, char** argv)
         ExitWithUsage(EXIT_FAILURE);
     }
 
+    // A window mode for a run with no window asks for nothing coherent.
+    if (options.bHeadless && options.StartWindowMode != WindowMode::Windowed)
+    {
+        LogMsg(LogSeverity::Error, LogMain,
+               "--headless cannot be combined with {}: a run with no window has no window mode",
+               options.StartWindowMode == WindowMode::BorderlessFullscreen ? "--borderless"
+                                                                           : "--fullscreen");
+        ExitWithUsage(EXIT_FAILURE);
+    }
+
+    // Of the frame loop's three exits, two need a window (SDL_EVENT_QUIT and
+    // ImGui's Quit button) and the third is the frame counter, which only fires
+    // when Frames != 0. So a headless run without --frames ends on a signal —
+    // and headless exists for CI, where nobody is there to send one. The job
+    // burns its whole timeout and dies to SIGTERM, which nothing handles, so it
+    // writes neither screenshot nor report.
+    //
+    // Ctrl-C does work interactively (HandleSIGINT sets g_bShouldClose and the
+    // artefacts are still written), which is what makes an unbounded run
+    // defensible at a terminal — a soak, say. Rejected anyway because the
+    // failure it prevents is silent and expensive in the place this mode is
+    // for, and Frames is a uint64_t if someone really wants to soak.
+    if (options.bHeadless && options.Frames == 0)
+    {
+        LogMsg(LogSeverity::Error, LogMain,
+               "--headless requires --frames: with no window there is nothing that can end the "
+               "run, so it would render forever and write nothing");
+        ExitWithUsage(EXIT_FAILURE);
+    }
+
     // Ignore stops errors ever being counted, so --strict-validation would pass
     // a run that had them. Rejected rather than silently preferred either way:
     // in CI that combination reads as "validation is enforced" and is not.
@@ -477,8 +523,12 @@ public:
             float currentFPS = 1.f / m_DeltaTime;
             m_DisplayFPS = (m_DisplayFPS * smoothing) + (currentFPS * (1.f - smoothing));
 
+            // Guarded rather than abstracted: a headless run never initialised
+            // SDL, so polling it is not merely pointless but a call into a
+            // subsystem that does not exist. The event seam that removes the
+            // direct call altogether is its own step.
             SDL_Event event;
-            while (SDL_PollEvent(&event))
+            while (!m_Platform.IsHeadless() && SDL_PollEvent(&event))
             {
                 ImGui_ImplSDL3_ProcessEvent(&event);
 
@@ -549,7 +599,10 @@ private:
         desc.ApplicationName = "Vulkan App";
         desc.bEnableValidation = bEnableValidationLayers;
         desc.pDiagnostics = &m_Diagnostics;
-        desc.Requirements.bPresent = true;
+        // The line the whole headless path turns on: no present requirement
+        // means the device creates no surface, and CreatePresentTarget hands
+        // back an OffscreenTarget instead of a SwapchainTarget.
+        desc.Requirements.bPresent = !m_Platform.IsHeadless();
         desc.Requirements.NativeWindowHandle = m_Platform.GetNativeWindowHandle();
         desc.DisabledOptionalExtensions = m_Options.DisabledVulkanExtensions;
         desc.bForceSingleQueue = m_Options.bForceSingleQueue;
@@ -632,9 +685,9 @@ private:
 
         ImGui::StyleColorsDark();
 
+        const vk::Format swapchainFormat = SwapchainFormat();
         vk::PipelineRenderingCreateInfo pipelineRenderingInfo = {
-            .colorAttachmentCount = 1u,
-            .pColorAttachmentFormats = &m_SwapchainSurfaceFormat.format};
+            .colorAttachmentCount = 1u, .pColorAttachmentFormats = &swapchainFormat};
 
         // The one place that is allowed to hold raw Vulkan handles from the RHI:
         // ImGui's backend takes them by value and there is no neutral shape for
@@ -650,9 +703,9 @@ private:
         initInfo.Queue = native.GraphicsQueue;
         initInfo.DescriptorPool = VK_NULL_HANDLE;
         initInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
-        initInfo.MinImageCount = m_MinImageCount;
+        initInfo.MinImageCount = m_PresentTarget->GetImageCount();
         initInfo.MinAllocationSize = 1024 * 1024;
-        initInfo.ImageCount = static_cast<uint32_t>(m_SwapTextures.size());
+        initInfo.ImageCount = m_PresentTarget->GetImageCount();
         initInfo.UseDynamicRendering = true;
         initInfo.PipelineCache = Rhi::Vulkan::GetNativePipelineCache(*m_PipelineCache);
         initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
@@ -660,8 +713,37 @@ private:
         initInfo.Allocator = nullptr;
         initInfo.CheckVkResultFn = nullptr;
 
-        ImGui_ImplSDL3_InitForVulkan(static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()));
+        // The platform backend is the only half of ImGui that needs a window.
+        // Skipping it leaves ImGui with no platform backend at all, which is a
+        // supported configuration: what the backend supplies is io.DisplaySize
+        // and io.DeltaTime, and DrawImGuiFrame sets both by hand instead.
+        //
+        // The renderer backend needs nothing from the window system. Everything
+        // surface-shaped in it lives in the optional ImGui_ImplVulkanH_* helper
+        // family, which this app has never called — it records ImGui's draws
+        // into a dynamic-rendering pass of its own, against whatever image the
+        // present target handed back.
+        if (!m_Platform.IsHeadless())
+        {
+            ImGui_ImplSDL3_InitForVulkan(
+                static_cast<SDL_Window*>(m_Platform.GetNativeWindowHandle()));
+        }
+
         ImGui_ImplVulkan_Init(&initInfo);
+    }
+
+    // The present target speaks neutral types; these are the two places the
+    // renderer still needs the Vulkan spelling, and it needs it often enough
+    // that converting at each use site would drown the call sites.
+    vk::Extent2D SwapchainExtent() const
+    {
+        const Rhi::Extent2D extent = m_PresentTarget->GetExtent();
+        return vk::Extent2D{extent.Width, extent.Height};
+    }
+
+    vk::Format SwapchainFormat() const
+    {
+        return Rhi::Vulkan::GetNativeFormat(m_PresentTarget->GetFormat());
     }
 
     void InitVulkan()
@@ -670,8 +752,14 @@ private:
 
         // The device itself was created in the constructor, so that every member
         // below can assume it exists.
-        CreateSwapchain();
-        CreateSwapchainImageViews();
+        //
+        // First, because almost everything after it is sized to the target's
+        // extent or built against its format.
+        const Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
+        m_PresentTarget = m_RhiDevice->CreatePresentTarget(
+            Rhi::PresentTargetDesc{.Extent = {framebufferExtent.Width, framebufferExtent.Height},
+                                   .FramesInFlight = NUM_FRAMES_IN_FLIGHT});
+
         CreateDepthResources();
         CreateDescriptorSetLayouts();
         CreateCommandPools();
@@ -711,8 +799,8 @@ private:
                                               // submission and cross-queue synchronization
                                               // first, so they share the graphics queue.
                                               .ComputeQueue = m_GraphicsQueue,
-                                              .SwapchainWidth = m_SwapchainExtent.width,
-                                              .SwapchainHeight = m_SwapchainExtent.height,
+                                              .SwapchainWidth = SwapchainExtent().width,
+                                              .SwapchainHeight = SwapchainExtent().height,
                                               .FramesInFlight = NUM_FRAMES_IN_FLIGHT};
         m_CloudSystem = std::make_unique<CloudSystem>(cloudCreateInfo);
 
@@ -815,22 +903,40 @@ private:
             return;
         }
 
-        const uint32_t width = m_SwapchainExtent.width;
-        const uint32_t height = m_SwapchainExtent.height;
-        constexpr uint32_t bytesPerPixel = 4;
+        // Driven by what the target actually chose, not by what a swapchain
+        // usually chooses. A present target picks its own format — an offscreen
+        // one need not agree with a surface — so a hardcoded channel order is
+        // a latent bug even before a headless run exists to trip over it.
+        const Rhi::Format format = m_PresentTarget->GetFormat();
+        const uint32_t bytesPerPixel = Rhi::BytesPerTexel(format);
+        if (!IsWritablePngFormat(format))
+        {
+            LogMsg(LogSeverity::Error, LogMain,
+                   "Cannot write a screenshot: the present target's format is not an 8-bit "
+                   "four-channel one, which is all stbi_write_png can take.");
+            return;
+        }
+
+        const uint32_t width = SwapchainExtent().width;
+        const uint32_t height = SwapchainExtent().height;
         const vk::DeviceSize bufferSize =
             static_cast<vk::DeviceSize>(width) * height * bytesPerPixel;
 
-        // The swapchain format is BGRA; swizzle to RGBA before writing.
+        // PNG is RGBA, so a BGRA target needs its first and third channels
+        // swapped and an RGBA one needs nothing. The shader is indifferent
+        // either way: it writes SV_Target component 0 and the hardware maps
+        // that to whatever the format's first component is.
+        const bool bSwapRedAndBlue = format == Rhi::Format::BGRA8Unorm;
+
         const auto* src = static_cast<const uint8_t*>(
             m_RhiDevice->GetMappedData(m_ScreenshotStagingBuffer.Get()));
         std::vector<uint8_t> pixels(static_cast<size_t>(bufferSize));
         for (size_t i = 0; i < static_cast<size_t>(width) * height; i++)
         {
-            pixels[i * 4 + 0] = src[i * 4 + 2]; // R <- B
-            pixels[i * 4 + 1] = src[i * 4 + 1]; // G <- G
-            pixels[i * 4 + 2] = src[i * 4 + 0]; // B <- R
-            pixels[i * 4 + 3] = src[i * 4 + 3]; // A <- A
+            pixels[i * 4 + 0] = bSwapRedAndBlue ? src[i * 4 + 2] : src[i * 4 + 0];
+            pixels[i * 4 + 1] = src[i * 4 + 1];
+            pixels[i * 4 + 2] = bSwapRedAndBlue ? src[i * 4 + 0] : src[i * 4 + 2];
+            pixels[i * 4 + 3] = src[i * 4 + 3];
         }
 
         std::string path = m_Options.bScreenshotAutoPath ? DEFAULT_PATH + CaptureTimestamp()
@@ -870,7 +976,8 @@ private:
     void ShutdownImGui()
     {
         ImGui_ImplVulkan_Shutdown();
-        ImGui_ImplSDL3_Shutdown();
+        if (!m_Platform.IsHeadless())
+            ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
     }
 
@@ -882,8 +989,8 @@ private:
 
     void ShowCursor()
     {
-        m_Platform.WarpMouse(static_cast<float>(m_SwapchainExtent.width / 2.f),
-                             static_cast<float>(m_SwapchainExtent.height / 2.f));
+        m_Platform.WarpMouse(static_cast<float>(SwapchainExtent().width / 2.f),
+                             static_cast<float>(SwapchainExtent().height / 2.f));
         m_Platform.SetRelativeMouseMode(false);
         m_bCursorVisible = true;
     }
@@ -921,7 +1028,11 @@ private:
     // delay.
     void HandleMovement()
     {
-        if (m_bCursorVisible || m_Options.CameraPreset >= 0)
+        // Headless for the same reason the event pump is guarded: SDL was never
+        // initialised. Unreachable in practice today, since m_bCursorVisible
+        // starts true and only a key event can clear it, but that is a property
+        // of the current defaults rather than something to rely on.
+        if (m_Platform.IsHeadless() || m_bCursorVisible || m_Options.CameraPreset >= 0)
             return;
 
         glm::vec3 camOffset = {0.f, 0.f, 0.f};
@@ -980,18 +1091,11 @@ private:
         if (fenceResult != vk::Result::eSuccess)
             throw std::runtime_error("Failed to wait for fence!");
 
-        auto [result, imageIndex] =
-            m_Swapchain.acquireNextImage(UINT64_MAX, *frameData.PresentCompleteSemaphore, nullptr);
-
-        if (result == vk::Result::eErrorOutOfDateKHR)
+        const Rhi::AcquiredImage image = m_PresentTarget->Acquire();
+        if (image.bNeedsRecreate)
         {
             RecreateSwapchainAndRenderImages();
             return;
-        }
-        else if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR)
-        {
-            assert(result == vk::Result::eTimeout || result == vk::Result::eNotReady);
-            throw std::runtime_error("Failed to acquire next swapchain image!");
         }
 
         m_Device.resetFences(*frameData.DrawFence);
@@ -1001,8 +1105,9 @@ private:
 
         if (captureScreenshot && !m_bScreenshotBufferReady)
         {
-            const vk::DeviceSize bufferSize =
-                static_cast<vk::DeviceSize>(m_SwapchainExtent.width) * m_SwapchainExtent.height * 4;
+            const vk::DeviceSize bufferSize = static_cast<vk::DeviceSize>(SwapchainExtent().width) *
+                                              SwapchainExtent().height *
+                                              Rhi::BytesPerTexel(m_PresentTarget->GetFormat());
             m_ScreenshotStagingBuffer = Rhi::UniqueHandle<Rhi::BufferHandle>(
                 *m_RhiDevice,
                 m_RhiDevice->CreateBuffer(Rhi::BufferDesc{.Size = bufferSize,
@@ -1021,11 +1126,11 @@ private:
 
             // these command buffers are very small and so likely faster to
             // record on main thread
-            RecordSwapImageToDrawLayout(imageIndex);
+            RecordSwapImageToDrawLayout(image);
             RecordCloudsCommandBuffer();
-            RecordCompositeCommandBuffer(imageIndex);
-            RecordImGui(imageIndex);
-            RecordSwapImageToPresentLayout(imageIndex, captureScreenshot);
+            RecordCompositeCommandBuffer(image);
+            RecordImGui(image);
+            RecordSwapImageToFinalLayout(image, captureScreenshot);
 
             m_JobSystem.Wait();
             LogBarrierCounts();
@@ -1033,38 +1138,50 @@ private:
 
         // TODO: even when ImGui is not showing, it's being submitted
         std::array<vk::CommandBuffer, 7> commandBuffers = {
-            frameData.DrawLayoutCommandBuffer,   frameData.OpaqueCommandBuffer,
-            frameData.TransparentCommandBuffer,  frameData.CloudCommandBuffer,
-            frameData.CompositeCommandBuffer,    frameData.ImGuiCommandBuffer,
-            frameData.PresentLayoutCommandBuffer};
-        vk::PipelineStageFlags waitDestinationStageFlags(
-            vk::PipelineStageFlagBits::eColorAttachmentOutput);
-        vk::SubmitInfo submitInfo{.waitSemaphoreCount = 1u,
-                                  .pWaitSemaphores = &*frameData.PresentCompleteSemaphore,
-                                  .pWaitDstStageMask = &waitDestinationStageFlags,
-                                  .commandBufferCount =
-                                      static_cast<uint32_t>(commandBuffers.size()),
-                                  .pCommandBuffers = commandBuffers.data(),
-                                  .signalSemaphoreCount = 1u,
-                                  .pSignalSemaphores = &*m_RenderCompleteSemaphores[imageIndex]};
+            frameData.DrawLayoutCommandBuffer,  frameData.OpaqueCommandBuffer,
+            frameData.TransparentCommandBuffer, frameData.CloudCommandBuffer,
+            frameData.CompositeCommandBuffer,   frameData.ImGuiCommandBuffer,
+            frameData.FinalLayoutCommandBuffer};
+        // Every semaphore here belongs to the present target; the submit is still
+        // the renderer's, so it names them through the native accessor.
+        //
+        // The waits arrive as a span because how many there are is the target's
+        // business: a swapchain hands back the one its acquire signalled, and a
+        // headless target hands back the previous write of the same image, or
+        // nothing at all on the first pass. They share one destination stage
+        // because they say the same thing — this image is not safe to write yet
+        // — and the first write to it is the colour attachment output.
+        //
+        // Fixed capacity rather than a per-frame allocation. Both targets hand
+        // back at most one today; a target that grew a third would fail here
+        // rather than quietly having a wait dropped.
+        std::array<vk::Semaphore, 4> waitSemaphores{};
+        std::array<vk::PipelineStageFlags, waitSemaphores.size()> waitStages{};
+        if (image.WaitSemaphores.size() > waitSemaphores.size())
+            throw std::runtime_error("The present target asked for more acquire waits than the "
+                                     "frame loop can submit!");
+
+        for (size_t i = 0; i < image.WaitSemaphores.size(); i++)
+        {
+            waitSemaphores[i] = Rhi::Vulkan::GetSemaphore(*m_RhiDevice, image.WaitSemaphores[i]);
+            waitStages[i] = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        }
+
+        const vk::Semaphore signalOnComplete = Rhi::Vulkan::GetSemaphore(
+            *m_RhiDevice, m_PresentTarget->GetRenderCompleteSemaphore(image.Index));
+
+        vk::SubmitInfo submitInfo{
+            .waitSemaphoreCount = static_cast<uint32_t>(image.WaitSemaphores.size()),
+            .pWaitSemaphores = waitSemaphores.data(),
+            .pWaitDstStageMask = waitStages.data(),
+            .commandBufferCount = static_cast<uint32_t>(commandBuffers.size()),
+            .pCommandBuffers = commandBuffers.data(),
+            .signalSemaphoreCount = 1u,
+            .pSignalSemaphores = &signalOnComplete};
         m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
 
-        const vk::PresentInfoKHR presentInfo{.waitSemaphoreCount = 1,
-                                             .pWaitSemaphores =
-                                                 &*m_RenderCompleteSemaphores[imageIndex],
-                                             .swapchainCount = 1,
-                                             .pSwapchains = &*m_Swapchain,
-                                             .pImageIndices = &imageIndex};
-
-        result = m_GraphicsQueue.presentKHR(presentInfo);
-        if ((result == vk::Result::eSuboptimalKHR) || (result == vk::Result::eErrorOutOfDateKHR))
-        {
+        if (!m_PresentTarget->Present(image.Index))
             RecreateSwapchainAndRenderImages();
-        }
-        else if (result != vk::Result::eSuccess)
-        {
-            throw std::runtime_error("Failed to present image!");
-        }
 
         m_FrameIndex = (m_FrameIndex + 1) % NUM_FRAMES_IN_FLIGHT;
     }
@@ -1072,7 +1189,21 @@ private:
     void DrawImGuiFrame()
     {
         ImGui_ImplVulkan_NewFrame();
-        ImGui_ImplSDL3_NewFrame();
+        if (m_Platform.IsHeadless())
+        {
+            // Standing in for the platform backend. DeltaTime is the
+            // load-bearing one — NewFrame asserts it is positive, where
+            // DisplaySize need only be non-negative.
+            ImGuiIO& io = ImGui::GetIO();
+            io.DisplaySize = ImVec2(static_cast<float>(SwapchainExtent().width),
+                                    static_cast<float>(SwapchainExtent().height));
+            io.DeltaTime = m_DeltaTime;
+        }
+        else
+        {
+            ImGui_ImplSDL3_NewFrame();
+        }
+
         ImGui::NewFrame();
 
         if (ImGui::Begin("Menu"))
@@ -1178,87 +1309,6 @@ private:
         ImGui::End();
 
         ImGui::Render();
-    }
-
-    void CreateSwapchain()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "CreateSwapchain()");
-
-        vk::SurfaceCapabilitiesKHR capabilities =
-            m_PhysicalDevice.getSurfaceCapabilitiesKHR(*m_Surface);
-        const std::vector<vk::SurfaceFormatKHR> formats =
-            m_PhysicalDevice.getSurfaceFormatsKHR(*m_Surface);
-        m_SwapchainSurfaceFormat = ChooseSwapchainFormat(formats);
-        const std::vector<vk::PresentModeKHR> presentModes =
-            m_PhysicalDevice.getSurfacePresentModesKHR(*m_Surface);
-        const Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
-        m_SwapchainExtent = ChooseSwapchainExtent(
-            capabilities, vk::Extent2D{framebufferExtent.Width, framebufferExtent.Height});
-
-        LogMsg(LogSeverity::Info, LogRenderer, "Swapchain Extent: {}x{}", m_SwapchainExtent.width,
-               m_SwapchainExtent.height);
-
-        m_MinImageCount = ChooseSwapMinImageCount(capabilities);
-        vk::SwapchainCreateInfoKHR createInfo{
-            .surface = *m_Surface,
-            .minImageCount = m_MinImageCount,
-            .imageFormat = m_SwapchainSurfaceFormat.format,
-            .imageColorSpace = m_SwapchainSurfaceFormat.colorSpace,
-            .imageExtent = m_SwapchainExtent,
-            .imageArrayLayers = 1,
-            .imageUsage =
-                vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferSrc,
-
-            .imageSharingMode = vk::SharingMode::eExclusive,
-            .preTransform = capabilities.currentTransform,
-            .compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque,
-            .presentMode = ChoosePresentMode(presentModes),
-            .clipped = true,
-            .oldSwapchain = nullptr};
-
-        m_Swapchain = vk::raii::SwapchainKHR(m_Device, createInfo);
-        SetVkDebugName(m_Device, *m_Swapchain, vk::ObjectType::eSwapchainKHR, "Swapchain");
-
-        // Every swapchain texture and view is described in neutral terms, so a
-        // surface offering nothing Rhi::Format can name is an unrecoverable init
-        // failure rather than something to fall back from — that is the deal the
-        // curated format list makes. ChooseSwapchainFormat asks for BGRA8Unorm
-        // first, which every desktop surface offers.
-        const Rhi::Format swapchainFormat =
-            Rhi::Vulkan::FromNativeFormat(m_SwapchainSurfaceFormat.format);
-
-        // Registered rather than created: the images belong to the presentation
-        // engine, and a handle is only how the rest of the RHI names one.
-        const std::vector<vk::Image> images = m_Swapchain.getImages();
-        assert(m_SwapTextures.empty());
-        m_SwapTextures.reserve(images.size());
-        for (size_t i = 0; i < images.size(); i++)
-        {
-            const Rhi::TextureDesc desc{
-                .Format = swapchainFormat,
-                .Extent = {m_SwapchainExtent.width, m_SwapchainExtent.height, 1u},
-                .Usage = Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::CopySrc,
-                .DebugName = std::format("Swapchain Image_{}", i)};
-            m_SwapTextures.emplace_back(
-                *m_RhiDevice, Rhi::Vulkan::RegisterExternalTexture(*m_RhiDevice, images[i], desc));
-        }
-
-        LogMsg(LogSeverity::Info, LogRenderer, "Swapchain image count: {}", m_SwapTextures.size());
-    }
-
-    void CreateSwapchainImageViews()
-    {
-        LogMsg(LogSeverity::Info, LogRenderer, "CreateSwapchainImageViews()");
-
-        assert(m_SwapImageViews.empty());
-        m_SwapImageViews.reserve(m_SwapTextures.size());
-        for (size_t i = 0; i < m_SwapTextures.size(); i++)
-        {
-            m_SwapImageViews.emplace_back(
-                *m_RhiDevice, m_RhiDevice->CreateTextureView(Rhi::TextureViewDesc{
-                                  .Texture = m_SwapTextures[i].Get(),
-                                  .DebugName = std::format("Swapchain Image View_{}", i)}));
-        }
     }
 
     [[nodiscard]] vk::raii::ShaderModule
@@ -1392,8 +1442,7 @@ private:
                 .Shaders(m_Paths.Shader("composite.spv").string())
                 .VertexInput(bindingDescs, attributeDescs)
                 .Depth(false, false, vk::CompareOp::eLess)
-                .ColorAttachments(std::array{m_SwapchainSurfaceFormat.format},
-                                  std::array{attachmentState})
+                .ColorAttachments(std::array{SwapchainFormat()}, std::array{attachmentState})
                 .DepthAttachment(vk::Format::eUndefined)
                 .Cull(vk::CullModeFlagBits::eNone)
                 .Layout(setLayouts, {})
@@ -1454,9 +1503,9 @@ private:
             SetVkDebugName(m_Device, *frame.ImGuiCommandPool, vk::ObjectType::eCommandPool,
                            std::format("ImGui Command Pool Frame {}", i).c_str());
 
-            frame.PresentLayoutCommandPool = vk::raii::CommandPool(m_Device, createInfo);
-            SetVkDebugName(m_Device, *frame.PresentLayoutCommandPool, vk::ObjectType::eCommandPool,
-                           std::format("Present Layout Command Pool Frame {}", i).c_str());
+            frame.FinalLayoutCommandPool = vk::raii::CommandPool(m_Device, createInfo);
+            SetVkDebugName(m_Device, *frame.FinalLayoutCommandPool, vk::ObjectType::eCommandPool,
+                           std::format("Final Layout Command Pool Frame {}", i).c_str());
         }
     }
 
@@ -1525,15 +1574,15 @@ private:
             SetVkDebugName(m_Device, *frame.ImGuiCommandBuffer, vk::ObjectType::eCommandBuffer,
                            std::format("ImGui Command Buffer Frame {}", i).c_str());
 
-            allocInfo = vk::CommandBufferAllocateInfo{.commandPool = frame.PresentLayoutCommandPool,
+            allocInfo = vk::CommandBufferAllocateInfo{.commandPool = frame.FinalLayoutCommandPool,
                                                       .level = vk::CommandBufferLevel::ePrimary,
                                                       .commandBufferCount = 1u};
             cmd = std::move(vk::raii::CommandBuffers(m_Device, allocInfo).front());
 
-            frame.PresentLayoutCommandBuffer = std::move(cmd);
-            SetVkDebugName(m_Device, *frame.PresentLayoutCommandBuffer,
+            frame.FinalLayoutCommandBuffer = std::move(cmd);
+            SetVkDebugName(m_Device, *frame.FinalLayoutCommandBuffer,
                            vk::ObjectType::eCommandBuffer,
-                           std::format("Present Layout Command Buffer Frame {}", i).c_str());
+                           std::format("Final Layout Command Buffer Frame {}", i).c_str());
         }
     }
 
@@ -1604,7 +1653,7 @@ private:
             .clearValue = clearDepth};
 
         vk::RenderingInfo renderingInfo = {
-            .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
+            .renderArea = {.offset = {0, 0}, .extent = SwapchainExtent()},
             .layerCount = 1,
             .colorAttachmentCount = 1,
             .pColorAttachments = &colorAttachmentInfo,
@@ -1613,9 +1662,9 @@ private:
         cmd.beginRendering(renderingInfo);
         cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_OpaquePipeline);
 
-        cmd.setViewport(0, vk::Viewport(0.f, 0.f, static_cast<float>(m_SwapchainExtent.width),
-                                        static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
-        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
+        cmd.setViewport(0, vk::Viewport(0.f, 0.f, static_cast<float>(SwapchainExtent().width),
+                                        static_cast<float>(SwapchainExtent().height), 0.f, 1.f));
+        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), SwapchainExtent()));
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_OpaquePipelineLayout, 0,
                                *frame.GlobalBufferDescriptorSet, nullptr);
 
@@ -1705,7 +1754,7 @@ private:
             .storeOp = vk::AttachmentStoreOp::eNone};
 
         vk::RenderingInfo renderingInfo = {
-            .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
+            .renderArea = {.offset = {0, 0}, .extent = SwapchainExtent()},
             .layerCount = 1,
             .colorAttachmentCount = static_cast<uint32_t>(colorAttachmentInfos.size()),
             .pColorAttachments = colorAttachmentInfos.data(),
@@ -1714,9 +1763,9 @@ private:
         cmd.beginRendering(renderingInfo);
         cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_TransparentPipeline);
 
-        cmd.setViewport(0, vk::Viewport(0.f, 0.f, static_cast<float>(m_SwapchainExtent.width),
-                                        static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
-        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
+        cmd.setViewport(0, vk::Viewport(0.f, 0.f, static_cast<float>(SwapchainExtent().width),
+                                        static_cast<float>(SwapchainExtent().height), 0.f, 1.f));
+        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), SwapchainExtent()));
         cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_TransparentPipelineLayout, 0,
                                *frame.GlobalBufferDescriptorSet, nullptr);
 
@@ -1749,7 +1798,7 @@ private:
         list->End();
     }
 
-    void RecordCompositeCommandBuffer(uint32_t imageIndex)
+    void RecordCompositeCommandBuffer(const Rhi::AcquiredImage& image)
     {
         FrameData& frame = m_Frames[m_FrameIndex];
         frame.CompositeCommandPool.reset();
@@ -1766,14 +1815,14 @@ private:
 
         vk::ClearValue clearColor = vk::ClearColorValue(0.f, 0.f, 0.f, 1.f);
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
-            .imageView = NativeView(m_SwapImageViews[imageIndex].Get()),
+            .imageView = NativeView(image.View),
             .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eClear,
             .storeOp = vk::AttachmentStoreOp::eStore,
             .clearValue = clearColor};
 
         vk::RenderingInfo renderingInfo = {
-            .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
+            .renderArea = {.offset = {0, 0}, .extent = SwapchainExtent()},
             .layerCount = 1,
             .colorAttachmentCount = 1,
             .pColorAttachments = &colorAttachmentInfo};
@@ -1781,9 +1830,9 @@ private:
         cmd.beginRendering(renderingInfo);
         cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_CompositePipeline);
 
-        cmd.setViewport(0, vk::Viewport(0.f, 0.f, static_cast<float>(m_SwapchainExtent.width),
-                                        static_cast<float>(m_SwapchainExtent.height), 0.f, 1.f));
-        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_SwapchainExtent));
+        cmd.setViewport(0, vk::Viewport(0.f, 0.f, static_cast<float>(SwapchainExtent().width),
+                                        static_cast<float>(SwapchainExtent().height), 0.f, 1.f));
+        cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), SwapchainExtent()));
 
         std::array descriptorSets = {*frame.GlobalBufferDescriptorSet,
                                      *frame.CompositeDescriptorSet};
@@ -1803,7 +1852,7 @@ private:
         list->End();
     }
 
-    void RecordImGui(uint32_t imageIndex)
+    void RecordImGui(const Rhi::AcquiredImage& image)
     {
         m_Frames[m_FrameIndex].ImGuiCommandPool.reset();
         vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].ImGuiCommandBuffer;
@@ -1812,17 +1861,17 @@ private:
 
         // ImGui draws over the composited frame with loadOp eLoad, so the
         // composite pass's writes have to be visible to this pass's load.
-        m_MainThreadBarrierCounts += list->Barrier(
-            Rhi::BarrierPresets::PreserveRenderTarget().On(m_SwapTextures[imageIndex].Get()));
+        m_MainThreadBarrierCounts +=
+            list->Barrier(Rhi::BarrierPresets::PreserveRenderTarget().On(image.Texture));
 
         vk::RenderingAttachmentInfo colorAttachmentInfo = {
-            .imageView = NativeView(m_SwapImageViews[imageIndex].Get()),
+            .imageView = NativeView(image.View),
             .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eLoad,
             .storeOp = vk::AttachmentStoreOp::eStore};
 
         vk::RenderingInfo renderingInfo = {
-            .renderArea = {.offset = {0, 0}, .extent = m_SwapchainExtent},
+            .renderArea = {.offset = {0, 0}, .extent = SwapchainExtent()},
             .layerCount = 1,
             .colorAttachmentCount = 1,
             .pColorAttachments = &colorAttachmentInfo};
@@ -1836,26 +1885,33 @@ private:
         list->End();
     }
 
-    void RecordSwapImageToDrawLayout(uint32_t imageIndex)
+    void RecordSwapImageToDrawLayout(const Rhi::AcquiredImage& image)
     {
         m_Frames[m_FrameIndex].DrawLayoutCommandPool.reset();
         vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].DrawLayoutCommandBuffer;
         std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(*m_RhiDevice, *cmd);
         list->Begin();
         m_MainThreadBarrierCounts +=
-            list->Barrier(Rhi::BarrierPresets::AcquiredSwapchainToRenderTarget().On(
-                m_SwapTextures[imageIndex].Get()));
+            list->Barrier(Rhi::BarrierPresets::AcquiredImageToRenderTarget().On(image.Texture));
         list->End();
     }
 
-    void RecordSwapImageToPresentLayout(uint32_t imageIndex, bool captureScreenshot)
+    void RecordSwapImageToFinalLayout(const Rhi::AcquiredImage& image, bool captureScreenshot)
     {
-        m_Frames[m_FrameIndex].PresentLayoutCommandPool.reset();
-        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].PresentLayoutCommandBuffer;
+        m_Frames[m_FrameIndex].FinalLayoutCommandPool.reset();
+        vk::raii::CommandBuffer& cmd = m_Frames[m_FrameIndex].FinalLayoutCommandBuffer;
         std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(*m_RhiDevice, *cmd);
         list->Begin();
 
-        const Rhi::TextureHandle swapTexture = m_SwapTextures[imageIndex].Get();
+        const Rhi::TextureHandle swapTexture = image.Texture;
+
+        // Undefined means the target requires no particular layout, and then the
+        // frame ends with no closing barrier at all. Only a target with a
+        // presentation engine answers otherwise; the command buffer still goes
+        // out, empty, because the submit takes a fixed array of seven and the
+        // ImGui one is already empty whenever the panel is hidden.
+        const Rhi::TextureLayout finalLayout = m_PresentTarget->GetRequiredFinalLayout();
+        const bool bNeedsFinalTransition = finalLayout != Rhi::TextureLayout::Undefined;
 
         if (captureScreenshot)
         {
@@ -1867,15 +1923,18 @@ private:
             list->CopyTextureToBuffer(
                 swapTexture, m_ScreenshotStagingBuffer.Get(),
                 Rhi::BufferTextureCopyRegion{
-                    .Extent = {m_SwapchainExtent.width, m_SwapchainExtent.height, 1u}});
+                    .Extent = {SwapchainExtent().width, SwapchainExtent().height, 1u}});
 
-            m_MainThreadBarrierCounts +=
-                list->Barrier(Rhi::BarrierPresets::CopySrcToPresent().On(swapTexture));
+            if (bNeedsFinalTransition)
+            {
+                m_MainThreadBarrierCounts +=
+                    list->Barrier(Rhi::BarrierPresets::CopySrcToFinal(finalLayout).On(swapTexture));
+            }
         }
-        else
+        else if (bNeedsFinalTransition)
         {
-            m_MainThreadBarrierCounts +=
-                list->Barrier(Rhi::BarrierPresets::RenderTargetToPresent().On(swapTexture));
+            m_MainThreadBarrierCounts += list->Barrier(
+                Rhi::BarrierPresets::RenderTargetToFinal(finalLayout).On(swapTexture));
         }
 
         list->End();
@@ -1885,22 +1944,11 @@ private:
     {
         LogMsg(LogSeverity::Info, LogRenderer, "CreateSyncObjects()");
 
-        for (size_t i = 0; i < m_SwapTextures.size(); i++)
-        {
-            m_RenderCompleteSemaphores.emplace_back(
-                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo()));
-            SetVkDebugName(m_Device, *m_RenderCompleteSemaphores.back(), vk::ObjectType::eSemaphore,
-                           std::format("Render Complete Semaphore_{}", i).c_str());
-        }
-
+        // The semaphores ordering acquire and present belong to the present
+        // target: they have to be rebuilt in lockstep with the images they order
+        // access to, and only the object owning the images knows when that is.
         for (size_t i = 0; i < NUM_FRAMES_IN_FLIGHT; i++)
         {
-            m_Frames[i].PresentCompleteSemaphore =
-                vk::raii::Semaphore(m_Device, vk::SemaphoreCreateInfo());
-            SetVkDebugName(m_Device, *m_Frames[i].PresentCompleteSemaphore,
-                           vk::ObjectType::eSemaphore,
-                           std::format("Present Complete Semaphore_{}", i).c_str());
-
             m_Frames[i].DrawFence =
                 vk::raii::Fence(m_Device, {.flags = vk::FenceCreateFlagBits::eSignaled});
             SetVkDebugName(m_Device, *m_Frames[i].DrawFence, vk::ObjectType::eFence,
@@ -1910,66 +1958,83 @@ private:
 
     void RecreateSwapchainAndRenderImages()
     {
-        // A surface with no area cannot back a swapchain (CanCreateSwapchain),
-        // which is the state a minimised window is in. Alt-tabbing out of
-        // exclusive fullscreen is the common way to reach it: SDL minimises the
-        // window itself on focus loss there, so that the desktop video mode
-        // comes back.
+        // Read here rather than beside its use at the end of the function: the
+        // rebuild below is what changes it.
+        const uint32_t previousImageCount = m_PresentTarget->GetImageCount();
+
+        // A target that refuses to rebuild is the state a minimised window
+        // leaves the surface in. Alt-tabbing out of exclusive fullscreen is the
+        // common way to reach it: SDL minimises the window itself on focus loss
+        // there, so that the desktop video mode comes back.
         //
         // Deferring rather than blocking keeps the event loop running, so the
         // window can be restored — or the application closed — while it lasts.
-        // The existing swapchain is left alone: presenting to a window with no
-        // area is legal, and DrawFrame skips the frames until this succeeds.
-        const vk::SurfaceCapabilitiesKHR capabilities =
-            m_PhysicalDevice.getSurfaceCapabilitiesKHR(*m_Surface);
+        // The old target is left intact, and DrawFrame skips frames until this
+        // succeeds.
         const Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
-        if (!CanCreateSwapchain(capabilities,
-                                vk::Extent2D{framebufferExtent.Width, framebufferExtent.Height}))
+        if (!m_PresentTarget->Recreate({framebufferExtent.Width, framebufferExtent.Height}))
         {
             if (!m_bSwapchainOutOfDate)
                 LogMsg(LogSeverity::Info, LogRenderer,
-                       "Surface has no area; deferring swapchain recreation.");
+                       "Present target cannot be rebuilt yet; deferring recreation.");
 
             m_bSwapchainOutOfDate = true;
             return;
         }
 
+        // Logged after the fact because the attempt above is what can fail, and
+        // a minimised window would otherwise announce a recreation every frame.
         LogMsg(LogSeverity::Info, LogRenderer, "Recreating swapchain and render images...");
 
         m_bSwapchainOutOfDate = false;
 
-        m_Device.waitIdle();
-
-        m_SwapImageViews.clear();
-        m_SwapTextures.clear();
-        m_Swapchain = nullptr;
-
+        // Recreate() waited for work in flight before invalidating the images,
+        // so the resources rebuilt below are no longer in use either.
         m_DepthFormat = Rhi::Format::Undefined;
-
-        m_Device.waitIdle();
-
-        CreateSwapchain();
-        CreateSwapchainImageViews();
 
         CreateDepthResources();
         CreateRenderTargets();
 
-        m_CloudSystem->Resize(m_SwapchainExtent.width, m_SwapchainExtent.height);
+        m_CloudSystem->Resize(SwapchainExtent().width, SwapchainExtent().height);
         UpdateDepthDescriptorSets();
         UpdateCompositeDescriptorSet();
 
         m_Camera->SetProjection(m_Camera->GetFOV(),
-                                static_cast<float>(m_SwapchainExtent.width) /
-                                    static_cast<float>(m_SwapchainExtent.height),
+                                static_cast<float>(SwapchainExtent().width) /
+                                    static_cast<float>(SwapchainExtent().height),
                                 m_Camera->GetNearPlane(), m_Camera->GetFarPlane());
 
-        vk::PipelineRenderingCreateInfo pipelineRenderingInfo{.colorAttachmentCount = 1u,
-                                                              .pColorAttachmentFormats =
-                                                                  &m_SwapchainSurfaceFormat.format};
+        const vk::Format swapchainFormat = SwapchainFormat();
+        vk::PipelineRenderingCreateInfo pipelineRenderingInfo{
+            .colorAttachmentCount = 1u, .pColorAttachmentFormats = &swapchainFormat};
         ImGui_ImplVulkan_PipelineInfo pipelineInfo{};
         pipelineInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
         pipelineInfo.PipelineRenderingCreateInfo = pipelineRenderingInfo;
         ImGui_ImplVulkan_CreateMainPipeline(&pipelineInfo);
+
+        // A recreate may hand back a different number of images than the last
+        // one — entering or leaving fullscreen is the usual cause, because the
+        // driver switches between composited and direct presentation. Nothing
+        // this class owns is sized to that count (every per-frame array is
+        // NUM_FRAMES_IN_FLIGHT long, and the per-image semaphores belong to the
+        // target), but ImGui's Vulkan backend cached it at init, so it is the
+        // one thing that has to be told.
+        const uint32_t imageCount = m_PresentTarget->GetImageCount();
+        if (imageCount != previousImageCount)
+        {
+            LogMsg(LogSeverity::Info, LogRenderer, "Swapchain image count changed: {} -> {}",
+                   previousImageCount, imageCount);
+
+            // Discards the vertex/index buffer ring the backend built for the
+            // old count. The ring is rebuilt from InitInfo::ImageCount, which
+            // stays at the value Init() was given — ImGui exposes no setter for
+            // it — so it does not track this. That is safe rather than merely
+            // tolerable: the ring is only reused once every Count frames, and
+            // Count is at least 2, which is NUM_FRAMES_IN_FLIGHT. The draw
+            // fence waited on at the top of a frame therefore always covers the
+            // frame whose slot is about to be overwritten.
+            ImGui_ImplVulkan_SetMinImageCount(imageCount);
+        }
     }
 
     void CreateDescriptorSetLayouts()
@@ -2230,7 +2295,7 @@ private:
             m_Frames[i].DepthTexture = Texture(
                 *m_RhiDevice,
                 Rhi::TextureDesc{.Format = m_DepthFormat,
-                                 .Extent = {m_SwapchainExtent.width, m_SwapchainExtent.height, 1u},
+                                 .Extent = {SwapchainExtent().width, SwapchainExtent().height, 1u},
                                  .Usage = Rhi::TextureUsage::DepthStencilAttachment |
                                           Rhi::TextureUsage::Sampled,
                                  .DebugName = std::format("Frame_{} Depth Image", i)},
@@ -2337,7 +2402,7 @@ private:
             return Texture(
                 *m_RhiDevice,
                 Rhi::TextureDesc{.Format = format,
-                                 .Extent = {m_SwapchainExtent.width, m_SwapchainExtent.height, 1u},
+                                 .Extent = {SwapchainExtent().width, SwapchainExtent().height, 1u},
                                  .Usage = Rhi::TextureUsage::ColorAttachment |
                                           Rhi::TextureUsage::Sampled,
                                  .DebugName = name},
@@ -2498,7 +2563,7 @@ private:
     vk::raii::Queue& m_GraphicsQueue;
     uint32_t m_QueueIndex;
 
-    vk::raii::SwapchainKHR m_Swapchain = nullptr;
+    std::unique_ptr<Rhi::IPresentTarget> m_PresentTarget;
     vk::raii::PipelineLayout m_OpaquePipelineLayout = nullptr;
     vk::raii::PipelineLayout m_TransparentPipelineLayout = nullptr;
     vk::raii::PipelineLayout m_CompositePipelineLayout = nullptr;
@@ -2521,16 +2586,8 @@ private:
     Rhi::UniqueHandle<Rhi::BufferHandle> m_QuadVertexBuffer;
     Rhi::UniqueHandle<Rhi::BufferHandle> m_QuadIndexBuffer;
 
-    vk::SurfaceFormatKHR m_SwapchainSurfaceFormat;
-    vk::Extent2D m_SwapchainExtent;
-    // The presentation engine owns the images; these handles only name them, so
-    // releasing one frees nothing. The views on top of them are the device's,
-    // and are declared second so that they are released first.
-    std::vector<Rhi::UniqueHandle<Rhi::TextureHandle>> m_SwapTextures;
-    std::vector<Rhi::UniqueHandle<Rhi::TextureViewHandle>> m_SwapImageViews;
-    uint32_t m_MinImageCount = 0;
-    // Set when a recreation could not be carried out because the surface had no
-    // area. The frame loop retries and draws nothing until it clears.
+    // Set when the present target could not be rebuilt yet. The frame loop
+    // retries and draws nothing until it clears.
     bool m_bSwapchainOutOfDate = false;
 
     std::array<FrameData, NUM_FRAMES_IN_FLIGHT> m_Frames;
@@ -2538,7 +2595,6 @@ private:
     // Instances every frame's buffer has room for. A starting size, not a
     // ceiling — see GrowInstanceBuffers.
     uint32_t m_InstanceCapacity = 0u;
-    std::vector<vk::raii::Semaphore> m_RenderCompleteSemaphores;
 
     std::unique_ptr<SceneGraph> m_SceneGraph = nullptr;
 
@@ -2604,20 +2660,35 @@ int main(int argc, char** argv)
 
     // will be destroyed in reverse order of declaration. The platform must
     // outlive App: destroying it unloads the Vulkan library.
-    std::unique_ptr<SdlPlatform> pPlatform = nullptr;
+    //
+    // IPlatform rather than SdlPlatform because which implementation this is
+    // depends on --headless. SdlPlatform::ShowErrorMessageBox is static, so the
+    // SDLException handler below still works without an instance.
+    std::unique_ptr<IPlatform> pPlatform = nullptr;
     std::unique_ptr<Paths> pPaths = nullptr;
     std::unique_ptr<IJobSystem> pJobSystem = nullptr;
     std::unique_ptr<App> pApp = nullptr;
 
     try
     {
-        pPlatform = std::make_unique<SdlPlatform>(
-            WindowDesc{.Width = options.WindowSize.Width, .Height = options.WindowSize.Height});
+        const WindowDesc windowDesc{.Width = options.WindowSize.Width,
+                                    .Height = options.WindowSize.Height};
+
+        // One description, either implementation. A zero size means "you
+        // decide" to both of them: SdlPlatform asks the display, and
+        // HeadlessPlatform, having none, uses its documented constant.
+        if (options.bHeadless)
+            pPlatform = std::make_unique<HeadlessPlatform>(windowDesc);
+        else
+            pPlatform = std::make_unique<SdlPlatform>(windowDesc);
 
         // Before the device, so that the first swapchain is built at the size
         // the window ends up rather than at the windowed one. Where the
         // transition is asynchronous the resize still arrives late, as a
         // resize event, which costs one recreation and nothing else.
+        //
+        // Unreachable headless: --headless with a window-mode flag is rejected
+        // during parsing, so this is always Windowed there.
         if (options.StartWindowMode != WindowMode::Windowed)
             pPlatform->SetWindowMode(options.StartWindowMode);
 

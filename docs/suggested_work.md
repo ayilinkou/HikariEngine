@@ -4,7 +4,8 @@
 
 **Scope:** Full review of `src/`, `src/shaders/`, `CMakeLists.txt`, `CMakePresets.json` and the build scripts.
 
-**Status:** In progress, completed tasks have been removed.
+**Status:** In progress; completed tasks are removed as they land. Last reconciled against
+the tree on 25/08/2026, after Stage 5 and Part IV steps 35-36.
 
 ---
 
@@ -18,7 +19,6 @@
 6. [Part 4 — Shaders](#part-4--shaders)
 7. [Part 5 — Build system & tooling](#part-5--build-system--tooling)
 8. [Part 6 — Prioritised work order](#part-6--prioritised-work-order)
-9. [Appendix A — Quick checklist](#appendix-a--quick-checklist)
 
 ---
 
@@ -123,9 +123,9 @@ for (Mesh& mesh : m_Meshes)
 }
 ```
 
-Fixing [1.5](#15--p0-modeldataregistermesh-hands-out-pointers-that-resize-invalidates)
-with option 1 removes the "gap" case entirely, but keep the `IsValid()` guard as defence
-in depth: an assimp scene can legitimately contain a mesh that no node references.
+Item 1.5 (`RegisterMesh` handing out pointers that `resize` invalidates) is already fixed,
+which removes the "gap" case at its source — but keep the `IsValid()` guard as defence in
+depth: an assimp scene can legitimately contain a mesh that no node references.
 
 ---
 
@@ -141,8 +141,9 @@ background is `SKY_COLOR` as a clear colour instead (`main.cpp:1675-1676`).
 
 **Why it matters**
 
-~6 JPEGs of VRAM and load time for nothing. It also means bug
-[1.1](#11--p0-cubemaps-only-ever-upload-and-transition-face-0) is silent.
+~6 JPEGs of VRAM and load time for nothing. It also meant the since-fixed
+face-0-only cubemap upload bug went unnoticed for as long as it did — nothing sampled the
+result. That one now has a gpu test ("Every cubemap face lands on its own layer").
 
 **Fix**
 
@@ -158,51 +159,19 @@ Either delete the load, or finish the feature. Finishing it is cheap and high-im
 
 ---
 
-## 1.15 — **P2** Sync objects are not recreated when the swapchain image count changes
-
-**Where** `src/main.cpp:2006-2035` (`CreateSyncObjects`), `2037-2081`
-(`RecreateSwapchainAndRenderImages`)
-
-**What**
-
-`m_RenderCompleteSemaphores` is sized by `m_SwapImages.size()` and indexed by
-`imageIndex` in `DrawFrame` (`main.cpp:545`, `550`).
-`RecreateSwapchainAndRenderImages` recreates the swapchain — which can return a
-different image count — but never calls `CreateSyncObjects()`.
-
-Note `CreateSyncObjects` uses `emplace_back` without clearing, so simply calling it again
-would *append*. It needs a `clear()` first.
-
-**Why it matters**
-
-If the new swapchain has more images, `m_RenderCompleteSemaphores[imageIndex]` is an
-out-of-bounds `std::vector` access. Drivers do change image count across resize (notably
-when entering/leaving fullscreen or when `minImageCount` clamps against
-`maxImageCount` — see `ChooseSwapMinImageCount`, `src/Utility.h:97-107`).
-
-**Fix**
-
-```cpp
-void CreateSyncObjects()
-{
-    m_RenderCompleteSemaphores.clear();
-    for (size_t i = 0; i < m_SwapImages.size(); i++) { ... }
-    // per-frame objects only need creating once; guard or leave in place
-}
-```
-
-and call it from `RecreateSwapchainAndRenderImages()` after
-`CreateSwapchainImageViews()`. Also update `m_MinImageCount` /
-`ImGui_ImplVulkan_SetMinImageCount` if the count changed.
-
 # Part 2 — Architecture & code structure
 
-## 2.1 — **P2** `main.cpp` is 2,765 lines and is the whole engine
+## 2.1 — **P2** `main.cpp` is the whole engine
 
-`main.cpp` currently contains: SDL init, instance/device/swapchain creation, three
-pipeline builders, descriptor layout/pool/set management, all seven command-buffer
-recorders, render-target management, the global uniform buffer layout, the ImGui editor
-UI, the frame loop, input handling, and `main()`.
+~2,600 lines, down from 2,765 at the time of the review — SDL init, device creation and
+swapchain management have since moved out to `Engine::Platform` and `Engine::RHI`. What is
+left is still most of an engine: three pipeline builders, descriptor layout/pool/set
+management, all seven command-buffer recorders, render-target management, the global uniform
+buffer layout, the ImGui editor UI, the frame loop, input handling, and `main()`.
+
+The suggested layout below predates `architecture_plan.md` §8-§9, which supersedes it — nine
+layered CMake targets rather than folders under `src/`, with the layering enforced by the
+build system. Read that instead; this is kept for the extraction *order*, which still holds.
 
 This is the single biggest brake on the project's velocity. Everything else in this
 document is easier after this split.
@@ -214,7 +183,7 @@ src/
   Core/        Log, Timer, ThreadPool, MyMacros, SwapbackArray, Common
   RHI/         VulkanContext (instance/device/queues/debug messenger)
                Swapchain     (swapchain + views + recreate + format choice)
-               Image, Buffer (wrap the free functions in Utility.h)
+               Image, Buffer (wrap the free functions in Utility.h — since done)
                PipelineBuilder
                DescriptorAllocator
   Renderer/    Renderer      (frame loop, submit, present)
@@ -234,8 +203,8 @@ src/
 2. `GlobalBuffer` / `CameraData` / `LightData` structs → `Renderer/GlobalBuffer.h`. These
    must stay byte-compatible with `src/shaders/common.slangh` — see
    [4.1](#41--p2-share-one-source-of-truth-for-gpu-struct-layouts).
-3. Pipeline creation → `RHI/PipelineBuilder`. See
-   [2.2](#22--p2-the-three-pipeline-builders-are-90-duplicated).
+3. Pipeline creation → `RHI/PipelineBuilder`. Done — the three near-identical builders
+   were merged during Stage 5.
 4. Instance/device/surface/debug-messenger → `RHI/VulkanContext`.
 5. Swapchain + views + `RecreateSwapchainAndRenderImages` → `RHI/Swapchain`.
 6. The five `Record*CommandBuffer` functions → one class per pass, behind a common
@@ -245,24 +214,26 @@ src/
 
 ## 2.6 — **P2** Fixed limits that are too low, and fail loudly rather than gracefully
 
+**Three of the four are fixed.** The instance buffer grows (`App::GrowInstanceBuffers` — the
+wait before the swap is the load-bearing part, not the reallocation); the material descriptor
+pool grows (`DescriptorAllocator::Grow`, with `kInitialMaterialSetCapacity` now documented as
+"a starting size, not a ceiling"); and exceeding the light limits logs a warning instead of
+dropping silently.
+
+**What is left:**
+
 | Limit | Where | Value | Problem |
 |---|---|---|---|
-| `MAX_INSTANCE_COUNT` | `main.cpp:27` | 1024 | `UpdateInstanceBuffer` **throws** on overflow (line 2472-2473), killing the app |
-| `s_MAX_MATERIAL_SET_COUNT` | `MaterialFactory.cpp:10` | 100 | Sponza alone has ~25; two or three models and descriptor-set allocation fails |
-| `s_MAX_TEXTURE_COUNT_PER_MAT` | `MaterialFactory.cpp:9` | 3 | Hard blocker for emissive / occlusion / clearcoat maps |
-| `MAX_POINT_LIGHTS` / `MAX_DIR_LIGHTS` | `src/Common.h` | — | Silently clamped in `UpdateGlobalBuffer` (lines 2200-2220), no warning |
+| `TextureBinding::COUNT` | `src/Texture.h:12` | 3 | Albedo / Normal / MetallicRoughness only — still a hard blocker for emissive, occlusion or clearcoat maps |
 
 **Fix**
 
-- Grow the instance buffer instead of throwing: on overflow, `waitIdle`, reallocate to
-  `max(needed, capacity * 2)`, remap, log once. Or move to a `eStorageBuffer` +
-  `shaderDrawParameters` (already enabled at `main.cpp:938`) and index by
-  `SV_InstanceID`, which removes the vertex-input plumbing for 8 attributes entirely.
-- Make the material descriptor pool growable: keep a `std::vector<vk::raii::DescriptorPool>`
-  and allocate a new pool when the current one returns
-  `eErrorOutOfPoolMemory`. This is a ~30-line `DescriptorAllocator` and is the standard
-  solution.
-- Log a warning (once) when lights are clamped, rather than silently dropping them.
+The three-texture cap is no longer a descriptor-pool ceiling, so it will not abort — it is
+now purely an expressiveness limit in the material model. Adding a fourth slot means touching
+the enum, the descriptor set layout, `PBRMaterial`'s writes and both surface shaders in step.
+That argues for doing it as part of **step 70 (bindless texture array + material params
+SSBO)** rather than on its own, since 70 removes the cap entirely rather than raising it by
+one. Raise it early only if a scene needs emissive before then.
 
 ## 2.7 — **P3** Smaller code-quality items
 
@@ -277,24 +248,15 @@ src/
 - **`CubemapLoader.cpp:51-90`** — the 6-case `switch` mapping index → path is more code
   than the data. Give `CubemapCreateInfo` a `std::array<std::string, 6> FacePaths` (or a
   `GetFace(size_t)` accessor) and loop.
-- **`Camera.h`** — `m_MoveSpeed` and `m_LookSens` have no in-class initialisers (only
-  `Camera()` sets them). Add defaults so a future constructor can't forget.
+- [DONE] **`Camera.h`** — `m_MoveSpeed` and `m_LookSens` now have in-class initialisers.
 - [DONE] **`Entity.h:76`, `Model.h:19`** — `static constexpr Transform GetDefaultTransform()`
   was duplicated and just returned `Transform{}`. Deleted both; `Transform{}` is clearer.
 - **`Entity.h:22-71`** — the four `GetComponents`/`GetFirstComponent` overloads use
   `dynamic_cast` in a loop. Fine at current scale; if the scene grows, a type-id keyed
-  map is the usual next step.
-- **`ResourceManager.cpp:36`, `MaterialFactory.cpp:23`, `CloudSystem.cpp:20,47,289`,
-  `PBRMaterial.cpp:37-40`, `Camera.h:32-33`, `SceneGraph.h:8-10`, `Drawable.h:13`** —
-  tab/space mixing that clang-format would fix. Add a `.clang-format` and a
-  `format` target so this stops recurring:
-  ```cmake
-  find_program(CLANG_FORMAT_EXE clang-format)
-  if(CLANG_FORMAT_EXE)
-    add_custom_target(format COMMAND ${CLANG_FORMAT_EXE} -i ${SOURCES}
-                      WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR})
-  endif()
-  ```
+  map is the usual next step. Superseded by the ECS at step 67 rather than worth fixing
+  separately.
+- [DONE] **Tab/space mixing** — `.clang-format` is in place with a pinned version, enforced
+  by `tests/scripts/format_check.sh` and by CI on all nine configurations.
 - **`XmlParser.cpp:281-282, 291-292`** — `append_attribute(...) = Vec3ToString(...)`
   passes a `std::string` where the sibling `WriteTransform` (lines 257-261) passes
   `.c_str()`. Make them consistent.
@@ -310,8 +272,12 @@ src/
 
 ## 3.1 — **P1** No mipmaps anywhere
 
-**Where** `src/Utility.h:216` (`.mipLevels = 1`), `src/Utility.h:198`
-(`.levelCount = 1u`), `src/main.cpp:2372` (`.maxLod = 0.f`)
+**Where** `rhi/TextureDesc.h` (`MipLevels = 1`), `rhi/TextureViewDesc.h` (`MipCount = 1u`),
+`rhi/SamplerDesc.h` (`MaxLod = 0.f`) and `App::CreateTextureSampler`, which takes that default
+
+`Utility.h` no longer exists; these moved into the RHI during Stage 5, and the descs carry the
+fields — nothing generates a chain or raises `MaxLod`. Anisotropy *is* enabled on the sampler,
+so it is currently paid for and does nothing.
 
 Every texture is created with a single mip level and the sampler is clamped to LOD 0,
 despite `mipmapMode = eLinear` and full anisotropy being enabled.
@@ -337,55 +303,11 @@ In `TextureLoader::Load`:
 4. `CreateImageView` needs `levelCount = mipLevels` (add a parameter).
 5. Sampler `maxLod = VK_LOD_CLAMP_NONE`.
 
-Do the same for cubemap faces once [1.1](#11--p0-cubemaps-only-ever-upload-and-transition-face-0)
-is fixed.
+Do the same for cubemap faces — the upload path itself is already correct.
 
 Alternative worth considering: a compute-shader downsample pass, which avoids the
 `blitImage` format-support caveat and is faster for large atlases. The `blit` route is
 simpler and correct — start there.
-
-## 3.2 — **P1** Every texture upload does a full `queue.waitIdle()`
-
-**Where** `src/Utility.h:164-172`
-
-```cpp
-inline void EndSingleTimeCommand(vk::CommandBuffer commandBuffer, vk::Queue queue)
-{
-    commandBuffer.end();
-    vk::SubmitInfo submitInfo{.commandBufferCount = 1, .pCommandBuffers = &commandBuffer};
-    queue.submit(submitInfo, nullptr);
-    queue.waitIdle();      // full pipeline drain, per resource
-}
-```
-
-Called once per texture, once per cubemap, twice per model (vertex + index buffer), and
-once for the noise bake. Sponza has ~25 materials × up to 3 textures ≈ 70 full GPU
-drains during load, and the same on every scene switch.
-
-**Fix**
-
-Batch uploads behind a small `UploadContext`:
-
-```cpp
-class UploadContext
-{
-public:
-    vk::raii::CommandBuffer& Begin();            // reuse one cmd buffer
-    void Flush();                                // submit once, wait on one fence
-    void KeepAlive(vk::raii::Buffer, vk::raii::DeviceMemory);  // staging lifetime
-};
-```
-
-Record all transitions and copies for a whole model (or whole scene load) into one command
-buffer, submit once, wait on one fence, then release the staging buffers. Expect load
-times to drop by an order of magnitude.
-
-While in here: use a **dedicated transfer queue** if the device exposes one.
-`CreateLogicalDevice` (`main.cpp:899-975`) currently requests a single queue and
-`ResourceManager::Init` is handed `m_GraphicsQueue`
-(`main.cpp:332-333`). `CloudSystemCreateInfo` even has a
-`// TODO: find and store a dedicated compute queue` (line 350-351). Enumerating and
-storing graphics/compute/transfer families is a contained change with a good payoff.
 
 ## 3.3 — **P3** Asset loading blocks the frame loop
 
@@ -458,21 +380,6 @@ scene that is usually static.
    `aiMesh::mAABB` with `aiProcess_GenBoundingBoxes`), transform to world, and test
    against the six frustum planes extracted from `viewProj` before emitting a drawable.
    With Sponza this alone is usually a large win when the camera is inside the atrium.
-
-## 3.5 — **P3** No pipeline cache
-
-**Where** `main.cpp:1190`, `1348`, `1471`, `CloudSystem.cpp:192`, `215` — all pass
-`nullptr` for the `vk::PipelineCache`.
-
-Five pipelines are compiled from scratch on every launch. Also
-`initInfo.PipelineCache = VK_NULL_HANDLE` in `InitImGui` (`main.cpp:305`).
-
-**Fix**
-
-Create one `vk::raii::PipelineCache` at startup, seeded from a file
-(e.g. `%LOCALAPPDATA%/VulkanApp/pipeline_cache.bin`), pass it to every
-`vk::raii::Pipeline` constructor, and `getData()` → write to disk at shutdown. Roughly 30
-lines for a noticeable startup improvement, and it scales as you add pipelines.
 
 ## 3.6 — **P3** Missing rendering features, in rough order of visual impact
 
@@ -676,9 +583,8 @@ float3 ShadeSurface(SurfaceSample s);   // both light loops + ambient
 
 Also worth cleaning while you are there:
 
-- `VS_Out::Color : TEXCOORD1` (`opaque.slang:56`, `weightedBlendedOIT.slang:55`) is
-  declared and interpolated in both shaders but never written or read. Delete it — it is
-  wasted interpolator bandwidth in the hottest shader in the frame.
+- [DONE] `VS_Out::Color : TEXCOORD1` was declared and interpolated in both shaders but never
+  written or read. Deleted, and the remaining semantics renumbered to close the gap.
 - `weightedBlendedOIT.slang:178-181`: `transmit` is a hardcoded `float3(0,0,0)`, so
   `premultipliedReflect.a *= 1.f - clamp(0, 0, 1)` is a no-op multiply by 1. Either wire
   up per-material transmission or delete the dead arithmetic and the `transmit`
@@ -693,126 +599,44 @@ Also worth cleaning while you are there:
   `tonemap.slangh` + `phase.slangh`, so a change to the BRDF doesn't force a recompile of
   the clouds and composite shaders.
 
-## 4.3 — **P3** Shader compilation ergonomics
-
-- Slang diagnostics are not surfaced usefully because compilation happens as a
-  `POST_BUILD` step of a dummy target — see
-  [5.4](#54--p1-shader-compilation-is-not-part-of-the-dependency-graph).
-- There is no `-warnings-as-errors` (or equivalent) on the `slangc` command line, so
-  shader warnings scroll past.
-- Consider adding `-fvk-invert-y` or documenting why the manual `colMajProj[1][1] *= -1`
-  approach was chosen instead; right now the reason lives in three duplicated comments in
-  `main.cpp` about `frontFace`.
-
----
-
 # Part 5 — Build system & tooling
 
-Some of the items from the earlier `compile_commands.json` discussion are already
-applied — `CMakeLists.txt:12-22` now guards `file(CREATE_LINK)` on
-`CMAKE_GENERATOR MATCHES "Ninja|Makefiles"` with a `RESULT` variable, and lines 125-134
-now select `/MP` for the Visual Studio generator vs
-`MSVC_DEBUG_INFORMATION_FORMAT "Embedded"` (`/Z7`) otherwise. Good. The following are
-still outstanding.
+**Nothing outstanding.** Every item this part raised has been done: the `compile_commands.json`
+guard, the MSVC debug-information split, the Ninja presets for Windows, a shared
+`VCPKG_INSTALLED_DIR`, the `/DEBUG` argument typo, CWD-relative asset paths (replaced by
+`Paths` and a content root), and tests + CI (Catch2, CTest labels, a nine-configuration
+matrix). Shader compilation ergonomics moved into `cmake/Shaders.cmake` with a real
+dependency graph, `-warnings-as-errors all` and a `spirv-val` pass.
 
-## 5.3 — **P2** `project(... LANGUAGES CXX)` — good; a few related notes
-
-`CMakeLists.txt:32-35` already restricts to `CXX`, which skips C compiler detection.
-Remaining items in the same area:
-
-- **`CMakePresets.json`**: the `msvc` preset still uses the `Visual Studio 17 2022`
-  generator, which cannot emit `compile_commands.json`. Add the Ninja presets discussed
-  previously (`windows-ninja-base` → `ninja-debug-windows` / `ninja-release-windows`,
-  generator `Ninja`, `CMAKE_CXX_COMPILER: cl`) so the LSP has a compilation database on
-  Windows. Keep the Visual Studio preset for `.sln` generation via `GENERATE_SLN.bat`.
-- **Shared `VCPKG_INSTALLED_DIR`**: not required, but pointing multiple build trees at one
-  `vcpkg_installed` saves ~1 GB per tree. Only one configure may hold the lock at a time.
-- **`target_link_options` typo**: `CMakeLists.txt:145` has
-  `$<$<CONFIG:Release>:/DEBUG >` — note the trailing space inside the genex, which
-  produces the argument `"/DEBUG "`. Harmless with `link.exe` but remove it.
-- **`VS_DEBUGGER_WORKING_DIRECTORY`** (`CMakeLists.txt:207-208`) only affects the Visual
-  Studio debugger. Under Ninja you must launch from the source directory, because asset
-  paths are CWD-relative (`"shaders/opaque.spv"`, `"models/sponza/Sponza.gltf"`,
-  `"textures/skybox/right.jpg"`, `"scenes/"`). Two options:
-  - Add a `launch.json` / debugger working directory for your editor, **and**
-  - Better: resolve assets against an explicit content root instead of the CWD. A
-    `Paths::Content()` helper that prefers an env var, then the executable's directory,
-    then the source dir, removes a whole class of "works in VS, crashes from the
-    terminal" reports.
-
-## 5.6 — **P3** No tests, no CI
-
-There is currently no way to know that a refactor of `ResourceManager` or `ModelManager`
-broke something except by running the app and looking at it.
-
-The pure-logic pieces are testable with no GPU at all:
-
-- `SwapbackArray` — `RemoveAt`, `Erase`, iterator invalidation
-- `ThreadPool` — submit/await, shutdown with pending jobs, the `hardware_concurrency() <= 1`
-  case from [1.8](#18--p1-threadpoolinit-underflows-when-hardware_concurrency-returns-0)
-- `Transform` / `Node::ToMat4` — matrix composition and the transpose convention
-- `XmlParser` — save→load round-trip on a synthetic `SceneGraph`
-- `ModelManager::GenerateBatches` — batch boundaries and instance ordering, given fake
-  `Drawable`s
-- `Material::DetectBlendMode` — the fix from
-  [1.3](#13--p0-materialdetectblendmode-reads-an-uninitialised-float)
-
-vcpkg already manages your dependencies, so adding `catch2` or `gtest` to `vcpkg.json`
-plus a `VulkanAppTests` target is a small step. A GitHub Actions matrix
-(windows-latest + ubuntu-latest, configure + build + test) would then catch the
-platform-specific breakage that currently only shows up when you switch machines.
-
----
+New build-system work is tracked in the architecture plan's independent-work table rather
+than reopened here — the one open item, `rhi_boundary_check` running in precommit but not in
+CI, lives there.
 
 # Part 6 — Prioritised work order
 
-Ordered so that each slice is independently shippable and low-risk, and so that the
-debugging tools land before the hard bugs.
+> **Superseded.** This ordering was written before `architecture_plan.md` Part IV existed,
+> and Part IV's 76-step work order is what the project actually follows. Most of what
+> follows is done; the rest has been absorbed into numbered steps there. Kept only as the
+> record of what the original review thought the sequence should be.
 
-### Priority 3 — Synchronisation and resize correctness (1 day)
+What remains from this part, and where it now lives:
 
-17. Recreate sync objects on image-count change ([1.15](#115--p2-sync-objects-are-not-recreated-when-the-swapchain-image-count-changes)).
+| Original item | Now |
+|---|---|
+| Guard `ModelData::Init` against invalid meshes ([1.6](#16--p0-modeldatainit-will-throw-or-crash-on-sparse-mesh-indices)) | Still open, still **P0**. Independent-work table |
+| Mip generation + `maxLod` + `levelCount` ([3.1](#31--p1-no-mipmaps-anywhere)) | Part IV step 72 |
+| Extract `Editor/EditorUI` out of `main.cpp` ([2.1](#21--p2-maincpp-is-the-whole-engine)) | Part IV steps 53–54, Stage 8 |
+| `surface.slangh` de-duplication ([4.2](#42--p2-opaqueslang-and-weightedblendedoitslang-duplicate-130-lines)) | Independent-work table |
+| `SharedTypes.h` + `static_assert`s ([4.1](#41--p2-share-one-source-of-truth-for-gpu-struct-layouts)) | Part IV step 48 |
+| Dirty flags, cached normal matrices, non-allocating `AppendDrawables` ([3.4](#34--p3-batches-instance-data-and-the-global-buffer-are-rebuilt-from-scratch-every-frame)) | Part IV steps 61, 63 |
+| Frustum culling with per-mesh AABBs | Part IV step 65 |
+| Reverse-Z | Part IV step 74 |
+| Instance data → SSBO + `SV_InstanceID` | Part IV step 69 |
+| Cloud shader: expose parameters in ImGui ([3.7](#37--p3-cloud-shader-cost)) | Independent-work table (the other three cloud items are done) |
+| Async scene loading ([3.3](#33--p3-asset-loading-blocks-the-frame-loop)) | Part IV step 73 |
+| Skybox + IBL ([1.14](#114--p2-the-skybox-is-loaded-but-never-rendered)) | Independent-work table |
+| Shadow maps; depth prepass, SSAO, bloom, FXAA | Part IV step 75 and Stage 10; see [3.6](#36--p3-missing-rendering-features-in-rough-order-of-visual-impact) |
 
-### Priority 4 — Model loading correctness (1–2 days)
-
-19. Guard `ModelData::Init` against invalid meshes ([1.6](#16--p0-modeldatainit-will-throw-or-crash-on-sparse-mesh-indices)).
-
-### Priority 5 — Mipmaps and upload batching (2–3 days)
-
-21. `UploadContext` to batch transfers and kill the per-resource `waitIdle` ([3.2](#32--p1-every-texture-upload-does-a-full-queuewaitidle)).
-22. Mip generation + `maxLod` + `levelCount` ([3.1](#31--p1-no-mipmaps-anywhere)).
-
-Big, immediately visible quality and load-time improvement.
-
-### Priority 6 — First architecture slice (3–5 days)
-
-26. Extract `Editor/EditorUI` out of `main.cpp` ([2.1](#21--p2-maincpp-is-2765-lines-and-is-the-whole-engine), step 1).
-27. `surface.slangh` to de-duplicate the two surface shaders ([4.2](#42--p2-opaqueslang-and-weightedblendedoitslang-duplicate-130-lines)).
-28. `SharedTypes.h` + `static_assert`s for GPU struct layouts ([4.1](#41--p2-share-one-source-of-truth-for-gpu-struct-layouts)).
-
-This is the point at which the codebase stops fighting you.
-
-### Priority 7 — Descriptor and resource management (3–5 days)
-
-29. Growable `DescriptorAllocator`, remove the 100-material-set ceiling ([2.6](#26--p2-fixed-limits-that-are-too-low-and-fail-loudly-rather-than-gracefully)).
-31. Growable instance buffer, or move to an SSBO + `SV_InstanceID`.
-
-### Priority 8 — Frame-time work (3–5 days)
-
-32. Dirty-flag batch regeneration, cached normal matrices, non-allocating `AppendDrawables` ([3.4](#34--p3-batches-instance-data-and-the-global-buffer-are-rebuilt-from-scratch-every-frame)).
-33. Frustum culling with per-mesh AABBs.
-34. Pipeline cache ([3.5](#35--p3-no-pipeline-cache)).
-35. Reverse-Z ([3.6](#36--p3-missing-rendering-features-in-rough-order-of-visual-impact)) — small change, large quality win at `FAR_PLANE = 10000`.
-36. Cloud shader: hoist the sun-slab setup, guard `DirLights[0]`, epsilon on `dir.y`, expose the parameters in ImGui ([3.7](#37--p3-cloud-shader-cost)).
-
-### Priority 9 — Async loading (3–5 days)
-
-37. Move scene loading onto the thread pool with a progress UI ([3.3](#33--p3-asset-loading-blocks-the-frame-loop)).
-38. Enumerate and use a dedicated transfer queue (and a dedicated compute queue for the clouds).
-
-### Priority 10 — Features (open-ended)
-
-39. Finish the skybox and use it for IBL ([1.14](#114--p2-the-skybox-is-loaded-but-never-rendered), [3.6](#36--p3-missing-rendering-features-in-rough-order-of-visual-impact)).
-40. Shadow maps (cascaded, for the directional light).
-41. Depth prepass, SSAO, bloom, FXAA.
-42. Tests + CI ([5.6](#56--p3-no-tests-no-ci)).
+Done since the review: sync-object recreation on image-count change, `UploadContext` batching
+with a dedicated copy queue, the growable `DescriptorAllocator` and instance buffer, the
+pipeline cache, and tests + CI.

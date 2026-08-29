@@ -18,14 +18,27 @@
 // rather than needing a new preset for a variation.
 namespace Rhi::BarrierPresets
 {
-// The swapchain image just acquired from the presentation engine, made ready to
-// render into.
+// The image just acquired from a present target, made ready to render into.
+// Named for the acquire rather than for the swapchain because a headless target
+// hands one back on exactly the same terms.
 //
-// Undefined as the old layout is deliberate and not laziness: the contents of
-// an acquired image are undefined by definition, so there is nothing to
-// preserve, and naming the real previous layout would only force the driver to
-// keep pixels the next pass overwrites.
-inline constexpr TextureBarrier AcquiredSwapchainToRenderTarget()
+// Undefined as the old layout is a deliberate discard, not a shortcut past
+// naming the real one — and specifically not because the contents are
+// unreadable. They are not: reacquiring a presented image and transitioning it
+// out of the present layout gives back exactly what was presented, unless
+// something outside Vulkan has touched the window (Vulkan 1.4, *Presenting
+// Images*). Discarding is correct anyway, because the pass that follows clears
+// the whole render area, so naming the previous layout would only make the
+// driver preserve pixels that are overwritten a command later.
+//
+// The source stage is RenderTarget rather than None, and that is load-bearing:
+// an acquire hands back semaphores the submit waits on at the stage of its
+// first write, and a layout transition is only ordered after a semaphore wait
+// if the barrier's source stage covers the stage that was waited at. With an
+// empty source scope the transition may run before the wait completes — the
+// classic under-synchronized acquire, which is correct on the driver it was
+// written on and a corrupt first frame elsewhere.
+inline constexpr TextureBarrier AcquiredImageToRenderTarget()
 {
     return TextureBarrier{
         .SrcStage = PipelineStage::RenderTarget,
@@ -84,13 +97,20 @@ inline constexpr TextureBarrier PreserveRenderTarget()
     };
 }
 
-// The finished swapchain image, handed back to the presentation engine.
+// The finished image at the end of the frame, left in the layout its present
+// target requires — IPresentTarget::GetRequiredFinalLayout(), which is
+// TextureLayout::Present for a swapchain.
+//
+// Takes the layout rather than naming one because what the frame owes at its end
+// is the target's business, not the renderer's: a target with no presentation
+// engine requires nothing at all, and its caller records no barrier instead of
+// calling this.
 //
 // Nothing waits on this transition inside the command list, which is what the
 // empty destination scope says. What makes it safe is the semaphore the present
 // waits on: its signal happens after every command in the submission, this one
 // included.
-inline constexpr TextureBarrier RenderTargetToPresent()
+inline constexpr TextureBarrier RenderTargetToFinal(TextureLayout finalLayout)
 {
     return TextureBarrier{
         .SrcStage = PipelineStage::RenderTarget,
@@ -98,7 +118,7 @@ inline constexpr TextureBarrier RenderTargetToPresent()
         .DstStage = PipelineStage::None,
         .DstAccess = AccessFlags::None,
         .OldLayout = TextureLayout::RenderTarget,
-        .NewLayout = TextureLayout::Present,
+        .NewLayout = finalLayout,
     };
 }
 
@@ -116,9 +136,10 @@ inline constexpr TextureBarrier RenderTargetToCopySrc()
     };
 }
 
-// The same image once the capture copy has read it, handed back to the
-// presentation engine. See RenderTargetToPresent() for why nothing waits.
-inline constexpr TextureBarrier CopySrcToPresent()
+// The same image once the capture copy has read it, left in the layout its
+// present target requires. See RenderTargetToFinal() for both the parameter and
+// why nothing waits.
+inline constexpr TextureBarrier CopySrcToFinal(TextureLayout finalLayout)
 {
     return TextureBarrier{
         .SrcStage = PipelineStage::Copy,
@@ -126,7 +147,7 @@ inline constexpr TextureBarrier CopySrcToPresent()
         .DstStage = PipelineStage::None,
         .DstAccess = AccessFlags::None,
         .OldLayout = TextureLayout::CopySrc,
-        .NewLayout = TextureLayout::Present,
+        .NewLayout = finalLayout,
     };
 }
 
