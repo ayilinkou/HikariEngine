@@ -69,7 +69,7 @@ sites) and `engine/rhi` ↔ `engine/core` (`RhiTypes.h`).
 | 3 | `test/ci` | Split platform-independent checks into their own CI job | done |
 | 4 | `test/baseline` | Baseline captures without UI and reports measured frame times | done |
 | 5 | `fix/signals` | Added SIGTERM handling and screenshot capture on exit | done |
-| 6 | `engine/rhi` | Curated the swapchain format fallback and removed unused RHI code | not started |
+| 6 | `engine/rhi` | Curated the swapchain format fallback and removed unused RHI code | done (three commits) |
 | 7 | `engine/core` | Moved Extent2D and Extent3D into Engine/Core | not started |
 | 8 | `platform/sdl` | Removed the redundant SDL Vulkan loader calls | not started |
 
@@ -323,6 +323,14 @@ working as designed.
 `tests/gpu/rhi/PresentTargetTests.cpp`, which reaches it through the RHI's private
 `src/vulkan/OffscreenTarget.h`; the app does not use it, having its own screenshot staging
 buffer at `main.cpp:1105`. The cases move onto `tests/support/GpuReadback.h`.
+
+**The target keeps one thing the plan did not foresee.** `Readback` also consumed the image's
+pending render-complete signal — bookkeeping only the target can maintain, since a binary
+semaphore must be unsignalled before it may be signalled again and the next `Acquire` hands back
+a wait based on that flag. So the copy moved out but a small accessor moved in:
+`TakePendingSignal(index)`, which hands over the semaphore and marks it consumed. Net, the
+backend loses ~100 lines and gains ~10, and the ordering is now visible at the call site rather
+than hidden inside a method.
 
 **The helper must take the wait semaphore explicitly.** `Readback` is not a byte copy: it waits
 on the target's render-complete semaphore for that image index, and `PresentTargetTests.cpp:318`

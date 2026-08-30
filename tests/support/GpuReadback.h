@@ -7,6 +7,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -44,7 +45,8 @@ namespace RhiTest
  * failure leave the next one recording into a half-used buffer.
  */
 inline void RunGraphicsCommands(Hikari::Rhi::IDevice& device,
-                                const std::function<void(Hikari::Rhi::ICommandList&)>& record)
+                                const std::function<void(Hikari::Rhi::ICommandList&)>& record,
+                                std::optional<Hikari::Rhi::SemaphoreHandle> waitSemaphore = {})
 {
     vk::raii::Device& vkDevice = Hikari::Rhi::Vulkan::GetDevice(device);
 
@@ -65,7 +67,19 @@ inline void RunGraphicsCommands(Hikari::Rhi::IDevice& device,
     vk::raii::Fence fence(vkDevice, vk::FenceCreateInfo{});
 
     const vk::CommandBuffer rawCommandBuffer = *cmd;
-    const vk::SubmitInfo submitInfo{.commandBufferCount = 1u,
+
+    // Waiting rather than calling WaitIdle, when the caller has a semaphore to
+    // give: the wait is the ordering, and a WaitIdle would hide a caller that
+    // established none. ColorAttachmentOutput because that is what an offscreen
+    // target's render-complete semaphore is signalled from.
+    const vk::Semaphore waitHandle =
+        waitSemaphore ? Hikari::Rhi::Vulkan::GetSemaphore(device, *waitSemaphore) : nullptr;
+    constexpr vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+
+    const vk::SubmitInfo submitInfo{.waitSemaphoreCount = waitSemaphore ? 1u : 0u,
+                                    .pWaitSemaphores = waitSemaphore ? &waitHandle : nullptr,
+                                    .pWaitDstStageMask = waitSemaphore ? &waitStage : nullptr,
+                                    .commandBufferCount = 1u,
                                     .pCommandBuffers = &rawCommandBuffer};
     Hikari::Rhi::Vulkan::GetGraphicsQueue(device).submit(submitInfo, *fence);
 
@@ -198,4 +212,80 @@ ReadTextureLayers(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle sourc
 
     return layers;
 }
+/**
+ * The bytes of a rendered image, tightly packed and row-major.
+ *
+ * This is what OffscreenTarget::Readback used to do, moved here because nothing
+ * outside these tests ever called it — the renderer's own screenshot path
+ * stages its copy inside the frame instead.
+ *
+ * `waitSemaphore` is the target's pending render-complete signal, taken with
+ * OffscreenTarget::TakePendingSignal. Passing it explicitly is the point: the
+ * wait is what orders this copy after the render that produced the image, and a
+ * helper that reached for WaitIdle instead would let a target that established
+ * no dependency at all still pass.
+ *
+ * `currentLayout` is where the last frame left the image. The barrier's source
+ * scope names the render target rather than nothing, because a barrier is only
+ * ordered after a semaphore wait when its source stage covers the stage waited
+ * at.
+ */
+inline std::vector<std::byte>
+ReadRenderedTexture(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle source,
+                    Hikari::Rhi::Extent2D extent, Hikari::Rhi::Format format,
+                    Hikari::Rhi::TextureLayout currentLayout,
+                    std::optional<Hikari::Rhi::SemaphoreHandle> waitSemaphore)
+{
+    const uint32_t bytesPerTexel = Hikari::Rhi::BytesPerTexel(format);
+    REQUIRE(bytesPerTexel != 0u);
+
+    const uint64_t size = static_cast<uint64_t>(extent.Width) * extent.Height * bytesPerTexel;
+
+    // GpuToCpu rather than CpuToGpu: this is read back randomly by the CPU
+    // afterwards, and CpuToGpu may land in write-combined memory where reading
+    // is pathologically slow rather than merely uncached.
+    const Hikari::Rhi::UniqueHandle<Hikari::Rhi::BufferHandle> staging(
+        device, device.CreateBuffer(Hikari::Rhi::BufferDesc{
+                    .Size = size,
+                    .Usage = Hikari::Rhi::BufferUsage::CopyDst,
+                    .Access = Hikari::Rhi::MemoryAccess::GpuToCpu,
+                    .DebugName = "Rendered Texture Readback"}));
+
+    const Hikari::Rhi::TextureBarrier toCopySrc{
+        .Texture = source,
+        .SrcStage = Hikari::Rhi::PipelineStage::RenderTarget,
+        .SrcAccess = Hikari::Rhi::AccessFlags::RenderTargetWrite,
+        .DstStage = Hikari::Rhi::PipelineStage::Copy,
+        .DstAccess = Hikari::Rhi::AccessFlags::CopySrc,
+        .OldLayout = currentLayout,
+        .NewLayout = Hikari::Rhi::TextureLayout::CopySrc,
+        .Aspect = Hikari::Rhi::DefaultAspect(format),
+    };
+
+    RunGraphicsCommands(
+        device,
+        [&](Hikari::Rhi::ICommandList& list)
+        {
+            list.Barrier(toCopySrc);
+
+            // No BufferOffset and no row length: BufferTextureCopyRegion is
+            // tightly packed by definition, which is what makes the returned
+            // bytes usable as an image without the caller knowing a stride.
+            list.CopyTextureToBuffer(source, staging.Get(),
+                                     Hikari::Rhi::BufferTextureCopyRegion{
+                                         .Aspect = Hikari::Rhi::DefaultAspect(format),
+                                         .Extent = {extent.Width, extent.Height, 1u}});
+        },
+        waitSemaphore);
+
+    const void* pMapped = device.GetMappedData(staging.Get());
+    REQUIRE(pMapped != nullptr);
+
+    // Copied out rather than handed back as a view: the staging buffer is freed
+    // on the way out of this function, and a span into it would dangle.
+    std::vector<std::byte> bytes(static_cast<size_t>(size));
+    std::memcpy(bytes.data(), pMapped, bytes.size());
+    return bytes;
+}
+
 } // namespace RhiTest

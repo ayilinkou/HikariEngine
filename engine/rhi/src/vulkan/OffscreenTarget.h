@@ -62,28 +62,18 @@ public:
     [[nodiscard]] bool Recreate(Extent2D newExtent) override;
 
     /**
-     * The contents of image `index`, tightly packed and row-major:
-     * Width * Height * BytesPerTexel(GetFormat()) bytes, no row padding.
+     * Hands over the pending render-complete signal for `index`, if there is
+     * one, and marks it consumed.
      *
-     * Not on IPresentTarget, and not an oversight. A swapchain's images belong
-     * to the presentation engine and may only be touched between an acquire and
-     * the present that hands them back, so "read that image now" is not a
-     * question a swapchain can answer at all — a caller wanting a windowed
-     * capture copies the image inside its own frame instead. This target owns
-     * its images outright, which is exactly what makes the question answerable.
-     *
-     * `currentLayout` is the layout the caller's last barrier left the image in.
-     * The target records no commands of its own during a frame, so it cannot
-     * know; naming it is what keeps the transition correct instead of plausible.
-     * The image is left in CopySrc, which costs the caller nothing — the next
-     * Acquire transitions from Undefined regardless.
-     *
-     * Blocks until the copy has completed, and allocates a staging buffer per
-     * call. Both are deliberate: this is a capture, taken once or twice in a
-     * run, and a buffer kept alive between captures would outlive the extent it
-     * was sized for.
+     * Anything reading an image outside a frame has to wait on the same
+     * semaphore Acquire would have handed back — that wait is what orders the
+     * read after the render that produced the image. Taking it through here is
+     * what keeps the target's own bookkeeping true: a binary semaphore must be
+     * unsignalled before it may be signalled again, so a wait the target does
+     * not know about would leave the next Acquire handing back a wait that
+     * nothing will ever signal, and the frame after it hanging.
      */
-    [[nodiscard]] std::vector<std::byte> Readback(uint32_t index, TextureLayout currentLayout);
+    std::optional<SemaphoreHandle> TakePendingSignal(uint32_t index);
 
 private:
     struct Image
