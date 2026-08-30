@@ -29,5 +29,5 @@ fi
 #
 # Both only pin the extent to *this* display's. A capture that does not depend
 # on the display at all needs an offscreen render target (Part IV steps 38-39).
-./build/$PRESET/VulkanApp --report --screenshot --frames --fixed-dt --scene --camera-preset 1 \
+./build/$PRESET/HikariEngine --report --screenshot --frames --fixed-dt --scene --camera-preset 1 \
     --resolution 1920x1080 --borderless

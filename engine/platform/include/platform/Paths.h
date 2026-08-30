@@ -10,7 +10,7 @@
 struct ContentRootCandidates
 {
     std::filesystem::path CommandLineOverride{}; // --content
-    std::filesystem::path EnvironmentOverride{}; // VULKANAPP_CONTENT
+    std::filesystem::path EnvironmentOverride{}; // HIKARI_CONTENT
     std::filesystem::path ExecutableRelative{};  // <exe dir>/content
     std::filesystem::path SourceRelative{};      // <source dir>/content
 };

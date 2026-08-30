@@ -403,7 +403,7 @@ engine_module(RHI
 ```
 
 Root `CMakeLists.txt`: `add_subdirectory(engine/rhi)` after `engine/platform`, then
-`Engine::RHI` added to `VulkanApp`'s `target_link_libraries` **and** to the
+`Engine::RHI` added to `HikariEngine`'s `target_link_libraries` **and** to the
 `engine_header_self_containment(App ... LINK_LIBRARIES ...)` list — a header under `src/`
 that includes `<rhi/...>` fails the header check otherwise.
 
@@ -579,7 +579,7 @@ are the ones later steps need to read.
     `Utility.h`.
   - **The RHI target now defines `DEBUG` PUBLIC in Debug configs.** `SetVkDebugName` is a
     template whose body is `#ifdef DEBUG`, so it is instantiated per calling translation unit.
-    Before this step every caller was in `VulkanApp`, which defines `DEBUG` itself, so they all
+    Before this step every caller was in `HikariEngine`, which defines `DEBUG` itself, so they all
     agreed. With callers now on both sides of the boundary, a module that did not define it
     would instantiate an empty body while the application instantiated a real one — an ODR
     violation whose only symptom is debug names going missing from some objects and not others,
@@ -1419,7 +1419,7 @@ are the ones later steps need to read.
   nothing.
 
   **The user data directory is new, and lives in `Paths`.** `Paths::UserDataRoot()` /
-  `UserData()` resolve `VULKANAPP_USER_DATA`, else `SDL_GetPrefPath` — which creates the
+  `UserData()` resolve `HIKARI_USER_DATA`, else `SDL_GetPrefPath` — which creates the
   directory and gives the right answer per platform. Two rules differ from the content root
   deliberately: an explicit override is *created* rather than required to exist, since nothing
   ships there; and failure is not fatal. Everything written to it is regenerable, so the root

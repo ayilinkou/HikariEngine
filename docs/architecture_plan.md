@@ -1,4 +1,4 @@
-# VulkanApp — Architecture Report & Target Structure
+# HikariEngine — Architecture Report & Target Structure
 
 **Date:** 14/08/2026
 
@@ -79,7 +79,7 @@ supports (a) headless + automated runtime testing, (b) data-oriented performance
 | C++ lines | ≈ 7,100 |
 | `src/main.cpp` | 2,453 lines (**≈ 35% of all C++**) |
 | Slang shader files | 7 (5 `.slang`, 2 `.slangh`), ≈ 860 lines |
-| Build targets | 1 executable (`VulkanApp`) + 1 shader custom target + 1 fetched dep |
+| Build targets | 1 executable (`HikariEngine`) + 1 shader custom target + 1 fetched dep |
 | Test targets | **0** |
 | CI jobs | 7 (configure + build only, 3 OS × Debug/Release + Linux ASan) |
 | Directory nesting under `src/` | 1 level (`src/shaders/`); everything else is flat |
@@ -138,7 +138,7 @@ Three edges are worth calling out because they will fight every refactor:
    therefore a `VkDevice`.
 2. **`CloudSystem` stores `vk::raii::Device&` and three more references** to `App`
    members. It cannot outlive or be constructed without an `App`.
-3. **Every header depends on the PCH force-include.** `target_precompile_headers(VulkanApp
+3. **Every header depends on the PCH force-include.** `target_precompile_headers(HikariEngine
    PRIVATE src/pch.h)` means headers compile only inside this one target. A second target
    (test, tool, headless app) will not compile them without duplicating the PCH.
 
@@ -397,8 +397,8 @@ Nine CMake targets. Arrows point to allowed dependencies; nothing else may be li
 | `Render` | static lib | `Core`, `RHI`, `Assets` | ECS internals (receives snapshots) |
 | `Engine` | static lib | all of the above | ImGui |
 | `Editor` | static lib | `Engine`, ImGui, ImGuiFileDialog | — |
-| `VulkanApp` | exe | `Engine`, `Editor` | — |
-| `VulkanAppHeadless` | exe | `Engine` | ImGui, `Editor` |
+| `HikariEngine` | exe | `Engine`, `Editor` | — |
+| `HikariEngineHeadless` | exe | `Engine` | ImGui, `Editor` |
 | `Tests*` | exe | whichever layer is under test | — |
 
 Note the two important non-dependencies:
@@ -431,7 +431,7 @@ Public headers live in `include/<module>/`, private ones next to the `.cpp`. Inc
 ## 9. Target directory layout
 
 ```
-VulkanApp/
+HikariEngine/
 ├── CMakeLists.txt                  # top-level: options, deps, add_subdirectory only
 ├── CMakePresets.json
 ├── cmake/
@@ -539,7 +539,7 @@ VulkanApp/
 │       └── src/…
 │
 ├── apps/
-│   ├── vulkanapp/main.cpp          # ~40 lines: parse args, Engine, Editor, Run
+│   ├── hikariengine/main.cpp       # ~40 lines: parse args, Engine, Editor, Run
 │   └── headless/main.cpp           # ~30 lines: parse args, Engine, Run, print report
 │
 ├── shaders/                         # SOURCE (moved out of src/)
@@ -795,7 +795,7 @@ int main(int argc, char** argv)
 }
 ```
 
-The same `Engine` runs windowed and headless. `apps/vulkanapp/main.cpp` differs only in
+The same `Engine` runs windowed and headless. `apps/hikariengine/main.cpp` differs only in
 that it constructs `SdlPlatform` and attaches `EditorLayer`.
 
 ## 11. Data-oriented core
@@ -1534,11 +1534,11 @@ is the moment headless becomes real, and it is the highest-leverage phase in the
 - `Paths` content root; move `models/`, `textures/`, `scenes/` under `content/`; shader
   output to `content/shaders/`.
 - `HeadlessPlatform` + scripted input.
-- `apps/vulkanapp` and `apps/headless`; `main.cpp` drops to ~40 lines.
+- `apps/hikariengine` and `apps/headless`; `main.cpp` drops to ~40 lines.
 - Delete the singletons in favour of constructor injection (mechanical but touches many
   files — do it here, while the call sites are already moving).
 
-**Exit:** `VulkanAppHeadless --scene content/scenes/test_scene.map --frames 5 --headless`
+**Exit:** `HikariEngineHeadless --scene content/scenes/test_scene.map --frames 5 --headless`
 runs and prints a `RunReport`. Add `scene_launch` to CI. **The user's stated CI goal is met
 at the end of this phase**, before any DOD work.
 
@@ -1657,7 +1657,7 @@ error counter **to the existing `main.cpp`**, with no restructuring at all. They
 day. After them, "did my refactor change anything?" is answered by:
 
 ```
-VulkanApp --scene content/scenes/test_scene.map --camera-preset 0 \
+HikariEngine --scene content/scenes/test_scene.map --camera-preset 0 \
           --fixed-dt --frames 30 --screenshot after.png --report after.json
 ```
 
@@ -1703,14 +1703,14 @@ Purpose: make every later step objectively checkable. All changes are additive a
   (`ScenePath`, `Frames`, `bFixedDt`, `ScreenshotPath`, `ReportPath`, `CameraPreset`,
   `bHeadless` — accepted but unused for now). Pass it into `App`. Add `--help`.
   `main()` currently takes no arguments at all (`int main()`), so this also fixes that.
-- **Verify:** `VulkanApp --help` prints the options and exits 0. `VulkanApp` with no
+- **Verify:** `HikariEngine --help` prints the options and exits 0. `HikariEngine` with no
   arguments behaves exactly as before.
 - **Size:** S · **Needs:** —
 
 ### 2. Frame limit and clean exit
 - **Do:** In `App::Run`, increment a frame counter and set `g_bShouldClose` when
   `Options::Frames != 0 && count >= Frames`.
-- **Verify:** `VulkanApp --frames 30` renders 30 frames, exits with code 0, and prints no
+- **Verify:** `HikariEngine --frames 30` renders 30 frames, exits with code 0, and prints no
   validation errors. `echo $LASTEXITCODE` / `echo %ERRORLEVEL%` is 0.
 - **Size:** XS · **Needs:** 1
 
@@ -1718,7 +1718,7 @@ Purpose: make every later step objectively checkable. All changes are additive a
 - **Do:** If `Options::ScenePath` is non-empty, call `XmlParser::LoadScene` during `Init()`
   instead of requiring the ImGui file dialog. This is the same code path the dialog already
   uses at `main.cpp:691`.
-- **Verify:** `VulkanApp --scene scenes/sponza_scene.map --frames 30` shows Sponza without
+- **Verify:** `HikariEngine --scene scenes/sponza_scene.map --frames 30` shows Sponza without
   any UI interaction.
 - **Size:** XS · **Needs:** 1
 
@@ -1742,7 +1742,7 @@ Purpose: make every later step objectively checkable. All changes are additive a
   `stb_image_write.h`. Call it on the final frame when `--screenshot` is set.
   **stb is already a dependency** (`find_package(Stb REQUIRED)`), so no new package is needed.
   Remember the swapchain format is BGRA (`eB8G8R8A8Unorm`) — swizzle to RGBA before writing.
-- **Verify:** `VulkanApp --scene scenes/test_scene.map --camera-preset 0 --fixed-dt --frames 30 --screenshot base.png`
+- **Verify:** `HikariEngine --scene scenes/test_scene.map --camera-preset 0 --fixed-dt --frames 30 --screenshot base.png`
   produces a PNG that looks like the app. Run twice → the files are byte-identical.
 - **Size:** M · **Needs:** 1, 2, 4
 
@@ -1759,9 +1759,9 @@ Purpose: make every later step objectively checkable. All changes are additive a
 
 > ### ✅ Checkpoint: capture your baseline
 > ```
-> VulkanApp --scene scenes/test_scene.map  --camera-preset 0 --fixed-dt --frames 30 \
+> HikariEngine --scene scenes/test_scene.map  --camera-preset 0 --fixed-dt --frames 30 \
 >           --screenshot baseline_test.png  --report baseline_test.json
-> VulkanApp --scene scenes/sponza_scene.map --camera-preset 1 --fixed-dt --frames 30 \
+> HikariEngine --scene scenes/sponza_scene.map --camera-preset 1 --fixed-dt --frames 30 \
 >           --screenshot baseline_sponza.png --report baseline_sponza.json
 > ```
 > Commit these four files. **From here on, "Verify: output unchanged" means these two
@@ -1798,14 +1798,14 @@ quiet.
   `MSVC` is not yet defined) to after it, and branch: `/fsanitize=address /Zi` +
   `/INCREMENTAL:NO` for MSVC, `-fsanitize=address,undefined …` otherwise.
 - **Verify:** `cmake --workflow --preset ninja-asan-linux` builds **and the binary actually
-  runs**: `VulkanApp --frames 30`. Expect it to report real bugs — that is the point. Triage
+  runs**: `HikariEngine --frames 30`. Expect it to report real bugs — that is the point. Triage
   them via `suggested_work.md`; do not fix them in this step.
 - **Size:** S · **Needs:** —
 
 ### 10. CMake helper modules
 - **Do:** Create `cmake/Warnings.cmake` (`engine_set_warnings(target)`) and
   `cmake/EngineModule.cmake` (`engine_module(...)`, unused for now). Route the existing
-  `VulkanApp` warning flags through `engine_set_warnings`. Remove the trailing space in
+  `HikariEngine` warning flags through `engine_set_warnings`. Remove the trailing space in
   `$<$<CONFIG:Release>:/DEBUG >`.
 - **Verify:** Build with zero new warnings; `ninja -t commands` shows the same flags as
   before.
@@ -1827,7 +1827,7 @@ quiet.
 ## Stage 2 — Header self-containment (steps 12–14)
 
 This is the true prerequisite for *any* second target. Currently
-`target_precompile_headers(VulkanApp PRIVATE src/pch.h)` force-includes `pch.h` into every
+`target_precompile_headers(HikariEngine PRIVATE src/pch.h)` force-includes `pch.h` into every
 TU, so headers compile only inside this one target.
 
 ### 12. Add the `HeaderSelfContainment` check target
@@ -1835,7 +1835,7 @@ TU, so headers compile only inside this one target.
   with `LANGUAGE CXX`, links the same dependencies, and **deliberately has no
   `target_precompile_headers`**.
 - **Verify:** `cmake --build . --target HeaderSelfContainment` **fails**, and the error list
-  is your step-13 worklist. Save it. `VulkanApp` still builds.
+  is your step-13 worklist. Save it. `HikariEngine` still builds.
 - **Size:** S · **Needs:** —
 
 ### 13. Make headers self-contained, one at a time
@@ -1847,7 +1847,7 @@ TU, so headers compile only inside this one target.
   `ThreadPool.h` (`<future>`, `<queue>`, `<mutex>`, `<condition_variable>`, `<functional>`,
   `<thread>`, `<vector>`, `<cstdint>`), `Log.h` (`<string_view>`, `<format>`, `<cstdio>`,
   `<cstdint>`), `InstanceData.h` / `Vertex.h` (`<array>`).
-- **Verify:** After each header: `HeaderSelfContainment` has one fewer error and `VulkanApp`
+- **Verify:** After each header: `HeaderSelfContainment` has one fewer error and `HikariEngine`
   still builds and produces unchanged output. This step is ~25 independently verifiable
   micro-commits.
 - **Size:** M · **Needs:** 12
@@ -1867,7 +1867,7 @@ minimal.
 ### 15. Create `engine/core` with the zero-dependency files
 - **Do:** `engine_module(Core ...)` with `MyMacros.h`, `Timer.h`, `SwapbackArray.h`.
   Public headers under `engine/core/include/core/`. Change include sites to
-  `#include <core/Timer.h>`. `VulkanApp` links `Core`.
+  `#include <core/Timer.h>`. `HikariEngine` links `Core`.
 - **Verify:** Two targets build; output unchanged. `Core` does **not** link Vulkan or SDL —
   confirm by temporarily adding `#include <vulkan/vulkan.hpp>` to a Core `.cpp` and checking
   that it fails to compile.
@@ -1925,7 +1925,7 @@ minimal.
 
 ### 21. `platform/FileSystem.h` and `Paths`
 - **Do:** Move `Utility.h`'s `ReadFile` into `platform/FileSystem.h`. Add `Paths` resolving a
-  content root in priority order: `--content` flag → `VULKANAPP_CONTENT` env var →
+  content root in priority order: `--content` flag → `HIKARI_CONTENT` env var →
   `<exe dir>/content` → `<source dir>/content`. Add `Paths::Content("shaders/opaque.spv")`.
 - **Verify:** Unit-test the resolution priority with a temp directory. App still runs.
 - **Size:** M · **Needs:** 20
@@ -1935,7 +1935,7 @@ minimal.
   output at `content/shaders/`. Replace every hardcoded relative path: `"shaders/*.spv"`
   (3 pipeline creators + `CloudSystem`), `"textures/skybox/*.jpg"` (`main.cpp:306-312`),
   `"scenes/"` (2 ImGui dialog configs), and the model paths inside the 3 `.map` files.
-- **Verify:** **`cd build/ninja-debug-windows && ./VulkanApp --frames 30` works.** This is
+- **Verify:** **`cd build/ninja-debug-windows && ./HikariEngine --frames 30` works.** This is
   the key check — it fails today and is a hard blocker for any CI test binary. Also confirm
   the VS debugger launch still works.
 - **Size:** M · **Needs:** 21
@@ -2524,10 +2524,10 @@ next to `IClock` and `RunSpec` rather than next to `HeadlessPlatform`.
   merits and lives in the independent-work table as `--present-mode`.
 
 ### 46. `apps/` split
-- **Do:** `apps/vulkanapp/main.cpp` (SDL + Editor, ~40 lines) and
+- **Do:** `apps/hikariengine/main.cpp` (SDL + Editor, ~40 lines) and
   `apps/headless/main.cpp` (`HeadlessPlatform` + `OffscreenTarget`, ~30 lines).
   `src/main.cpp` ceases to exist.
-- **Verify:** **`VulkanAppHeadless --scene content/scenes/test_scene.map --frames 5
+- **Verify:** **`HikariEngineHeadless --scene content/scenes/test_scene.map --frames 5
   --report r.json --screenshot h.png` runs with no window and exits 0.** Compare `h.png`
   against a windowed capture of the same scene, **both taken with `--no-ui`**, and require
   them to be pixel-identical rather than merely close: with the panel suppressed the only
@@ -2932,7 +2932,7 @@ are latent defects or carry a decision:
 | `main.cpp` (input handling) | `engine/engine/src/InputSystem.cpp` | + `ScriptedInput` |
 | `main.cpp` (`DrawImGuiFrame`) | `engine/editor/src/EditorLayer.cpp` + `panels/` | |
 | `main.cpp` (ImGui backend init) | `engine/editor/src/ImGuiBackend.cpp` + `render/passes/ImGuiPass.cpp` | |
-| `main.cpp` (`main()`) | `apps/vulkanapp/main.cpp` | ~40 lines |
+| `main.cpp` (`main()`) | `apps/hikariengine/main.cpp` | ~40 lines |
 | `Log.h` `Timer.h` `MyMacros.h` | `engine/core/include/core/` | + `LogSink`, `Assert.h` |
 | `ThreadPool.*` | `engine/core/src/WorkStealingJobSystem.cpp` | + `SerialJobSystem` |
 | `SwapbackArray.h` | `engine/core/include/core/SwapbackArray.h` | + `#pragma once` fix |

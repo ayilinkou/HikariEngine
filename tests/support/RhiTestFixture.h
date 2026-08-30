@@ -77,7 +77,7 @@ namespace Detail
 inline Rhi::DeviceDesc MakeDesc(DeviceConfig config, Rhi::Diagnostics& diagnostics)
 {
     Rhi::DeviceDesc desc;
-    desc.ApplicationName = "VulkanApp RHI GPU tests";
+    desc.ApplicationName = "HikariEngine RHI GPU tests";
 
     // The whole reason these tests exist is to be the place a validation error
     // is noticed, so they pay for the layer. Count rather than FailFast: a

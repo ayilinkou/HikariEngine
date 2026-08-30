@@ -22,7 +22,7 @@ public:
     {
         std::random_device rd;
         m_Path = std::filesystem::temp_directory_path() /
-                 ("vulkanapp_paths_test_" + std::to_string(rd()));
+                 ("hikari_paths_test_" + std::to_string(rd()));
         std::filesystem::create_directories(m_Path);
     }
 
@@ -88,7 +88,7 @@ public:
     ScopedUserDataOverride& operator=(const ScopedUserDataOverride&) = delete;
 
 private:
-    static constexpr const char* kEnvVar = "VULKANAPP_USER_DATA";
+    static constexpr const char* kEnvVar = "HIKARI_USER_DATA";
 
     bool m_bHadPrevious = false;
     std::string m_Previous;
