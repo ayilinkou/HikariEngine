@@ -68,7 +68,7 @@ sites) and `engine/rhi` ↔ `engine/core` (`RhiTypes.h`).
 | 2 | `engine/namespace` | Moved the engine into the Hikari namespace | done |
 | 3 | `test/ci` | Split platform-independent checks into their own CI job | done |
 | 4 | `test/baseline` | Baseline captures without UI and reports measured frame times | done |
-| 5 | `fix/signals` | Added SIGTERM handling and screenshot capture on exit | not started |
+| 5 | `fix/signals` | Added SIGTERM handling and screenshot capture on exit | done |
 | 6 | `engine/rhi` | Curated the swapchain format fallback and removed unused RHI code | not started |
 | 7 | `engine/core` | Moved Extent2D and Extent3D into Engine/Core | not started |
 | 8 | `platform/sdl` | Removed the redundant SDL Vulkan loader calls | not started |
@@ -292,6 +292,12 @@ by hand, and `tests/baseline/` is promoted only after that. What must **not** mo
   sample. The interrupted path is not a measured run, and a special case buys nothing.
 - A second signal does nothing new. If shutdown wedges, `SIGKILL` is the answer; escalating to
   `std::_Exit` would lose the artefacts for a merely impatient user.
+
+Verified by sending each signal the way a CI runner does — `timeout -s TERM` and `timeout -s
+INT` against an unbounded headless run. Both write the PNG and the report, neither logs
+"called without a captured frame", and the app exits 0 rather than being killed. A bounded
+`--frames 1000` run still draws exactly 1000 frames and reproduces the baseline pixel for
+pixel, so the extra frame really is confined to the interrupted path.
 
 ### 6 · `engine/rhi` — Curated the swapchain format fallback, and removed unused RHI code
 
