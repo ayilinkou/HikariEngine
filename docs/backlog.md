@@ -29,6 +29,7 @@ git history is the record.
 | P2 | A baseline comparison script — decode both PNGs, report the diff bounding box, and diff the report's `counters`. Today `CLAUDE.md` has to tell a human to drive PIL by hand | `tests/scripts/` | S | |
 | P2 | Namespace `src/`'s remaining types under `Hikari::` | `src/` | M | Stages 7–9, which move them into engine modules a piece at a time |
 | P2 | The GPU tests assert a synchronization dependency they cannot detect: with sync validation off, dropping the wait semaphore from an offscreen read still passes | `tests/gpu/`, `rhi/DeviceDesc.h` | M | |
+| P2 | Uncouple from the LunarG SDK — take the validation layers, `slangc` and `spirv-val` from vcpkg so that building needs no SDK install | `vcpkg.json`, `CMakeLists.txt`, `cmake/Shaders.cmake`, CI, `CLAUDE.md` | M | |
 | P3 | The ImGui panel has no regression coverage: the baseline is captured with `--no-ui`, deliberately, because a UI capture's hover highlight follows wherever the mouse was left | `tests/`, editor | M | Stage 7's `EditorLayer`, which can be driven without a mouse |
 | P3 | Expose cloud push-constants in ImGui (`m_CloudData` is pushed but never written) | `CloudSystem` + editor UI | S | |
 | P3 | `surface.slangh` to de-duplicate ~130 lines across the two surface shaders | `shaders/` | M | |
@@ -36,7 +37,45 @@ git history is the record.
 | P3 | `CubemapCreateInfo` → `std::array<std::string,6> FacePaths`, delete the 6-case switch | `CubemapLoader.cpp` | S | |
 | P3 | Finish the skybox (loaded at `main.cpp:598`, never rendered) and reuse it for IBL | new pass | M–L | |
 
-Two of these are worth expanding on, because they are latent defects or carry a decision:
+Three of these are worth expanding on, because they are latent defects or carry a decision:
+
+- **Uncoupling from the LunarG SDK.** The SDK is a developer tool, and nothing it supplies is
+  needed at runtime by anyone who runs the app — but today it is needed to *build*, and
+  `CLAUDE.md` names `$VULKAN_SDK` paths as the authoritative sources for four of them. Every
+  one has a vcpkg equivalent, and two are already installed: `vulkan-validationlayers`
+  (1.4.350.1 in the current ports tree) for `VK_LAYER_KHRONOS_validation`, `shader-slang` for
+  `slangc`, `spirv-tools` for `spirv-val`, and `vulkan-headers` — which the build already
+  pulls in — for `vk.xml` and `validusage.json`, both sitting in
+  `build/vcpkg_installed/x64-windows/share/vulkan/registry/` right now. The layers are
+  Apache-2.0 and redistributable, so shipping them is a licensing non-issue.
+
+  **A layer is found through its manifest, not by linking it.** The loader discovers
+  `VkLayer_khronos_validation.json`, which points at the binary; vcpkg installs the pair into
+  `<vcpkg_installed>/bin` on Windows and `<vcpkg_installed>/share/vulkan/explicit_layer.d`
+  elsewhere. Point the loader at it with **`VK_ADD_LAYER_PATH`, never `VK_LAYER_PATH`** — the
+  latter *replaces* the standard search paths rather than adding to them, so it silently hides
+  any layer installed anywhere else. Two constraints come with that: the variable has to be set
+  before `vkCreateInstance`, which is early enough to do from inside the process; and the
+  loader ignores both variables for elevated processes, deliberately, because a layer path is a
+  code-injection vector. A run as administrator therefore gets no validation, and that should
+  be logged rather than left to look like a clean run.
+
+  **The macOS pin is the real prize.** `CMakeLists.txt`'s Apple block exists because the SDK's
+  layer gets paired with vcpkg's loader, the two are frequently different versions, and the
+  mismatch makes the loader recurse inside `vkGetDeviceProcAddr` and segfault during ImGui
+  init — so `find_package(Vulkan)` is pinned to the SDK there to force lock-step. Taking the
+  layers *and* the loader from vcpkg puts both on one baseline by construction, which attacks
+  that cause rather than working around it, and should let the pin go. Its comment also claims
+  vcpkg ships no validation layer on macOS; that is no longer true of the ports tree, but only
+  the port's *existence* has been checked here, not that it builds on Apple. Verify that on a
+  macOS machine before deleting the block — the failure it guards against is a segfault, not a
+  build error, so a green build proves nothing.
+
+  **The cost is build time, and it is the whole tradeoff.** The layers build from source and
+  drag in `spirv-tools`, `spirv-cross`, `spirv-reflect`, `mimalloc`, `parallel-hashmap` and
+  `vulkan-utility-libraries`. That is a slow cold build in exchange for "install the SDK once",
+  so it is worth having binary caching in CI before making the switch there, or the cost is
+  paid on every clean runner rather than once per developer.
 
 - **The synchronization the GPU tests do not check.** `tests/gpu/rhi/PresentTargetTests.cpp`
   reads an offscreen image after rendering into it, and orders that copy after the render by
