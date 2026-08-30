@@ -608,9 +608,8 @@ guard, the MSVC debug-information split, the Ninja presets for Windows, a shared
 matrix). Shader compilation ergonomics moved into `cmake/Shaders.cmake` with a real
 dependency graph, `-warnings-as-errors all` and a `spirv-val` pass.
 
-New build-system work is tracked in the architecture plan's independent-work table rather
-than reopened here — the one open item, `rhi_boundary_check` running in precommit but not in
-CI, lives there.
+New build-system work is tracked in `backlog.md` rather than reopened here — the one open
+item, `rhi_boundary_check` running in precommit but not in CI, lives there.
 
 # Part 6 — Prioritised work order
 

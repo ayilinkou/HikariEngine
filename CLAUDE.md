@@ -4,13 +4,17 @@ HikariEngine — a cross-platform game engine (Windows / Linux / macOS-ARM) buil
 with a D3D12 backend planned later. C++20, CMake + vcpkg, Slang shaders.
 
 The engine is mid-refactor from a single-executable prototype into a layered library set.
-Three reference documents drive that work — read the relevant section before proposing
+Four reference documents drive that work — read the relevant section before proposing
 architecture, and prefer them over inventing a design:
 
 - `docs/architecture_plan.md` — target architecture (Part II), test strategy
   (Part III), and the **76-step incremental work order (Part IV)** that the project follows.
+- `docs/backlog.md` — everything off the critical path, prioritised P1–P3 (scheduling
+  priority, not severity) with what blocks each. New work that is not part of a stage goes
+  here rather than into the plan, and a row is deleted when its work lands.
 - `docs/suggested_work.md` — the code review that motivated the plan; open it for
-  the *why* behind a known defect.
+  the *why* behind a known defect. Its P0–P3 scale is *severity*, a different axis from the
+  backlog's priorities.
 - `docs/rhi_extraction_plan.md` — **retained past Stage 5, which it drove.** Replaced Part IV
   steps 24–34 with a 17-step sequence (R1–R17) that made the RHI's public API backend-neutral
   so a D3D12 backend is possible later, and records the design decisions (D0–D12) behind that.
@@ -39,8 +43,8 @@ the plan. Fix what the step asks for; note anything else you spot rather than fi
 **Verify every change with `scripts/precommit.sh`** (configure + build + build tests +
 `ctest -L unit` + `ctest -L gpu` + format-check) before reporting a change as done. It is a
 superset of CI: everything CI enforces, plus two things CI does not run — the GPU tests
-(CI's runners have no Vulkan ICD) and `rhi_boundary_check` (an oversight, tracked in the
-plan's independent-work table; CI does still enforce header *neutrality* through
+(CI's runners have no Vulkan ICD) and `rhi_boundary_check` (an oversight, tracked in
+`docs/backlog.md`; CI does still enforce header *neutrality* through
 `HeaderSelfContainment_RHI_Neutral`, but not the allowlist ratchet). The GPU tests skip
 rather than fail on a machine without an ICD, so a green precommit on such a machine has
 proved less than it looks — check whether they ran before relying on them. Report failures
@@ -175,7 +179,7 @@ the committed `tests/baseline/`. Two signals, and **both are usable**:
   `instances`, `barriers`, `barrierCalls`. Validation errors must stay at 0. Ignore
   `meanFrameTimeMs`/`p99FrameTimeMs` — under `--fixed-dt` the app records the *timestep*
   rather than measured cost, so both read exactly 16.6667 regardless of performance. That is
-  a known defect, tracked in the plan's independent-work table.
+  a known defect, tracked in `docs/backlog.md`.
 - **A pixel diff of the screenshot**, which is the stronger check and is now reliable: the
   script forces `--resolution 1920x1080 --borderless`, so captures come out at a fixed extent
   instead of at whatever size the window manager chose. **Never byte-compare** — PNG encoding
