@@ -50,24 +50,28 @@ public:
     std::shared_ptr<ModelData> LoadModel(const std::string& modelPath);
 
 private:
-    // Flushes the upload context when the outermost load finishes.
-    //
-    // The nesting matters both ways. Loading a model loads its textures through
-    // this same class, so flushing on every call would put each texture back in
-    // its own submission and undo the batching entirely — Sponza's 77 became a
-    // handful precisely because one model is one scope. And flushing when the
-    // outermost one ends is what makes "a resource ResourceManager returns is on
-    // the GPU" true by construction rather than by remembering.
+    /**
+     * Flushes the upload context when the outermost load finishes.
+     *
+     * The nesting matters both ways. Loading a model loads its textures through
+     * this same class, so flushing on every call would put each texture back in
+     * its own submission and undo the batching entirely — Sponza's 77 became a
+     * handful precisely because one model is one scope. And flushing when the
+     * outermost one ends is what makes "a resource ResourceManager returns is on
+     * the GPU" true by construction rather than by remembering.
+     */
     class LoadScope
     {
     public:
         explicit LoadScope(ResourceManager& owner) : m_Owner(owner) { ++m_Owner.m_LoadDepth; }
 
-        // Flushing here can fail — it waits on the GPU — and a destructor that
-        // throws while an exception from a failed load is already unwinding
-        // terminates the process. Reported and swallowed instead, because by
-        // this point the load has failed anyway and the useful error is the one
-        // already in flight.
+        /**
+         * Flushing here can fail — it waits on the GPU — and a destructor that
+         * throws while an exception from a failed load is already unwinding
+         * terminates the process. Reported and swallowed instead, because by
+         * this point the load has failed anyway and the useful error is the one
+         * already in flight.
+         */
         ~LoadScope()
         {
             if (--m_Owner.m_LoadDepth != 0u)
@@ -94,9 +98,11 @@ private:
     Hikari::Rhi::IUploadContext& m_UploadContext;
     uint32_t m_LoadDepth = 0u;
 
-    // Asset paths arrive here content-relative (a Model keeps the path it was
-    // serialized with) and are resolved against the content root here, at the
-    // point of loading.
+    /**
+     * Asset paths arrive here content-relative (a Model keeps the path it was
+     * serialized with) and are resolved against the content root here, at the
+     * point of loading.
+     */
     const Hikari::Platform::Paths& m_Paths;
 
     ResourceCache<Texture> m_TextureCache;

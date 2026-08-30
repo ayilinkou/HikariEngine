@@ -8,14 +8,16 @@ namespace Hikari::Rhi::Vulkan
 {
 namespace
 {
-// Folds a neutral flags value into its Vulkan equivalent one bit at a time.
-//
-// The per-bit function it is handed carries the switch, so the compile-time
-// "every enumerator is mapped" guarantee applies to flags enums as well as
-// scalar ones. The leftover check then catches the other half of that mistake:
-// a new bit added to the enum and its switch but not to the kAll* array would
-// otherwise be silently dropped, producing a barrier or a usage mask that is
-// quietly missing something. Here it throws instead.
+/**
+ * Folds a neutral flags value into its Vulkan equivalent one bit at a time.
+ *
+ * The per-bit function it is handed carries the switch, so the compile-time
+ * "every enumerator is mapped" guarantee applies to flags enums as well as
+ * scalar ones. The leftover check then catches the other half of that mistake:
+ * a new bit added to the enum and its switch but not to the kAll* array would
+ * otherwise be silently dropped, producing a barrier or a usage mask that is
+ * quietly missing something. Here it throws instead.
+ */
 template <typename VkFlags, typename FlagEnum, size_t N, typename ToBitFn>
 VkFlags ConvertFlags(FlagEnum value, const std::array<FlagEnum, N>& allBits, ToBitFn toBit,
                      const char* what)
@@ -43,8 +45,10 @@ VkFlags ConvertFlags(FlagEnum value, const std::array<FlagEnum, N>& allBits, ToB
     return result;
 }
 
-// Reverses a one-to-one mapping by searching the enumerator list, so that ToVk
-// stays the only place the mapping is written down.
+/**
+ * Reverses a one-to-one mapping by searching the enumerator list, so that ToVk
+ * stays the only place the mapping is written down.
+ */
 template <typename NeutralEnum, size_t N, typename VkValue>
 NeutralEnum ConvertBack(VkValue value, const std::array<NeutralEnum, N>& all, const char* what)
 {
@@ -215,9 +219,11 @@ vk::ImageAspectFlags ToVkBit(TextureAspect aspect)
     throw std::runtime_error("Rhi::Vulkan::ToVk(TextureAspect): unhandled enumerator.");
 }
 
-// The capabilities that satisfy a role. Internal, because the test that uses it
-// is "any of these bits" and exposing the mask would invite "all of them" — see
-// FamilySupports in the header.
+/**
+ * The capabilities that satisfy a role. Internal, because the test that uses it
+ * is "any of these bits" and exposing the mask would invite "all of them" — see
+ * FamilySupports in the header.
+ */
 vk::QueueFlags SatisfyingCapabilities(QueueType role)
 {
     switch (role)

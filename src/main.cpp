@@ -120,9 +120,11 @@ struct CameraData
     float FarPlane;
 };
 
-// Each member must start at an offset that is a multiple of its base alignment.
-// Eg. a float can start on offset 0, 4, 8 or 12.
-// glm::vec3 is 12 bytes wide by default but is 16 byte aligned.
+/**
+ * Each member must start at an offset that is a multiple of its base alignment.
+ * Eg. a float can start on offset 0, 4, 8 or 12.
+ * glm::vec3 is 12 bytes wide by default but is 16 byte aligned.
+ */
 struct GlobalBuffer
 {
     LightData Lights;
@@ -137,10 +139,12 @@ constexpr bool bEnableValidationLayers = false;
 constexpr bool bEnableValidationLayers = true;
 #endif
 
-// Routes the RHI's validation messages into the log. Rhi::Diagnostics has
-// already counted and captured the message by the time this runs; this decides
-// only how it is presented. Called from the driver's debug callback, so it may
-// run on any thread.
+/**
+ * Routes the RHI's validation messages into the log. Rhi::Diagnostics has
+ * already counted and captured the message by the time this runs; this decides
+ * only how it is presented. Called from the driver's debug callback, so it may
+ * run on any thread.
+ */
 void HandleRhiDiagnostic(Rhi::DiagnosticSeverity severity, std::string_view message)
 {
     LogSeverity logSeverity = LogSeverity::Info;
@@ -175,29 +179,39 @@ struct Options
     Rhi::ValidationPolicy ValidationPolicy = Rhi::ValidationPolicy::Count;
     bool bHeadless = false; // --headless: render with no window
 
-    // --resolution. Zero in either half leaves the choice to the platform,
-    // which sizes the window from the display it opens on.
+    /**
+     * --resolution. Zero in either half leaves the choice to the platform,
+     * which sizes the window from the display it opens on.
+     */
     Extent2D WindowSize{};
 
-    // --borderless / --fullscreen. One field rather than two flags, so that
-    // "borderless and exclusive at once" cannot be represented past parsing.
+    /**
+     * --borderless / --fullscreen. One field rather than two flags, so that
+     * "borderless and exclusive at once" cannot be represented past parsing.
+     */
     WindowMode StartWindowMode = WindowMode::Windowed;
     int JobCount =
         -1; // -1 = default, 0 = SerialJobSystem, N>0 = SharedQueueJobSystem with N worker threads
 
-    // --vk-disable-extension, repeatable. Vulkan-specific by nature, which is
-    // what the flag's prefix says: an optional extension exists in one backend's
-    // vocabulary and nowhere else.
+    /**
+     * --vk-disable-extension, repeatable. Vulkan-specific by nature, which is
+     * what the flag's prefix says: an optional extension exists in one backend's
+     * vocabulary and nowhere else.
+     */
     std::vector<std::string> DisabledVulkanExtensions;
 
-    // --vk-force-single-queue. Same prefix for the same reason: it is queue
-    // families this collapses, and only Vulkan has them.
+    /**
+     * --vk-force-single-queue. Same prefix for the same reason: it is queue
+     * families this collapses, and only Vulkan has them.
+     */
     bool bForceSingleQueue = false;
 };
 
-// Hardcoded camera transforms selected via --camera-preset <N>, for
-// deterministic screenshots/reports. Rotation is (pitch, yaw, roll) in
-// degrees, matching Transform::Rotation.
+/**
+ * Hardcoded camera transforms selected via --camera-preset <N>, for
+ * deterministic screenshots/reports. Rotation is (pitch, yaw, roll) in
+ * degrees, matching Transform::Rotation.
+ */
 struct CameraPresetData
 {
     glm::vec3 Position;
@@ -212,13 +226,15 @@ constexpr CameraPresetData kCameraPresets[] = {
 constexpr int kNumCameraPresets =
     static_cast<int>(sizeof(kCameraPresets) / sizeof(kCameraPresets[0]));
 
-// Whether a screenshot can be written from a present target in `format`.
-//
-// stbi_write_png takes 8 bits per channel and nothing else, so a 16-bit float
-// target — which nothing asks for today but the neutral format list can name —
-// would need tone mapping rather than a channel swap. Rejected with a message
-// instead of silently reinterpreting the bytes, which is what a bare
-// BytesPerTexel check would allow.
+/**
+ * Whether a screenshot can be written from a present target in `format`.
+ *
+ * stbi_write_png takes 8 bits per channel and nothing else, so a 16-bit float
+ * target — which nothing asks for today but the neutral format list can name —
+ * would need tone mapping rather than a channel swap. Rejected with a message
+ * instead of silently reinterpreting the bytes, which is what a bare
+ * BytesPerTexel check would allow.
+ */
 constexpr bool IsWritablePngFormat(Rhi::Format format)
 {
     return format == Rhi::Format::BGRA8Unorm || format == Rhi::Format::RGBA8Unorm ||
@@ -280,11 +296,13 @@ void PrintUsage()
     std::exit(code);
 }
 
-// --borderless and --fullscreen name two different ways of covering the
-// display, so a command line carrying both asks for nothing coherent. Rejected
-// rather than settled by precedence or by order: a launcher passing both is
-// misconfigured, and honouring one of them quietly hides that. Repeating the
-// same flag is not a conflict.
+/**
+ * --borderless and --fullscreen name two different ways of covering the
+ * display, so a command line carrying both asks for nothing coherent. Rejected
+ * rather than settled by precedence or by order: a launcher passing both is
+ * misconfigured, and honouring one of them quietly hides that. Repeating the
+ * same flag is not a conflict.
+ */
 void RejectConflictingWindowMode(WindowMode current, WindowMode requested, const std::string& flag)
 {
     if (current == WindowMode::Windowed || current == requested)
@@ -596,8 +614,10 @@ public:
     }
 
 private:
-    // Called from the constructor's initialiser list, so it may only touch
-    // members declared above m_RhiDevice.
+    /**
+     * Called from the constructor's initialiser list, so it may only touch
+     * members declared above m_RhiDevice.
+     */
     [[nodiscard]] Rhi::DeviceDesc MakeDeviceDesc() const
     {
         Rhi::DeviceDesc desc;
@@ -737,9 +757,11 @@ private:
         ImGui_ImplVulkan_Init(&initInfo);
     }
 
-    // The present target speaks neutral types; these are the two places the
-    // renderer still needs the Vulkan spelling, and it needs it often enough
-    // that converting at each use site would drown the call sites.
+    /**
+     * The present target speaks neutral types; these are the two places the
+     * renderer still needs the Vulkan spelling, and it needs it often enough
+     * that converting at each use site would drown the call sites.
+     */
     vk::Extent2D SwapchainExtent() const
     {
         const Rhi::Extent2D extent = m_PresentTarget->GetExtent();
@@ -814,12 +836,14 @@ private:
         CreateQuadBuffers();
     }
 
-    // The stamp that names the auto-pathed files of one capture.
-    //
-    // Taken when the first of those files is written and reused by the rest, so
-    // that a screenshot and the report describing the same moment share a name
-    // — asking the clock separately puts them a second apart whenever the two
-    // writes straddle a second boundary.
+    /**
+     * The stamp that names the auto-pathed files of one capture.
+     *
+     * Taken when the first of those files is written and reused by the rest, so
+     * that a screenshot and the report describing the same moment share a name
+     * — asking the clock separately puts them a second apart whenever the two
+     * writes straddle a second boundary.
+     */
     const std::string& CaptureTimestamp()
     {
         if (m_CaptureTimestamp.empty())
@@ -889,10 +913,11 @@ private:
         LogMsg(LogSeverity::Info, LogMain, "Wrote report to {}", path);
     }
 
-    // Writes the frame captured into m_ScreenshotStagingBuffer (during the
-    // final frame's DrawFrame() call, before it was presented) out to disk as
-    // a PNG. Used for deterministic verification via --screenshot.
-
+    /**
+     * Writes the frame captured into m_ScreenshotStagingBuffer (during the
+     * final frame's DrawFrame() call, before it was presented) out to disk as
+     * a PNG. Used for deterministic verification via --screenshot.
+     */
     void WriteScreenshot()
     {
         const std::string DEFAULT_PATH = "tests/screenshots/screenshot_";
@@ -1006,7 +1031,7 @@ private:
         m_bCursorVisible = false;
     }
 
-    // This includes OS key repeat delay.
+    /** This includes OS key repeat delay. */
     void HandleKey(SDL_Keycode key)
     {
         switch (key)
@@ -1029,8 +1054,10 @@ private:
         }
     }
 
-    // Checking the state of the keys every frame, bypassing OS key repeat
-    // delay.
+    /**
+     * Checking the state of the keys every frame, bypassing OS key repeat
+     * delay.
+     */
     void HandleMovement()
     {
         // Headless for the same reason the event pump is guarded: SDL was never
@@ -1591,20 +1618,24 @@ private:
         }
     }
 
-    // The VkImageView a handle names.
-    //
-    // Dynamic rendering attachments and descriptor writes both take raw Vulkan
-    // objects, and both still happen here — attachments until Stage 8's frame
-    // graph, descriptor writes until bindless. This is the one place that
-    // resolve is spelled out, so the call sites read as they did.
+    /**
+     * The VkImageView a handle names.
+     *
+     * Dynamic rendering attachments and descriptor writes both take raw Vulkan
+     * objects, and both still happen here — attachments until Stage 8's frame
+     * graph, descriptor writes until bindless. This is the one place that
+     * resolve is spelled out, so the call sites read as they did.
+     */
     vk::ImageView NativeView(Rhi::TextureViewHandle handle)
     {
         return Rhi::Vulkan::GetImageView(*m_RhiDevice, handle);
     }
 
-    // What the frame's three recording threads produced between them. Summed on
-    // demand rather than accumulated into one member, because two of the three
-    // are written from job threads.
+    /**
+     * What the frame's three recording threads produced between them. Summed on
+     * demand rather than accumulated into one member, because two of the three
+     * are written from job threads.
+     */
     Rhi::BarrierCounts FrameBarrierCounts() const
     {
         Rhi::BarrierCounts total = m_OpaqueBarrierCounts;
@@ -1613,11 +1644,13 @@ private:
         return total;
     }
 
-    // Reports the frame's barrier counts the first time they are seen and
-    // whenever they change afterwards. Logging them every frame would drown the
-    // log, and never logging them would make a change in the barriers — the
-    // easiest thing to get wrong here and the hardest to see — invisible
-    // between runs of the report.
+    /**
+     * Reports the frame's barrier counts the first time they are seen and
+     * whenever they change afterwards. Logging them every frame would drown the
+     * log, and never logging them would make a change in the barriers — the
+     * easiest thing to get wrong here and the hardest to see — invisible
+     * between runs of the report.
+     */
     void LogBarrierCounts()
     {
         const Rhi::BarrierCounts counts = FrameBarrierCounts();
@@ -2363,17 +2396,19 @@ private:
         m_InstanceCapacity = instanceCapacity;
     }
 
-    // Every frame's buffer is replaced at once, not just the one being filled:
-    // growing them one at a time would leave the other frame short by exactly
-    // the same amount and grow again on the very next frame, for two device
-    // waits instead of one.
-    //
-    // The wait is what makes the replacement legal. These are vertex buffers
-    // that frames still in flight have bound, and destroying one while a
-    // submitted command buffer still refers to it is invalid
-    // (VUID-vkDestroyBuffer-buffer-00922); the current frame's fence has been
-    // waited on by this point, but nothing covers the others. Growth is rare
-    // enough that a device-wide wait beats tracking per-buffer lifetimes.
+    /**
+     * Every frame's buffer is replaced at once, not just the one being filled:
+     * growing them one at a time would leave the other frame short by exactly
+     * the same amount and grow again on the very next frame, for two device
+     * waits instead of one.
+     *
+     * The wait is what makes the replacement legal. These are vertex buffers
+     * that frames still in flight have bound, and destroying one while a
+     * submitted command buffer still refers to it is invalid
+     * (VUID-vkDestroyBuffer-buffer-00922); the current frame's fence has been
+     * waited on by this point, but nothing covers the others. Growth is rare
+     * enough that a device-wide wait beats tracking per-buffer lifetimes.
+     */
     void GrowInstanceBuffers(uint32_t neededInstances)
     {
         const uint32_t newCapacity = std::max(neededInstances, m_InstanceCapacity * 2u);
@@ -2535,33 +2570,43 @@ private:
     }
 
 private:
-    // Declared first because the device's creation reads them, and members are
-    // initialised in declaration order.
+    /**
+     * Declared first because the device's creation reads them, and members are
+     * initialised in declaration order.
+     */
     IPlatform& m_Platform;
     const Paths& m_Paths;
     Options m_Options;
     IJobSystem& m_JobSystem;
 
-    // Owned by main() rather than by the device, because the counts are read for
-    // --strict-validation after the device has been destroyed.
+    /**
+     * Owned by main() rather than by the device, because the counts are read for
+     * --strict-validation after the device has been destroyed.
+     */
     Rhi::Diagnostics& m_Diagnostics;
 
-    // Owns the instance, debug messenger, surface, physical and logical devices,
-    // graphics queue and the VMA allocator. Declared ahead of every GPU resource
-    // below so that it is destroyed after all of them — the ordering the old
-    // hand-arranged member list was maintaining by hand.
+    /**
+     * Owns the instance, debug messenger, surface, physical and logical devices,
+     * graphics queue and the VMA allocator. Declared ahead of every GPU resource
+     * below so that it is destroyed after all of them — the ordering the old
+     * hand-arranged member list was maintaining by hand.
+     */
     std::unique_ptr<Rhi::IDevice> m_RhiDevice;
 
-    // After the device and before every resource that is loaded through it: the
-    // context holds staging buffers of its own, and destroying it after the
-    // device would release them into nothing.
+    /**
+     * After the device and before every resource that is loaded through it: the
+     * context holds staging buffers of its own, and destroying it after the
+     * device would release them into nothing.
+     */
     std::unique_ptr<Rhi::IUploadContext> m_UploadContext;
     std::unique_ptr<Rhi::IPipelineCache> m_PipelineCache;
 
-    // Borrowed from m_RhiDevice, which outlives them. References rather than
-    // copies so that the ~100 call sites still read as they did, and so that
-    // there is exactly one owner. Each of these disappears as the corresponding
-    // resource type moves behind IDevice.
+    /**
+     * Borrowed from m_RhiDevice, which outlives them. References rather than
+     * copies so that the ~100 call sites still read as they did, and so that
+     * there is exactly one owner. Each of these disappears as the corresponding
+     * resource type moves behind IDevice.
+     */
     vk::raii::PhysicalDevice& m_PhysicalDevice;
     vk::raii::Device& m_Device;
     vk::raii::SurfaceKHR& m_Surface;
@@ -2591,14 +2636,18 @@ private:
     Rhi::UniqueHandle<Rhi::BufferHandle> m_QuadVertexBuffer;
     Rhi::UniqueHandle<Rhi::BufferHandle> m_QuadIndexBuffer;
 
-    // Set when the present target could not be rebuilt yet. The frame loop
-    // retries and draws nothing until it clears.
+    /**
+     * Set when the present target could not be rebuilt yet. The frame loop
+     * retries and draws nothing until it clears.
+     */
     bool m_bSwapchainOutOfDate = false;
 
     std::array<FrameData, NUM_FRAMES_IN_FLIGHT> m_Frames;
 
-    // Instances every frame's buffer has room for. A starting size, not a
-    // ceiling — see GrowInstanceBuffers.
+    /**
+     * Instances every frame's buffer has room for. A starting size, not a
+     * ceiling — see GrowInstanceBuffers.
+     */
     uint32_t m_InstanceCapacity = 0u;
 
     std::unique_ptr<SceneGraph> m_SceneGraph = nullptr;
@@ -2619,20 +2668,24 @@ private:
     float m_DisplayFPS = 0.f;
     bool m_bShutdown = false;
 
-    // Empty until the first auto-pathed file of a capture is written. See
-    // CaptureTimestamp().
+    /**
+     * Empty until the first auto-pathed file of a capture is written. See
+     * CaptureTimestamp().
+     */
     std::string m_CaptureTimestamp;
 
-    // Barriers recorded for the current frame, split by the thread that records
-    // them: the opaque and transparent passes are recorded on job threads, so
-    // each owns its own counters rather than sharing one set. Everything else
-    // is recorded on the main thread and shares the third.
+    /**
+     * Barriers recorded for the current frame, split by the thread that records
+     * them: the opaque and transparent passes are recorded on job threads, so
+     * each owns its own counters rather than sharing one set. Everything else
+     * is recorded on the main thread and shares the third.
+     */
     Rhi::BarrierCounts m_OpaqueBarrierCounts;
     Rhi::BarrierCounts m_TransparentBarrierCounts;
     Rhi::BarrierCounts m_MainThreadBarrierCounts;
     Rhi::BarrierCounts m_LoggedBarrierCounts;
 
-    // Used in WriteReport()
+    /** Used in WriteReport() */
     uint32_t m_OpaqueDrawCallCount = 0;
     uint32_t m_OpaqueBatchCount = 0;
     uint32_t m_OpaqueInstanceCount = 0;

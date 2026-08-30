@@ -365,6 +365,19 @@ Other rules:
   that need it.
 - Comments in this codebase explain *why* (non-obvious platform quirks, ABI hazards,
   boundary-condition rules). Match that — do not narrate what the code already says.
+- **Block comments document declarations; `//` is for everything else.** A comment above a
+  class, function, member variable, enumerator, file-scope constant, alias, or the header's
+  own subject is `/** … */` with a leading `*` on each continuation line; a one-liner may sit
+  on a single line as `/** … */`. Comments inside a function body, trailing comments, section
+  labels (`// --- Uploads ---`) and commented-out code stay `//`. Two boundary cases, decided:
+  a macro other code invokes (`RHI_DEFINE_FLAG_OPERATORS`) is documented as a declaration,
+  while a macro that configures the build (`src/pch.h`'s `VK_USE_PLATFORM_METAL_EXT`) is not;
+  and a header-level comment keeps the blank line between itself and the first declaration,
+  because it documents the header rather than that declaration. The leading `*` is not decoration:
+  clang-format reflows a block comment without it to a mis-indented continuation line, so the
+  tree would be format-clean and visually ragged wherever a line wraps. No `@param`/`@return`
+  tags — the marker is Doxygen's so that they remain possible, but a tag that restates the
+  signature is the narration the rule above forbids.
 - **The reasoning belongs in the source, not in a doc.** If a decision is non-obvious enough to
   need explaining, explain it where the code is, so the reader finds it without knowing a doc
   exists. Point at a doc only when the full argument is genuinely too long to sit in a comment

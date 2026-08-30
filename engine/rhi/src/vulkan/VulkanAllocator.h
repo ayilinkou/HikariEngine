@@ -9,10 +9,12 @@
 
 namespace Hikari::Rhi::Vulkan
 {
-// Owns the VMA allocator for one device.
-//
-// Module-private: every allocation the engine makes goes through the device,
-// so nothing outside the backend has a reason to name this.
+/**
+ * Owns the VMA allocator for one device.
+ *
+ * Module-private: every allocation the engine makes goes through the device,
+ * so nothing outside the backend has a reason to name this.
+ */
 class VulkanAllocator
 {
 public:
@@ -51,8 +53,10 @@ public:
 
     ~VulkanAllocator() { Destroy(); }
 
-    // Implicit conversion so it drops straight into VMA C API calls,
-    // e.g. vmaCreateBuffer(allocator, ...) where allocator is a VulkanAllocator&
+    /**
+     * Implicit conversion so it drops straight into VMA C API calls,
+     * e.g. vmaCreateBuffer(allocator, ...) where allocator is a VulkanAllocator&
+     */
     operator VmaAllocator() const { return m_Allocator; }
 
 private:

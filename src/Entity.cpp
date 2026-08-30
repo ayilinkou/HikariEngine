@@ -6,8 +6,10 @@ Entity::Entity() : m_ID(s_NextID++)
     m_RootComponent.SetOwner(this);
 }
 
-// This moves a component into the SceneComponents vector. Be sure to call
-// with std::move().
+/**
+ * This moves a component into the SceneComponents vector. Be sure to call
+ * with std::move().
+ */
 void Entity::AddComponent(std::unique_ptr<SceneComponent> comp)
 {
     comp->SetOwner(this);
@@ -15,8 +17,10 @@ void Entity::AddComponent(std::unique_ptr<SceneComponent> comp)
     m_SceneComponents.push_back(std::move(comp));
 }
 
-// This moves a component into the LogicComponents vector. Be sure to call
-// with std::move().
+/**
+ * This moves a component into the LogicComponents vector. Be sure to call
+ * with std::move().
+ */
 void Entity::AddComponent(std::unique_ptr<LogicComponent> comp)
 {
     comp->SetOwner(this);

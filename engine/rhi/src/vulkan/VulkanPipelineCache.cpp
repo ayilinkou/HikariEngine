@@ -19,10 +19,12 @@ constexpr Core::LogCategory LogRhi("RHI");
 namespace
 {
 
-// The pipeline cache header is 32 bytes with every field written least
-// significant byte first, whatever the host's byte order is, and the C standard
-// does not promise VkPipelineCacheHeaderVersionOne is packed to match. So it is
-// read a byte at a time. Vulkan spec, "Pipeline Cache Header".
+/**
+ * The pipeline cache header is 32 bytes with every field written least
+ * significant byte first, whatever the host's byte order is, and the C standard
+ * does not promise VkPipelineCacheHeaderVersionOne is packed to match. So it is
+ * read a byte at a time. Vulkan spec, "Pipeline Cache Header".
+ */
 constexpr size_t kHeaderSize = 32;
 constexpr size_t kVendorIdOffset = 8;
 constexpr size_t kDeviceIdOffset = 12;
@@ -35,16 +37,18 @@ uint32_t ReadLittleEndian32(std::span<const std::byte> bytes, size_t offset)
            (static_cast<uint32_t>(bytes[offset + 3]) << 24);
 }
 
-// Whether `data` is cache data this device can be seeded with.
-//
-// The header exists so that an application can answer this before handing the
-// blob over, and answering it is not optional:
-// VUID-VkPipelineCacheCreateInfo-initialDataSize-00769 makes passing anything
-// that did not come from vkGetPipelineCacheData invalid usage. The
-// implementation is required to ignore data it does not recognise, so the cost
-// of getting it wrong is not a crash — but a knowingly invalid call is one the
-// validation layers are entitled to report, and validationErrors is a number
-// this project keeps at zero.
+/**
+ * Whether `data` is cache data this device can be seeded with.
+ *
+ * The header exists so that an application can answer this before handing the
+ * blob over, and answering it is not optional:
+ * VUID-VkPipelineCacheCreateInfo-initialDataSize-00769 makes passing anything
+ * that did not come from vkGetPipelineCacheData invalid usage. The
+ * implementation is required to ignore data it does not recognise, so the cost
+ * of getting it wrong is not a crash — but a knowingly invalid call is one the
+ * validation layers are entitled to report, and validationErrors is a number
+ * this project keeps at zero.
+ */
 bool IsUsableCacheData(std::span<const std::byte> data,
                        const vk::PhysicalDeviceProperties& deviceProperties)
 {

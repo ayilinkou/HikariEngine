@@ -9,10 +9,12 @@ namespace Hikari::Platform
 
 namespace
 {
-// Whether `token` reads as the start of a new option rather than a value.
-//
-// Deliberately tests for a double dash: a single dash must still read as a
-// value so that negative numbers (`--camera-preset -1`) keep working.
+/**
+ * Whether `token` reads as the start of a new option rather than a value.
+ *
+ * Deliberately tests for a double dash: a single dash must still read as a
+ * value so that negative numbers (`--camera-preset -1`) keep working.
+ */
 bool IsFlagStart(std::string_view token)
 {
     return token.starts_with("--");

@@ -11,9 +11,11 @@
 namespace Hikari::Core
 {
 
-// Wraps a plain shared-queue thread pool (see ThreadPool): one job queue,
-// one mutex, N worker threads pulling from it. Owns its ThreadPool directly
-// — no global/singleton state.
+/**
+ * Wraps a plain shared-queue thread pool (see ThreadPool): one job queue,
+ * one mutex, N worker threads pulling from it. Owns its ThreadPool directly
+ * — no global/singleton state.
+ */
 class SharedQueueJobSystem : public IJobSystem
 {
 public:

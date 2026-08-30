@@ -22,8 +22,10 @@ public:
                                    std::span<const vk::PushConstantRange> pushRanges);
     ComputePipelineBuilder& DebugName(std::string name);
 
-    // Reuses whatever the driver has already compiled, and records what it
-    // compiles here. Omitting it is legal and only costs compile time.
+    /**
+     * Reuses whatever the driver has already compiled, and records what it
+     * compiles here. Omitting it is legal and only costs compile time.
+     */
     ComputePipelineBuilder& Cache(Rhi::IPipelineCache& cache);
 
     [[nodiscard]] std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> Build();

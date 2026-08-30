@@ -7,12 +7,14 @@
 #include <vector>
 
 
-// CPU-only: no instance, no physical device, no ICD needed. SelectQueueFamilies
-// takes the family list as data precisely so that the layouts this machine's GPU
-// does not expose — a transfer-only DMA family, a graphics family without
-// compute, two graphics families of which only one can present — can be tested
-// anyway. Those are exactly the layouts where a wrong choice shows up as a
-// failure on somebody else's hardware.
+/**
+ * CPU-only: no instance, no physical device, no ICD needed. SelectQueueFamilies
+ * takes the family list as data precisely so that the layouts this machine's GPU
+ * does not expose — a transfer-only DMA family, a graphics family without
+ * compute, two graphics families of which only one can present — can be tested
+ * anyway. Those are exactly the layouts where a wrong choice shows up as a
+ * failure on somebody else's hardware.
+ */
 using namespace Hikari::Rhi;
 using namespace Hikari::Rhi::Vulkan;
 
@@ -29,8 +31,10 @@ vk::QueueFamilyProperties Family(vk::QueueFlags capabilities, uint32_t queueCoun
     return vk::QueueFamilyProperties{.queueFlags = capabilities, .queueCount = queueCount};
 }
 
-// Every family presents. The common case, and the one that leaves the graphics
-// choice down to capabilities alone.
+/**
+ * Every family presents. The common case, and the one that leaves the graphics
+ * choice down to capabilities alone.
+ */
 bool AllPresent(uint32_t)
 {
     return true;
@@ -189,10 +193,12 @@ TEST_CASE("Get() covers every role", "[rhi][queues]")
     REQUIRE(families.Get(QueueType::Copy) == families.Copy);
 }
 
-// DeviceDesc::bForceSingleQueue exists so the GPU tests can reach the
-// arrangement this machine does not have. It has to collapse the roles onto the
-// graphics family rather than merely stop preferring a dedicated one, or the
-// upload path would still see two families and still hand resources over.
+/**
+ * DeviceDesc::bForceSingleQueue exists so the GPU tests can reach the
+ * arrangement this machine does not have. It has to collapse the roles onto the
+ * graphics family rather than merely stop preferring a dedicated one, or the
+ * upload path would still see two families and still hand resources over.
+ */
 TEST_CASE("Forcing a single queue collapses every role onto graphics", "[rhi][queues]")
 {
     const std::vector<vk::QueueFamilyProperties> discrete{
@@ -217,9 +223,11 @@ TEST_CASE("Forcing a single queue collapses every role onto graphics", "[rhi][qu
     REQUIRE(unforced.Compute == 2);
 }
 
-// Compute is the one role with no fallback: a graphics family that cannot
-// dispatch leaves it unresolved rather than pointing at a family that would
-// fail at submission. Forcing a single queue must not paper over that.
+/**
+ * Compute is the one role with no fallback: a graphics family that cannot
+ * dispatch leaves it unresolved rather than pointing at a family that would
+ * fail at submission. Forcing a single queue must not paper over that.
+ */
 TEST_CASE("Forcing a single queue leaves compute unresolved when graphics cannot dispatch",
           "[rhi][queues]")
 {

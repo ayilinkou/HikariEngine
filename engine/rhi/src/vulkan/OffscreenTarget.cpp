@@ -28,23 +28,27 @@ namespace Hikari::Rhi::Vulkan
 constexpr Core::LogCategory LogRhi("RHI");
 namespace
 {
-// Everything an offscreen image is used for: rendered into, copied out of for a
-// screenshot or a readback, and sampled by a pass that composites over it.
+/**
+ * Everything an offscreen image is used for: rendered into, copied out of for a
+ * screenshot or a readback, and sampled by a pass that composites over it.
+ */
 constexpr TextureUsage kOffscreenUsage =
     TextureUsage::ColorAttachment | TextureUsage::CopySrc | TextureUsage::Sampled;
 
-// The format the images are created with.
-//
-// BGRA8Unorm first, for a reason that has nothing to do with the format itself:
-// ChooseSwapchainFormat asks for it first too, so a headless capture and a
-// windowed one come out in the same byte order and can be compared directly.
-// A headless run whose screenshots needed a different comparison than a
-// windowed run's would not be much of a regression harness.
-//
-// Queried rather than assumed. The Vulkan required-format tables do guarantee
-// colour-attachment and sampled support for both of these, but a target that
-// silently produces an unusable image on the one device that disagrees is worse
-// than one that says so at creation — and the query is two lines.
+/**
+ * The format the images are created with.
+ *
+ * BGRA8Unorm first, for a reason that has nothing to do with the format itself:
+ * ChooseSwapchainFormat asks for it first too, so a headless capture and a
+ * windowed one come out in the same byte order and can be compared directly.
+ * A headless run whose screenshots needed a different comparison than a
+ * windowed run's would not be much of a regression harness.
+ *
+ * Queried rather than assumed. The Vulkan required-format tables do guarantee
+ * colour-attachment and sampled support for both of these, but a target that
+ * silently produces an unusable image on the one device that disagrees is worse
+ * than one that says so at creation — and the query is two lines.
+ */
 Format ChooseFormat(vk::raii::PhysicalDevice& physicalDevice)
 {
     constexpr std::array kPreferred{Format::BGRA8Unorm, Format::RGBA8Unorm};

@@ -153,7 +153,7 @@ NodeType XmlParser::TagToNodeType(std::string_view tag)
     return NodeType::Unknown;
 }
 
-// Returns a nullptr if failed to load a scene.
+/** Returns a nullptr if failed to load a scene. */
 std::unique_ptr<SceneGraph> XmlParser::LoadScene(const std::string& path)
 {
     LogMsg(LogSeverity::Info, LogXmlParser, "Loading scene: {}", path.c_str());

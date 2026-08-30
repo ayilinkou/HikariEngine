@@ -29,7 +29,7 @@ public:
         return sp;
     }
 
-    // Remove entries to resources which are expired
+    /** Remove entries to resources which are expired */
     uint32_t Purge()
     {
         std::lock_guard lock(m_Mutex);

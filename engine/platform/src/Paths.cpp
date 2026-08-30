@@ -30,8 +30,10 @@ bool IsDirectory(const std::filesystem::path& path)
     return !path.empty() && std::filesystem::is_directory(path, ec);
 }
 
-// Creates `path` if it is not already a directory. Reports failure rather than
-// throwing: a missing place to write caches is a degraded run, not a broken one.
+/**
+ * Creates `path` if it is not already a directory. Reports failure rather than
+ * throwing: a missing place to write caches is a degraded run, not a broken one.
+ */
 bool EnsureDirectory(const std::filesystem::path& path)
 {
     std::error_code ec;
@@ -39,8 +41,10 @@ bool EnsureDirectory(const std::filesystem::path& path)
     return IsDirectory(path);
 }
 
-// The directory the platform sets aside for this application's own files, or
-// empty if it will not give one.
+/**
+ * The directory the platform sets aside for this application's own files, or
+ * empty if it will not give one.
+ */
 std::filesystem::path ResolveUserDataRoot()
 {
     // Unlike the content root, an explicit override is created rather than

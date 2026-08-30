@@ -32,14 +32,16 @@ constexpr Core::LogCategory LogRhi("RHI");
 namespace
 {
 
-// The tiling every texture this device allocates is created with. Named rather
-// than written inline because whether an image needs a queue family ownership
-// transfer depends on it, and the two answers have to come from one place.
+/**
+ * The tiling every texture this device allocates is created with. Named rather
+ * than written inline because whether an image needs a queue family ownership
+ * transfer depends on it, and the two answers have to come from one place.
+ */
 constexpr vk::ImageTiling kTextureTiling = vk::ImageTiling::eOptimal;
 
 constexpr const char* kValidationLayerName = "VK_LAYER_KHRONOS_validation";
 
-// "family 1 (dedicated)", "family 0", or "none", for the startup log.
+/** "family 1 (dedicated)", "family 0", or "none", for the startup log. */
 std::string DescribeFamily(const QueueFamilies& families, QueueType role)
 {
     const uint32_t index = families.Get(role);
@@ -49,9 +51,11 @@ std::string DescribeFamily(const QueueFamilies& families, QueueType role)
     return std::format("family {}{}", index, families.IsDedicated(role) ? " (dedicated)" : "");
 }
 
-// Rejects the descriptions Vulkan would reject anyway, but with a message that
-// names the caller's field rather than a VUID. Every one of these is a
-// programming error rather than a runtime condition, so they throw.
+/**
+ * Rejects the descriptions Vulkan would reject anyway, but with a message that
+ * names the caller's field rather than a VUID. Every one of these is a
+ * programming error rather than a runtime condition, so they throw.
+ */
 void ValidateTextureDesc(const TextureDesc& desc)
 {
     const auto fail = [&desc](std::string_view why)

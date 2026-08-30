@@ -23,22 +23,26 @@
 #include <rhi/UniqueHandle.h>
 #include <rhi/vulkan/VulkanNative.h>
 
-// Getting the bytes back off the GPU, which is the only way a test can say what
-// an upload actually wrote.
-//
-// Vulkan-side because submitting is: the RHI hands out a command list (plan D7,
-// D8) but not a queue, so recording is neutral and the submission around it is
-// not. A second backend's tests would keep these functions' signatures and
-// rewrite their bodies.
+/**
+ * Getting the bytes back off the GPU, which is the only way a test can say what
+ * an upload actually wrote.
+ *
+ * Vulkan-side because submitting is: the RHI hands out a command list (plan D7,
+ * D8) but not a queue, so recording is neutral and the submission around it is
+ * not. A second backend's tests would keep these functions' signatures and
+ * rewrite their bodies.
+ */
 namespace RhiTest
 {
-// Records `record` into a command list of its own, submits it to the graphics
-// queue, and blocks until the GPU has finished with it.
-//
-// A pool per call rather than one shared across the binary: these run a handful
-// of times per test and the allocation is not what makes them slow, whereas a
-// shared pool would need resetting between uses and would make one test's
-// failure leave the next one recording into a half-used buffer.
+/**
+ * Records `record` into a command list of its own, submits it to the graphics
+ * queue, and blocks until the GPU has finished with it.
+ *
+ * A pool per call rather than one shared across the binary: these run a handful
+ * of times per test and the allocation is not what makes them slow, whereas a
+ * shared pool would need resetting between uses and would make one test's
+ * failure leave the next one recording into a half-used buffer.
+ */
 inline void RunGraphicsCommands(Hikari::Rhi::IDevice& device,
                                 const std::function<void(Hikari::Rhi::ICommandList&)>& record)
 {
@@ -70,13 +74,15 @@ inline void RunGraphicsCommands(Hikari::Rhi::IDevice& device,
     REQUIRE(result == vk::Result::eSuccess);
 }
 
-// `size` bytes of `source`, copied into a readback buffer and out to the heap.
-//
-// `source` must carry BufferUsage::CopySrc. No barrier precedes the copy and
-// none is needed: whatever filled the buffer did so in an earlier submission
-// that a fence wait has already returned from, and a fence signal's access
-// scope is every access the device performed (Vulkan 1.4, *Fences*) — which is
-// the same guarantee IUploadContext::Flush relies on for the renderer.
+/**
+ * `size` bytes of `source`, copied into a readback buffer and out to the heap.
+ *
+ * `source` must carry BufferUsage::CopySrc. No barrier precedes the copy and
+ * none is needed: whatever filled the buffer did so in an earlier submission
+ * that a fence wait has already returned from, and a fence signal's access
+ * scope is every access the device performed (Vulkan 1.4, *Fences*) — which is
+ * the same guarantee IUploadContext::Flush relies on for the renderer.
+ */
 inline std::vector<std::byte> ReadBuffer(Hikari::Rhi::IDevice& device, Hikari::Rhi::BufferHandle source,
                                          uint64_t size)
 {
@@ -101,19 +107,21 @@ inline std::vector<std::byte> ReadBuffer(Hikari::Rhi::IDevice& device, Hikari::R
     return bytes;
 }
 
-// Mip `mipLevel` of every array layer of `source`, one tightly packed entry per
-// layer.
-//
-// One call rather than one per layer because the layout transition has to cover
-// the whole texture: a layout is a property of a subresource, and transitioning
-// them one at a time would leave the rest where they were. Each layer is
-// nonetheless copied by its own region naming BaseLayer, which is what makes an
-// upload that wrote every face into layer 0 show up as five wrong layers rather
-// than as one buffer that happens to hold the right bytes somewhere.
-//
-// `source` must carry TextureUsage::CopySrc and be in the ShaderResource layout
-// — which is where IUploadContext leaves everything it fills. The texture is
-// left in CopySrc.
+/**
+ * Mip `mipLevel` of every array layer of `source`, one tightly packed entry per
+ * layer.
+ *
+ * One call rather than one per layer because the layout transition has to cover
+ * the whole texture: a layout is a property of a subresource, and transitioning
+ * them one at a time would leave the rest where they were. Each layer is
+ * nonetheless copied by its own region naming BaseLayer, which is what makes an
+ * upload that wrote every face into layer 0 show up as five wrong layers rather
+ * than as one buffer that happens to hold the right bytes somewhere.
+ *
+ * `source` must carry TextureUsage::CopySrc and be in the ShaderResource layout
+ * — which is where IUploadContext leaves everything it fills. The texture is
+ * left in CopySrc.
+ */
 inline std::vector<std::vector<std::byte>>
 ReadTextureLayers(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle source, uint32_t mipLevel = 0u)
 {

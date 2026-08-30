@@ -14,13 +14,15 @@ using namespace Hikari::Rhi::Vulkan;
 
 constexpr LogCategory LogMaterialFactory("Material Factory");
 
-// A material set binds one combined image sampler per texture slot.
+/** A material set binds one combined image sampler per texture slot. */
 constexpr std::array kMaterialDescriptorsPerSet = {vk::DescriptorPoolSize{
     .type = vk::DescriptorType::eCombinedImageSampler, .descriptorCount = TextureBinding::COUNT}};
 
-// A starting size, not a ceiling — the allocator adds pools when a scene brings
-// more materials than this. Sized so that no scene shipped today pays for a
-// second pool.
+/**
+ * A starting size, not a ceiling — the allocator adds pools when a scene brings
+ * more materials than this. Sized so that no scene shipped today pays for a
+ * second pool.
+ */
 constexpr uint32_t kInitialMaterialSetCapacity = 100u;
 
 MaterialFactory* MaterialFactory::s_Instance = nullptr;

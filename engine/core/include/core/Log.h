@@ -29,7 +29,7 @@ constexpr bool operator<(LogSeverity a, LogSeverity b)
 
 namespace Log
 {
-// ANSI escape codes. \033 is ESC.
+/** ANSI escape codes. \033 is ESC. */
 inline constexpr std::string_view Reset = "\033[0m";
 inline constexpr std::string_view White = "\033[37m";
 inline constexpr std::string_view Yellow = "\033[33m";
@@ -66,8 +66,10 @@ constexpr std::string_view SeverityTag(LogSeverity severity)
 inline LogSeverity g_MinSeverity{LogSeverity::Info};
 } // namespace Log
 
-// If manually entering a log category, it must be constructed into a
-// LogCategory object with a string literal.
+/**
+ * If manually entering a log category, it must be constructed into a
+ * LogCategory object with a string literal.
+ */
 template <typename... Args>
 void LogMsg(LogSeverity severity, const LogCategory& cat, std::format_string<Args...> fmt,
             Args&&... args)

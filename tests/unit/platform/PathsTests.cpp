@@ -14,9 +14,11 @@ using namespace Hikari::Platform;
 
 namespace
 {
-// A unique directory under the system temp dir, removed with everything under
-// it on destruction. Content-root resolution is defined in terms of "does this
-// directory exist", so the tests need real directories rather than fakes.
+/**
+ * A unique directory under the system temp dir, removed with everything under
+ * it on destruction. Content-root resolution is defined in terms of "does this
+ * directory exist", so the tests need real directories rather than fakes.
+ */
 class TempDir
 {
 public:
@@ -52,18 +54,20 @@ public:
         return path;
     }
 
-    // A path under the temp dir that is guaranteed not to exist.
+    /** A path under the temp dir that is guaranteed not to exist. */
     std::filesystem::path Missing(std::string_view name) const { return m_Path / name; }
 
 private:
     std::filesystem::path m_Path;
 };
 
-// Points the user data root somewhere disposable for one test, and puts the
-// environment back afterwards so the rest of the binary is unaffected. The
-// user data root has no candidate struct to resolve in isolation the way the
-// content root does — it comes from the platform — so the environment override
-// is the seam.
+/**
+ * Points the user data root somewhere disposable for one test, and puts the
+ * environment back afterwards so the rest of the binary is unaffected. The
+ * user data root has no candidate struct to resolve in isolation the way the
+ * content root does — it comes from the platform — so the environment override
+ * is the seam.
+ */
 class ScopedUserDataOverride
 {
 public:

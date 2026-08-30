@@ -8,17 +8,21 @@
 #include <thread>
 #include <vector>
 
-// CPU-only: no instance, no device, no ICD needed. That is the reason Diagnostics
-// is a neutral class rather than a Vulkan one — a clean run emits no validation
-// messages at all, so without these tests the counting, the threshold and the
-// ring buffer would have no coverage on any machine, and a miswired diagnostic
-// path would look exactly like a healthy one.
+/**
+ * CPU-only: no instance, no device, no ICD needed. That is the reason Diagnostics
+ * is a neutral class rather than a Vulkan one — a clean run emits no validation
+ * messages at all, so without these tests the counting, the threshold and the
+ * ring buffer would have no coverage on any machine, and a miswired diagnostic
+ * path would look exactly like a healthy one.
+ */
 using namespace Hikari::Rhi;
 
 namespace
 {
-// Collects what the sink was handed, so a test can assert the message survives
-// the trip verbatim rather than only that a counter moved.
+/**
+ * Collects what the sink was handed, so a test can assert the message survives
+ * the trip verbatim rather than only that a counter moved.
+ */
 struct Sink
 {
     std::vector<std::pair<DiagnosticSeverity, std::string>> Received;
@@ -35,10 +39,12 @@ struct Sink
 };
 } // namespace
 
-// The threshold in Report(), and the messenger severity flags VulkanDevice
-// derives from MinSeverity, are both `<` comparisons on these enumerators. A
-// reorder would silently drop every message or none, which is invisible on a run
-// that produces no messages either way.
+/**
+ * The threshold in Report(), and the messenger severity flags VulkanDevice
+ * derives from MinSeverity, are both `<` comparisons on these enumerators. A
+ * reorder would silently drop every message or none, which is invisible on a run
+ * that produces no messages either way.
+ */
 TEST_CASE("Neutral severity ordering is ascending", "[rhi][diagnostics]")
 {
     STATIC_REQUIRE(DiagnosticSeverity::Info < DiagnosticSeverity::Warning);
@@ -173,8 +179,10 @@ TEST_CASE("Reset clears counters and capture but keeps the policy", "[rhi][diagn
     REQUIRE(diagnostics.RecentMessages() == std::vector<std::string>{"after reset"});
 }
 
-// The driver calls the debug callback on whichever thread raised the message, so
-// concurrent Report() is the normal case rather than an edge one.
+/**
+ * The driver calls the debug callback on whichever thread raised the message, so
+ * concurrent Report() is the normal case rather than an edge one.
+ */
 TEST_CASE("Concurrent Report counts every message exactly once", "[rhi][diagnostics]")
 {
     constexpr size_t kThreads = 8;

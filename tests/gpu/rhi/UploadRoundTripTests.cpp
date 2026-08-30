@@ -14,22 +14,26 @@
 #include "RhiTestFixture.h"
 #include "ValidationGuard.h"
 
-// What an upload actually put on the GPU, read back and compared byte for byte.
-//
-// Every case runs under all four device configurations, because the upload path
-// is the one part of the RHI whose behaviour depends on the shape of the device
-// rather than only on what it is asked to do: whether a resource crosses queue
-// families, and whether crossing them needs an explicit hand-over, is decided
-// per device. Three of the four arrangements are unreachable on any one machine
-// without the levers RhiTestFixture pulls, and the ones this GPU is not are the
-// ones most hardware in the field is.
+/**
+ * What an upload actually put on the GPU, read back and compared byte for byte.
+ *
+ * Every case runs under all four device configurations, because the upload path
+ * is the one part of the RHI whose behaviour depends on the shape of the device
+ * rather than only on what it is asked to do: whether a resource crosses queue
+ * families, and whether crossing them needs an explicit hand-over, is decided
+ * per device. Three of the four arrangements are unreachable on any one machine
+ * without the levers RhiTestFixture pulls, and the ones this GPU is not are the
+ * ones most hardware in the field is.
+ */
 using namespace Hikari::Rhi;
 
 namespace
 {
-// Deterministic and different at every byte, so a copy that lands one texel or
-// one layer off shows up rather than matching by luck. Not std::iota: a
-// 256-byte cycle would make an offset of exactly 256 invisible.
+/**
+ * Deterministic and different at every byte, so a copy that lands one texel or
+ * one layer off shows up rather than matching by luck. Not std::iota: a
+ * 256-byte cycle would make an offset of exactly 256 invisible.
+ */
 std::vector<std::byte> MakePattern(size_t byteCount, uint32_t seed)
 {
     std::vector<std::byte> bytes(byteCount);
@@ -44,11 +48,13 @@ std::vector<std::byte> MakePattern(size_t byteCount, uint32_t seed)
     return bytes;
 }
 
-// The resource counts a test starts from, so it can prove it left none behind.
-// The device is per-process here — catch_discover_tests runs one case per
-// invocation — but a leak still matters: it is the same mistake the renderer
-// would make, and the device only reports one in its destructor, long after
-// ctest has called the run a pass.
+/**
+ * The resource counts a test starts from, so it can prove it left none behind.
+ * The device is per-process here — catch_discover_tests runs one case per
+ * invocation — but a leak still matters: it is the same mistake the renderer
+ * would make, and the device only reports one in its destructor, long after
+ * ctest has called the run a pass.
+ */
 struct LiveCounts
 {
     uint32_t Buffers = 0u;
@@ -101,10 +107,12 @@ TEST_CASE("A buffer upload round-trips byte for byte", "[rhi][gpu][upload]")
     }
 }
 
-// The batching IUploadContext exists for: many copies recorded into one command
-// list and submitted once. Two uploads into one buffer at different offsets are
-// also what catches a context that ignores destinationOffset — which would look
-// perfect in the single-upload case above.
+/**
+ * The batching IUploadContext exists for: many copies recorded into one command
+ * list and submitted once. Two uploads into one buffer at different offsets are
+ * also what catches a context that ignores destinationOffset — which would look
+ * perfect in the single-upload case above.
+ */
 TEST_CASE("Several uploads batch into one flush and keep their own offsets", "[rhi][gpu][upload]")
 {
     for (const RhiTest::DeviceConfig config : RhiTest::kAllDeviceConfigs)
@@ -207,11 +215,13 @@ TEST_CASE("A texture upload round-trips byte for byte", "[rhi][gpu][upload]")
     }
 }
 
-// The case the whole handle-based texture path was most likely to get wrong: a
-// copy or a layout transition that hardcodes one array layer fills layer 0 six
-// times and leaves the other five undefined. Nothing renders visibly wrong —
-// the skybox samples a cube whose faces all happen to agree — so only a
-// readback that looks at each layer separately can say.
+/**
+ * The case the whole handle-based texture path was most likely to get wrong: a
+ * copy or a layout transition that hardcodes one array layer fills layer 0 six
+ * times and leaves the other five undefined. Nothing renders visibly wrong —
+ * the skybox samples a cube whose faces all happen to agree — so only a
+ * readback that looks at each layer separately can say.
+ */
 TEST_CASE("Every cubemap face lands on its own layer", "[rhi][gpu][upload]")
 {
     for (const RhiTest::DeviceConfig config : RhiTest::kAllDeviceConfigs)

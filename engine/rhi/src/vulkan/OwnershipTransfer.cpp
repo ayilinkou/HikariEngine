@@ -6,24 +6,28 @@ namespace Hikari::Rhi::Vulkan
 {
 namespace
 {
-// The usages that keep an optimal-tiled image on the explicit-transfer path
-// even under maintenance9, verbatim from the specification's list (Vulkan 1.4,
-// *Resource Sharing*).
-//
-// They are the attachment usages, and the reason they are excluded is the same
-// reason the transfer exists at all: an attachment is the kind of image an
-// implementation is most likely to keep in an engine-private compressed form,
-// so it is the kind whose contents another engine cannot be promised.
+/**
+ * The usages that keep an optimal-tiled image on the explicit-transfer path
+ * even under maintenance9, verbatim from the specification's list (Vulkan 1.4,
+ * *Resource Sharing*).
+ *
+ * They are the attachment usages, and the reason they are excluded is the same
+ * reason the transfer exists at all: an attachment is the kind of image an
+ * implementation is most likely to keep in an engine-private compressed form,
+ * so it is the kind whose contents another engine cannot be promised.
+ */
 constexpr vk::ImageUsageFlags kAttachmentUsages =
     vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eDepthStencilAttachment |
     vk::ImageUsageFlagBits::eTransientAttachment | vk::ImageUsageFlagBits::eInputAttachment |
     vk::ImageUsageFlagBits::eAttachmentFeedbackLoopEXT |
     vk::ImageUsageFlagBits::eFragmentShadingRateAttachmentKHR;
 
-// optimalImageTransferToQueueFamilies is 32 bits wide, so it cannot say
-// anything about a family whose index is 32 or higher. Such a device is not
-// known to exist, but "the answer is unrepresentable" has to resolve to the
-// conservative side rather than to a shift with undefined behaviour.
+/**
+ * optimalImageTransferToQueueFamilies is 32 bits wide, so it cannot say
+ * anything about a family whose index is 32 or higher. Such a device is not
+ * known to exist, but "the answer is unrepresentable" has to resolve to the
+ * conservative side rather than to a shift with undefined behaviour.
+ */
 bool FamilyBitSet(uint32_t mask, uint32_t familyIndex)
 {
     if (familyIndex >= std::numeric_limits<uint32_t>::digits)

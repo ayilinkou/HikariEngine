@@ -8,8 +8,10 @@ using namespace Hikari::Core;
 
 namespace
 {
-// Restores g_MinSeverity after each test, so filtering tests don't leak state
-// into whatever test case runs next.
+/**
+ * Restores g_MinSeverity after each test, so filtering tests don't leak state
+ * into whatever test case runs next.
+ */
 struct ScopedMinSeverity
 {
     LogSeverity Previous;
