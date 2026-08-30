@@ -9,7 +9,7 @@
 supports (a) headless + automated runtime testing, (b) data-oriented performance,
 (c) scalability as features are added.
 
-**Status:** Stage 6 complete. Next: the cleanup PR, then Stage 7.
+**Status:** Stage 6 complete. Next: the cleanup series (`cleanup_plan.md`), then Stage 7.
 
 > Companion document: `suggested_work.md` covers *correctness bugs* and
 > localised fixes. This document deliberately does **not** repeat them. Where a bug is
@@ -2413,6 +2413,10 @@ seam half on its own is not a milestone worth recording as a step.
 ---
 
 ## Between Stage 6 and Stage 7 — a cleanup PR
+
+> **Planned in detail in `cleanup_plan.md`** — eight PRs in landing order, with the
+> decisions behind each and what was deliberately left out. That document supersedes
+> this section where the two differ, and is deleted when Stage 7 begins.
 
 Stage 6 ends with the engine able to run without a window. Before Stage 7 starts pulling
 `App` apart, one small PR to clear the things Stage 6 surfaced and to take a pass over the

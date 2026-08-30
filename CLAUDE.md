@@ -105,7 +105,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 4 — Platform library | 20–23 | ✅ done (`Engine::Platform`, `Paths` + `content/` root, `CommandLine`) |
 | 5 — RHI extraction | R1–R17 | ✅ done (`Engine::RHI` — backend-neutral API, handle-based resources, batched uploads, growable descriptors, a pipeline cache, and GPU tests) |
 | 6 — Headless capability | 35–40a | ✅ done (`HeadlessPlatform`, `--headless`, the present-layout seam) |
-| **7 — Engine shell + DI** | **40b, 41–47** | **next** — a cleanup PR first; **CI goal met at step 47** |
+| **7 — Engine shell + DI** | **40b, 41–47** | **next** — the cleanup series first (`docs/cleanup_plan.md`); **CI goal met at step 47** |
 | 8+ — Frame graph, DOD, scalability | 48–76 | not started |
 
 Update this table when a stage completes.
