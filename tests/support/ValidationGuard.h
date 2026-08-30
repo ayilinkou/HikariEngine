@@ -28,7 +28,7 @@ namespace RhiTest
 class ValidationGuard
 {
 public:
-    explicit ValidationGuard(Rhi::IDevice& device) : m_Diagnostics(device.GetDiagnostics())
+    explicit ValidationGuard(Hikari::Rhi::IDevice& device) : m_Diagnostics(device.GetDiagnostics())
     {
         // The device is shared across the binary, so the counters carry whatever
         // the previous case produced. Resetting is what makes the check below
@@ -67,6 +67,6 @@ public:
     uint64_t WarningCount() const { return m_Diagnostics.WarningCount(); }
 
 private:
-    Rhi::Diagnostics& m_Diagnostics;
+    Hikari::Rhi::Diagnostics& m_Diagnostics;
 };
 } // namespace RhiTest

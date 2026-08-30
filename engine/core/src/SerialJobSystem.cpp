@@ -2,6 +2,9 @@
 
 #include <future>
 
+namespace Hikari::Core
+{
+
 std::shared_future<void> SerialJobSystem::Submit(std::function<void()> job)
 {
     std::promise<void> promise;
@@ -32,3 +35,4 @@ void SerialJobSystem::ParallelFor(uint32_t count, uint32_t grain,
     JobSystemDetail::ForEachParallelForChunk(count, grain,
                                              [&](uint32_t begin, uint32_t end) { fn(begin, end); });
 }
+} // namespace Hikari::Core

@@ -34,7 +34,7 @@
 // window, which a test binary does not have. What that costs is covered in the
 // architecture plan's CI section, and is why the windowed path is still checked
 // by running the application.
-using namespace Rhi;
+using namespace Hikari::Rhi;
 
 namespace
 {

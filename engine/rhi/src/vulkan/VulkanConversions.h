@@ -46,7 +46,7 @@
 //
 // Nothing needs the reverse for these: they describe work being handed to the
 // backend, never results coming back from it.
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 // VMA splits "where the memory lives" across a usage enum and a set of
 // allocation flags, so a neutral MemoryAccess converts to a pair rather than to
@@ -136,4 +136,4 @@ vk::ImageLayout ToVk(TextureLayout layout);
 vk::BufferUsageFlags ToVk(BufferUsage usage);
 vk::ImageUsageFlags ToVk(TextureUsage usage);
 vk::ImageAspectFlags ToVk(TextureAspect aspect);
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

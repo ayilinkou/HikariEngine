@@ -13,6 +13,8 @@
 
 #include <span>
 
+using namespace Hikari;
+
 ModelLoader::ModelLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
     : m_RhiDevice(rhiDevice), m_UploadContext(uploadContext)
 {

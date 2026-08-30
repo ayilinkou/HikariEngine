@@ -20,14 +20,15 @@ class ModelData
 public:
     ModelData(const std::string& path, std::vector<std::unique_ptr<Material>> materials,
               uint32_t meshCount);
-    void Init(Rhi::UniqueHandle<Rhi::BufferHandle> vertexBuffer,
-              Rhi::UniqueHandle<Rhi::BufferHandle> indexBuffer, std::unique_ptr<Node> rootNode);
+    void Init(Hikari::Rhi::UniqueHandle<Hikari::Rhi::BufferHandle> vertexBuffer,
+              Hikari::Rhi::UniqueHandle<Hikari::Rhi::BufferHandle> indexBuffer,
+              std::unique_ptr<Node> rootNode);
 
     Mesh* RegisterMesh(aiMesh* mesh, uint32_t meshIndex, const glm::mat4& localTransform,
                        std::vector<Vertex>& vertices, std::vector<uint32_t>& indices);
 
-    Rhi::BufferHandle GetVertexBuffer() const { return m_VertexBuffer.Get(); }
-    Rhi::BufferHandle GetIndexBuffer() const { return m_IndexBuffer.Get(); }
+    Hikari::Rhi::BufferHandle GetVertexBuffer() const { return m_VertexBuffer.Get(); }
+    Hikari::Rhi::BufferHandle GetIndexBuffer() const { return m_IndexBuffer.Get(); }
 
     const std::vector<Drawable>& GetDrawables() const { return m_Drawables; }
 
@@ -40,8 +41,8 @@ private:
 
     std::unique_ptr<Node> m_RootNode = nullptr;
 
-    Rhi::UniqueHandle<Rhi::BufferHandle> m_VertexBuffer;
-    Rhi::UniqueHandle<Rhi::BufferHandle> m_IndexBuffer;
+    Hikari::Rhi::UniqueHandle<Hikari::Rhi::BufferHandle> m_VertexBuffer;
+    Hikari::Rhi::UniqueHandle<Hikari::Rhi::BufferHandle> m_IndexBuffer;
 
     std::vector<Drawable> m_Drawables;
 

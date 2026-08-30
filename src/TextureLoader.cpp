@@ -7,6 +7,9 @@
 
 #include <core/Log.h>
 
+using namespace Hikari;
+using namespace Hikari::Core;
+
 constexpr LogCategory LogTextureLoader("Texture Loader");
 
 TextureLoader::TextureLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)

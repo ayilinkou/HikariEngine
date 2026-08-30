@@ -15,11 +15,11 @@
 #include "vulkan/VulkanConversions.h"
 #include "vulkan/VulkanDevice.h"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
+constexpr Core::LogCategory LogRhi("RHI");
 namespace
 {
-constexpr LogCategory LogRhi("RHI");
 
 // Staging is written by the CPU and read once by the copy, which is exactly what
 // CpuToGpu describes.
@@ -125,15 +125,16 @@ VulkanUploadContext::VulkanUploadContext(VulkanDevice& device, const UploadConte
 
     if (!m_bSeparateCopyQueue)
     {
-        LogMsg(LogSeverity::Info, LogRhi,
-               "Upload context '{}' uploads on the graphics queue family {}; the device has no "
-               "separate copy family, so nothing is ever handed over.",
-               name, m_CopyFamily);
+        Core::LogMsg(
+            Core::LogSeverity::Info, LogRhi,
+            "Upload context '{}' uploads on the graphics queue family {}; the device has no "
+            "separate copy family, so nothing is ever handed over.",
+            name, m_CopyFamily);
         return;
     }
 
-    LogMsg(
-        LogSeverity::Info, LogRhi,
+    Core::LogMsg(
+        Core::LogSeverity::Info, LogRhi,
         "Upload context '{}' uploads on queue family {} for the graphics family {}. Buffers {} "
         "an ownership transfer, images are decided per resource, and ownership barriers name {}.",
         name, m_CopyFamily, m_GraphicsFamily,
@@ -152,10 +153,11 @@ VulkanUploadContext::~VulkanUploadContext()
     // releases the staging so the device does not also report leaked buffers.
     if (!m_BufferCopies.empty() || !m_TextureCopies.empty())
     {
-        LogMsg(LogSeverity::Error, LogRhi,
-               "Upload context destroyed with {} buffer and {} texture upload(s) never flushed — "
-               "those resources were never filled.",
-               m_BufferCopies.size(), m_TextureCopies.size());
+        Core::LogMsg(
+            Core::LogSeverity::Error, LogRhi,
+            "Upload context destroyed with {} buffer and {} texture upload(s) never flushed — "
+            "those resources were never filled.",
+            m_BufferCopies.size(), m_TextureCopies.size());
     }
 
     for (const BufferHandle staging : m_Staging)
@@ -163,10 +165,10 @@ VulkanUploadContext::~VulkanUploadContext()
 
     // The one line that says what the batching actually bought, which is
     // otherwise only visible by counting flush lines in the log.
-    LogMsg(LogSeverity::Info, LogRhi,
-           "Upload context destroyed after {} submission(s) for {} resource(s), {:.1f} MiB.",
-           m_Stats.Submits, m_Stats.Uploads,
-           static_cast<double>(m_Stats.Bytes) / (1024.0 * 1024.0));
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi,
+                 "Upload context destroyed after {} submission(s) for {} resource(s), {:.1f} MiB.",
+                 m_Stats.Submits, m_Stats.Uploads,
+                 static_cast<double>(m_Stats.Bytes) / (1024.0 * 1024.0));
 }
 
 BufferHandle VulkanUploadContext::CreateStaging(uint64_t size, const char* what)
@@ -576,8 +578,9 @@ void VulkanUploadContext::Flush()
     m_TextureCopies.clear();
     m_PendingBytes = 0u;
 
-    LogMsg(LogSeverity::Info, LogRhi, "Upload flush: {} resource(s), {:.1f} MiB, in {}.",
-           flushedUploads, static_cast<double>(flushedBytes) / (1024.0 * 1024.0),
-           bHandOver ? "2 submissions (copy, then ownership acquire)" : "1 submission");
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi,
+                 "Upload flush: {} resource(s), {:.1f} MiB, in {}.", flushedUploads,
+                 static_cast<double>(flushedBytes) / (1024.0 * 1024.0),
+                 bHandOver ? "2 submissions (copy, then ownership acquire)" : "1 submission");
 }
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

@@ -4,6 +4,8 @@
 
 #include "CaptureStream.h"
 
+using namespace Hikari::Core;
+
 namespace
 {
 // Restores g_MinSeverity after each test, so filtering tests don't leak state

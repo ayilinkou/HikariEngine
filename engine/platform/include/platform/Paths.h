@@ -5,6 +5,9 @@
 #include <string>
 #include <string_view>
 
+namespace Hikari::Platform
+{
+
 // The places a content root can come from, in the order they are tried. Empty
 // entries are skipped.
 struct ContentRootCandidates
@@ -82,3 +85,4 @@ private:
     std::filesystem::path m_ShaderRoot;
     std::filesystem::path m_UserDataRoot;
 };
+} // namespace Hikari::Platform

@@ -66,6 +66,6 @@ struct MeshBatch
     uint32_t FirstIndex = 0u;
     uint32_t IndexCount = 0u;
     Material* pMaterial = nullptr;
-    Rhi::BufferHandle IndexBuffer;
-    Rhi::BufferHandle VertexBuffer;
+    Hikari::Rhi::BufferHandle IndexBuffer;
+    Hikari::Rhi::BufferHandle VertexBuffer;
 };

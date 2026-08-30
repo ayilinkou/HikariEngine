@@ -47,59 +47,13 @@ set(banned_patterns
     "#[ \t]*include[ \t]*[<\"]vulkan/"
     "#[ \t]*include[ \t]*[<\"]vk_mem_alloc")
 
-# Removes // and /* */ comments from one line, carrying the "inside a block
-# comment" state across lines.
-#
 # Comments are stripped rather than matched because the neutral headers are
 # expected to name Vulkan and D3D12 types in prose — recording that
 # PipelineStage maps onto VkPipelineStageFlags2 and D3D12_BARRIER_SYNC is
 # exactly the documentation that makes the mapping reviewable. Matching raw
 # lines would make that unwritable and push the rationale out of the code.
 # What is banned is a dependency, not a mention.
-#
-# String literals are deliberately not special-cased: a neutral header naming a
-# Vulkan type inside a string literal is a finding too.
-function(strip_comments_from_line line in_block_var out_var)
-  set(in_block "${${in_block_var}}")
-  set(result "")
-  set(rest "${line}")
-
-  while(TRUE)
-    if(in_block)
-      string(FIND "${rest}" "*/" close_index)
-      if(close_index EQUAL -1)
-        break()
-      endif()
-      math(EXPR after_close "${close_index} + 2")
-      string(SUBSTRING "${rest}" ${after_close} -1 rest)
-      set(in_block 0)
-    else()
-      string(FIND "${rest}" "//" line_index)
-      string(FIND "${rest}" "/*" block_index)
-
-      if(line_index EQUAL -1 AND block_index EQUAL -1)
-        string(APPEND result "${rest}")
-        break()
-      endif()
-
-      # Whichever comes first wins: "/* //" opens a block, "// /*" does not.
-      if(NOT block_index EQUAL -1 AND (line_index EQUAL -1 OR block_index LESS line_index))
-        string(SUBSTRING "${rest}" 0 ${block_index} prefix)
-        string(APPEND result "${prefix}")
-        math(EXPR after_open "${block_index} + 2")
-        string(SUBSTRING "${rest}" ${after_open} -1 rest)
-        set(in_block 1)
-      else()
-        string(SUBSTRING "${rest}" 0 ${line_index} prefix)
-        string(APPEND result "${prefix}")
-        break()
-      endif()
-    endif()
-  endwhile()
-
-  set(${in_block_var} "${in_block}" PARENT_SCOPE)
-  set(${out_var} "${result}" PARENT_SCOPE)
-endfunction()
+include("${CMAKE_CURRENT_LIST_DIR}/StripComments.cmake")
 
 # GLOB rather than GLOB_RECURSE is load-bearing: it excludes include/rhi/vulkan/,
 # the transitional area that is allowed to expose Vulkan (plan D1 and D9).

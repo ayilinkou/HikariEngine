@@ -23,10 +23,9 @@
 #include "vulkan/VulkanConversions.h"
 #include "vulkan/VulkanDevice.h"
 
-constexpr LogCategory LogRhi("RHI");
-
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
+constexpr Core::LogCategory LogRhi("RHI");
 namespace
 {
 // Everything an offscreen image is used for: rendered into, copied out of for a
@@ -118,8 +117,8 @@ void OffscreenTarget::Create(Extent2D extent)
     m_AcquireCount = 0u;
     m_CurrentWait = SemaphoreHandle{};
 
-    LogMsg(LogSeverity::Info, LogRhi, "Offscreen target: {}x{}, {} images", m_Extent.Width,
-           m_Extent.Height, m_Images.size());
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Offscreen target: {}x{}, {} images",
+                 m_Extent.Width, m_Extent.Height, m_Images.size());
 }
 
 void OffscreenTarget::Destroy()
@@ -327,4 +326,4 @@ bool OffscreenTarget::Recreate(Extent2D newExtent)
     Create(newExtent);
     return true;
 }
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

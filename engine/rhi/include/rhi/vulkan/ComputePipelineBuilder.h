@@ -9,6 +9,9 @@
 
 #include <rhi/PipelineCache.h>
 
+namespace Hikari::Rhi::Vulkan
+{
+
 class ComputePipelineBuilder
 {
 public:
@@ -35,3 +38,4 @@ private:
 
     Rhi::IPipelineCache* m_pCache = nullptr;
 };
+} // namespace Hikari::Rhi::Vulkan

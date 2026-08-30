@@ -6,7 +6,7 @@
 
 #include <rhi/RhiTypes.h>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 // The shape of the underlying resource, not of a view onto it. A cubemap is a
 // 2D texture with six array layers and bCubeCompatible set — which is what both
@@ -66,4 +66,4 @@ struct TextureDesc
 
     std::string DebugName;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

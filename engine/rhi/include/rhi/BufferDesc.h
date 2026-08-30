@@ -6,7 +6,7 @@
 
 #include <rhi/RhiTypes.h>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 // What a buffer may be bound as. Every entry maps to a VkBufferUsageFlagBits
 // value; on D3D12 most of these are properties of the view rather than the
@@ -45,4 +45,4 @@ struct BufferDesc
     // value into something readable.
     std::string DebugName;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

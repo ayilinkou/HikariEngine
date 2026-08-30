@@ -9,12 +9,12 @@
 // Each is a distinct type, so a buffer handle cannot be passed where a texture
 // handle is expected. The tags are declared inline and never defined — they
 // exist only to separate the types.
-namespace Rhi
+namespace Hikari::Rhi
 {
-using BufferHandle = Handle<struct BufferTag>;
-using TextureHandle = Handle<struct TextureTag>;
-using TextureViewHandle = Handle<struct TextureViewTag>;
-using SamplerHandle = Handle<struct SamplerTag>;
+using BufferHandle = Core::Handle<struct BufferTag>;
+using TextureHandle = Core::Handle<struct TextureTag>;
+using TextureViewHandle = Core::Handle<struct TextureViewTag>;
+using SamplerHandle = Core::Handle<struct SamplerTag>;
 
 // Paired with a uint64_t value at every use site rather than being waited on
 // by itself: D3D12 has exactly one synchronization primitive, ID3D12Fence with
@@ -23,7 +23,7 @@ using SamplerHandle = Handle<struct SamplerTag>;
 // Declared ahead of its first user, which is why nothing takes one yet: the
 // upload context waits on a fence it owns and never shows it, and the frame
 // loop's synchronization still belongs to the application.
-using FenceHandle = Handle<struct FenceTag>;
+using FenceHandle = Core::Handle<struct FenceTag>;
 
 // A GPU-to-GPU ordering point with no value attached, and the counterpart to
 // FenceHandle rather than a lesser version of it: presentation is the one place
@@ -34,5 +34,5 @@ using FenceHandle = Handle<struct FenceTag>;
 // long enough to wait on or signal it in its own submit. Nothing else in the RHI
 // hands out a semaphore, and nothing should — a caller that wants ordering
 // against RHI-owned work wants a fence and a value.
-using SemaphoreHandle = Handle<struct SemaphoreTag>;
-} // namespace Rhi
+using SemaphoreHandle = Core::Handle<struct SemaphoreTag>;
+} // namespace Hikari::Rhi

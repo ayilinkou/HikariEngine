@@ -16,10 +16,9 @@
 
 #include "vulkan/VulkanDevice.h"
 
-constexpr LogCategory LogRhi("RHI");
-
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
+constexpr Core::LogCategory LogRhi("RHI");
 SwapchainTarget::SwapchainTarget(VulkanDevice& device, const PresentTargetDesc& desc)
     : m_Device(device), m_FramesInFlight(desc.FramesInFlight)
 {
@@ -105,8 +104,8 @@ void SwapchainTarget::Create(Extent2D extent)
 
     m_AcquireIndex = 0u;
 
-    LogMsg(LogSeverity::Info, LogRhi, "Swapchain: {}x{}, {} images", m_Extent.width,
-           m_Extent.height, m_Images.size());
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Swapchain: {}x{}, {} images", m_Extent.width,
+                 m_Extent.height, m_Images.size());
 }
 
 void SwapchainTarget::Destroy()
@@ -241,4 +240,4 @@ bool SwapchainTarget::Recreate(Extent2D newExtent)
     Create(newExtent);
     return true;
 }
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

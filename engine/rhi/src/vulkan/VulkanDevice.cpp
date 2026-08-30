@@ -26,11 +26,11 @@
 #include "vulkan/VulkanPipelineCache.h"
 #include "vulkan/VulkanUploadContext.h"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
+constexpr Core::LogCategory LogRhi("RHI");
 namespace
 {
-constexpr LogCategory LogRhi("RHI");
 
 // The tiling every texture this device allocates is created with. Named rather
 // than written inline because whether an image needs a queue family ownership
@@ -128,16 +128,16 @@ VulkanDevice::~VulkanDevice()
             continue;
 
         bAnyLive = true;
-        LogMsg(LogSeverity::Warning, LogRhi,
-               "Device destroyed with {} {}(s) still alive — each is a resource whose owner "
-               "never released it.",
-               count, kind);
+        Core::LogMsg(Core::LogSeverity::Warning, LogRhi,
+                     "Device destroyed with {} {}(s) still alive — each is a resource whose owner "
+                     "never released it.",
+                     count, kind);
     }
 
     if (!bAnyLive)
     {
-        LogMsg(LogSeverity::Info, LogRhi,
-               "Device destroyed with 0 live buffers, textures, texture views and samplers.");
+        Core::LogMsg(Core::LogSeverity::Info, LogRhi,
+                     "Device destroyed with 0 live buffers, textures, texture views and samplers.");
     }
 }
 
@@ -517,7 +517,7 @@ VKAPI_ATTR vk::Bool32 VKAPI_CALL VulkanDevice::DebugCallback(
 
 void VulkanDevice::CreateInstance(const DeviceDesc& desc)
 {
-    LogMsg(LogSeverity::Info, LogRhi, "CreateInstance()");
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "CreateInstance()");
 
     const vk::ApplicationInfo appInfo{.pApplicationName = desc.ApplicationName.c_str(),
                                       .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
@@ -655,7 +655,7 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
 
 void VulkanDevice::SetupDebugMessenger(const DeviceDesc& desc)
 {
-    LogMsg(LogSeverity::Info, LogRhi, "SetupDebugMessenger()");
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "SetupDebugMessenger()");
 
     if (!desc.bEnableValidation)
         return;
@@ -685,7 +685,7 @@ void VulkanDevice::SetupDebugMessenger(const DeviceDesc& desc)
 
 void VulkanDevice::CreateSurface(const DeviceRequirements& requirements)
 {
-    LogMsg(LogSeverity::Info, LogRhi, "CreateSurface()");
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "CreateSurface()");
 
     if (!requirements.bPresent)
         return;
@@ -759,7 +759,7 @@ bool VulkanDevice::IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& devi
 
 void VulkanDevice::PickPhysicalDevice(const DeviceRequirements& requirements)
 {
-    LogMsg(LogSeverity::Info, LogRhi, "PickPhysicalDevice()");
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "PickPhysicalDevice()");
 
     auto devices = m_Instance.enumeratePhysicalDevices();
     const auto deviceIt =
@@ -774,7 +774,7 @@ void VulkanDevice::PickPhysicalDevice(const DeviceRequirements& requirements)
 
 void VulkanDevice::SelectOptionalExtensions(const DeviceDesc& desc)
 {
-    LogMsg(LogSeverity::Info, LogRhi, "SelectOptionalExtensions()");
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "SelectOptionalExtensions()");
 
     const std::vector<vk::ExtensionProperties> available =
         m_PhysicalDevice.enumerateDeviceExtensionProperties();
@@ -789,10 +789,11 @@ void VulkanDevice::SelectOptionalExtensions(const DeviceDesc& desc)
     {
         if (std::ranges::none_of(optional, [&name](const char* entry) { return name == entry; }))
         {
-            LogMsg(LogSeverity::Warning, LogRhi,
-                   "DisabledOptionalExtensions names '{}', which is not an optional extension this "
-                   "backend uses. It has no effect.",
-                   name);
+            Core::LogMsg(
+                Core::LogSeverity::Warning, LogRhi,
+                "DisabledOptionalExtensions names '{}', which is not an optional extension this "
+                "backend uses. It has no effect.",
+                name);
         }
     }
 
@@ -806,10 +807,10 @@ void VulkanDevice::SelectOptionalExtensions(const DeviceDesc& desc)
             std::ranges::any_of(desc.DisabledOptionalExtensions,
                                 [name](const std::string& entry) { return entry == name; });
 
-        LogMsg(LogSeverity::Info, LogRhi, "{}: {}", name,
-               !bSupported ? "not supported"
-               : bDisabled ? "supported, disabled by request"
-                           : "enabled");
+        Core::LogMsg(Core::LogSeverity::Info, LogRhi, "{}: {}", name,
+                     !bSupported ? "not supported"
+                     : bDisabled ? "supported, disabled by request"
+                                 : "enabled");
 
         return bSupported && !bDisabled;
     };
@@ -867,7 +868,7 @@ OwnershipTransferRules VulkanDevice::GetOwnershipTransferRules(uint32_t srcFamil
 
 void VulkanDevice::FindQueueFamilies(const DeviceDesc& desc)
 {
-    LogMsg(LogSeverity::Info, LogRhi, "FindQueueFamilies()");
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "FindQueueFamilies()");
 
     const std::vector<vk::QueueFamilyProperties> families =
         m_PhysicalDevice.getQueueFamilyProperties();
@@ -884,14 +885,15 @@ void VulkanDevice::FindQueueFamilies(const DeviceDesc& desc)
         if (*m_Surface)
             presentNote = presentSupported(index) ? ", present" : ", no present";
 
-        LogMsg(LogSeverity::Info, LogRhi, "Family {}: {} queue(s), {}{}", index,
-               families[index].queueCount, vk::to_string(families[index].queueFlags), presentNote);
+        Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Family {}: {} queue(s), {}{}", index,
+                     families[index].queueCount, vk::to_string(families[index].queueFlags),
+                     presentNote);
     }
 
     if (desc.bForceSingleQueue)
-        LogMsg(LogSeverity::Info, LogRhi,
-               "DeviceDesc::bForceSingleQueue is set: every role resolves to the graphics "
-               "family.");
+        Core::LogMsg(Core::LogSeverity::Info, LogRhi,
+                     "DeviceDesc::bForceSingleQueue is set: every role resolves to the graphics "
+                     "family.");
 
     m_QueueFamilies = SelectQueueFamilies(families, presentSupported, desc.Requirements.bPresent,
                                           desc.bForceSingleQueue);
@@ -901,15 +903,15 @@ void VulkanDevice::FindQueueFamilies(const DeviceDesc& desc)
                                      ? "Could not find a queue for graphics and presenting!"
                                      : "Could not find a queue for graphics!");
 
-    LogMsg(LogSeverity::Info, LogRhi, "Graphics: {}. Compute: {}. Copy: {}.",
-           DescribeFamily(m_QueueFamilies, QueueType::Graphics),
-           DescribeFamily(m_QueueFamilies, QueueType::Compute),
-           DescribeFamily(m_QueueFamilies, QueueType::Copy));
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Graphics: {}. Compute: {}. Copy: {}.",
+                 DescribeFamily(m_QueueFamilies, QueueType::Graphics),
+                 DescribeFamily(m_QueueFamilies, QueueType::Compute),
+                 DescribeFamily(m_QueueFamilies, QueueType::Copy));
 }
 
 void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
 {
-    LogMsg(LogSeverity::Info, LogRhi, "CreateLogicalDevice()");
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "CreateLogicalDevice()");
 
     // A queue per family that is actually submitted to, and no more: an unused
     // queue is one the driver schedules for nothing. Uploads run on the copy
@@ -999,12 +1001,12 @@ void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
         SetVkDebugName(m_Device, *m_Surface, vk::ObjectType::eSurfaceKHR, "Surface");
 }
 
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 std::unique_ptr<IDevice> CreateDevice(const DeviceDesc& desc)
 {
     return std::make_unique<Vulkan::VulkanDevice>(desc);
 }
-} // namespace Rhi
+} // namespace Hikari::Rhi

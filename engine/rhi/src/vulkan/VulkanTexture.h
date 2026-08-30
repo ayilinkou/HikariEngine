@@ -7,12 +7,12 @@
 
 #include <rhi/TextureDesc.h>
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 // What a TextureHandle resolves to: the image, its VMA allocation, and the
 // description it was created from.
 //
-// Module-private, and the payload of the device's HandlePool — the same
+// Module-private, and the payload of the device's Core::HandlePool — the same
 // arrangement as VulkanBuffer, and for the same reasons (plan D2).
 //
 // A null Allocation means the device did not allocate the image and must not
@@ -45,4 +45,4 @@ private:
 
     VmaAllocator Allocator{};
 };
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

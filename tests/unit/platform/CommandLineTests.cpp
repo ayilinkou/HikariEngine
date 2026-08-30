@@ -5,6 +5,8 @@
 
 #include <platform/CommandLine.h>
 
+using namespace Hikari::Platform;
+
 namespace
 {
 // Builds a CommandLine from the argument tokens, supplying the argv[0] the

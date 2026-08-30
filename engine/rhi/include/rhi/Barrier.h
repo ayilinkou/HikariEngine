@@ -30,7 +30,7 @@
 //     an explicit ownership transfer and D3D12 needs a layout, so the two have
 //     no shared shape, and whichever component submits to a second queue owns
 //     that problem privately (plan D6).
-namespace Rhi
+namespace Hikari::Rhi
 {
 // -> VkPipelineStageFlags2 / D3D12_BARRIER_SYNC
 //
@@ -202,4 +202,4 @@ struct BarrierCounts
 
     constexpr bool operator==(const BarrierCounts&) const = default;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

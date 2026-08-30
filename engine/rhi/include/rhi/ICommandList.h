@@ -7,7 +7,7 @@
 #include <rhi/Handles.h>
 #include <rhi/RhiTypes.h>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 // One buffer-to-buffer copy.
 struct BufferCopyRegion
@@ -100,4 +100,4 @@ public:
 protected:
     ICommandList() = default;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

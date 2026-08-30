@@ -11,6 +11,9 @@
 #include <utility>
 #include <vector>
 
+namespace Hikari::Core
+{
+
 // A plain shared-queue thread pool: N worker threads all pulling from one
 // mutex-protected job queue. Owned directly by SharedQueueJobSystem.
 class ThreadPool
@@ -48,3 +51,4 @@ private:
     std::condition_variable m_CV;
     bool m_Stopping = false;
 };
+} // namespace Hikari::Core

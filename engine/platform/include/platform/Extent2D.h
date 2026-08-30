@@ -2,6 +2,9 @@
 
 #include <cstdint>
 
+namespace Hikari::Platform
+{
+
 // A size in whatever units its holder deals in — screen coordinates for a
 // window, pixels for a framebuffer.
 //
@@ -12,3 +15,4 @@ struct Extent2D
     uint32_t Width = 0u;
     uint32_t Height = 0u;
 };
+} // namespace Hikari::Platform

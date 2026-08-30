@@ -3,6 +3,9 @@
 #include <compare>
 #include <cstdint>
 
+namespace Hikari::Core
+{
+
 // A typed 32-bit identity for a resource owned by a HandlePool: the slot the
 // resource lives in, plus the generation that slot was on when the handle was
 // issued.
@@ -52,3 +55,4 @@ struct Handle
         return Handle{((generation & kGenerationMask) << kIndexBits) | (index & kIndexMask)};
     }
 };
+} // namespace Hikari::Core

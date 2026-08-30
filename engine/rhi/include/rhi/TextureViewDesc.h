@@ -7,7 +7,7 @@
 #include <rhi/Handles.h>
 #include <rhi/RhiTypes.h>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 // How a view interprets the texture underneath it.
 //
@@ -55,4 +55,4 @@ struct TextureViewDesc
 
     std::string DebugName;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

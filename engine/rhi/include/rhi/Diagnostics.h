@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 // Deliberately coarser than any one backend's validation severity scale. The
 // backends have more levels than this (Vulkan adds a verbose tier below Info),
@@ -133,4 +133,4 @@ private:
     // kCaptureCapacity entries; before that, messages are simply appended.
     size_t m_CaptureNext = 0;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

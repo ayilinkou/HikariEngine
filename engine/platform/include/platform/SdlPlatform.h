@@ -7,6 +7,9 @@
 
 struct SDL_Window;
 
+namespace Hikari::Platform
+{
+
 // Thrown when an SDL call fails; appends SDL_GetError() to the message.
 class SDLException : public std::runtime_error
 {
@@ -43,3 +46,4 @@ public:
 private:
     SDL_Window* m_pWindow = nullptr;
 };
+} // namespace Hikari::Platform

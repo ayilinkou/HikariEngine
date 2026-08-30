@@ -13,7 +13,7 @@
 // IDevice::Destroy. That decision is the whole of its value — the handle model
 // puts resource release on the caller (plan D2), and this is what puts it back
 // on the compiler — so it is worth testing without needing an ICD present.
-using namespace Rhi;
+using namespace Hikari::Rhi;
 
 namespace
 {

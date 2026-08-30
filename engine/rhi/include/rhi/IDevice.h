@@ -14,7 +14,7 @@
 #include <rhi/TextureViewDesc.h>
 #include <rhi/UploadContext.h>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 // The GPU device, and eventually the sole owner of every GPU resource.
 //
@@ -148,4 +148,4 @@ protected:
 // Throws on failure rather than returning null: there is no useful degraded
 // mode, and every caller would otherwise have to check.
 [[nodiscard]] std::unique_ptr<IDevice> CreateDevice(const DeviceDesc& desc);
-} // namespace Rhi
+} // namespace Hikari::Rhi

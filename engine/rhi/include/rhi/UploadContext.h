@@ -8,7 +8,7 @@
 #include <rhi/Handles.h>
 #include <rhi/RhiTypes.h>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 // One subresource's worth of pixels, and which subresource they belong to.
 //
@@ -145,4 +145,4 @@ public:
 protected:
     IUploadContext() = default;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

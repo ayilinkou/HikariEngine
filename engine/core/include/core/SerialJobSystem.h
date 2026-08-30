@@ -7,6 +7,9 @@
 
 #include <core/IJobSystem.h>
 
+namespace Hikari::Core
+{
+
 // Runs every job immediately, synchronously, on the calling thread — no
 // worker threads, no locking, no concurrency at all. Constructed by main()
 // when passed --jobs 0. Useful as a deterministic baseline: if a scene
@@ -25,3 +28,4 @@ public:
 private:
     std::vector<std::shared_future<void>> m_Pending;
 };
+} // namespace Hikari::Core

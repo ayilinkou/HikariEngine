@@ -4,7 +4,7 @@
 
 #include "vulkan/vulkan.hpp"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 // What a logical device ended up able to promise about queue family ownership
 // transfers, as a value, so that the rules below are pure functions of it.
@@ -39,4 +39,4 @@ bool BufferRequiresOwnershipTransfer(const OwnershipTransferRules& rules, uint32
 bool ImageRequiresOwnershipTransfer(const OwnershipTransferRules& rules, vk::ImageTiling tiling,
                                     vk::ImageUsageFlags usage, uint32_t srcFamily,
                                     uint32_t dstFamily);
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

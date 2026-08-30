@@ -1,6 +1,6 @@
 #include "vulkan/VulkanTexture.h"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 VulkanTexture::VulkanTexture(VmaAllocator allocator, vk::Image image, VmaAllocation alloc,
                              TextureDesc desc)
@@ -36,4 +36,4 @@ void VulkanTexture::Destroy()
     if (Image && Allocation)
         vmaDestroyImage(Allocator, Image, Allocation);
 }
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

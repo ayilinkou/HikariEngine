@@ -8,9 +8,12 @@
 
 #include <core/Log.h>
 
+namespace Hikari::Platform
+{
+
 namespace
 {
-constexpr LogCategory LogPaths("Paths");
+constexpr Core::LogCategory LogPaths("Paths");
 
 constexpr const char* kContentEnvVar = "HIKARI_CONTENT";
 constexpr const char* kContentDirName = "content";
@@ -48,10 +51,10 @@ std::filesystem::path ResolveUserDataRoot()
         if (EnsureDirectory(environmentRoot))
             return environmentRoot;
 
-        LogMsg(LogSeverity::Warning, LogPaths,
-               "{} is set to \"{}\", which could not be created. Nothing will be written to "
-               "the user data directory this run.",
-               kUserDataEnvVar, environmentRoot);
+        Core::LogMsg(Core::LogSeverity::Warning, LogPaths,
+                     "{} is set to \"{}\", which could not be created. Nothing will be written to "
+                     "the user data directory this run.",
+                     kUserDataEnvVar, environmentRoot);
         return {};
     }
 
@@ -67,9 +70,10 @@ std::filesystem::path ResolveUserDataRoot()
     char* prefPath = SDL_GetPrefPath("", kAppName);
     if (!prefPath)
     {
-        LogMsg(LogSeverity::Warning, LogPaths,
-               "No user data directory available ({}). Nothing will be written to it this run.",
-               SDL_GetError());
+        Core::LogMsg(
+            Core::LogSeverity::Warning, LogPaths,
+            "No user data directory available ({}). Nothing will be written to it this run.",
+            SDL_GetError());
         return {};
     }
 
@@ -142,12 +146,13 @@ Paths::Paths(std::string_view commandLineOverride)
 
     m_ContentRoot = ResolveContentRoot(candidates);
 
-    LogMsg(LogSeverity::Info, LogPaths, "Content root: {}", m_ContentRoot.string());
-    LogMsg(LogSeverity::Info, LogPaths, "Shader root: {}", m_ShaderRoot.string());
+    Core::LogMsg(Core::LogSeverity::Info, LogPaths, "Content root: {}", m_ContentRoot.string());
+    Core::LogMsg(Core::LogSeverity::Info, LogPaths, "Shader root: {}", m_ShaderRoot.string());
 
     m_UserDataRoot = ResolveUserDataRoot();
     if (!m_UserDataRoot.empty())
-        LogMsg(LogSeverity::Info, LogPaths, "User data root: {}", m_UserDataRoot.string());
+        Core::LogMsg(Core::LogSeverity::Info, LogPaths, "User data root: {}",
+                     m_UserDataRoot.string());
 }
 
 std::filesystem::path Paths::Content(std::string_view relativePath) const
@@ -174,3 +179,4 @@ std::filesystem::path Paths::UserData(std::string_view relativePath) const
 
     return m_UserDataRoot / std::filesystem::path(relativePath);
 }
+} // namespace Hikari::Platform

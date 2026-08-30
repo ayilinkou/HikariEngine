@@ -2,7 +2,7 @@
 
 #include <limits>
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 namespace
 {
@@ -66,4 +66,4 @@ bool ImageRequiresOwnershipTransfer(const OwnershipTransferRules& rules, vk::Ima
 
     return !FamilyBitSet(rules.OptimalImageTransferToQueueFamilies, dstFamily);
 }
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

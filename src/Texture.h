@@ -36,8 +36,8 @@ public:
     // Creates the image described by `desc` and a view covering every mip and
     // layer of it. The view's format and aspect follow the texture's, which is
     // what makes a depth texture get a depth view without the caller saying so.
-    Texture(Rhi::IDevice& device, const Rhi::TextureDesc& desc,
-            Rhi::TextureViewDimension viewDimension, std::string path = {});
+    Texture(Hikari::Rhi::IDevice& device, const Hikari::Rhi::TextureDesc& desc,
+            Hikari::Rhi::TextureViewDimension viewDimension, std::string path = {});
 
     // Move-only, and the move assignment is written out rather than defaulted:
     // it has to release what it is overwriting in the reverse of declaration
@@ -48,8 +48,8 @@ public:
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
 
-    Rhi::TextureHandle GetHandle() const { return m_Image.Get(); }
-    Rhi::TextureViewHandle GetView() const { return m_View.Get(); }
+    Hikari::Rhi::TextureHandle GetHandle() const { return m_Image.Get(); }
+    Hikari::Rhi::TextureViewHandle GetView() const { return m_View.Get(); }
 
     const std::string& GetPath() const { return m_Path; }
 
@@ -62,8 +62,8 @@ private:
     // destroyed object "must not be accessed again, either directly or via
     // access through another object". Destroying the image first is therefore
     // at best subtle and is caught by no validation layer, so it is not done.
-    Rhi::UniqueHandle<Rhi::TextureHandle> m_Image;
-    Rhi::UniqueHandle<Rhi::TextureViewHandle> m_View;
+    Hikari::Rhi::UniqueHandle<Hikari::Rhi::TextureHandle> m_Image;
+    Hikari::Rhi::UniqueHandle<Hikari::Rhi::TextureViewHandle> m_View;
 
     std::string m_Path;
 };

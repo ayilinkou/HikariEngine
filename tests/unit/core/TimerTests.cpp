@@ -7,6 +7,8 @@
 
 #include "CaptureStream.h"
 
+using namespace Hikari::Core;
+
 // Timer has two shapes and the difference between them is whether anything is
 // logged, so these tests capture the stream rather than assert on durations. A
 // wall-clock assertion would be the flaky kind of test; "did it print" is not.

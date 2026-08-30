@@ -6,6 +6,9 @@
 
 #include "Log.h"
 
+namespace Hikari::Core
+{
+
 // Measures an interval, in either of two shapes.
 //
 // Named, it is a scope timer, and the name is the whole of the call site: it
@@ -96,3 +99,4 @@ private:
     bool m_bStopped = false;
     bool m_bSuppressed = false;
 };
+} // namespace Hikari::Core

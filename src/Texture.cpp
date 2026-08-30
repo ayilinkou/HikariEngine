@@ -2,6 +2,8 @@
 
 #include <utility>
 
+using namespace Hikari;
+
 Texture::Texture(Rhi::IDevice& device, const Rhi::TextureDesc& desc,
                  Rhi::TextureViewDimension viewDimension, std::string path)
     : m_Image(device, device.CreateTexture(desc)), m_Path(std::move(path))

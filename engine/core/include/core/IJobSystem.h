@@ -7,6 +7,9 @@
 #include <future>
 #include <vector>
 
+namespace Hikari::Core
+{
+
 namespace JobSystemDetail
 {
 // Waits on every future in `futures`, surfacing the first exception thrown by
@@ -94,3 +97,4 @@ public:
     // the caller).
     virtual uint32_t WorkerCount() const = 0;
 };
+} // namespace Hikari::Core

@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <type_traits>
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 namespace
 {
@@ -620,4 +620,4 @@ vk::ImageAspectFlags ToVk(TextureAspect aspect)
         aspect, kAllTextureAspects, [](TextureAspect bit) { return ToVkBit(bit); },
         "TextureAspects");
 }
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

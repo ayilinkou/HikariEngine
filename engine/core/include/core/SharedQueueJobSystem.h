@@ -8,6 +8,9 @@
 #include <core/IJobSystem.h>
 #include <core/ThreadPool.h>
 
+namespace Hikari::Core
+{
+
 // Wraps a plain shared-queue thread pool (see ThreadPool): one job queue,
 // one mutex, N worker threads pulling from it. Owns its ThreadPool directly
 // — no global/singleton state.
@@ -30,3 +33,4 @@ private:
     ThreadPool m_Pool;
     std::vector<std::shared_future<void>> m_Pending;
 };
+} // namespace Hikari::Core

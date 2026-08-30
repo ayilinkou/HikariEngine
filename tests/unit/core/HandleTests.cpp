@@ -8,6 +8,8 @@
 #include <type_traits>
 #include <vector>
 
+using namespace Hikari::Core;
+
 using TestHandle = Handle<struct TestTag>;
 using IntPool = HandlePool<int, TestTag>;
 

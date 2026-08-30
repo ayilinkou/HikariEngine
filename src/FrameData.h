@@ -31,6 +31,6 @@ struct FrameData
     Texture AccumTexture;
     Texture RevealageTexture;
     Texture DepthTexture;
-    Rhi::UniqueHandle<Rhi::BufferHandle> GlobalBuffer;
-    Rhi::UniqueHandle<Rhi::BufferHandle> InstanceBuffer;
+    Hikari::Rhi::UniqueHandle<Hikari::Rhi::BufferHandle> GlobalBuffer;
+    Hikari::Rhi::UniqueHandle<Hikari::Rhi::BufferHandle> InstanceBuffer;
 };

@@ -68,15 +68,15 @@ enum class DeviceConfig : uint8_t
 // the device's destructor and reports into this while it happens.
 struct DeviceInstance
 {
-    Rhi::Diagnostics Diagnostics;
-    std::unique_ptr<Rhi::IDevice> pDevice;
+    Hikari::Rhi::Diagnostics Diagnostics;
+    std::unique_ptr<Hikari::Rhi::IDevice> pDevice;
 };
 
 namespace Detail
 {
-inline Rhi::DeviceDesc MakeDesc(DeviceConfig config, Rhi::Diagnostics& diagnostics)
+inline Hikari::Rhi::DeviceDesc MakeDesc(DeviceConfig config, Hikari::Rhi::Diagnostics& diagnostics)
 {
-    Rhi::DeviceDesc desc;
+    Hikari::Rhi::DeviceDesc desc;
     desc.ApplicationName = "HikariEngine RHI GPU tests";
 
     // The whole reason these tests exist is to be the place a validation error
@@ -138,7 +138,7 @@ inline DeviceInstance* TryGetDevice(DeviceConfig config)
 
     try
     {
-        instance->pDevice = Rhi::CreateDevice(Detail::MakeDesc(config, instance->Diagnostics));
+        instance->pDevice = Hikari::Rhi::CreateDevice(Detail::MakeDesc(config, instance->Diagnostics));
     }
     catch (const std::exception& e)
     {
@@ -157,7 +157,7 @@ inline DeviceInstance* TryGetDevice(DeviceConfig config)
 // that is what aborts the case — so the return below is unreachable whenever
 // the device is null. Catch2 records the skip against whichever test is
 // running, so this being a plain function rather than a macro costs nothing.
-inline Rhi::IDevice& RequireDevice(DeviceConfig config = DeviceConfig::Default)
+inline Hikari::Rhi::IDevice& RequireDevice(DeviceConfig config = DeviceConfig::Default)
 {
     DeviceInstance* pInstance = TryGetDevice(config);
     if (pInstance == nullptr)
@@ -168,7 +168,7 @@ inline Rhi::IDevice& RequireDevice(DeviceConfig config = DeviceConfig::Default)
 
 // The diagnostics `config`'s device reports into. Only valid once RequireDevice
 // has returned for the same configuration.
-inline Rhi::Diagnostics& DeviceDiagnostics(DeviceConfig config = DeviceConfig::Default)
+inline Hikari::Rhi::Diagnostics& DeviceDiagnostics(DeviceConfig config = DeviceConfig::Default)
 {
     DeviceInstance* pInstance = TryGetDevice(config);
     REQUIRE(pInstance != nullptr);

@@ -1,6 +1,6 @@
 #include "vulkan/VulkanBuffer.h"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 VulkanBuffer::VulkanBuffer(VmaAllocator allocator, vk::Buffer buffer, VmaAllocation alloc,
                            const VmaAllocationInfo& info)
@@ -34,4 +34,4 @@ void VulkanBuffer::Destroy()
     if (Buffer && Allocation)
         vmaDestroyBuffer(Allocator, Buffer, Allocation);
 }
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

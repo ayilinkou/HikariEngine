@@ -8,6 +8,10 @@
 
 #include "Texture.h"
 
+using namespace Hikari;
+using namespace Hikari::Core;
+using namespace Hikari::Rhi::Vulkan;
+
 constexpr LogCategory LogMaterialFactory("Material Factory");
 
 // A material set binds one combined image sampler per texture slot.

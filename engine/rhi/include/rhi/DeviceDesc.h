@@ -5,7 +5,7 @@
 
 #include <rhi/Diagnostics.h>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 // How much a device is required to be able to do. Separated from DeviceDesc
 // because presentation is the one requirement that is about to become optional:
@@ -107,4 +107,4 @@ struct DeviceCaps
     bool bHasDedicatedComputeQueue = false;
     bool bHasDedicatedCopyQueue = false;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

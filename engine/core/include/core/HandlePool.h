@@ -8,6 +8,9 @@
 
 #include <core/Handle.h>
 
+namespace Hikari::Core
+{
+
 // Owns `T` instances in a contiguous slot array addressed by Handle<Tag>.
 // Slots are reused after release, and each carries a generation counter that
 // is bumped on release, so a handle outliving what it referred to is rejected
@@ -190,3 +193,4 @@ private:
     uint32_t m_FreeTail = kNoSlot;
     uint32_t m_LiveCount = 0;
 };
+} // namespace Hikari::Core

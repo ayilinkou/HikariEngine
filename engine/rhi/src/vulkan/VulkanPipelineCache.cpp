@@ -13,11 +13,11 @@
 
 #include <rhi/vulkan/DebugNames.h>
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
+constexpr Core::LogCategory LogRhi("RHI");
 namespace
 {
-constexpr LogCategory LogRhi("RHI");
 
 // The pipeline cache header is 32 bytes with every field written least
 // significant byte first, whatever the host's byte order is, and the C standard
@@ -50,9 +50,9 @@ bool IsUsableCacheData(std::span<const std::byte> data,
 {
     if (data.size() < kHeaderSize)
     {
-        LogMsg(LogSeverity::Warning, LogRhi,
-               "Pipeline cache file is {} bytes, too short to hold a header. Ignoring it.",
-               data.size());
+        Core::LogMsg(Core::LogSeverity::Warning, LogRhi,
+                     "Pipeline cache file is {} bytes, too short to hold a header. Ignoring it.",
+                     data.size());
         return false;
     }
 
@@ -62,9 +62,9 @@ bool IsUsableCacheData(std::span<const std::byte> data,
     if (headerSize != kHeaderSize ||
         headerVersion != static_cast<uint32_t>(vk::PipelineCacheHeaderVersion::eOne))
     {
-        LogMsg(LogSeverity::Warning, LogRhi,
-               "Pipeline cache file has no valid header (size {}, version {}). Ignoring it.",
-               headerSize, headerVersion);
+        Core::LogMsg(Core::LogSeverity::Warning, LogRhi,
+                     "Pipeline cache file has no valid header (size {}, version {}). Ignoring it.",
+                     headerSize, headerVersion);
         return false;
     }
 
@@ -81,8 +81,9 @@ bool IsUsableCacheData(std::span<const std::byte> data,
 
     if (!bMatchesDevice)
     {
-        LogMsg(LogSeverity::Info, LogRhi,
-               "Pipeline cache file was written by a different device or driver. Starting empty.");
+        Core::LogMsg(
+            Core::LogSeverity::Info, LogRhi,
+            "Pipeline cache file was written by a different device or driver. Starting empty.");
         return false;
     }
 
@@ -92,7 +93,7 @@ bool IsUsableCacheData(std::span<const std::byte> data,
 std::vector<std::byte> ReadCacheFile(const std::filesystem::path& path)
 {
     // No file is the normal first-run case, so this reports "nothing to seed
-    // with" rather than throwing the way ReadFile() does.
+    // with" rather than throwing the way Platform::ReadFile() does.
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file)
         return {};
@@ -138,17 +139,18 @@ VulkanPipelineCache::VulkanPipelineCache(vk::raii::Device& device,
 
     if (!initialData.empty())
     {
-        LogMsg(LogSeverity::Info, LogRhi, "Seeded pipeline cache with {} bytes from {}",
-               initialData.size(), m_Path.string());
+        Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Seeded pipeline cache with {} bytes from {}",
+                     initialData.size(), m_Path.string());
     }
     else if (m_Path.empty())
     {
-        LogMsg(LogSeverity::Info, LogRhi, "Pipeline cache is memory-only; it will not be saved");
+        Core::LogMsg(Core::LogSeverity::Info, LogRhi,
+                     "Pipeline cache is memory-only; it will not be saved");
     }
     else
     {
-        LogMsg(LogSeverity::Info, LogRhi, "Pipeline cache starting empty; will be saved to {}",
-               m_Path.string());
+        Core::LogMsg(Core::LogSeverity::Info, LogRhi,
+                     "Pipeline cache starting empty; will be saved to {}", m_Path.string());
     }
 }
 
@@ -189,8 +191,8 @@ bool VulkanPipelineCache::Save()
 
         if (!file)
         {
-            LogMsg(LogSeverity::Warning, LogRhi, "Failed to write pipeline cache to {}",
-                   tempPath.string());
+            Core::LogMsg(Core::LogSeverity::Warning, LogRhi, "Failed to write pipeline cache to {}",
+                         tempPath.string());
             std::filesystem::remove(tempPath, ec);
             return false;
         }
@@ -199,14 +201,14 @@ bool VulkanPipelineCache::Save()
     std::filesystem::rename(tempPath, m_Path, ec);
     if (ec)
     {
-        LogMsg(LogSeverity::Warning, LogRhi, "Failed to replace pipeline cache {}: {}",
-               m_Path.string(), ec.message());
+        Core::LogMsg(Core::LogSeverity::Warning, LogRhi, "Failed to replace pipeline cache {}: {}",
+                     m_Path.string(), ec.message());
         std::filesystem::remove(tempPath, ec);
         return false;
     }
 
-    LogMsg(LogSeverity::Info, LogRhi, "Saved {} bytes of pipeline cache to {}", data.size(),
-           m_Path.string());
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Saved {} bytes of pipeline cache to {}",
+                 data.size(), m_Path.string());
     return true;
 }
 
@@ -230,4 +232,4 @@ vk::Optional<const vk::raii::PipelineCache> GetVkPipelineCache(IPipelineCache* p
 
     return ToVulkan(*pCache).Get();
 }
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

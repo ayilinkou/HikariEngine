@@ -7,7 +7,7 @@
 #include "vk_mem_alloc.h"
 #include "vulkan/vulkan_raii.hpp"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 // Owns the VMA allocator for one device.
 //
@@ -64,4 +64,4 @@ private:
 
     VmaAllocator m_Allocator{};
 };
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

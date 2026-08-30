@@ -18,9 +18,9 @@ class ModelLoader
 private:
     friend class ResourceManager;
 
-    ModelLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext);
+    ModelLoader(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::IUploadContext& uploadContext);
 
-    static void Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext);
+    static void Init(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::IUploadContext& uploadContext);
     static void Shutdown();
 
     static ModelLoader* Get() { return s_Instance; }
@@ -33,6 +33,6 @@ private:
 private:
     inline static ModelLoader* s_Instance = nullptr;
 
-    Rhi::IDevice& m_RhiDevice;
-    Rhi::IUploadContext& m_UploadContext;
+    Hikari::Rhi::IDevice& m_RhiDevice;
+    Hikari::Rhi::IUploadContext& m_UploadContext;
 };

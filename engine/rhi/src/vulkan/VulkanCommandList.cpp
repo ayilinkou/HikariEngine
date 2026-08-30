@@ -7,7 +7,7 @@
 #include "vulkan/VulkanConversions.h"
 #include "vulkan/VulkanDevice.h"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 namespace
 {
@@ -169,4 +169,4 @@ void VulkanCommandList::CopyTextureToBuffer(TextureHandle source, BufferHandle d
 
     m_Cmd.copyImageToBuffer(src, vk::ImageLayout::eTransferSrcOptimal, dst, MakeVkCopy(region));
 }
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

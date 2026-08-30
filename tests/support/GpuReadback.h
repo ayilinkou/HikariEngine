@@ -39,21 +39,21 @@ namespace RhiTest
 // of times per test and the allocation is not what makes them slow, whereas a
 // shared pool would need resetting between uses and would make one test's
 // failure leave the next one recording into a half-used buffer.
-inline void RunGraphicsCommands(Rhi::IDevice& device,
-                                const std::function<void(Rhi::ICommandList&)>& record)
+inline void RunGraphicsCommands(Hikari::Rhi::IDevice& device,
+                                const std::function<void(Hikari::Rhi::ICommandList&)>& record)
 {
-    vk::raii::Device& vkDevice = Rhi::Vulkan::GetDevice(device);
+    vk::raii::Device& vkDevice = Hikari::Rhi::Vulkan::GetDevice(device);
 
     const vk::CommandPoolCreateInfo poolInfo{
         .flags = vk::CommandPoolCreateFlagBits::eTransient,
-        .queueFamilyIndex = Rhi::Vulkan::GetGraphicsQueueFamily(device)};
+        .queueFamilyIndex = Hikari::Rhi::Vulkan::GetGraphicsQueueFamily(device)};
     vk::raii::CommandPool pool(vkDevice, poolInfo);
 
     const vk::CommandBufferAllocateInfo allocInfo{
         .commandPool = *pool, .level = vk::CommandBufferLevel::ePrimary, .commandBufferCount = 1u};
     vk::raii::CommandBuffer cmd = std::move(vk::raii::CommandBuffers(vkDevice, allocInfo).front());
 
-    const std::unique_ptr<Rhi::ICommandList> list = Rhi::Vulkan::WrapCommandList(device, *cmd);
+    const std::unique_ptr<Hikari::Rhi::ICommandList> list = Hikari::Rhi::Vulkan::WrapCommandList(device, *cmd);
     list->Begin();
     record(*list);
     list->End();
@@ -63,7 +63,7 @@ inline void RunGraphicsCommands(Rhi::IDevice& device,
     const vk::CommandBuffer rawCommandBuffer = *cmd;
     const vk::SubmitInfo submitInfo{.commandBufferCount = 1u,
                                     .pCommandBuffers = &rawCommandBuffer};
-    Rhi::Vulkan::GetGraphicsQueue(device).submit(submitInfo, *fence);
+    Hikari::Rhi::Vulkan::GetGraphicsQueue(device).submit(submitInfo, *fence);
 
     const vk::Result result =
         vkDevice.waitForFences(*fence, vk::True, std::numeric_limits<uint64_t>::max());
@@ -77,20 +77,20 @@ inline void RunGraphicsCommands(Rhi::IDevice& device,
 // that a fence wait has already returned from, and a fence signal's access
 // scope is every access the device performed (Vulkan 1.4, *Fences*) — which is
 // the same guarantee IUploadContext::Flush relies on for the renderer.
-inline std::vector<std::byte> ReadBuffer(Rhi::IDevice& device, Rhi::BufferHandle source,
+inline std::vector<std::byte> ReadBuffer(Hikari::Rhi::IDevice& device, Hikari::Rhi::BufferHandle source,
                                          uint64_t size)
 {
-    const Rhi::UniqueHandle<Rhi::BufferHandle> readback(
-        device, device.CreateBuffer(Rhi::BufferDesc{.Size = size,
-                                                    .Usage = Rhi::BufferUsage::CopyDst,
-                                                    .Access = Rhi::MemoryAccess::GpuToCpu,
+    const Hikari::Rhi::UniqueHandle<Hikari::Rhi::BufferHandle> readback(
+        device, device.CreateBuffer(Hikari::Rhi::BufferDesc{.Size = size,
+                                                    .Usage = Hikari::Rhi::BufferUsage::CopyDst,
+                                                    .Access = Hikari::Rhi::MemoryAccess::GpuToCpu,
                                                     .DebugName = "Readback"}));
 
     RunGraphicsCommands(device,
-                        [&](Rhi::ICommandList& list)
+                        [&](Hikari::Rhi::ICommandList& list)
                         {
                             list.CopyBuffer(source, readback.Get(),
-                                            Rhi::BufferCopyRegion{.Size = size});
+                                            Hikari::Rhi::BufferCopyRegion{.Size = size});
                         });
 
     const void* pMapped = device.GetMappedData(readback.Get());
@@ -115,12 +115,12 @@ inline std::vector<std::byte> ReadBuffer(Rhi::IDevice& device, Rhi::BufferHandle
 // — which is where IUploadContext leaves everything it fills. The texture is
 // left in CopySrc.
 inline std::vector<std::vector<std::byte>>
-ReadTextureLayers(Rhi::IDevice& device, Rhi::TextureHandle source, uint32_t mipLevel = 0u)
+ReadTextureLayers(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle source, uint32_t mipLevel = 0u)
 {
-    const Rhi::TextureDesc* pDesc = device.GetTextureDesc(source);
+    const Hikari::Rhi::TextureDesc* pDesc = device.GetTextureDesc(source);
     REQUIRE(pDesc != nullptr);
 
-    const Rhi::Extent3D extent{std::max(pDesc->Extent.Width >> mipLevel, 1u),
+    const Hikari::Rhi::Extent3D extent{std::max(pDesc->Extent.Width >> mipLevel, 1u),
                                std::max(pDesc->Extent.Height >> mipLevel, 1u),
                                std::max(pDesc->Extent.Depth >> mipLevel, 1u)};
 
@@ -130,37 +130,37 @@ ReadTextureLayers(Rhi::IDevice& device, Rhi::TextureHandle source, uint32_t mipL
     // depth/stencil format is the truth rather than a failure — this helper
     // copies one aspect and cannot pick. No test needs that today, so it is a
     // hard stop rather than an extra parameter nothing would pass.
-    const uint32_t bytesPerTexel = Rhi::BytesPerTexel(pDesc->Format);
+    const uint32_t bytesPerTexel = Hikari::Rhi::BytesPerTexel(pDesc->Format);
     REQUIRE(bytesPerTexel != 0u);
 
     const uint64_t layerSize =
         static_cast<uint64_t>(extent.Width) * extent.Height * extent.Depth * bytesPerTexel;
 
-    const Rhi::UniqueHandle<Rhi::BufferHandle> readback(
-        device, device.CreateBuffer(Rhi::BufferDesc{.Size = layerSize * layerCount,
-                                                    .Usage = Rhi::BufferUsage::CopyDst,
-                                                    .Access = Rhi::MemoryAccess::GpuToCpu,
+    const Hikari::Rhi::UniqueHandle<Hikari::Rhi::BufferHandle> readback(
+        device, device.CreateBuffer(Hikari::Rhi::BufferDesc{.Size = layerSize * layerCount,
+                                                    .Usage = Hikari::Rhi::BufferUsage::CopyDst,
+                                                    .Access = Hikari::Rhi::MemoryAccess::GpuToCpu,
                                                     .DebugName = "Texture Readback"}));
 
     // The source scope is empty for the reason ReadBuffer needs no barrier at
     // all: the upload completed in a submission this thread has already waited
     // on. What the barrier is here for is the layout, which no fence changes.
-    const Rhi::TextureBarrier toCopySrc{
+    const Hikari::Rhi::TextureBarrier toCopySrc{
         .Texture = source,
-        .SrcStage = Rhi::PipelineStage::None,
-        .SrcAccess = Rhi::AccessFlags::None,
-        .DstStage = Rhi::PipelineStage::Copy,
-        .DstAccess = Rhi::AccessFlags::CopySrc,
-        .OldLayout = Rhi::TextureLayout::ShaderResource,
-        .NewLayout = Rhi::TextureLayout::CopySrc,
-        .Aspect = Rhi::DefaultAspect(pDesc->Format),
+        .SrcStage = Hikari::Rhi::PipelineStage::None,
+        .SrcAccess = Hikari::Rhi::AccessFlags::None,
+        .DstStage = Hikari::Rhi::PipelineStage::Copy,
+        .DstAccess = Hikari::Rhi::AccessFlags::CopySrc,
+        .OldLayout = Hikari::Rhi::TextureLayout::ShaderResource,
+        .NewLayout = Hikari::Rhi::TextureLayout::CopySrc,
+        .Aspect = Hikari::Rhi::DefaultAspect(pDesc->Format),
         .MipCount = pDesc->MipLevels,
         .LayerCount = layerCount,
     };
 
     RunGraphicsCommands(
         device,
-        [&](Rhi::ICommandList& list)
+        [&](Hikari::Rhi::ICommandList& list)
         {
             list.Barrier(toCopySrc);
 
@@ -168,8 +168,8 @@ ReadTextureLayers(Rhi::IDevice& device, Rhi::TextureHandle source, uint32_t mipL
             {
                 list.CopyTextureToBuffer(
                     source, readback.Get(),
-                    Rhi::BufferTextureCopyRegion{.BufferOffset = layerSize * layer,
-                                                 .Aspect = Rhi::DefaultAspect(pDesc->Format),
+                    Hikari::Rhi::BufferTextureCopyRegion{.BufferOffset = layerSize * layer,
+                                                 .Aspect = Hikari::Rhi::DefaultAspect(pDesc->Format),
                                                  .MipLevel = mipLevel,
                                                  .BaseLayer = layer,
                                                  .LayerCount = 1u,

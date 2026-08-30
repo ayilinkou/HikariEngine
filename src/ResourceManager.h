@@ -15,7 +15,7 @@
 
 #include "ResourceCache.h"
 
-inline constexpr LogCategory LogResourceManager{"Resource Manager"};
+inline constexpr Hikari::Core::LogCategory LogResourceManager{"Resource Manager"};
 
 struct CubemapCreateInfo;
 
@@ -26,14 +26,15 @@ class ModelData;
 class ResourceManager
 {
 private:
-    ResourceManager(Rhi::IUploadContext& uploadContext, const Paths& paths)
+    ResourceManager(Hikari::Rhi::IUploadContext& uploadContext,
+                    const Hikari::Platform::Paths& paths)
         : m_UploadContext(uploadContext), m_Paths(paths)
     {
     }
 
 public:
-    static void Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext,
-                     const Paths& paths);
+    static void Init(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::IUploadContext& uploadContext,
+                     const Hikari::Platform::Paths& paths);
     static ResourceManager* Get() { return s_Instance; }
 
 private:
@@ -43,7 +44,8 @@ public:
     static void PurgeCaches();
     static void Shutdown();
 
-    std::shared_ptr<Texture> LoadTexture(const std::string& filepath, const Rhi::Format format);
+    std::shared_ptr<Texture> LoadTexture(const std::string& filepath,
+                                         const Hikari::Rhi::Format format);
     std::shared_ptr<Cubemap> LoadCubemap(const CubemapCreateInfo& createInfo);
     std::shared_ptr<ModelData> LoadModel(const std::string& modelPath);
 
@@ -77,8 +79,8 @@ private:
             }
             catch (const std::exception& error)
             {
-                LogMsg(LogSeverity::Error, LogResourceManager,
-                       "Flushing pending uploads failed: {}", error.what());
+                Hikari::Core::LogMsg(Hikari::Core::LogSeverity::Error, LogResourceManager,
+                                     "Flushing pending uploads failed: {}", error.what());
             }
         }
 
@@ -89,13 +91,13 @@ private:
         ResourceManager& m_Owner;
     };
 
-    Rhi::IUploadContext& m_UploadContext;
+    Hikari::Rhi::IUploadContext& m_UploadContext;
     uint32_t m_LoadDepth = 0u;
 
     // Asset paths arrive here content-relative (a Model keeps the path it was
     // serialized with) and are resolved against the content root here, at the
     // point of loading.
-    const Paths& m_Paths;
+    const Hikari::Platform::Paths& m_Paths;
 
     ResourceCache<Texture> m_TextureCache;
     ResourceCache<Cubemap> m_CubemapCache;

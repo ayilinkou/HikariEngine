@@ -3,6 +3,9 @@
 #include <platform/Extent2D.h>
 #include <platform/IPlatform.h>
 
+namespace Hikari::Platform
+{
+
 // IPlatform with no window system behind it at all — the implementation that
 // lets the engine run in CI, where there is no display to open a window on.
 //
@@ -49,3 +52,4 @@ public:
 private:
     Extent2D m_Extent{};
 };
+} // namespace Hikari::Platform
