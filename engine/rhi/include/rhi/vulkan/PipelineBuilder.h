@@ -31,8 +31,10 @@ public:
                             std::span<const vk::PushConstantRange> pushRanges);
     PipelineBuilder& DebugName(std::string name);
 
-    // Reuses whatever the driver has already compiled, and records what it
-    // compiles here. Omitting it is legal and only costs compile time.
+    /**
+     * Reuses whatever the driver has already compiled, and records what it
+     * compiles here. Omitting it is legal and only costs compile time.
+     */
     PipelineBuilder& Cache(Rhi::IPipelineCache& cache);
 
     [[nodiscard]] std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> Build();
@@ -40,30 +42,30 @@ public:
 private:
     vk::raii::Device& m_Device;
 
-    // Shaders
+    /** Shaders */
     std::string m_SpvPath;
     std::string m_VertEntry = "vertMain";
     std::string m_FragEntry = "fragMain";
 
-    // Vertex input
+    /** Vertex input */
     std::vector<vk::VertexInputBindingDescription> m_Bindings;
     std::vector<vk::VertexInputAttributeDescription> m_Attributes;
 
-    // Depth
+    /** Depth */
     bool m_bDepthTest = false;
     bool m_bDepthWrite = false;
     vk::CompareOp m_DepthCompareOp = vk::CompareOp::eLess;
 
-    // Attachments (dynamic rendering)
+    /** Attachments (dynamic rendering) */
     std::vector<vk::Format> m_ColorFormats;
     std::vector<vk::PipelineColorBlendAttachmentState> m_BlendStates;
     vk::Format m_DepthFormat = vk::Format::eUndefined;
 
-    // Rasterization
+    /** Rasterization */
     vk::CullModeFlags m_CullMode = vk::CullModeFlagBits::eNone;
     bool m_bDynamicCull = false;
 
-    // Layout
+    /** Layout */
     std::vector<vk::DescriptorSetLayout> m_SetLayouts;
     std::vector<vk::PushConstantRange> m_PushRanges;
 

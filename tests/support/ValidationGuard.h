@@ -12,19 +12,21 @@
 
 namespace RhiTest
 {
-// Fails the surrounding test case if the driver reported a validation error
-// while this was alive, and says which.
-//
-// A guard rather than an assertion the test writes itself, because a validation
-// error is not what any of these cases is looking for and every one of them
-// would otherwise have to remember to check. The failure it catches is the one
-// that otherwise passes: a copy recorded against the wrong layout still returns
-// the right bytes on the driver it was written on.
-//
-// Only errors fail. Warnings are counted and reported but tolerated, because
-// the best-practices layer objects to work the fallback configurations perform
-// deliberately — a device pretending not to have VK_KHR_maintenance9 hands
-// resources over that a real one would not have to, and is told so.
+/**
+ * Fails the surrounding test case if the driver reported a validation error
+ * while this was alive, and says which.
+ *
+ * A guard rather than an assertion the test writes itself, because a validation
+ * error is not what any of these cases is looking for and every one of them
+ * would otherwise have to remember to check. The failure it catches is the one
+ * that otherwise passes: a copy recorded against the wrong layout still returns
+ * the right bytes on the driver it was written on.
+ *
+ * Only errors fail. Warnings are counted and reported but tolerated, because
+ * the best-practices layer objects to work the fallback configurations perform
+ * deliberately — a device pretending not to have VK_KHR_maintenance9 hands
+ * resources over that a real one would not have to, and is told so.
+ */
 class ValidationGuard
 {
 public:

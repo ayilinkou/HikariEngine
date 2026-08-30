@@ -21,10 +21,12 @@
 #define ENGINE_TEST_FILENO fileno
 #endif
 
-// Temporarily redirects `stream` (stdout/stderr) to a scratch file, runs `fn`,
-// restores the stream, and returns everything that was written. Used to test
-// LogMsg's output without depending on how the test runner itself captures
-// console output.
+/**
+ * Temporarily redirects `stream` (stdout/stderr) to a scratch file, runs `fn`,
+ * restores the stream, and returns everything that was written. Used to test
+ * LogMsg's output without depending on how the test runner itself captures
+ * console output.
+ */
 inline std::string CaptureStream(FILE* stream, const std::function<void()>& fn)
 {
     std::fflush(stream);

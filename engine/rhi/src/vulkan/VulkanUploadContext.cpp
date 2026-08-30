@@ -21,25 +21,29 @@ constexpr Core::LogCategory LogRhi("RHI");
 namespace
 {
 
-// Staging is written by the CPU and read once by the copy, which is exactly what
-// CpuToGpu describes.
+/**
+ * Staging is written by the CPU and read once by the copy, which is exactly what
+ * CpuToGpu describes.
+ */
 constexpr MemoryAccess kStagingAccess = MemoryAccess::CpuToGpu;
 
-// Every subresource starts at a 4-byte boundary within its staging buffer.
-//
-// Packing them tightly is legal on a graphics or compute queue, but a queue
-// family that supports only transfer requires every bufferOffset to be a
-// multiple of 4 (VUID-vkCmdCopyBufferToImage-commandBuffer-07737). That rule
-// has no effect on the four-byte-per-texel textures loaded today, and no
-// symptom at all until the code meets both a DMA-only queue and Format::R8Unorm
-// — which is the failure mode this whole area is prone to, so it is paid for up
-// front rather than discovered on someone else's GPU.
-//
-// Rounding up cannot break the alignment rule that applies on every queue, that
-// an offset is a multiple of the texel block size
-// (VUID-vkCmdCopyBufferToImage-dstImage-07975): every block size in Rhi::Format
-// is a power of two, so 4 is either a multiple of it or it is a multiple of 4
-// and a 4-aligned offset was already block-aligned.
+/**
+ * Every subresource starts at a 4-byte boundary within its staging buffer.
+ *
+ * Packing them tightly is legal on a graphics or compute queue, but a queue
+ * family that supports only transfer requires every bufferOffset to be a
+ * multiple of 4 (VUID-vkCmdCopyBufferToImage-commandBuffer-07737). That rule
+ * has no effect on the four-byte-per-texel textures loaded today, and no
+ * symptom at all until the code meets both a DMA-only queue and Format::R8Unorm
+ * — which is the failure mode this whole area is prone to, so it is paid for up
+ * front rather than discovered on someone else's GPU.
+ *
+ * Rounding up cannot break the alignment rule that applies on every queue, that
+ * an offset is a multiple of the texel block size
+ * (VUID-vkCmdCopyBufferToImage-dstImage-07975): every block size in Rhi::Format
+ * is a power of two, so 4 is either a multiple of it or it is a multiple of 4
+ * and a 4-aligned offset was already block-aligned.
+ */
 constexpr uint64_t kStagingCopyAlignment = 4u;
 
 constexpr uint64_t AlignUp(uint64_t value, uint64_t alignment)

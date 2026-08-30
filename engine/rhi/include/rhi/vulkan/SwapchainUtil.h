@@ -12,15 +12,19 @@
 namespace Hikari::Rhi::Vulkan
 {
 
-// Picks the swapchain parameters from what a surface reports it supports.
-//
-// These are pure functions over the query results — they neither perform the
-// queries nor create the swapchain. That is deliberate: it keeps them callable
-// from a test without a device, and lets the swapchain abstraction own the
-// queries without the choosing logic being buried inside it.
+/**
+ * Picks the swapchain parameters from what a surface reports it supports.
+ *
+ * These are pure functions over the query results — they neither perform the
+ * queries nor create the swapchain. That is deliberate: it keeps them callable
+ * from a test without a device, and lets the swapchain abstraction own the
+ * queries without the choosing logic being buried inside it.
+ */
 
-// Chooses an ideal swapchain format if available, if not picks the first
-// one.
+/**
+ * Chooses an ideal swapchain format if available, if not picks the first
+ * one.
+ */
 inline vk::SurfaceFormatKHR ChooseSwapchainFormat(const std::vector<vk::SurfaceFormatKHR>& formats)
 {
     if (formats.empty())
@@ -37,7 +41,7 @@ inline vk::SurfaceFormatKHR ChooseSwapchainFormat(const std::vector<vk::SurfaceF
     return formatIt != formats.end() ? *formatIt : formats[0];
 }
 
-// Chooses mailbox presentation mode if available. Falls back to FIFO.
+/** Chooses mailbox presentation mode if available. Falls back to FIFO. */
 inline vk::PresentModeKHR ChoosePresentMode(const std::vector<vk::PresentModeKHR>& modes)
 {
     if (modes.empty())
@@ -48,9 +52,11 @@ inline vk::PresentModeKHR ChoosePresentMode(const std::vector<vk::PresentModeKHR
     return modeIt != modes.end() ? *modeIt : vk::PresentModeKHR::eFifo;
 }
 
-// `framebufferExtent` must be the drawable size in pixels (IPlatform::
-// GetFramebufferExtent), not the window size in screen coordinates — the two
-// differ on high-DPI displays.
+/**
+ * `framebufferExtent` must be the drawable size in pixels (IPlatform::
+ * GetFramebufferExtent), not the window size in screen coordinates — the two
+ * differ on high-DPI displays.
+ */
 inline vk::Extent2D ChooseSwapchainExtent(const vk::SurfaceCapabilitiesKHR& capabilities,
                                           vk::Extent2D framebufferExtent)
 {
@@ -65,18 +71,20 @@ inline vk::Extent2D ChooseSwapchainExtent(const vk::SurfaceCapabilitiesKHR& capa
                        capabilities.maxImageExtent.height)};
 }
 
-// Whether a surface in this state can back a swapchain at all. A window with no
-// area reports a zero extent, and VUID-VkSwapchainCreateInfoKHR-imageExtent-01689
-// rejects a zero imageExtent, so the only thing to do is wait for the size to
-// change. The Win32 and XCB surfaces both allow this: the spec requires
-// currentExtent to equal the window size there and says the window size may
-// become (0, 0) — a minimized window — "and so a swapchain cannot be created
-// until the size changes" (WSI chapter, VkSurfaceCapabilitiesKHR).
-//
-// The surface has to be asked rather than the window: SDL reports the size a
-// window had before it was minimized, because a minimized Win32 window has an
-// empty client rect and SDL_GetWindowSizeInPixels falls back to the last one it
-// saw. A window-side check for this therefore never fires.
+/**
+ * Whether a surface in this state can back a swapchain at all. A window with no
+ * area reports a zero extent, and VUID-VkSwapchainCreateInfoKHR-imageExtent-01689
+ * rejects a zero imageExtent, so the only thing to do is wait for the size to
+ * change. The Win32 and XCB surfaces both allow this: the spec requires
+ * currentExtent to equal the window size there and says the window size may
+ * become (0, 0) — a minimized window — "and so a swapchain cannot be created
+ * until the size changes" (WSI chapter, VkSurfaceCapabilitiesKHR).
+ *
+ * The surface has to be asked rather than the window: SDL reports the size a
+ * window had before it was minimized, because a minimized Win32 window has an
+ * empty client rect and SDL_GetWindowSizeInPixels falls back to the last one it
+ * saw. A window-side check for this therefore never fires.
+ */
 inline bool CanCreateSwapchain(const vk::SurfaceCapabilitiesKHR& capabilities,
                                vk::Extent2D framebufferExtent)
 {
@@ -84,7 +92,7 @@ inline bool CanCreateSwapchain(const vk::SurfaceCapabilitiesKHR& capabilities,
     return extent.width != 0 && extent.height != 0;
 }
 
-// Tries to get at least 3 images.
+/** Tries to get at least 3 images. */
 inline uint32_t ChooseSwapMinImageCount(const vk::SurfaceCapabilitiesKHR& capabilities)
 {
     uint32_t minCount = std::max(3u, capabilities.minImageCount);

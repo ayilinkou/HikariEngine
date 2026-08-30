@@ -11,9 +11,11 @@ namespace Hikari::Rhi::Vulkan
 {
 namespace
 {
-// Not an overload of ToVk: an unqualified call inside this anonymous namespace
-// would find only the name declared here and never reach the conversion table's
-// overloads in the enclosing namespace.
+/**
+ * Not an overload of ToVk: an unqualified call inside this anonymous namespace
+ * would find only the name declared here and never reach the conversion table's
+ * overloads in the enclosing namespace.
+ */
 vk::ImageMemoryBarrier2 MakeVkBarrier(vk::Image image, const TextureBarrier& desc)
 {
     const vk::ImageSubresourceRange range{.aspectMask = ToVk(desc.Aspect),

@@ -9,8 +9,10 @@
 namespace Hikari::Core
 {
 
-// This class is a wrapper for std::vector which keeps all elements in a
-// contiguous array. Order is not maintained.
+/**
+ * This class is a wrapper for std::vector which keeps all elements in a
+ * contiguous array. Order is not maintained.
+ */
 template <typename T>
 class SwapbackArray
 {

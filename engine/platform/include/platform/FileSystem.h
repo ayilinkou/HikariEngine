@@ -27,8 +27,10 @@ inline std::vector<char> ReadFile(const std::string filename)
     return buffer;
 }
 
-// Creates the directories leading up to `path`, so that writing to it succeeds
-// even on a first run. Does nothing if `path` has no parent.
+/**
+ * Creates the directories leading up to `path`, so that writing to it succeeds
+ * even on a first run. Does nothing if `path` has no parent.
+ */
 inline void EnsureParentDirectoryExists(std::string_view path)
 {
     std::filesystem::path p(path);
@@ -44,7 +46,7 @@ inline void EnsureParentDirectoryExists(std::string_view path)
     }
 }
 
-// Forces `path` to end in `ext`, replacing any extension already there.
+/** Forces `path` to end in `ext`, replacing any extension already there. */
 inline std::string EnsureExtension(const std::string& path, const std::string& ext)
 {
     std::filesystem::path p(path);

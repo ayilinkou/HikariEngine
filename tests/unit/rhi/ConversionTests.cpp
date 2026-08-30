@@ -15,22 +15,26 @@
 #include <stdexcept>
 
 
-// CPU-only: no instance, no device, no ICD needed. These are table tests, and
-// the tables are the part of the RHI most likely to be wrong in a way that
-// compiles — a mismapped format or a barrier missing a stage bit produces
-// corruption or an intermittent hazard, not a build failure.
+/**
+ * CPU-only: no instance, no device, no ICD needed. These are table tests, and
+ * the tables are the part of the RHI most likely to be wrong in a way that
+ * compiles — a mismapped format or a barrier missing a stage bit produces
+ * corruption or an intermittent hazard, not a build failure.
+ */
 using namespace Hikari::Rhi;
 using namespace Hikari::Rhi::Vulkan;
 
 namespace
 {
-// Checks a two-way mapping: every neutral value survives ToVk followed by
-// FromVk, and no two neutral values map to the same Vulkan value.
-//
-// The second half is not just tidiness. FromVk is derived by searching for the
-// neutral value whose ToVk matches, so if two neutral values shared a Vulkan
-// value, FromVk would return whichever happened to come first in the array and
-// the round-trip would quietly fail for the other one.
+/**
+ * Checks a two-way mapping: every neutral value survives ToVk followed by
+ * FromVk, and no two neutral values map to the same Vulkan value.
+ *
+ * The second half is not just tidiness. FromVk is derived by searching for the
+ * neutral value whose ToVk matches, so if two neutral values shared a Vulkan
+ * value, FromVk would return whichever happened to come first in the array and
+ * the round-trip would quietly fail for the other one.
+ */
 template <typename NeutralEnum, size_t N>
 void RequireRoundTrips(const std::array<NeutralEnum, N>& all)
 {

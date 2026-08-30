@@ -24,7 +24,7 @@ public:
     void Rotate(float x, float y);
     void SetProjection(const glm::mat4& newProj) { m_Proj = newProj; }
 
-    // FOV in degrees
+    /** FOV in degrees */
     void SetProjection(float fov, float aspect, float near, float far);
 
 private:

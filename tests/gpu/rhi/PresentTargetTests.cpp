@@ -21,43 +21,51 @@
 #include "RhiTestFixture.h"
 #include "ValidationGuard.h"
 
-// The headless half of the presentation seam.
-//
-// A device created without presentation support has no surface, so
-// CreatePresentTarget hands back an OffscreenTarget instead of a swapchain.
-// That is the only way these cases reach it — the target's type is deliberately
-// not nameable from outside the module, which is also what makes these tests
-// worth having: they exercise the offscreen path through exactly the interface
-// the renderer uses, so anything they cover is covered for the renderer too.
-//
-// A swapchain cannot be tested here at all: it needs a surface, which needs a
-// window, which a test binary does not have. What that costs is covered in the
-// architecture plan's CI section, and is why the windowed path is still checked
-// by running the application.
+/**
+ * The headless half of the presentation seam.
+ *
+ * A device created without presentation support has no surface, so
+ * CreatePresentTarget hands back an OffscreenTarget instead of a swapchain.
+ * That is the only way these cases reach it — the target's type is deliberately
+ * not nameable from outside the module, which is also what makes these tests
+ * worth having: they exercise the offscreen path through exactly the interface
+ * the renderer uses, so anything they cover is covered for the renderer too.
+ *
+ * A swapchain cannot be tested here at all: it needs a surface, which needs a
+ * window, which a test binary does not have. What that costs is covered in the
+ * architecture plan's CI section, and is why the windowed path is still checked
+ * by running the application.
+ */
 using namespace Hikari::Rhi;
 
 namespace
 {
-// The extent every case renders at. Non-square and not a power of two, so a
-// row-pitch or a width/height transposition shows up as garbage rather than as
-// a picture that happens to still be square.
+/**
+ * The extent every case renders at. Non-square and not a power of two, so a
+ * row-pitch or a width/height transposition shows up as garbage rather than as
+ * a picture that happens to still be square.
+ */
 constexpr Extent2D kExtent{253u, 101u};
 
-// Clear colours whose components are all exactly 0 or 1, so the readback can
-// assert exact bytes: any rounding an implementation applies converting a float
-// clear value to UNORM8 lands on 0 or 255 either way. Distinct per frame and
-// per channel, so both a stale frame and a swapped channel are visible.
+/**
+ * Clear colours whose components are all exactly 0 or 1, so the readback can
+ * assert exact bytes: any rounding an implementation applies converting a float
+ * clear value to UNORM8 lands on 0 or 255 either way. Distinct per frame and
+ * per channel, so both a stale frame and a swapped channel are visible.
+ */
 constexpr std::array<std::array<float, 4>, 3> kFrameColors{
     std::array<float, 4>{1.f, 0.f, 0.f, 1.f},
     std::array<float, 4>{0.f, 1.f, 0.f, 1.f},
     std::array<float, 4>{0.f, 0.f, 1.f, 1.f},
 };
 
-// One frame's command pool and buffer. A pool each rather than one reset
-// between frames, because the point of the loop below is to have every frame in
-// flight at once: resetting a pool whose buffer the GPU is still reading is
-// undefined behaviour, and it is exactly the overlap these cases exist to
-// exercise.
+/**
+ * One frame's command pool and buffer. A pool each rather than one reset
+ * between frames, because the point of the loop below is to have every frame in
+ * flight at once: resetting a pool whose buffer the GPU is still reading is
+ * undefined behaviour, and it is exactly the overlap these cases exist to
+ * exercise.
+ */
 struct FrameCommands
 {
     vk::raii::CommandPool Pool = nullptr;
@@ -81,11 +89,13 @@ FrameCommands MakeFrameCommands(IDevice& device)
     return frame;
 }
 
-// One clear: a colour and the rectangle of the image it covers. A render pass
-// clears its render area and nothing else, so a list of these paints a
-// deliberately non-uniform image without a shader or a vertex buffer — which is
-// what a stride check needs, since a solid colour looks the same however the
-// rows are laid out.
+/**
+ * One clear: a colour and the rectangle of the image it covers. A render pass
+ * clears its render area and nothing else, so a list of these paints a
+ * deliberately non-uniform image without a shader or a vertex buffer — which is
+ * what a stride check needs, since a solid colour looks the same however the
+ * rows are laid out.
+ */
 struct ClearRect
 {
     std::array<float, 4> Color{};
@@ -97,15 +107,17 @@ vk::Rect2D WholeImage(Extent2D extent)
     return vk::Rect2D{.offset = {0, 0}, .extent = vk::Extent2D{extent.Width, extent.Height}};
 }
 
-// Records `clears` in order into `acquired`, each through a dynamic-rendering
-// pass of its own — the same shape as the renderer's composite pass: acquire,
-// transition, render into the acquired view, transition to what comes next.
-//
-// It leaves the image in ShaderResource rather than Present. An offscreen image
-// is not presentable and never can be — VK_IMAGE_LAYOUT_PRESENT_SRC_KHR belongs
-// to VK_KHR_swapchain, which a device with no surface does not enable — so
-// ShaderResource is the finished state that matches the target's Sampled usage,
-// and the layout the readbacks below hand to OffscreenTarget::Readback.
+/**
+ * Records `clears` in order into `acquired`, each through a dynamic-rendering
+ * pass of its own — the same shape as the renderer's composite pass: acquire,
+ * transition, render into the acquired view, transition to what comes next.
+ *
+ * It leaves the image in ShaderResource rather than Present. An offscreen image
+ * is not presentable and never can be — VK_IMAGE_LAYOUT_PRESENT_SRC_KHR belongs
+ * to VK_KHR_swapchain, which a device with no surface does not enable — so
+ * ShaderResource is the finished state that matches the target's Sampled usage,
+ * and the layout the readbacks below hand to OffscreenTarget::Readback.
+ */
 void RecordClears(IDevice& device, vk::CommandBuffer cmd, const AcquiredImage& acquired,
                   std::span<const ClearRect> clears)
 {
@@ -157,13 +169,15 @@ void RecordClearFrame(IDevice& device, vk::CommandBuffer cmd, const AcquiredImag
     RecordClears(device, cmd, acquired, clears);
 }
 
-// Submits `cmd` with the waits the acquire asked for and the signal the target
-// requires before Present will accept the image.
-//
-// Vulkan-side because submitting is: the RHI hands out a command list and the
-// semaphores, but not a queue, so this is the one part of a frame that a
-// neutral test cannot express. It goes away with the escape hatch when
-// submission moves behind the RHI in Stage 8.
+/**
+ * Submits `cmd` with the waits the acquire asked for and the signal the target
+ * requires before Present will accept the image.
+ *
+ * Vulkan-side because submitting is: the RHI hands out a command list and the
+ * semaphores, but not a queue, so this is the one part of a frame that a
+ * neutral test cannot express. It goes away with the escape hatch when
+ * submission moves behind the RHI in Stage 8.
+ */
 void SubmitFrame(IDevice& device, vk::CommandBuffer cmd, std::span<const SemaphoreHandle> waitOn,
                  SemaphoreHandle signalOnComplete)
 {
@@ -188,19 +202,21 @@ void SubmitFrame(IDevice& device, vk::CommandBuffer cmd, std::span<const Semapho
     Vulkan::GetGraphicsQueue(device).submit(submitInfo, nullptr);
 }
 
-// The bytes a clear to `color` leaves in memory, in `format`'s channel order.
-// Written out rather than assumed, because getting it wrong is precisely the
-// mistake a readback is meant to catch — the renderer's screenshot writer has a
-// hardcoded BGRA swizzle for exactly this reason.
-// The target the device hands back, as the concrete type Readback lives on.
-//
-// A downcast rather than a member on IPresentTarget: reading an image outside a
-// frame is a question only a target that owns its images can answer, so the
-// interface deliberately does not ask it (architecture plan §10.2). Doing it
-// through dynamic_cast rather than by constructing an OffscreenTarget directly
-// keeps the device's own choice under test — a device that started handing back
-// something else would fail here rather than silently testing a target the
-// renderer would never be given.
+/**
+ * The bytes a clear to `color` leaves in memory, in `format`'s channel order.
+ * Written out rather than assumed, because getting it wrong is precisely the
+ * mistake a readback is meant to catch — the renderer's screenshot writer has a
+ * hardcoded BGRA swizzle for exactly this reason.
+ * The target the device hands back, as the concrete type Readback lives on.
+ *
+ * A downcast rather than a member on IPresentTarget: reading an image outside a
+ * frame is a question only a target that owns its images can answer, so the
+ * interface deliberately does not ask it (architecture plan §10.2). Doing it
+ * through dynamic_cast rather than by constructing an OffscreenTarget directly
+ * keeps the device's own choice under test — a device that started handing back
+ * something else would fail here rather than silently testing a target the
+ * renderer would never be given.
+ */
 Vulkan::OffscreenTarget& AsOffscreen(IPresentTarget& target)
 {
     auto* pOffscreen = dynamic_cast<Vulkan::OffscreenTarget*>(&target);
@@ -271,16 +287,18 @@ TEST_CASE("An offscreen acquire always succeeds and cycles its images", "[rhi][g
     }
 }
 
-// The step's headline check: three frames through the same acquire / render /
-// present sequence the windowed renderer runs, into a target with no window,
-// with the frames overlapping rather than being waited on one at a time.
-//
-// Two images and three frames is the smallest arrangement that reuses one, so
-// frame 2 has to wait on the render-complete semaphore frame 0 signalled. That
-// is both the real write-after-write dependency and the only thing that leaves
-// the semaphore unsignalled in time for frame 2 to signal it again — a target
-// that dropped it would fail here with a validation error rather than by
-// rendering something subtly wrong.
+/**
+ * The step's headline check: three frames through the same acquire / render /
+ * present sequence the windowed renderer runs, into a target with no window,
+ * with the frames overlapping rather than being waited on one at a time.
+ *
+ * Two images and three frames is the smallest arrangement that reuses one, so
+ * frame 2 has to wait on the render-complete semaphore frame 0 signalled. That
+ * is both the real write-after-write dependency and the only thing that leaves
+ * the semaphore unsignalled in time for frame 2 to signal it again — a target
+ * that dropped it would fail here with a validation error rather than by
+ * rendering something subtly wrong.
+ */
 TEST_CASE("Three overlapping frames render into an offscreen target", "[rhi][gpu][present]")
 {
     IDevice& device = RhiTest::RequireDevice();
@@ -393,10 +411,12 @@ TEST_CASE("Recreating an offscreen target resizes it", "[rhi][gpu][present]")
     device.WaitIdle();
 }
 
-// A zero extent is the one request that cannot be met, and the answer is the
-// same "nothing was touched, ask again" a minimised window gets from a
-// swapchain — so a caller that resizes through zero needs no special case for
-// which kind of target it holds.
+/**
+ * A zero extent is the one request that cannot be met, and the answer is the
+ * same "nothing was touched, ask again" a minimised window gets from a
+ * swapchain — so a caller that resizes through zero needs no special case for
+ * which kind of target it holds.
+ */
 TEST_CASE("Recreating an offscreen target at a zero extent changes nothing", "[rhi][gpu][present]")
 {
     IDevice& device = RhiTest::RequireDevice();
@@ -418,9 +438,11 @@ TEST_CASE("Recreating an offscreen target at a zero extent changes nothing", "[r
     CHECK(acquired.Texture.IsValid());
 }
 
-// The target owns its images, unlike a swapchain's, so destroying it has to
-// give every one of them back. A leak here would be invisible in a windowed run
-// and would grow with every resize in a headless one.
+/**
+ * The target owns its images, unlike a swapchain's, so destroying it has to
+ * give every one of them back. A leak here would be invisible in a windowed run
+ * and would grow with every resize in a headless one.
+ */
 TEST_CASE("An offscreen target frees its images when it is destroyed", "[rhi][gpu][present]")
 {
     IDevice& device = RhiTest::RequireDevice();
@@ -448,13 +470,15 @@ TEST_CASE("An offscreen target frees its images when it is destroyed", "[rhi][gp
     CHECK(device.GetLiveTextureViewCount() == viewsBefore);
 }
 
-// Step 39's first check: the bytes that come back are the bytes that were
-// rendered, in the target's own channel order.
-//
-// The clear components are 0 or 1 and the four channels differ from one
-// another, so a swizzled readback, a stale image and a half-written one are all
-// distinguishable from a correct result — which a grey or a black clear would
-// not be.
+/**
+ * Step 39's first check: the bytes that come back are the bytes that were
+ * rendered, in the target's own channel order.
+ *
+ * The clear components are 0 or 1 and the four channels differ from one
+ * another, so a swizzled readback, a stale image and a half-written one are all
+ * distinguishable from a correct result — which a grey or a black clear would
+ * not be.
+ */
 TEST_CASE("Readback returns the exact pixels of a solid clear", "[rhi][gpu][present]")
 {
     IDevice& device = RhiTest::RequireDevice();
@@ -492,16 +516,18 @@ TEST_CASE("Readback returns the exact pixels of a solid clear", "[rhi][gpu][pres
     CHECK(mismatches == 0u);
 }
 
-// Step 39's second check, and the one a solid colour cannot make: that the
-// returned bytes are tightly packed and row-major at an extent that is neither
-// square nor a power of two.
-//
-// 253x101 with a 100x50 rectangle in one corner pins down every way this can go
-// wrong. A row pitch rounded up to an alignment shears the rectangle
-// diagonally; width and height transposed puts it in the wrong place and
-// changes its shape; a buffer sized from the wrong extent truncates. All three
-// survive a uniform clear untouched, which is why this case exists next to the
-// one above rather than instead of it.
+/**
+ * Step 39's second check, and the one a solid colour cannot make: that the
+ * returned bytes are tightly packed and row-major at an extent that is neither
+ * square nor a power of two.
+ *
+ * 253x101 with a 100x50 rectangle in one corner pins down every way this can go
+ * wrong. A row pitch rounded up to an alignment shears the rectangle
+ * diagonally; width and height transposed puts it in the wrong place and
+ * changes its shape; a buffer sized from the wrong extent truncates. All three
+ * survive a uniform clear untouched, which is why this case exists next to the
+ * one above rather than instead of it.
+ */
 TEST_CASE("Readback packs a non-square, non-power-of-two extent tightly", "[rhi][gpu][present]")
 {
     IDevice& device = RhiTest::RequireDevice();
@@ -560,11 +586,13 @@ TEST_CASE("Readback packs a non-square, non-power-of-two extent tightly", "[rhi]
     CHECK(mismatches == 0u);
 }
 
-// The staging buffer Readback allocates is freed on the way out, and the copy
-// it fenced on is finished by then. Neither is visible from the bytes returned,
-// so the counters say it instead: a Readback that leaked its buffer would grow
-// the device's live count once per capture, which in a run capturing every
-// frame is a leak that scales with the run.
+/**
+ * The staging buffer Readback allocates is freed on the way out, and the copy
+ * it fenced on is finished by then. Neither is visible from the bytes returned,
+ * so the counters say it instead: a Readback that leaked its buffer would grow
+ * the device's live count once per capture, which in a run capturing every
+ * frame is a leak that scales with the run.
+ */
 TEST_CASE("Readback leaves nothing behind on the device", "[rhi][gpu][present]")
 {
     IDevice& device = RhiTest::RequireDevice();

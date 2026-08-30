@@ -68,43 +68,53 @@ public:
     [[nodiscard]] std::unique_ptr<IPresentTarget>
     CreatePresentTarget(const PresentTargetDesc& desc) override;
 
-    // Binary semaphores, for the present path only — IDevice deliberately does
-    // not expose these (see SemaphoreHandle in <rhi/Handles.h>). SwapchainTarget
-    // creates them through the device rather than owning vk::raii::Semaphore
-    // itself so that a handle can be resolved from outside the module, which is
-    // what lets the application keep recording its own submit.
+    /**
+     * Binary semaphores, for the present path only — IDevice deliberately does
+     * not expose these (see SemaphoreHandle in <rhi/Handles.h>). SwapchainTarget
+     * creates them through the device rather than owning vk::raii::Semaphore
+     * itself so that a handle can be resolved from outside the module, which is
+     * what lets the application keep recording its own submit.
+     */
     SemaphoreHandle CreateSemaphore(std::string_view debugName);
     void Destroy(SemaphoreHandle handle);
     vk::Semaphore GetSemaphore(SemaphoreHandle handle) const;
 
-    // Gives an image the device did not allocate a pool slot, so that barriers,
-    // views and copies can name it by handle like any other texture. Destroying
-    // the returned handle releases the slot and does not touch the image.
-    //
-    // Exists for the swapchain, whose images belong to the presentation engine
-    // rather than to us. SwapchainTarget is the only caller and the only one
-    // there should be: a handle to memory the device did not allocate cannot be
-    // destroyed, resized or aliased like a real one, and the target is what
-    // keeps that distinction from escaping.
+    /**
+     * Gives an image the device did not allocate a pool slot, so that barriers,
+     * views and copies can name it by handle like any other texture. Destroying
+     * the returned handle releases the slot and does not touch the image.
+     *
+     * Exists for the swapchain, whose images belong to the presentation engine
+     * rather than to us. SwapchainTarget is the only caller and the only one
+     * there should be: a handle to memory the device did not allocate cannot be
+     * destroyed, resized or aliased like a real one, and the target is what
+     * keeps that distinction from escaping.
+     */
     TextureHandle RegisterExternalTexture(vk::Image image, const TextureDesc& desc);
 
-    // The Vulkan objects behind a handle, or a null object if it is stale. These
-    // back the accessors in <rhi/vulkan/VulkanNative.h>, and are also what
-    // VulkanCommandList resolves handles through.
+    /**
+     * The Vulkan objects behind a handle, or a null object if it is stale. These
+     * back the accessors in <rhi/vulkan/VulkanNative.h>, and are also what
+     * VulkanCommandList resolves handles through.
+     */
     vk::Buffer GetBuffer(BufferHandle handle) const;
     vk::Image GetImage(TextureHandle handle) const;
     vk::ImageView GetImageView(TextureViewHandle handle) const;
     vk::Sampler GetSampler(SamplerHandle handle) const;
 
-    // Reports a handle that resolved to nothing, from the places that cannot
-    // throw over it — recording a barrier or a copy, where the caller's own
-    // command list is already half-built.
+    /**
+     * Reports a handle that resolved to nothing, from the places that cannot
+     * throw over it — recording a barrier or a copy, where the caller's own
+     * command list is already half-built.
+     */
     void ReportStaleHandle(std::string_view what) const;
 
-    // Everything below is reachable only through <rhi/vulkan/VulkanNative.h>,
-    // which is the one sanctioned way for code outside this module to see a
-    // Vulkan handle. These are non-const references because callers still create
-    // Vulkan objects from them; that shrinks as resource creation moves in here.
+    /**
+     * Everything below is reachable only through <rhi/vulkan/VulkanNative.h>,
+     * which is the one sanctioned way for code outside this module to see a
+     * Vulkan handle. These are non-const references because callers still create
+     * Vulkan objects from them; that shrinks as resource creation moves in here.
+     */
     vk::raii::Instance& GetInstance() { return m_Instance; }
     vk::raii::PhysicalDevice& GetPhysicalDevice() { return m_PhysicalDevice; }
     vk::raii::Device& GetDevice() { return m_Device; }
@@ -113,33 +123,43 @@ public:
     VmaAllocator GetAllocator() const { return m_Allocator; }
     uint32_t GetApiVersion() const { return kApiVersion; }
 
-    // The queue family serving `role`, or QueueFamilies::kInvalid when the
-    // device has none. Graphics and Copy are backed by created queues; compute
-    // work is still submitted to the graphics queue, so that family is known
-    // but idle.
+    /**
+     * The queue family serving `role`, or QueueFamilies::kInvalid when the
+     * device has none. Graphics and Copy are backed by created queues; compute
+     * work is still submitted to the graphics queue, so that family is known
+     * but idle.
+     */
     uint32_t GetQueueFamily(QueueType role) const { return m_QueueFamilies.Get(role); }
 
-    // The queue to submit `role`'s work to. Falls back to the graphics queue
-    // for every role the device has no separate queue for, so a caller never
-    // has to test IsDedicated before submitting — GetQueueFamily() is what it
-    // must consult instead, because a command pool is tied to a family and the
-    // two answers differ exactly when an ownership transfer is needed.
+    /**
+     * The queue to submit `role`'s work to. Falls back to the graphics queue
+     * for every role the device has no separate queue for, so a caller never
+     * has to test IsDedicated before submitting — GetQueueFamily() is what it
+     * must consult instead, because a command pool is tied to a family and the
+     * two answers differ exactly when an ownership transfer is needed.
+     */
     vk::raii::Queue& GetQueue(QueueType role);
 
-    // Whether VK_KHR_maintenance8 was enabled, which is what allows a queue
-    // family ownership transfer to name real pipeline stages instead of being
-    // pinned to AllCommands.
+    /**
+     * Whether VK_KHR_maintenance8 was enabled, which is what allows a queue
+     * family ownership transfer to name real pipeline stages instead of being
+     * pinned to AllCommands.
+     */
     bool IsMaintenance8Enabled() const { return m_bMaintenance8Enabled; }
 
-    // What this device promises about handing a resource on from `srcFamily`.
-    // The answer differs per family, so a caller passes the family it recorded
-    // the releasing work on. This is the whole answer for a buffer; an image
-    // needs the question below, which folds in how the image was created.
+    /**
+     * What this device promises about handing a resource on from `srcFamily`.
+     * The answer differs per family, so a caller passes the family it recorded
+     * the releasing work on. This is the whole answer for a buffer; an image
+     * needs the question below, which folds in how the image was created.
+     */
     OwnershipTransferRules GetOwnershipTransferRules(uint32_t srcFamily) const;
 
-    // Whether a texture filled on `srcFamily` must be explicitly released
-    // before `dstFamily` can rely on its contents. A stale handle answers yes,
-    // since the safe answer is the one that does more work.
+    /**
+     * Whether a texture filled on `srcFamily` must be explicitly released
+     * before `dstFamily` can rely on its contents. A stale handle answers yes,
+     * since the safe answer is the one that does more work.
+     */
     bool RequiresOwnershipTransfer(TextureHandle handle, uint32_t srcFamily,
                                    uint32_t dstFamily) const;
 
@@ -155,32 +175,40 @@ private:
     bool IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& device,
                                   const DeviceRequirements& requirements) const;
 
-    // Called from the driver's debug callback, on whichever thread the driver
-    // happens to be on.
+    /**
+     * Called from the driver's debug callback, on whichever thread the driver
+     * happens to be on.
+     */
     void ReportDiagnostic(DiagnosticSeverity severity, std::string_view message) const;
 
-    // Static so that it has C linkage-compatible calling convention while still
-    // reaching the members above; the instance arrives via pUserData.
+    /**
+     * Static so that it has C linkage-compatible calling convention while still
+     * reaching the members above; the instance arrives via pUserData.
+     */
     static VKAPI_ATTR vk::Bool32 VKAPI_CALL DebugCallback(
         vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type,
         const vk::DebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
 
-    // 1.4 rather than the 1.3 that IsPhysicalDeviceSuitable requires: the
-    // instance-level version is a ceiling on what the loader will expose, while
-    // the device check is the actual hard requirement.
+    /**
+     * 1.4 rather than the 1.3 that IsPhysicalDeviceSuitable requires: the
+     * instance-level version is a ceiling on what the loader will expose, while
+     * the device check is the actual hard requirement.
+     */
     static constexpr uint32_t kApiVersion = VK_API_VERSION_1_4;
 
-    // Declaration order is destruction order reversed, and both matter here.
-    // The allocator sits after the device so that it is destroyed first, and the
-    // surface after the instance that has to outlive it.
-    //
-    // Diagnostics comes first of all, because m_DebugMessenger below is
-    // destroyed second-to-last and the driver reports validation messages
-    // raised while the allocator and the logical device are being torn down.
-    // Anything the callback touches has to still be alive at that point.
+    /**
+     * Declaration order is destruction order reversed, and both matter here.
+     * The allocator sits after the device so that it is destroyed first, and the
+     * surface after the instance that has to outlive it.
+     *
+     * Diagnostics comes first of all, because m_DebugMessenger below is
+     * destroyed second-to-last and the driver reports validation messages
+     * raised while the allocator and the logical device are being torn down.
+     * Anything the callback touches has to still be alive at that point.
+     */
     std::unique_ptr<Diagnostics> m_OwnedDiagnostics;
 
-    // Either the caller's or m_OwnedDiagnostics; never null after construction.
+    /** Either the caller's or m_OwnedDiagnostics; never null after construction. */
     Diagnostics* m_pDiagnostics = nullptr;
 
     vk::raii::Context m_Context;
@@ -192,38 +220,50 @@ private:
     VulkanAllocator m_Allocator{};
     vk::raii::Queue m_GraphicsQueue = nullptr;
 
-    // Null unless the copy family is a family of its own; GetQueue() is what
-    // resolves that, so nothing else has to know.
+    /**
+     * Null unless the copy family is a family of its own; GetQueue() is what
+     * resolves that, so nothing else has to know.
+     */
     vk::raii::Queue m_CopyQueue = nullptr;
 
-    // After the allocator, so that every buffer is destroyed before the
-    // allocator that owns their memory. Releasing a slot frees its VulkanBuffer,
-    // so this is also what makes an un-destroyed buffer merely a leak reported
-    // at shutdown rather than a crash during it.
+    /**
+     * After the allocator, so that every buffer is destroyed before the
+     * allocator that owns their memory. Releasing a slot frees its VulkanBuffer,
+     * so this is also what makes an un-destroyed buffer merely a leak reported
+     * at shutdown rather than a crash during it.
+     */
     Core::HandlePool<VulkanBuffer, BufferTag> m_Buffers;
     Core::HandlePool<VulkanTexture, TextureTag> m_Textures;
 
-    // After m_Textures so that views are destroyed before the images they were
-    // made from: a VkImageView outliving its VkImage is undefined behaviour
-    // rather than something the driver diagnoses.
+    /**
+     * After m_Textures so that views are destroyed before the images they were
+     * made from: a VkImageView outliving its VkImage is undefined behaviour
+     * rather than something the driver diagnoses.
+     */
     Core::HandlePool<VulkanTextureView, TextureViewTag> m_TextureViews;
     Core::HandlePool<VulkanSampler, SamplerTag> m_Samplers;
 
-    // The present target is destroyed before the device that owns its
-    // semaphores, so this only has to outlive the target — but it sits with the
-    // other pools rather than after them because a semaphore depends on nothing
-    // else here.
+    /**
+     * The present target is destroyed before the device that owns its
+     * semaphores, so this only has to outlive the target — but it sits with the
+     * other pools rather than after them because a semaphore depends on nothing
+     * else here.
+     */
     Core::HandlePool<VulkanSemaphore, SemaphoreTag> m_Semaphores;
 
     QueueFamilies m_QueueFamilies;
 
-    // Optional extensions, resolved once at creation from what the device
-    // supports and what DeviceDesc asked to be pretended away.
+    /**
+     * Optional extensions, resolved once at creation from what the device
+     * supports and what DeviceDesc asked to be pretended away.
+     */
     bool m_bMaintenance8Enabled = false;
     bool m_bMaintenance9Enabled = false;
 
-    // optimalImageTransferToQueueFamilies per queue family, empty unless
-    // maintenance9 was enabled. Indexed by the family releasing a resource.
+    /**
+     * optimalImageTransferToQueueFamilies per queue family, empty unless
+     * maintenance9 was enabled. Indexed by the family releasing a resource.
+     */
     std::vector<uint32_t> m_OptimalImageTransferToQueueFamilies;
 
     DeviceCaps m_Caps{};

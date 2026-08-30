@@ -9,8 +9,10 @@ using namespace Hikari::Platform;
 
 namespace
 {
-// Builds a CommandLine from the argument tokens, supplying the argv[0] the
-// parser expects to skip.
+/**
+ * Builds a CommandLine from the argument tokens, supplying the argv[0] the
+ * parser expects to skip.
+ */
 CommandLine Parse(std::vector<const char*> args)
 {
     args.insert(args.begin(), "HikariEngine");

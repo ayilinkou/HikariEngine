@@ -3,8 +3,10 @@
 #include "Component.h"
 #include "Transform.h"
 
-// SceneComponent is a Component class which contains a Transform. Components
-// which do not need a Transform should inherit from LogicComponent.
+/**
+ * SceneComponent is a Component class which contains a Transform. Components
+ * which do not need a Transform should inherit from LogicComponent.
+ */
 class SceneComponent : public Component
 {
 public:

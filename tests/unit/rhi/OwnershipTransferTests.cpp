@@ -8,14 +8,18 @@ using namespace Hikari::Rhi::Vulkan;
 
 namespace
 {
-// A device that has maintenance9 and will hand an optimal image to any family.
-// Every test below starts from one of these two and changes the one thing it is
-// about.
+/**
+ * A device that has maintenance9 and will hand an optimal image to any family.
+ * Every test below starts from one of these two and changes the one thing it is
+ * about.
+ */
 constexpr OwnershipTransferRules kPermissive{.bMaintenance9 = true,
                                              .OptimalImageTransferToQueueFamilies = ~0u};
 
-// A device without the extension, which is the majority of hardware in the
-// field and the path this rule exists to keep reachable.
+/**
+ * A device without the extension, which is the majority of hardware in the
+ * field and the path this rule exists to keep reachable.
+ */
 constexpr OwnershipTransferRules kNoMaintenance9{.bMaintenance9 = false,
                                                  .OptimalImageTransferToQueueFamilies = 0u};
 

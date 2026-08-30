@@ -55,8 +55,10 @@ private:
 public:
     CloudSystem(CloudSystemCreateInfo createInfo);
 
-    // Returns the barriers recorded, so the caller can account for them in the
-    // frame's totals.
+    /**
+     * Returns the barriers recorded, so the caller can account for them in the
+     * frame's totals.
+     */
     Hikari::Rhi::BarrierCounts RecordDispatch(vk::raii::CommandBuffer& cmd, uint32_t frameIndex,
                                               vk::raii::DescriptorSet& globalSet,
                                               vk::raii::DescriptorSet& depthSet);
@@ -91,12 +93,16 @@ private:
 private:
     static const uint32_t s_NOISE_RES;
 
-    // Declared before every GPU resource below so that it outlives them: the
-    // handles they hold are released through it.
+    /**
+     * Declared before every GPU resource below so that it outlives them: the
+     * handles they hold are released through it.
+     */
     Hikari::Rhi::IDevice& m_RhiDevice;
 
-    // Borrowed from m_RhiDevice. Still needed because pipelines and descriptors
-    // stay Vulkan-shaped for the whole of Stage 5 (plan D7, D8).
+    /**
+     * Borrowed from m_RhiDevice. Still needed because pipelines and descriptors
+     * stay Vulkan-shaped for the whole of Stage 5 (plan D7, D8).
+     */
     vk::raii::Device& m_Device;
 
     vk::raii::DescriptorSetLayout m_SetLayout = nullptr;

@@ -14,14 +14,18 @@ namespace
 {
 constexpr Core::LogCategory LogSDL("SDL");
 
-// How much of the display a window with no size of its own takes. A window the
-// size of the display looks like borderless fullscreen but is not one: its
-// title bar and its edges sit off-screen or under the taskbar, so it can be
-// neither moved nor resized. Three quarters leaves all of them reachable.
+/**
+ * How much of the display a window with no size of its own takes. A window the
+ * size of the display looks like borderless fullscreen but is not one: its
+ * title bar and its edges sit off-screen or under the taskbar, so it can be
+ * neither moved nor resized. Three quarters leaves all of them reachable.
+ */
 constexpr float kDefaultDisplayFraction = 0.75f;
 
-// Only used when the display cannot be queried at all. Small enough to fit on
-// any display that could plausibly be attached.
+/**
+ * Only used when the display cannot be queried at all. Small enough to fit on
+ * any display that could plausibly be attached.
+ */
 constexpr Extent2D kFallbackWindowSize{1280u, 720u};
 
 Extent2D DefaultWindowSize(SDL_DisplayID display)

@@ -9,11 +9,13 @@ namespace Hikari::Rhi::Vulkan
 {
 namespace
 {
-// How many of graphics/compute/copy a family advertises, as a stand-in for how
-// heavyweight the engine behind it is. The ancillary bits — sparse binding,
-// protected memory, video, optical flow — are deliberately not counted: they
-// say nothing about that, and counting them would let a video family with one
-// extra bit outrank a transfer-only one.
+/**
+ * How many of graphics/compute/copy a family advertises, as a stand-in for how
+ * heavyweight the engine behind it is. The ancillary bits — sparse binding,
+ * protected memory, video, optical flow — are deliberately not counted: they
+ * say nothing about that, and counting them would let a video family with one
+ * extra bit outrank a transfer-only one.
+ */
 int CoreCapabilityCount(vk::QueueFlags capabilities)
 {
     constexpr vk::QueueFlags kCore =
@@ -22,8 +24,10 @@ int CoreCapabilityCount(vk::QueueFlags capabilities)
     return std::popcount(static_cast<uint32_t>(capabilities & kCore));
 }
 
-// The narrowest family that can serve `role` without also being a graphics
-// family, or kInvalid when the device exposes none.
+/**
+ * The narrowest family that can serve `role` without also being a graphics
+ * family, or kInvalid when the device exposes none.
+ */
 uint32_t FindDedicatedFamily(std::span<const vk::QueueFamilyProperties> families, QueueType role)
 {
     uint32_t best = QueueFamilies::kInvalid;

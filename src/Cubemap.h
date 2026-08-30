@@ -25,11 +25,13 @@ struct CubemapCreateInfo
     }
 };
 
-// Six square faces in one texture, viewed as a cube.
-//
-// A Texture underneath, because that is what a cubemap is in both APIs: a 2D
-// texture with six array layers, plus a view that says "cube". Only the view
-// differs from any other texture, so only the view is worth a separate type.
+/**
+ * Six square faces in one texture, viewed as a cube.
+ *
+ * A Texture underneath, because that is what a cubemap is in both APIs: a 2D
+ * texture with six array layers, plus a view that says "cube". Only the view
+ * differs from any other texture, so only the view is worth a separate type.
+ */
 class Cubemap
 {
 public:

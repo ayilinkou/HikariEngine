@@ -17,7 +17,7 @@ namespace Hikari::Core
 
 constexpr LogCategory LogThreadPool("Thread Pool");
 
-// Self-naming, call from inside the thread's own lambda
+/** Self-naming, call from inside the thread's own lambda */
 inline void SetCurrentThreadName(const std::string& name)
 {
 #if defined(__linux__)

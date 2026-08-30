@@ -6,10 +6,12 @@
 
 using namespace Hikari::Platform;
 
-// Every case here runs with no SDL video subsystem initialised, which is the
-// property that matters: a headless run must never touch the window system, so
-// a test that quietly relied on SDL being up would prove nothing. The assertion
-// below is what keeps that honest — nothing in this file may initialise it.
+/**
+ * Every case here runs with no SDL video subsystem initialised, which is the
+ * property that matters: a headless run must never touch the window system, so
+ * a test that quietly relied on SDL being up would prove nothing. The assertion
+ * below is what keeps that honest — nothing in this file may initialise it.
+ */
 TEST_CASE("HeadlessPlatform needs no window system", "[platform][headless]")
 {
     REQUIRE_FALSE(SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO);

@@ -9,18 +9,22 @@
 #include <utility>
 #include <vector>
 
-// CPU-only: UniqueHandle never touches a driver, it only decides when to call
-// IDevice::Destroy. That decision is the whole of its value — the handle model
-// puts resource release on the caller (plan D2), and this is what puts it back
-// on the compiler — so it is worth testing without needing an ICD present.
+/**
+ * CPU-only: UniqueHandle never touches a driver, it only decides when to call
+ * IDevice::Destroy. That decision is the whole of its value — the handle model
+ * puts resource release on the caller (plan D2), and this is what puts it back
+ * on the compiler — so it is worth testing without needing an ICD present.
+ */
 using namespace Hikari::Rhi;
 
 namespace
 {
-// An IDevice that allocates nothing and records what it was asked to destroy.
-// Every resource kind hands out handles from one index counter and records its
-// destructions in its own vector, so a test can check that UniqueHandle called
-// the right overload as well as that it called one at all.
+/**
+ * An IDevice that allocates nothing and records what it was asked to destroy.
+ * Every resource kind hands out handles from one index counter and records its
+ * destructions in its own vector, so a test can check that UniqueHandle called
+ * the right overload as well as that it called one at all.
+ */
 class RecordingDevice final : public IDevice
 {
 public:

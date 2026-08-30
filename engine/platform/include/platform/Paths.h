@@ -8,8 +8,10 @@
 namespace Hikari::Platform
 {
 
-// The places a content root can come from, in the order they are tried. Empty
-// entries are skipped.
+/**
+ * The places a content root can come from, in the order they are tried. Empty
+ * entries are skipped.
+ */
 struct ContentRootCandidates
 {
     std::filesystem::path CommandLineOverride{}; // --content
@@ -24,60 +26,74 @@ public:
     explicit ContentRootError(const std::string& message) : std::runtime_error(message) {}
 };
 
-// Returns the first candidate that names an existing directory.
-//
-// A root that was asked for explicitly — on the command line or through the
-// environment — is never allowed to fall through to a lower-priority
-// candidate: a mistyped `--content` must fail loudly rather than quietly load
-// whatever the next candidate happens to contain. Throws ContentRootError in
-// that case, and also when no candidate resolves at all.
+/**
+ * Returns the first candidate that names an existing directory.
+ *
+ * A root that was asked for explicitly — on the command line or through the
+ * environment — is never allowed to fall through to a lower-priority
+ * candidate: a mistyped `--content` must fail loudly rather than quietly load
+ * whatever the next candidate happens to contain. Throws ContentRootError in
+ * that case, and also when no candidate resolves at all.
+ */
 std::filesystem::path ResolveContentRoot(const ContentRootCandidates& candidates);
 
-// Resolves the content root once at construction, then answers path queries
-// against it. Constructing this is what makes asset paths independent of the
-// current working directory.
+/**
+ * Resolves the content root once at construction, then answers path queries
+ * against it. Constructing this is what makes asset paths independent of the
+ * current working directory.
+ */
 class Paths
 {
 public:
-    // `commandLineOverride` is the value of --content, or empty if not given.
+    /** `commandLineOverride` is the value of --content, or empty if not given. */
     explicit Paths(std::string_view commandLineOverride = {});
 
     const std::filesystem::path& ContentRoot() const { return m_ContentRoot; }
 
-    // Content("scenes/test_scene.map") -> <root>/scenes/test_scene.map.
-    // An absolute path is returned unchanged.
+    /**
+     * Content("scenes/test_scene.map") -> <root>/scenes/test_scene.map.
+     * An absolute path is returned unchanged.
+     */
     std::filesystem::path Content(std::string_view relativePath) const;
 
-    // Compiled shaders live beside the executable, not under the content root.
-    //
-    // They are a build output rather than authored data: the same .slang
-    // sources compile differently per configuration (-O0 -g1 against -O3 -g0),
-    // so a debug and a release build produce different SPIR-V from the same
-    // tree. One shared directory means whichever configuration built last wins
-    // — silently, because each build directory judges its own outputs up to
-    // date. Keying them to the executable is what stops the two colliding.
-    //
-    // It follows that --content does not move them, which is the intended
-    // behaviour: SPIR-V is only valid for the binary it was built alongside,
-    // while content is data any build can load.
+    /**
+     * Compiled shaders live beside the executable, not under the content root.
+     *
+     * They are a build output rather than authored data: the same .slang
+     * sources compile differently per configuration (-O0 -g1 against -O3 -g0),
+     * so a debug and a release build produce different SPIR-V from the same
+     * tree. One shared directory means whichever configuration built last wins
+     * — silently, because each build directory judges its own outputs up to
+     * date. Keying them to the executable is what stops the two colliding.
+     *
+     * It follows that --content does not move them, which is the intended
+     * behaviour: SPIR-V is only valid for the binary it was built alongside,
+     * while content is data any build can load.
+     */
     const std::filesystem::path& ShaderRoot() const { return m_ShaderRoot; }
 
-    // Shader("opaque.spv") -> <shader root>/opaque.spv.
-    // An absolute path is returned unchanged, as with Content().
+    /**
+     * Shader("opaque.spv") -> <shader root>/opaque.spv.
+     * An absolute path is returned unchanged, as with Content().
+     */
     std::filesystem::path Shader(std::string_view relativePath) const;
 
-    // The per-user directory this application may write to: caches, settings,
-    // saves. Distinct from the content root, which ships with the application
-    // and is read-only on every platform that installs it properly.
-    //
-    // Empty when the platform would not give one. That is deliberately not an
-    // error: everything written here can be regenerated, so a caller that
-    // cannot have a directory skips writing rather than failing the run.
+    /**
+     * The per-user directory this application may write to: caches, settings,
+     * saves. Distinct from the content root, which ships with the application
+     * and is read-only on every platform that installs it properly.
+     *
+     * Empty when the platform would not give one. That is deliberately not an
+     * error: everything written here can be regenerated, so a caller that
+     * cannot have a directory skips writing rather than failing the run.
+     */
     const std::filesystem::path& UserDataRoot() const { return m_UserDataRoot; }
 
-    // UserData("pipeline_cache.bin") -> <user data root>/pipeline_cache.bin,
-    // or an empty path when there is no user data root — so "nowhere to write"
-    // and "nothing to read" reach the caller as the same answer.
+    /**
+     * UserData("pipeline_cache.bin") -> <user data root>/pipeline_cache.bin,
+     * or an empty path when there is no user data root — so "nowhere to write"
+     * and "nothing to read" reach the caller as the same answer.
+     */
     std::filesystem::path UserData(std::string_view relativePath) const;
 
 private:

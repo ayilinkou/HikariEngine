@@ -14,8 +14,10 @@
 namespace Hikari::Core
 {
 
-// A plain shared-queue thread pool: N worker threads all pulling from one
-// mutex-protected job queue. Owned directly by SharedQueueJobSystem.
+/**
+ * A plain shared-queue thread pool: N worker threads all pulling from one
+ * mutex-protected job queue. Owned directly by SharedQueueJobSystem.
+ */
 class ThreadPool
 {
 public:
@@ -27,10 +29,12 @@ public:
 
     uint32_t GetThreadCount() const { return static_cast<uint32_t>(m_Workers.size()); }
 
-    // F&& is a forward reference. This allows the template to take both lvalues
-    // and rvalues. std::forward then casts it back into the value category the
-    // argument had at the call site. This allows it to avoid copies if the
-    // argument is an rvalue but still works with lvalues (with copies).
+    /**
+     * F&& is a forward reference. This allows the template to take both lvalues
+     * and rvalues. std::forward then casts it back into the value category the
+     * argument had at the call site. This allows it to avoid copies if the
+     * argument is an rvalue but still works with lvalues (with copies).
+     */
     template <typename F>
     std::future<void> Submit(F&& f)
     {

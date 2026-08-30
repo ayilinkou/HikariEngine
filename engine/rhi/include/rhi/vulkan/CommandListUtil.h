@@ -7,13 +7,15 @@
 namespace Hikari::Rhi::Vulkan
 {
 
-// Allocate-begin-submit-wait for a one-shot command list.
-//
-// EndSingleTimeCommand blocks on queue idle, which is the bluntest possible
-// synchronisation and stalls the submitting thread completely. That is
-// acceptable only because every current caller is a load-time upload. An upload
-// context that records many copies behind a single fence is what should replace
-// this; until one exists, do not call these from inside the frame loop.
+/**
+ * Allocate-begin-submit-wait for a one-shot command list.
+ *
+ * EndSingleTimeCommand blocks on queue idle, which is the bluntest possible
+ * synchronisation and stalls the submitting thread completely. That is
+ * acceptable only because every current caller is a load-time upload. An upload
+ * context that records many copies behind a single fence is what should replace
+ * this; until one exists, do not call these from inside the frame loop.
+ */
 
 [[nodiscard]] inline vk::raii::CommandBuffer BeginSingleTimeCommand(vk::raii::Device& device,
                                                                     vk::CommandPool commandPool)

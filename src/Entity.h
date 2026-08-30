@@ -22,7 +22,7 @@ public:
     void AddComponent(std::unique_ptr<SceneComponent> comp);
     void AddComponent(std::unique_ptr<LogicComponent> comp);
 
-    // Gets the first instance of a Component of the templated type.
+    /** Gets the first instance of a Component of the templated type. */
     template <std::derived_from<SceneComponent> T>
     T* GetFirstComponent() const
     {
@@ -35,7 +35,7 @@ public:
         return nullptr;
     }
 
-    // Gets the first instance of a Component of the templated type.
+    /** Gets the first instance of a Component of the templated type. */
     template <std::derived_from<LogicComponent> T>
     T* GetFirstComponent() const
     {
@@ -48,7 +48,7 @@ public:
         return nullptr;
     }
 
-    // Gets all instances of a Component of the templated type.
+    /** Gets all instances of a Component of the templated type. */
     template <std::derived_from<SceneComponent> T>
     std::vector<T*> GetComponents() const
     {
@@ -62,7 +62,7 @@ public:
         return ptrs;
     }
 
-    // Gets all instances of a Component of the templated type.
+    /** Gets all instances of a Component of the templated type. */
     template <std::derived_from<LogicComponent> T>
     std::vector<T*> GetComponents() const
     {

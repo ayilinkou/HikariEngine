@@ -1,7 +1,9 @@
 #include "Transform.h"
 
-// Order: Scale -> Rotation -> Translation. Translation is NOT affected by
-// scale.
+/**
+ * Order: Scale -> Rotation -> Translation. Translation is NOT affected by
+ * scale.
+ */
 glm::mat4 Transform::ToWorldMatrix() const
 {
     glm::mat4 mat(1.f);
@@ -11,8 +13,10 @@ glm::mat4 Transform::ToWorldMatrix() const
     return mat;
 };
 
-// Order: Scale -> Rotation -> Translation. Translation IS affected by
-// scale.
+/**
+ * Order: Scale -> Rotation -> Translation. Translation IS affected by
+ * scale.
+ */
 glm::mat4 Transform::ToLocalMatrix() const
 {
     glm::mat4 mat(1.f);

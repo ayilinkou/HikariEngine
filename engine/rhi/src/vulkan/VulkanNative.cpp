@@ -11,11 +11,13 @@ namespace Hikari::Rhi::Vulkan
 {
 namespace
 {
-// A dynamic_cast rather than a static_cast because getting this wrong is
-// undefined behaviour rather than a diagnosable error, and the cost is
-// irrelevant: these are called a handful of times during startup, never per
-// frame. If a second backend ever exists, this is where passing the wrong
-// device type surfaces as an exception instead of as memory corruption.
+/**
+ * A dynamic_cast rather than a static_cast because getting this wrong is
+ * undefined behaviour rather than a diagnosable error, and the cost is
+ * irrelevant: these are called a handful of times during startup, never per
+ * frame. If a second backend ever exists, this is where passing the wrong
+ * device type surfaces as an exception instead of as memory corruption.
+ */
 VulkanDevice& AsVulkan(IDevice& device)
 {
     auto* pVulkanDevice = dynamic_cast<VulkanDevice*>(&device);
