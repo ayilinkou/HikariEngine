@@ -2,6 +2,8 @@
 
 #include <format>
 
+using namespace Hikari;
+
 Cubemap::Cubemap(Rhi::IDevice& device, const CubemapCreateInfo& createInfo,
                  Rhi::Extent2D faceExtent)
     : m_Texture(device,

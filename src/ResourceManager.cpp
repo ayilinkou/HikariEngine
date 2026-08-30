@@ -11,6 +11,10 @@
 #include "Cubemap.h"
 #include "Texture.h"
 
+using namespace Hikari;
+using namespace Hikari::Core;
+using namespace Hikari::Platform;
+
 constexpr std::string_view fallbackTexturePrefix = "FallbackTexture";
 
 void ResourceManager::Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext,

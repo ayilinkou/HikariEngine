@@ -7,9 +7,12 @@
 
 #include <core/Log.h>
 
+namespace Hikari::Platform
+{
+
 namespace
 {
-constexpr LogCategory LogSDL("SDL");
+constexpr Core::LogCategory LogSDL("SDL");
 
 // How much of the display a window with no size of its own takes. A window the
 // size of the display looks like borderless fullscreen but is not one: its
@@ -29,9 +32,9 @@ Extent2D DefaultWindowSize(SDL_DisplayID display)
     SDL_Rect bounds{};
     if (!SDL_GetDisplayBounds(display, &bounds) || bounds.w <= 0 || bounds.h <= 0)
     {
-        LogMsg(LogSeverity::Warning, LogSDL,
-               "Failed to query the display bounds ({}); using {}x{}.", SDL_GetError(),
-               kFallbackWindowSize.Width, kFallbackWindowSize.Height);
+        Core::LogMsg(Core::LogSeverity::Warning, LogSDL,
+                     "Failed to query the display bounds ({}); using {}x{}.", SDL_GetError(),
+                     kFallbackWindowSize.Width, kFallbackWindowSize.Height);
         return kFallbackWindowSize;
     }
 
@@ -65,7 +68,8 @@ SdlPlatform::SdlPlatform(const WindowDesc& desc)
     if (!SDL_Init(SDL_INIT_VIDEO))
         throw SDLException("Failed to initialise SDL!");
 
-    LogMsg(LogSeverity::Info, LogSDL, "SDL video driver: {}", SDL_GetCurrentVideoDriver());
+    Core::LogMsg(Core::LogSeverity::Info, LogSDL, "SDL video driver: {}",
+                 SDL_GetCurrentVideoDriver());
 
     if (!SDL_Vulkan_LoadLibrary(nullptr))
         throw SDLException("Failed to load Vulkan library!");
@@ -98,10 +102,11 @@ SdlPlatform::SdlPlatform(const WindowDesc& desc)
     // itself at all: SDL_SetWindowPosition fails by design there, and the
     // compositor's placement is the correct outcome, not a fallback.
     if (!SDL_SetWindowPosition(m_pWindow, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED))
-        LogMsg(LogSeverity::Info, LogSDL, "The window system placed the window itself: {}",
-               SDL_GetError());
+        Core::LogMsg(Core::LogSeverity::Info, LogSDL,
+                     "The window system placed the window itself: {}", SDL_GetError());
 
-    LogMsg(LogSeverity::Info, LogSDL, "Created a {}x{} window", size.Width, size.Height);
+    Core::LogMsg(Core::LogSeverity::Info, LogSDL, "Created a {}x{} window", size.Width,
+                 size.Height);
 }
 
 SdlPlatform::~SdlPlatform()
@@ -161,24 +166,24 @@ void SdlPlatform::SetWindowMode(WindowMode mode)
         // user asked to go fullscreen, and that part is still possible.
         if (!bHaveMode)
         {
-            LogMsg(LogSeverity::Warning, LogSDL,
-                   "No exclusive fullscreen mode available ({}); using borderless instead.",
-                   SDL_GetError());
+            Core::LogMsg(Core::LogSeverity::Warning, LogSDL,
+                         "No exclusive fullscreen mode available ({}); using borderless instead.",
+                         SDL_GetError());
             mode = WindowMode::BorderlessFullscreen;
         }
         else if (!SDL_SetWindowFullscreenMode(m_pWindow, &closest))
         {
-            LogMsg(LogSeverity::Warning, LogSDL,
-                   "Failed to select fullscreen display mode ({}); using borderless instead.",
-                   SDL_GetError());
+            Core::LogMsg(Core::LogSeverity::Warning, LogSDL,
+                         "Failed to select fullscreen display mode ({}); using borderless instead.",
+                         SDL_GetError());
             mode = WindowMode::BorderlessFullscreen;
         }
     }
 
     if (mode != WindowMode::ExclusiveFullscreen && !SDL_SetWindowFullscreenMode(m_pWindow, nullptr))
     {
-        LogMsg(LogSeverity::Warning, LogSDL, "Failed to clear the fullscreen display mode: {}",
-               SDL_GetError());
+        Core::LogMsg(Core::LogSeverity::Warning, LogSDL,
+                     "Failed to clear the fullscreen display mode: {}", SDL_GetError());
     }
 
     // Deliberately not followed by SDL_SyncWindow: the transition is
@@ -187,12 +192,13 @@ void SdlPlatform::SetWindowMode(WindowMode mode)
     // would stall the frame loop for the length of a compositor animation.
     if (!SDL_SetWindowFullscreen(m_pWindow, mode != WindowMode::Windowed))
     {
-        LogMsg(LogSeverity::Warning, LogSDL, "Failed to change the fullscreen state: {}",
-               SDL_GetError());
+        Core::LogMsg(Core::LogSeverity::Warning, LogSDL,
+                     "Failed to change the fullscreen state: {}", SDL_GetError());
         return;
     }
 
-    LogMsg(LogSeverity::Info, LogSDL, "Requested window mode: {}", WindowModeName(mode));
+    Core::LogMsg(Core::LogSeverity::Info, LogSDL, "Requested window mode: {}",
+                 WindowModeName(mode));
 }
 
 void SdlPlatform::SetRelativeMouseMode(bool bEnabled)
@@ -215,3 +221,4 @@ void SdlPlatform::ShowErrorMessageBox(const char* title, const char* message)
     SDL_LogError(SDL_LOG_CATEGORY_ERROR, "SDL error: %s", message);
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, message, nullptr);
 }
+} // namespace Hikari::Platform

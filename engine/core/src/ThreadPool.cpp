@@ -12,6 +12,9 @@
 #endif
 #include <core/Log.h>
 
+namespace Hikari::Core
+{
+
 constexpr LogCategory LogThreadPool("Thread Pool");
 
 // Self-naming, call from inside the thread's own lambda
@@ -71,3 +74,4 @@ ThreadPool::~ThreadPool()
         thread.join();
     }
 }
+} // namespace Hikari::Core

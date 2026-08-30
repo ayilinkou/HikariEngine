@@ -38,7 +38,7 @@
 // compiler cannot catch. For the flags enums it is caught at runtime instead —
 // ToVk throws on a bit it could not account for, rather than silently dropping
 // it (see ConvertFlags). For the rest it is a review item.
-namespace Rhi
+namespace Hikari::Rhi
 {
 // Generates the bitwise operators a flags enum needs. Scoped enums have none
 // by default, which is what stops a flags enum being silently mixed with an
@@ -314,4 +314,4 @@ struct Extent3D
 
     constexpr bool operator==(const Extent3D&) const = default;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

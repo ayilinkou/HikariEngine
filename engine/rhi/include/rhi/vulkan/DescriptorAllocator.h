@@ -7,6 +7,9 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
+namespace Hikari::Rhi::Vulkan
+{
+
 // Hands out descriptor sets from a chain of pools that grows on demand, so a
 // scene with more materials than expected loads instead of aborting.
 //
@@ -60,3 +63,4 @@ private:
 
     const std::string m_DebugName;
 };
+} // namespace Hikari::Rhi::Vulkan

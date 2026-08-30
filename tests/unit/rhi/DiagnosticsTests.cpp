@@ -13,7 +13,7 @@
 // messages at all, so without these tests the counting, the threshold and the
 // ring buffer would have no coverage on any machine, and a miswired diagnostic
 // path would look exactly like a healthy one.
-using namespace Rhi;
+using namespace Hikari::Rhi;
 
 namespace
 {

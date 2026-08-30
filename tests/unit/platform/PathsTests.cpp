@@ -10,6 +10,8 @@
 
 #include <platform/Paths.h>
 
+using namespace Hikari::Platform;
+
 namespace
 {
 // A unique directory under the system temp dir, removed with everything under

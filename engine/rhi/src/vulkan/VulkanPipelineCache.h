@@ -6,7 +6,7 @@
 
 #include <rhi/PipelineCache.h>
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 // IPipelineCache over a VkPipelineCache, seeded from and saved to a file.
 //
@@ -41,4 +41,4 @@ VulkanPipelineCache& ToVulkan(IPipelineCache& cache);
 // builder that was never given one does, and what tests do — and vk::Optional's
 // null state is how those constructors spell it.
 vk::Optional<const vk::raii::PipelineCache> GetVkPipelineCache(IPipelineCache* pCache);
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

@@ -4,6 +4,9 @@
 #include <limits>
 #include <string_view>
 
+namespace Hikari::Platform
+{
+
 namespace
 {
 // Whether `token` reads as the start of a new option rather than a value.
@@ -142,3 +145,4 @@ CommandLine::CommandLine(int argc, const char* const* argv)
         m_Options.push_back(std::move(option));
     }
 }
+} // namespace Hikari::Platform

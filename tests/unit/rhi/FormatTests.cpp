@@ -10,7 +10,7 @@
 // telling depth from colour are decisions the renderer makes on every path, and
 // a wrong answer shows up as a corrupt image rather than as a failure. Checking
 // them here means they are checked by CI, which has no Vulkan ICD.
-using namespace Rhi;
+using namespace Hikari::Rhi;
 
 // Spelled out per format rather than derived, deliberately. A test that
 // computed the expected size the same way the implementation does would agree

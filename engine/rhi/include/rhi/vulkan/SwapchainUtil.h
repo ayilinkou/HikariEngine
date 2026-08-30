@@ -9,6 +9,9 @@
 
 #include "vulkan/vulkan.hpp"
 
+namespace Hikari::Rhi::Vulkan
+{
+
 // Picks the swapchain parameters from what a surface reports it supports.
 //
 // These are pure functions over the query results — they neither perform the
@@ -91,3 +94,4 @@ inline uint32_t ChooseSwapMinImageCount(const vk::SurfaceCapabilitiesKHR& capabi
         minCount = capabilities.maxImageCount;
     return minCount;
 }
+} // namespace Hikari::Rhi::Vulkan

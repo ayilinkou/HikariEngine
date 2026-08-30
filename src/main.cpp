@@ -53,6 +53,11 @@
 
 #include "ImGuiFileDialog.h"
 
+using namespace Hikari;
+using namespace Hikari::Core;
+using namespace Hikari::Platform;
+using namespace Hikari::Rhi::Vulkan;
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

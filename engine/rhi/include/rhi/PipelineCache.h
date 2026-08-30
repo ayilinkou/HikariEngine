@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <string>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 struct PipelineCacheDesc
 {
@@ -56,4 +56,4 @@ public:
 protected:
     IPipelineCache() = default;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

@@ -14,12 +14,13 @@
 #include <set>
 #include <stdexcept>
 
+
 // CPU-only: no instance, no device, no ICD needed. These are table tests, and
 // the tables are the part of the RHI most likely to be wrong in a way that
 // compiles — a mismapped format or a barrier missing a stage bit produces
 // corruption or an intermittent hazard, not a build failure.
-using namespace Rhi;
-using namespace Rhi::Vulkan;
+using namespace Hikari::Rhi;
+using namespace Hikari::Rhi::Vulkan;
 
 namespace
 {
@@ -428,7 +429,7 @@ TEST_CASE("Descs default to something inert rather than something plausible", "[
     REQUIRE(buffer.Access == MemoryAccess::GpuOnly);
 
     const TextureDesc texture{};
-    REQUIRE(texture.Format == Rhi::Format::Undefined);
+    REQUIRE(texture.Format == Hikari::Rhi::Format::Undefined);
     REQUIRE(texture.Usage == TextureUsage::None);
     REQUIRE(texture.Dimension == TextureDimension::Texture2D);
     REQUIRE(texture.MipLevels == 1u);
@@ -463,7 +464,7 @@ TEST_CASE("Descs default to something inert rather than something plausible", "[
     const TextureViewDesc view{};
     REQUIRE_FALSE(view.Texture.IsValid());
     REQUIRE(view.Dimension == TextureViewDimension::Texture2D);
-    REQUIRE(view.Format == Rhi::Format::Undefined);
+    REQUIRE(view.Format == Hikari::Rhi::Format::Undefined);
     REQUIRE(view.Aspect == TextureAspect::None);
     REQUIRE(view.MipCount == 1u);
     REQUIRE(view.LayerCount == 1u);

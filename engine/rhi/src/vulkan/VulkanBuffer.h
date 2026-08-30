@@ -5,16 +5,16 @@
 #include "vk_mem_alloc.h"
 #include "vulkan/vulkan.hpp"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 // What a BufferHandle resolves to: the VMA-owned buffer itself.
 //
-// Module-private, and the payload of the device's HandlePool. RAII is not
+// Module-private, and the payload of the device's Core::HandlePool. RAII is not
 // banished by the handle model, only kept off the public seam (plan D2) — this
 // still frees itself, which is what makes releasing a pool slot enough to free
 // the allocation.
 //
-// Default-constructible and move-assignable because HandlePool requires both: a
+// Default-constructible and move-assignable because Core::HandlePool requires both: a
 // free slot holds a default-constructed payload, and Release() assigns one over
 // the old payload so the allocation is freed then rather than when the pool
 // itself dies.
@@ -40,4 +40,4 @@ private:
 
     VmaAllocator Allocator{};
 };
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

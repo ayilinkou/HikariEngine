@@ -8,7 +8,9 @@
 
 #include <rhi/vulkan/DebugNames.h>
 
-constexpr LogCategory LogRhi("RHI");
+namespace Hikari::Rhi::Vulkan
+{
+constexpr Core::LogCategory LogRhi("RHI");
 
 DescriptorAllocator::DescriptorAllocator(vk::raii::Device& device,
                                          std::span<const vk::DescriptorPoolSize> descriptorsPerSet,
@@ -52,8 +54,8 @@ void DescriptorAllocator::Grow()
     // one making progress.
     AddPool(m_SetCapacity + std::max(m_SetCapacity / 2u, 1u));
 
-    LogMsg(LogSeverity::Info, LogRhi, "{} descriptor pool grew to {} sets ({} pools)", m_DebugName,
-           m_SetCapacity, m_Pools.size());
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "{} descriptor pool grew to {} sets ({} pools)",
+                 m_DebugName, m_SetCapacity, m_Pools.size());
 }
 
 vk::raii::DescriptorSet DescriptorAllocator::AllocateFromNewestPool(vk::DescriptorSetLayout layout)
@@ -94,3 +96,4 @@ vk::raii::DescriptorSet DescriptorAllocator::Allocate(vk::DescriptorSetLayout la
     Grow();
     return AllocateFromNewestPool(layout);
 }
+} // namespace Hikari::Rhi::Vulkan

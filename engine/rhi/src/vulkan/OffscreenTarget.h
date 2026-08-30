@@ -9,7 +9,7 @@
 #include <rhi/IPresentTarget.h>
 #include <rhi/RhiTypes.h>
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 class VulkanDevice;
 
@@ -138,4 +138,4 @@ private:
     // frame can only be waiting on one previous write of one image.
     SemaphoreHandle m_CurrentWait{};
 };
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

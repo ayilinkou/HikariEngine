@@ -16,23 +16,24 @@ class TextureLoader
 private:
     friend class ResourceManager;
 
-    TextureLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext);
+    TextureLoader(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::IUploadContext& uploadContext);
 
-    static void Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext);
+    static void Init(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::IUploadContext& uploadContext);
     static void Shutdown();
 
     static TextureLoader* Get() { return s_Instance; }
 
     [[nodiscard]] std::shared_ptr<Texture> Load(const std::string& filepath,
-                                                const Rhi::Format format);
-    [[nodiscard]] std::shared_ptr<Texture> LoadFallbackTexture(const Rhi::Format format);
+                                                const Hikari::Rhi::Format format);
+    [[nodiscard]] std::shared_ptr<Texture> LoadFallbackTexture(const Hikari::Rhi::Format format);
     [[nodiscard]] std::shared_ptr<Texture>
     CreateTextureFromPixels(stbi_uc* pixels, const uint32_t width, const uint32_t height,
-                            const Rhi::Format format, const uint64_t size, const std::string& name);
+                            const Hikari::Rhi::Format format, const uint64_t size,
+                            const std::string& name);
 
 private:
     inline static TextureLoader* s_Instance = nullptr;
 
-    Rhi::IDevice& m_RhiDevice;
-    Rhi::IUploadContext& m_UploadContext;
+    Hikari::Rhi::IDevice& m_RhiDevice;
+    Hikari::Rhi::IUploadContext& m_UploadContext;
 };

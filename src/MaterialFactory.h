@@ -14,7 +14,7 @@ struct aiMaterial;
 class MaterialFactory
 {
 public:
-    static void Init(Rhi::IDevice& rhiDevice, Rhi::SamplerHandle sampler);
+    static void Init(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::SamplerHandle sampler);
     static void Shutdown();
 
     static MaterialFactory* Get() { return s_Instance; }
@@ -25,7 +25,7 @@ public:
     vk::DescriptorSetLayout GetDescriptorSetLayout() const { return *m_SetLayout; }
 
 private:
-    MaterialFactory(Rhi::IDevice& rhiDevice, Rhi::SamplerHandle sampler);
+    MaterialFactory(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::SamplerHandle sampler);
 
     void CreateDescriptorSetLayout();
 
@@ -34,16 +34,16 @@ private:
 
     vk::raii::DescriptorSetLayout m_SetLayout = nullptr;
 
-    Rhi::IDevice& m_RhiDevice;
+    Hikari::Rhi::IDevice& m_RhiDevice;
 
     // Descriptor pools and set layouts stay Vulkan objects for the whole of
     // Stage 5 — the binding model is deliberately not abstracted (plan D7) — so
     // the factory keeps a device reference to build them from.
     vk::raii::Device& m_Device;
 
-    Rhi::SamplerHandle m_Sampler;
+    Hikari::Rhi::SamplerHandle m_Sampler;
 
     // Declared after m_Device because it is constructed from that reference,
     // and members are initialized in declaration order.
-    DescriptorAllocator m_DescriptorAllocator;
+    Hikari::Rhi::Vulkan::DescriptorAllocator m_DescriptorAllocator;
 };

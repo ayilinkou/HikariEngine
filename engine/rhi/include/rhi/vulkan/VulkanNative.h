@@ -25,7 +25,7 @@
 // swapchains, pipelines, descriptor sets — and cannot do that from raw C
 // handles. Every resource type that moves behind IDevice removes callers from
 // this list, and the last of them removes the accessors.
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 // Raw handles, for C APIs such as ImGui that take them by value.
 struct NativeDevice
@@ -111,4 +111,4 @@ Format FromNativeFormat(vk::Format format);
 // own pipelines without going through anything this module offers. Every other
 // caller hands the neutral cache to a builder instead.
 VkPipelineCache GetNativePipelineCache(IPipelineCache& cache);
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

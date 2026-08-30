@@ -9,7 +9,7 @@
 #include <rhi/IPresentTarget.h>
 #include <rhi/RhiTypes.h>
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 class VulkanDevice;
 
@@ -74,4 +74,4 @@ private:
 
     uint32_t m_FramesInFlight = 0u;
 };
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

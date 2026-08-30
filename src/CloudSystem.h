@@ -19,9 +19,9 @@
 
 struct CloudSystemCreateInfo
 {
-    Rhi::IDevice& RhiDevice;
-    Rhi::IPipelineCache& PipelineCache;
-    const Paths& ContentPaths;
+    Hikari::Rhi::IDevice& RhiDevice;
+    Hikari::Rhi::IPipelineCache& PipelineCache;
+    const Hikari::Platform::Paths& ContentPaths;
     vk::raii::DescriptorSetLayout& GlobalSetLayout;
     vk::raii::DescriptorSetLayout& DepthSetLayout;
     vk::raii::CommandPool& CommandPool;
@@ -57,12 +57,12 @@ public:
 
     // Returns the barriers recorded, so the caller can account for them in the
     // frame's totals.
-    Rhi::BarrierCounts RecordDispatch(vk::raii::CommandBuffer& cmd, uint32_t frameIndex,
-                                      vk::raii::DescriptorSet& globalSet,
-                                      vk::raii::DescriptorSet& depthSet);
+    Hikari::Rhi::BarrierCounts RecordDispatch(vk::raii::CommandBuffer& cmd, uint32_t frameIndex,
+                                              vk::raii::DescriptorSet& globalSet,
+                                              vk::raii::DescriptorSet& depthSet);
     void Resize(uint32_t width, uint32_t height);
 
-    Rhi::TextureViewHandle GetOutputView(uint8_t frameIndex) const
+    Hikari::Rhi::TextureViewHandle GetOutputView(uint8_t frameIndex) const
     {
         return m_OutputTextures[frameIndex].GetView();
     }
@@ -74,10 +74,12 @@ private:
     void CreateNoiseTexture();
     void CreateDescriptorSetLayout();
     void CreateBakeDescriptorSetLayout();
-    void CreatePipeline(const Paths& paths, Rhi::IPipelineCache& pipelineCache,
+    void CreatePipeline(const Hikari::Platform::Paths& paths,
+                        Hikari::Rhi::IPipelineCache& pipelineCache,
                         vk::raii::DescriptorSetLayout& globalSetLayout,
                         vk::raii::DescriptorSetLayout& depthSetLayout);
-    void CreateBakePipeline(const Paths& paths, Rhi::IPipelineCache& pipelineCache);
+    void CreateBakePipeline(const Hikari::Platform::Paths& paths,
+                            Hikari::Rhi::IPipelineCache& pipelineCache);
     void CreateDescriptorPool();
     void CreateBakeDescriptorPool();
     void AllocateDescriptorSets();
@@ -91,7 +93,7 @@ private:
 
     // Declared before every GPU resource below so that it outlives them: the
     // handles they hold are released through it.
-    Rhi::IDevice& m_RhiDevice;
+    Hikari::Rhi::IDevice& m_RhiDevice;
 
     // Borrowed from m_RhiDevice. Still needed because pipelines and descriptors
     // stay Vulkan-shaped for the whole of Stage 5 (plan D7, D8).
@@ -107,7 +109,7 @@ private:
     vk::raii::Pipeline m_BakePipeline = nullptr;
     std::vector<vk::raii::DescriptorSet> m_DescriptorSets;
     vk::raii::DescriptorSet m_BakeDescriptorSet = nullptr;
-    Rhi::UniqueHandle<Rhi::SamplerHandle> m_TextureSampler;
+    Hikari::Rhi::UniqueHandle<Hikari::Rhi::SamplerHandle> m_TextureSampler;
 
     std::vector<Texture> m_OutputTextures;
     Texture m_PerlinWorley;

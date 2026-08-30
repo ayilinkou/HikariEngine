@@ -2,7 +2,9 @@
 
 #include "vulkan/OwnershipTransfer.h"
 
-using namespace Rhi::Vulkan;
+using namespace Hikari;
+
+using namespace Hikari::Rhi::Vulkan;
 
 namespace
 {

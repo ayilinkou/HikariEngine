@@ -23,7 +23,7 @@
 // per device. Three of the four arrangements are unreachable on any one machine
 // without the levers RhiTestFixture pulls, and the ones this GPU is not are the
 // ones most hardware in the field is.
-using namespace Rhi;
+using namespace Hikari::Rhi;
 
 namespace
 {

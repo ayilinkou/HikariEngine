@@ -7,6 +7,8 @@
 #include <core/SerialJobSystem.h>
 #include <core/SharedQueueJobSystem.h>
 
+using namespace Hikari::Core;
+
 TEMPLATE_TEST_CASE("ParallelFor visits every index in [0, count) exactly once", "[JobSystem]",
                    SharedQueueJobSystem, SerialJobSystem)
 {

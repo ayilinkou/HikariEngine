@@ -10,9 +10,12 @@
 
 #include "vulkan/VulkanPipelineCache.h"
 
+namespace Hikari::Rhi::Vulkan
+{
+constexpr Core::LogCategory LogRhi("RHI");
+
 namespace
 {
-constexpr LogCategory LogRhi("RHI");
 } // namespace
 
 ComputePipelineBuilder::ComputePipelineBuilder(vk::raii::Device& device) : m_Device(device) {}
@@ -52,7 +55,7 @@ std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> ComputePipelineBuilder::
         throw std::runtime_error("ComputePipelineBuilder: no shader path set!");
 
     // --- Shader module + stage ---
-    auto code = ReadFile(m_SpvPath);
+    auto code = Platform::ReadFile(m_SpvPath);
     vk::ShaderModuleCreateInfo moduleInfo{.codeSize = code.size(),
                                           .pCode = reinterpret_cast<const uint32_t*>(code.data())};
     vk::raii::ShaderModule shaderModule(m_Device, moduleInfo);
@@ -74,12 +77,12 @@ std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> ComputePipelineBuilder::
 
     // Timed for the reason PipelineBuilder::Build() times its own call: this is
     // where a cache hit shows up.
-    Timer compileTimer;
+    Core::Timer compileTimer;
     vk::raii::Pipeline pipeline(m_Device, Rhi::Vulkan::GetVkPipelineCache(m_pCache), pipelineInfo);
 
-    LogMsg(LogSeverity::Info, LogRhi, "Created {} compute pipeline in {:.2f} ms{}",
-           m_DebugName.empty() ? std::string_view("unnamed") : std::string_view(m_DebugName),
-           compileTimer.ElapsedMs(), m_pCache ? "" : " (uncached)");
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Created {} compute pipeline in {:.2f} ms{}",
+                 m_DebugName.empty() ? std::string_view("unnamed") : std::string_view(m_DebugName),
+                 compileTimer.ElapsedMs(), m_pCache ? "" : " (uncached)");
 
     if (!m_DebugName.empty())
     {
@@ -93,3 +96,4 @@ std::pair<vk::raii::PipelineLayout, vk::raii::Pipeline> ComputePipelineBuilder::
 
     return {std::move(pipelineLayout), std::move(pipeline)};
 }
+} // namespace Hikari::Rhi::Vulkan

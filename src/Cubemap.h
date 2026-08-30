@@ -17,7 +17,7 @@ struct CubemapCreateInfo
     std::string FrontPath = "";
     std::string BackPath = "";
     std::string Name = "Cubemap";
-    Rhi::Format Format = Rhi::Format::Undefined;
+    Hikari::Rhi::Format Format = Hikari::Rhi::Format::Undefined;
 
     std::string Key() const
     {
@@ -34,10 +34,11 @@ class Cubemap
 {
 public:
     Cubemap() = default;
-    Cubemap(Rhi::IDevice& device, const CubemapCreateInfo& createInfo, Rhi::Extent2D faceExtent);
+    Cubemap(Hikari::Rhi::IDevice& device, const CubemapCreateInfo& createInfo,
+            Hikari::Rhi::Extent2D faceExtent);
 
-    Rhi::TextureHandle GetHandle() const { return m_Texture.GetHandle(); }
-    Rhi::TextureViewHandle GetView() const { return m_Texture.GetView(); }
+    Hikari::Rhi::TextureHandle GetHandle() const { return m_Texture.GetHandle(); }
+    Hikari::Rhi::TextureViewHandle GetView() const { return m_Texture.GetView(); }
 
     const std::string& GetName() const { return m_CreateInfo.Name; }
     const CubemapCreateInfo& GetCreateInfo() const { return m_CreateInfo; }

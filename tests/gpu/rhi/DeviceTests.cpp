@@ -19,7 +19,7 @@
 // selection rules, the ownership-transfer rule — is a unit test instead, and
 // stays that way: a check that only runs on a machine with a GPU is a check CI
 // does not perform.
-using namespace Rhi;
+using namespace Hikari::Rhi;
 
 TEST_CASE("A headless device is created and reports no presentation", "[rhi][gpu][device]")
 {

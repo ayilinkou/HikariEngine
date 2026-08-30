@@ -2,6 +2,8 @@
 
 #include "assimp/mesh.h"
 
+using namespace Hikari;
+
 ModelData::ModelData(const std::string& path, std::vector<std::unique_ptr<Material>> materials,
                      uint32_t meshCount)
     : m_Materials(std::move(materials)), m_Path(path)

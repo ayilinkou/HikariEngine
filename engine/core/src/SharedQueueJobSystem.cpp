@@ -3,6 +3,9 @@
 #include <future>
 #include <thread>
 
+namespace Hikari::Core
+{
+
 SharedQueueJobSystem::SharedQueueJobSystem() : m_Pool(DefaultThreadCount()) {}
 
 SharedQueueJobSystem::SharedQueueJobSystem(uint32_t threadCount)
@@ -44,3 +47,4 @@ uint32_t SharedQueueJobSystem::WorkerCount() const
 {
     return m_Pool.GetThreadCount();
 }
+} // namespace Hikari::Core

@@ -4,6 +4,8 @@
 
 #include <limits>
 
+using namespace Hikari::Rhi::Vulkan;
+
 // CPU-only: these are pure functions over what a surface reported, so the
 // surface states that matter — a window system that sizes the surface from the
 // swapchain, and a minimized window with no area at all — can be written down

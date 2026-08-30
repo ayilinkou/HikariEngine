@@ -8,7 +8,7 @@
 #include <rhi/Handles.h>
 #include <rhi/ICommandList.h>
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 class VulkanDevice;
 
@@ -45,4 +45,4 @@ private:
     VulkanDevice& m_Device;
     vk::CommandBuffer m_Cmd;
 };
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

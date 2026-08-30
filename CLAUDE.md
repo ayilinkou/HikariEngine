@@ -42,10 +42,12 @@ the plan. Fix what the step asks for; note anything else you spot rather than fi
 
 **Verify every change with `scripts/precommit.sh`** (configure + build + build tests +
 `ctest -L unit` + `ctest -L gpu` + format-check) before reporting a change as done. It is a
-superset of CI: everything CI enforces, plus two things CI does not run — the GPU tests
-(CI's runners have no Vulkan ICD) and `rhi_boundary_check` (an oversight, tracked in
+superset of CI: everything CI enforces, plus three things CI does not run — the GPU tests
+(CI's runners have no Vulkan ICD), `rhi_boundary_check` (an oversight, tracked in
 `docs/backlog.md`; CI does still enforce header *neutrality* through
-`HeaderSelfContainment_RHI_Neutral`, but not the allowlist ratchet). The GPU tests skip
+`HeaderSelfContainment_RHI_Neutral`, but not the allowlist ratchet), and `namespace_check`
+(wired into CI by the `test/ci` PR, which is where the source-level checks get their own
+job). The GPU tests skip
 rather than fail on a machine without an ICD, so a green precommit on such a machine has
 proved less than it looks — check whether they ran before relying on them. Report failures
 with the actual output — never claim a build passed without running it.
@@ -131,6 +133,7 @@ tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
 tests/scripts/run_gpu_tests.sh      # ctest -L gpu --output-on-failure (needs a Vulkan ICD)
 tests/scripts/header_check.sh       # compile every header standalone, no PCH
 tests/scripts/rhi_boundary_check.sh # the RHI seam: neutral headers, and who may bypass them
+tests/scripts/namespace_check.sh    # every engine header opens its module's namespace
 tests/scripts/format_check.sh       # dry-run, -Werror
 scripts/format.sh                   # clang-format -i over src/ and engine/
 scripts/precommit.sh                # all of the above, CI's checks in CI's order
@@ -330,6 +333,19 @@ Other rules:
   the check.
 - **Warnings are errors** (`CMAKE_COMPILE_WARNING_AS_ERROR ON`, `-Wall -Wextra -Wpedantic
   -Wshadow` / `/W3`). A new warning breaks the build on all nine CI configs.
+- **Every engine type lives in `Hikari::<Module>`** — `Hikari::Core::Timer`,
+  `Hikari::Platform::Paths`, `Hikari::Rhi::IDevice`, `Hikari::Rhi::Vulkan::SetVkDebugName`.
+  The nesting is uniform and mirrors the directory: `engine/<mod>/include/<mod>/` opens
+  `Hikari::<Mod>`, and a subdirectory adds a component. A header may nest deeper for its own
+  grouping (`Hikari::Rhi::BarrierPresets`) but may not open a different module. `src/` is
+  *not* namespaced — it is an executable, and Stages 7–9 dismantle it into engine modules
+  that already are.
+- **`using namespace` is allowed in a `.cpp` and never in a header.** In a header it leaks
+  into every translation unit that includes it, transitively, and breaks in whichever
+  unrelated file includes it next. Engine sources qualify instead (`Core::LogMsg`), which is
+  short because enclosing-namespace lookup applies inside `Hikari::`; `src/` and tests use
+  directives, since their alternative is churn in code scheduled for demolition. Both halves
+  are enforced by `tests/scripts/namespace_check.sh`.
 - **Include style:** engine modules are included as `<core/Timer.h>`; `src/` files use
   `"Header.h"` quotes for siblings and `"lib/Header.h"` for third-party.
 - **Errors:** exceptions for unrecoverable init failures; asset loading and parsing should

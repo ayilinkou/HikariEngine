@@ -6,6 +6,9 @@
 #include <string>
 #include <string_view>
 
+namespace Hikari::Core
+{
+
 struct LogCategory
 {
     std::string_view Name;
@@ -91,3 +94,4 @@ void LogMsg(LogSeverity severity, const LogCategory& cat, std::format_string<Arg
     // reset color at the very end of the line
     std::fprintf(stream, "%.*s\n", static_cast<int>(Log::Reset.size()), Log::Reset.data());
 }
+} // namespace Hikari::Core

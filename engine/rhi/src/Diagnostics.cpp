@@ -4,7 +4,7 @@
 #include <cstdlib>
 #include <utility>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 Diagnostics::Diagnostics(Desc desc) : m_Desc(std::move(desc))
 {
@@ -96,4 +96,4 @@ void Diagnostics::Reset()
     m_Captured.clear();
     m_CaptureNext = 0;
 }
-} // namespace Rhi
+} // namespace Hikari::Rhi

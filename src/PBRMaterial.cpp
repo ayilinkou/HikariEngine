@@ -7,6 +7,9 @@
 #include <rhi/vulkan/DebugNames.h>
 #include <rhi/vulkan/VulkanNative.h>
 
+using namespace Hikari;
+using namespace Hikari::Rhi::Vulkan;
+
 PBRMaterial::PBRMaterial(Rhi::IDevice& rhiDevice, DescriptorAllocator& descriptorAllocator,
                          vk::raii::DescriptorSetLayout& setLayout, Rhi::SamplerHandle sampler,
                          aiMaterial* mat, const std::string& texturesParentFolder)

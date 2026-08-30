@@ -8,6 +8,9 @@
 
 #include <span>
 
+using namespace Hikari;
+using namespace Hikari::Core;
+
 constexpr LogCategory LogCubemapLoader("Cubemap Loader");
 
 CubemapLoader::CubemapLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)

@@ -7,7 +7,7 @@
 #include "vulkan/VulkanDevice.h"
 #include "vulkan/VulkanPipelineCache.h"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 namespace
 {
@@ -100,4 +100,4 @@ VkPipelineCache GetNativePipelineCache(IPipelineCache& cache)
 {
     return *ToVulkan(cache).Get();
 }
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

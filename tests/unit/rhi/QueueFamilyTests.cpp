@@ -6,14 +6,15 @@
 
 #include <vector>
 
+
 // CPU-only: no instance, no physical device, no ICD needed. SelectQueueFamilies
 // takes the family list as data precisely so that the layouts this machine's GPU
 // does not expose — a transfer-only DMA family, a graphics family without
 // compute, two graphics families of which only one can present — can be tested
 // anyway. Those are exactly the layouts where a wrong choice shows up as a
 // failure on somebody else's hardware.
-using namespace Rhi;
-using namespace Rhi::Vulkan;
+using namespace Hikari::Rhi;
+using namespace Hikari::Rhi::Vulkan;
 
 namespace
 {

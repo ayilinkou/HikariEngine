@@ -16,7 +16,7 @@
 //
 // Each preset is a plain value, so a caller can take one and adjust a field
 // rather than needing a new preset for a variation.
-namespace Rhi::BarrierPresets
+namespace Hikari::Rhi::BarrierPresets
 {
 // The image just acquired from a present target, made ready to render into.
 // Named for the acquire rather than for the swapchain because a headless target
@@ -253,4 +253,4 @@ UnorderedAccessToShaderResource(PipelineStage readStage = PipelineStage::PixelSt
         .NewLayout = TextureLayout::ShaderResource,
     };
 }
-} // namespace Rhi::BarrierPresets
+} // namespace Hikari::Rhi::BarrierPresets

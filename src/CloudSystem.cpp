@@ -7,6 +7,11 @@
 #include <rhi/vulkan/DebugNames.h>
 #include <rhi/vulkan/VulkanNative.h>
 
+using namespace Hikari;
+using namespace Hikari::Core;
+using namespace Hikari::Platform;
+using namespace Hikari::Rhi::Vulkan;
+
 inline constexpr LogCategory LogCloudSystem{"Cloud System"};
 
 const uint32_t CloudSystem::s_NOISE_RES = 128u;

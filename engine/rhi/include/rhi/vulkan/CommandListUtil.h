@@ -4,6 +4,9 @@
 
 #include <rhi/vulkan/DebugNames.h>
 
+namespace Hikari::Rhi::Vulkan
+{
+
 // Allocate-begin-submit-wait for a one-shot command list.
 //
 // EndSingleTimeCommand blocks on queue idle, which is the bluntest possible
@@ -34,3 +37,4 @@ inline void EndSingleTimeCommand(vk::CommandBuffer commandBuffer, vk::Queue queu
     queue.submit(submitInfo, nullptr);
     queue.waitIdle();
 }
+} // namespace Hikari::Rhi::Vulkan

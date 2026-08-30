@@ -31,7 +31,7 @@
 #include "vulkan/VulkanTexture.h"
 #include "vulkan/VulkanTextureView.h"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 class VulkanDevice final : public IDevice
 {
@@ -200,20 +200,20 @@ private:
     // allocator that owns their memory. Releasing a slot frees its VulkanBuffer,
     // so this is also what makes an un-destroyed buffer merely a leak reported
     // at shutdown rather than a crash during it.
-    HandlePool<VulkanBuffer, BufferTag> m_Buffers;
-    HandlePool<VulkanTexture, TextureTag> m_Textures;
+    Core::HandlePool<VulkanBuffer, BufferTag> m_Buffers;
+    Core::HandlePool<VulkanTexture, TextureTag> m_Textures;
 
     // After m_Textures so that views are destroyed before the images they were
     // made from: a VkImageView outliving its VkImage is undefined behaviour
     // rather than something the driver diagnoses.
-    HandlePool<VulkanTextureView, TextureViewTag> m_TextureViews;
-    HandlePool<VulkanSampler, SamplerTag> m_Samplers;
+    Core::HandlePool<VulkanTextureView, TextureViewTag> m_TextureViews;
+    Core::HandlePool<VulkanSampler, SamplerTag> m_Samplers;
 
     // The present target is destroyed before the device that owns its
     // semaphores, so this only has to outlive the target — but it sits with the
     // other pools rather than after them because a semaphore depends on nothing
     // else here.
-    HandlePool<VulkanSemaphore, SemaphoreTag> m_Semaphores;
+    Core::HandlePool<VulkanSemaphore, SemaphoreTag> m_Semaphores;
 
     QueueFamilies m_QueueFamilies;
 
@@ -228,4 +228,4 @@ private:
 
     DeviceCaps m_Caps{};
 };
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

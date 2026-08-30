@@ -2,6 +2,8 @@
 
 #include <core/SwapbackArray.h>
 
+using namespace Hikari::Core;
+
 TEST_CASE("SwapbackArray RemoveAt on the last element just pops, no swap needed", "[SwapbackArray]")
 {
     SwapbackArray<int> arr;

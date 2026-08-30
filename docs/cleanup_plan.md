@@ -65,7 +65,7 @@ sites) and `engine/rhi` ↔ `engine/core` (`RhiTypes.h`).
 | # | Branch | Title | Status |
 |---|---|---|---|
 | 1 | `docs/backlog` | Moved independent work into a backlog document | done |
-| 2 | `engine/namespace` | Moved the engine into the Hikari namespace | not started |
+| 2 | `engine/namespace` | Moved the engine into the Hikari namespace | done |
 | 3 | `test/ci` | Split platform-independent checks into their own CI job | not started |
 | 4 | `test/baseline` | Baseline captures without UI and reports measured frame times | not started |
 | 5 | `fix/signals` | Added SIGTERM handling and screenshot capture on exit | not started |
@@ -135,14 +135,38 @@ The reasoning, since it is the largest structural decision here:
 **The rule:** `using namespace` is allowed in `.cpp` files inside the engine and the app, and
 **never** in a header. Document it in `CLAUDE.md`'s conventions.
 
+**Two things the sweep turned up that this plan had not anticipated.** The transitional headers
+under `rhi/vulkan/` — `DebugNames.h`, `PipelineBuilder.h`, `CommandListUtil.h`,
+`DescriptorAllocator.h`, `SwapchainUtil.h`, `ComputePipelineBuilder.h` — were in the *global*
+namespace rather than `Rhi::`, so they and their four sources gained `Hikari::Rhi::Vulkan`
+instead of merely being renamed. That is what the uniform rule asks for and what the check
+enforces, and it is why `main.cpp`, `MaterialFactory` and `PBRMaterial` now name
+`Hikari::Rhi::Vulkan::DescriptorAllocator` and friends. Several backend sources also declared
+their file-local `LogCategory` *above* the namespace; those moved inside it, where the rest of
+the module's internals live.
+
+**Engine sources qualify; the app and tests use directives.** Inside the engine, a reference to
+another module reads `Core::LogMsg` or `Platform::ReadFile` — short, because
+enclosing-namespace lookup applies inside `Hikari::`. `src/` and `tests/` take `using namespace`
+directives in their `.cpp` files instead, since the alternative is churn in code Stages 7–9
+delete.
+
 **Ship the check with the sweep.** `cmake/NamespaceCheck.cmake`, in the same shape as
 `RhiBoundaryCheck.cmake` — one CMake script shared by a `.sh` and a `.bat`, source-only, no
 build required. Two line-level assertions, both with essentially no false-positive surface:
 
-1. Every public header under `engine/<mod>/include/<mod>/` opens `namespace Hikari::<Mod>`.
+1. Every public header under `engine/<mod>/include/<mod>/` opens `namespace Hikari::<Mod>`,
+   derived from the directory so that `directory == target == namespace` is literal. A header
+   may nest deeper for its own grouping — `BarrierPresets.h` opens `Hikari::Rhi::BarrierPresets`
+   — but may not open another module's namespace. `MyMacros.h` is allowlisted, holding only
+   macros; the allowlist is a ratchet, so an entry that stops being needed fails the check.
 2. No header anywhere contains `using namespace`. This is the half that earns the script: a
    using-directive in a header leaks into every translation unit that includes it, and nothing
    else in the tree catches it.
+
+The comment-stripping state machine both checks need now lives in `cmake/StripComments.cmake`,
+included by `RhiBoundaryCheck.cmake` and `NamespaceCheck.cmake`: the argument that made each
+check a CMake script rather than a shell one-liner applies equally to sharing this between them.
 
 The script and its `precommit.sh` entry land here; the **CI wiring lands in `test/ci`**, so
 that the step is added once in its final home rather than added to nine matrix jobs and

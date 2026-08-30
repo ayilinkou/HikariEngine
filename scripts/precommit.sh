@@ -20,6 +20,7 @@ echo "Running precommit for $PRESET..."
 ./build.sh "$PRESET" && \
 tests/scripts/header_check.sh "$PRESET" && \
 tests/scripts/rhi_boundary_check.sh && \
+tests/scripts/namespace_check.sh && \
 tests/scripts/build_tests.sh "$PRESET" && \
 tests/scripts/run_unit_tests.sh "$PRESET" && \
 tests/scripts/run_gpu_tests.sh "$PRESET" && \

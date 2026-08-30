@@ -8,6 +8,8 @@
 #include "core/Log.h"
 #include "pugixml.hpp"
 
+using namespace Hikari::Core;
+
 constexpr LogCategory LogXmlParser("XmlParser");
 
 namespace XML

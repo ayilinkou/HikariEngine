@@ -26,7 +26,7 @@ public:
     const std::vector<InstanceData>& GetInstanceDatas() const { return m_InstanceDatas; }
 
 private:
-    SwapbackArray<Model*> m_Models;
+    Hikari::Core::SwapbackArray<Model*> m_Models;
 
     std::vector<InstanceData> m_InstanceDatas;
     std::vector<MeshBatch> m_OpaqueBatches;

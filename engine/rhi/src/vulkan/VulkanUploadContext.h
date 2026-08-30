@@ -12,7 +12,7 @@
 
 #include "vulkan/OwnershipTransfer.h"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 class VulkanDevice;
 
@@ -161,4 +161,4 @@ private:
     uint64_t m_PendingBytes = 0u;
     UploadStats m_Stats{};
 };
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

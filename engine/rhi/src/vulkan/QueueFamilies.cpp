@@ -5,7 +5,7 @@
 
 #include "vulkan/VulkanConversions.h"
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 namespace
 {
@@ -116,4 +116,4 @@ QueueFamilies SelectQueueFamilies(std::span<const vk::QueueFamilyProperties> fam
 
     return result;
 }
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

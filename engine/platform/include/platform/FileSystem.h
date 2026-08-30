@@ -8,6 +8,9 @@
 #include <string_view>
 #include <vector>
 
+namespace Hikari::Platform
+{
+
 inline std::vector<char> ReadFile(const std::string filename)
 {
     // std::ios::ate starts to read at end of file so that we can get the size
@@ -49,3 +52,4 @@ inline std::string EnsureExtension(const std::string& path, const std::string& e
         p.replace_extension(ext);
     return p.string();
 }
+} // namespace Hikari::Platform

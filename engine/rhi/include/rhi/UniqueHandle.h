@@ -4,7 +4,7 @@
 
 #include <rhi/IDevice.h>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 // Move-only ownership of one device resource, for the places where a handle's
 // manual Destroy is a liability rather than a feature.
@@ -87,4 +87,4 @@ private:
     IDevice* m_pDevice = nullptr;
     HandleType m_Handle{};
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

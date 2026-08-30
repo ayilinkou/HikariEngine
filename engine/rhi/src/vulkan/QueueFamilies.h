@@ -8,7 +8,7 @@
 
 #include <rhi/RhiTypes.h>
 
-namespace Rhi::Vulkan
+namespace Hikari::Rhi::Vulkan
 {
 // Which Vulkan queue family serves each neutral QueueType role.
 //
@@ -72,4 +72,4 @@ using PresentSupportFn = std::function<bool(uint32_t familyIndex)>;
 QueueFamilies SelectQueueFamilies(std::span<const vk::QueueFamilyProperties> families,
                                   const PresentSupportFn& presentSupported, bool bRequirePresent,
                                   bool bForceSingleQueue);
-} // namespace Rhi::Vulkan
+} // namespace Hikari::Rhi::Vulkan

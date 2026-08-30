@@ -5,6 +5,9 @@
 
 #include <platform/Extent2D.h>
 
+namespace Hikari::Platform
+{
+
 struct WindowDesc
 {
     // Zero asks the platform to pick a size from the display it opens on. It
@@ -73,3 +76,4 @@ public:
     // only permitted users; this disappears once they move.
     virtual void* GetNativeWindowHandle() const = 0;
 };
+} // namespace Hikari::Platform

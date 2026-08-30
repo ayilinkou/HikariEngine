@@ -14,9 +14,9 @@ class CubemapLoader
 private:
     friend class ResourceManager;
 
-    CubemapLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext);
+    CubemapLoader(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::IUploadContext& uploadContext);
 
-    static void Init(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext);
+    static void Init(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::IUploadContext& uploadContext);
     static void Shutdown();
 
     static CubemapLoader* Get() { return s_Instance; }
@@ -26,6 +26,6 @@ private:
 private:
     inline static CubemapLoader* s_Instance = nullptr;
 
-    Rhi::IDevice& m_RhiDevice;
-    Rhi::IUploadContext& m_UploadContext;
+    Hikari::Rhi::IDevice& m_RhiDevice;
+    Hikari::Rhi::IUploadContext& m_UploadContext;
 };

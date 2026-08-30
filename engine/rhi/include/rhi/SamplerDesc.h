@@ -6,7 +6,7 @@
 
 #include <rhi/RhiTypes.h>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 enum class Filter : uint8_t
 {
@@ -113,4 +113,4 @@ struct SamplerDesc
 
     std::string DebugName;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

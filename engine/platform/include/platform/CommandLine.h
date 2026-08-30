@@ -8,6 +8,9 @@
 
 #include <platform/Extent2D.h>
 
+namespace Hikari::Platform
+{
+
 // Thrown when an option's value is missing or malformed. The message names the
 // flag, so a caller can log it verbatim.
 class CommandLineError : public std::runtime_error
@@ -57,3 +60,4 @@ public:
 private:
     std::vector<CommandLineOption> m_Options;
 };
+} // namespace Hikari::Platform

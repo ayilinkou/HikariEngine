@@ -7,7 +7,7 @@
 #include <rhi/Handles.h>
 #include <rhi/RhiTypes.h>
 
-namespace Rhi
+namespace Hikari::Rhi
 {
 // Where a rendered frame ends up. A swapchain is one answer; N images with no
 // surface at all is another, and the renderer is not supposed to be able to
@@ -129,4 +129,4 @@ public:
     // extent is the window's, and nothing asks again.
     [[nodiscard]] virtual bool Recreate(Extent2D newExtent) = 0;
 };
-} // namespace Rhi
+} // namespace Hikari::Rhi

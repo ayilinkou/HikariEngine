@@ -4,6 +4,9 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
+namespace Hikari::Rhi::Vulkan
+{
+
 // Attaches a human-readable name to a Vulkan object, so that validation
 // messages and capture tools name it instead of printing a handle value.
 //
@@ -32,3 +35,4 @@ inline void SetVkDebugName([[maybe_unused]] vk::raii::Device& device, [[maybe_un
     device.setDebugUtilsObjectNameEXT(nameInfo);
 #endif
 }
+} // namespace Hikari::Rhi::Vulkan
