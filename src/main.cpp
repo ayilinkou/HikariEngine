@@ -61,6 +61,7 @@ using namespace Hikari::Rhi::Vulkan;
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#include <io.h>
 #include <windows.h>
 
 inline void EnableAnsiColors()
@@ -78,6 +79,9 @@ inline void EnableAnsiColors()
         SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     }
 }
+#else
+// For write(), which is what the signal handler prints its newline with.
+#include <unistd.h>
 #endif
 
 constexpr uint32_t INITIAL_INSTANCE_CAPACITY = 1024u;
@@ -94,10 +98,36 @@ constexpr LogCategory LogImGui("InitImGui");
 
 std::atomic<bool> g_bShouldClose = false;
 
-void HandleSIGINT(int)
+/**
+ * Asks the loop to stop, for either signal that means "shut down": SIGINT from
+ * Ctrl-C at a terminal, SIGTERM from a CI runner's timeout or a process
+ * manager. Both leave the loop the ordinary way, so the screenshot and the run
+ * report are still written — which is the whole point of handling SIGTERM,
+ * since a killed run produces no artefacts to diagnose the timeout with.
+ *
+ * A second signal deliberately does nothing new. Escalating to _Exit would drop
+ * exactly those artefacts for a user who was merely impatient; a run whose
+ * shutdown is genuinely wedged is what SIGKILL is for.
+ *
+ * `g_bShouldClose` is a lock-free std::atomic<bool>, which a handler may touch.
+ * The newline goes through write() rather than std::cout because only
+ * async-signal-safe functions may be called from a handler, and formatted
+ * output is not one of them: interrupting a stream mid-write and re-entering it
+ * is undefined, and the failure is a corrupted or deadlocked stdout rather than
+ * anything that announces itself.
+ */
+void HandleTerminationSignal(int)
 {
     g_bShouldClose = true;
-    std::cout << "\n";
+
+#ifdef _WIN32
+    const int written = _write(1, "\n", 1);
+#else
+    const ssize_t written = write(STDOUT_FILENO, "\n", 1);
+#endif
+    // Nothing useful to do if the write fails, and a handler cannot report it.
+    // Consumed because write() is declared warn_unused_result.
+    (void)written;
 }
 
 struct LightData
@@ -474,7 +504,7 @@ Options ParseArgs(int argc, char** argv)
     // burns its whole timeout and dies to SIGTERM, which nothing handles, so it
     // writes neither screenshot nor report.
     //
-    // Ctrl-C does work interactively (HandleSIGINT sets g_bShouldClose and the
+    // Ctrl-C does work interactively (the handler sets g_bShouldClose and the
     // artefacts are still written), which is what makes an unbounded run
     // defensible at a terminal — a soak, say. Rejected anyway because the
     // failure it prevents is silent and expensive in the place this mode is
@@ -673,7 +703,31 @@ public:
             }
         }
 
-        if (!m_Options.ScreenshotPath.empty() || m_Options.bScreenshotAutoPath)
+        const bool bWantsScreenshot =
+            !m_Options.ScreenshotPath.empty() || m_Options.bScreenshotAutoPath;
+
+        // The in-frame decision at the top of the loop asks whether this is the
+        // last frame, and a signal arriving after that line makes the answer
+        // wrong: the loop exits at the top of the next iteration with nothing
+        // staged, and the run ends with the "called without a captured frame"
+        // error instead of a PNG. Draw one more frame and capture that instead.
+        //
+        // Only reachable on the interrupted path — a --frames N run stages its
+        // capture on frame N-1 and never gets here. The extra frame counts as an
+        // ordinary one, in the frame total and in the timing series: it is a
+        // frame the app drew, and an interrupted run is not a measured one.
+        if (bWantsScreenshot && !m_bScreenshotBufferReady)
+        {
+            const auto frameStart = std::chrono::steady_clock::now();
+            m_FrameWaitMs = 0.f;
+
+            DrawFrame(true);
+
+            ++m_FrameCounter;
+            RecordFrameTiming(frameStart);
+        }
+
+        if (bWantsScreenshot)
             WriteScreenshot();
 
         if (!m_Options.ReportPath.empty() || m_Options.bReportAutoPath)
@@ -2889,7 +2943,12 @@ int main(int argc, char** argv)
 #ifdef _WIN32
     EnableAnsiColors();
 #endif
-    std::signal(SIGINT, HandleSIGINT);
+    // Both signals that mean "stop": Ctrl-C, and the SIGTERM a CI runner sends
+    // when a job outlives its timeout. Without the second, a timed-out run is
+    // killed with its screenshot and report unwritten — the two things anyone
+    // diagnosing the timeout would want.
+    std::signal(SIGINT, HandleTerminationSignal);
+    std::signal(SIGTERM, HandleTerminationSignal);
 
     Log::g_MinSeverity = LogSeverity::Info;
 

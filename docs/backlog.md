@@ -25,8 +25,6 @@ the decided approach for each. The notes below the table describe the defect, no
 | Priority | Item | Where | Size | Blocked by |
 |---|---|---|---|---|
 | P1 | Correctness fixes from `suggested_work.md` §1.6 and §3.1 — §3.2 (batched uploads) is done | various | S–M each | |
-| P1 | `SIGTERM` goes unhandled, so a CI timeout kills even a bounded run before it writes its screenshot and report — `SIGINT` is handled and `SIGTERM` should be too *(cleanup: `fix/signals`)* | `main.cpp:2562` | XS | |
-| P1 | Ctrl-C with `--screenshot` usually writes no PNG, only the "called without a captured frame" error. `WriteScreenshot` does run — `HandleSIGINT` leaves the loop the ordinary way — but whether anything was captured is a race: the capture is recorded in-frame, decided at `main.cpp:569` from `g_bShouldClose`, so a signal arriving after that line in the last iteration exits at the top of the next one with nothing staged. Capture on the way out instead when the flag was asked for and `m_bScreenshotBufferReady` is false *(cleanup: `fix/signals`)* | `main.cpp:493-575` | S | |
 | P1 | Move `Extent2D` and `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and `Rhi::Extent2D` *(cleanup: `engine/core`)* | `core/`, `platform/`, `rhi/` | S | |
 | P1 | `ChooseSwapchainFormat`'s fallback hands `FromNativeFormat` something it may not be able to name *(cleanup: `engine/rhi`)* | `rhi/vulkan/SwapchainUtil.h` | XS | |
 | P1 | Delete `App::m_Surface` — bound, never read, and the only caller of `Rhi::Vulkan::GetSurface` *(cleanup: `engine/rhi`)* | `main.cpp`, `rhi/vulkan/VulkanNative.h` | XS | |
