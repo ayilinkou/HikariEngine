@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 
+#include <core/Extent3D.h>
 #include <rhi/RhiTypes.h>
 
 namespace Hikari::Rhi
@@ -58,7 +59,7 @@ struct TextureDesc
      * an array of 2D slices is described by ArrayLayers instead. The two are
      * separate concepts in both APIs and are not interchangeable.
      */
-    Extent3D Extent{};
+    Core::Extent3D Extent{};
 
     uint32_t MipLevels = 1;
     uint32_t ArrayLayers = 1;

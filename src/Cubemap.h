@@ -37,7 +37,7 @@ class Cubemap
 public:
     Cubemap() = default;
     Cubemap(Hikari::Rhi::IDevice& device, const CubemapCreateInfo& createInfo,
-            Hikari::Rhi::Extent2D faceExtent);
+            Hikari::Core::Extent2D faceExtent);
 
     Hikari::Rhi::TextureHandle GetHandle() const { return m_Texture.GetHandle(); }
     Hikari::Rhi::TextureViewHandle GetView() const { return m_Texture.GetView(); }

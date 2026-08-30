@@ -5,6 +5,7 @@
 #include <span>
 #include <string>
 
+#include <core/Extent3D.h>
 #include <rhi/Handles.h>
 #include <rhi/RhiTypes.h>
 
@@ -30,7 +31,7 @@ struct TextureUpload
      * The size of this subresource, not of the texture: a mip is smaller than
      * the level above it, and Data must be exactly the packed size of Extent.
      */
-    Extent3D Extent{};
+    Core::Extent3D Extent{};
 };
 
 struct UploadContextDesc

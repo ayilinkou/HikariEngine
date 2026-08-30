@@ -71,7 +71,7 @@ uint64_t CommandLineOption::RequireUint64() const
     }
 }
 
-Extent2D CommandLineOption::RequireExtent2D() const
+Core::Extent2D CommandLineOption::RequireExtent2D() const
 {
     const std::string value = RequireValue();
 

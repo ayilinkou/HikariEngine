@@ -25,6 +25,7 @@
  * without the levers RhiTestFixture pulls, and the ones this GPU is not are the
  * ones most hardware in the field is.
  */
+using namespace Hikari::Core;
 using namespace Hikari::Rhi;
 
 namespace

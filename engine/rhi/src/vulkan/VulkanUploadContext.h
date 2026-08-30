@@ -6,6 +6,7 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
+#include <core/Extent3D.h>
 #include <rhi/Handles.h>
 #include <rhi/TextureDesc.h>
 #include <rhi/UploadContext.h>
@@ -86,7 +87,7 @@ private:
             uint32_t MipLevel = 0u;
             uint32_t BaseLayer = 0u;
             uint32_t LayerCount = 1u;
-            Extent3D Extent{};
+            Core::Extent3D Extent{};
         };
 
         std::vector<Subresource> Subresources;

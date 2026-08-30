@@ -6,6 +6,7 @@
 
 #include "vulkan/vulkan_raii.hpp"
 
+#include <core/Extent2D.h>
 #include <rhi/Handles.h>
 #include <rhi/IPresentTarget.h>
 #include <rhi/RhiTypes.h>
@@ -35,7 +36,7 @@ public:
     SwapchainTarget& operator=(const SwapchainTarget&) = delete;
 
     Format GetFormat() const override { return m_Format; }
-    Extent2D GetExtent() const override;
+    Core::Extent2D GetExtent() const override;
     uint32_t GetImageCount() const override { return static_cast<uint32_t>(m_Images.size()); }
     std::optional<PresentMode> GetPresentMode() const override { return FromVk(m_PresentMode); }
 
@@ -48,7 +49,7 @@ public:
     [[nodiscard]] AcquiredImage Acquire() override;
     SemaphoreHandle GetRenderCompleteSemaphore(uint32_t index) const override;
     bool Present(uint32_t index) override;
-    [[nodiscard]] bool Recreate(Extent2D newExtent) override;
+    [[nodiscard]] bool Recreate(Core::Extent2D newExtent) override;
 
 private:
     /**
@@ -63,7 +64,7 @@ private:
         SemaphoreHandle RenderComplete;
     };
 
-    void Create(Extent2D extent);
+    void Create(Core::Extent2D extent);
     void Destroy();
 
     VulkanDevice& m_Device;

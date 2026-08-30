@@ -5,6 +5,7 @@
 
 #include <platform/CommandLine.h>
 
+using namespace Hikari::Core;
 using namespace Hikari::Platform;
 
 namespace

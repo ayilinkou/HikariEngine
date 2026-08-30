@@ -86,7 +86,8 @@ std::shared_ptr<Cubemap> CubemapLoader::Load(const CubemapCreateInfo& createInfo
     const uint32_t height = static_cast<uint32_t>(faceData.Height);
     const uint64_t faceSize = static_cast<uint64_t>(width) * height * 4u;
 
-    auto cubemap = std::make_shared<Cubemap>(m_RhiDevice, createInfo, Rhi::Extent2D{width, height});
+    auto cubemap =
+        std::make_shared<Cubemap>(m_RhiDevice, createInfo, Core::Extent2D{width, height});
 
     // One upload naming all six layers, not six uploads: a texture has to reach
     // the context whole, or a staging-budget flush landing between two faces

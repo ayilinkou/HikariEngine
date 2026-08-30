@@ -8,6 +8,7 @@
 
 #include <core/Log.h>
 
+#include <core/Extent2D.h>
 #include <rhi/TextureDesc.h>
 #include <rhi/TextureViewDesc.h>
 #include <rhi/vulkan/DebugNames.h>
@@ -33,12 +34,12 @@ SwapchainTarget::~SwapchainTarget()
     Destroy();
 }
 
-Extent2D SwapchainTarget::GetExtent() const
+Core::Extent2D SwapchainTarget::GetExtent() const
 {
-    return Extent2D{m_Extent.width, m_Extent.height};
+    return Core::Extent2D{m_Extent.width, m_Extent.height};
 }
 
-void SwapchainTarget::Create(Extent2D extent)
+void SwapchainTarget::Create(Core::Extent2D extent)
 {
     vk::raii::PhysicalDevice& physicalDevice = m_Device.GetPhysicalDevice();
     vk::raii::SurfaceKHR& surface = m_Device.GetSurface();
@@ -222,7 +223,7 @@ bool SwapchainTarget::Present(uint32_t index)
     return true;
 }
 
-bool SwapchainTarget::Recreate(Extent2D newExtent)
+bool SwapchainTarget::Recreate(Core::Extent2D newExtent)
 {
     // Asked before anything is destroyed, so that a surface which cannot back a
     // swapchain leaves the existing one intact and presentable. A minimised

@@ -25,7 +25,6 @@ the decided approach for each. The notes below the table describe the defect, no
 | Priority | Item | Where | Size | Blocked by |
 |---|---|---|---|---|
 | P1 | Correctness fixes from `suggested_work.md` §1.6 and §3.1 — §3.2 (batched uploads) is done | various | S–M each | |
-| P1 | Move `Extent2D` and `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and `Rhi::Extent2D` *(cleanup: `engine/core`)* | `core/`, `platform/`, `rhi/` | S | |
 | P1 | `SdlPlatform`'s explicit `SDL_Vulkan_LoadLibrary`/`UnloadLibrary` pair is redundant — a `SDL_WINDOW_VULKAN` window loads and unloads the library itself *(cleanup: `platform/sdl`)* | `platform/SdlPlatform.cpp`, `SdlPlatform.h` | XS | |
 | P2 | `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to mailbox; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `main.cpp` | S | |
 | P2 | Document the matrix convention once and apply it consistently | `opaque.slang` header comment | S | |
@@ -41,14 +40,8 @@ the decided approach for each. The notes below the table describe the defect, no
 | P3 | `CubemapCreateInfo` → `std::array<std::string,6> FacePaths`, delete the 6-case switch | `CubemapLoader.cpp` | S | |
 | P3 | Finish the skybox (loaded at `main.cpp:598`, never rendered) and reuse it for IBL | new pass | M–L | |
 
-Four of these are worth expanding on, because they are latent defects or carry a decision:
+Three of these are worth expanding on, because they are latent defects or carry a decision:
 
-- **`Extent2D` in two places.** `::Extent2D` (Platform) and `Rhi::Extent2D` are the same two
-  `uint32_t`s; only the RHI's has `operator==`. `Core` is what both modules already link, so
-  it is where the type belongs, and `Extent3D` goes with it rather than being stranded alone
-  in `RhiTypes.h`. Delete the `Rhi::` spellings rather than aliasing them — one type reachable
-  under two names is what makes a reader stop and check whether they differ. Roughly five call
-  sites.
 - **The synchronization the GPU tests do not check.** `tests/gpu/rhi/PresentTargetTests.cpp`
   reads an offscreen image after rendering into it, and orders that copy after the render by
   waiting on the target's render-complete semaphore — passed in explicitly so that the wait is

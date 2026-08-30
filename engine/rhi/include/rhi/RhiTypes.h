@@ -348,20 +348,4 @@ inline constexpr std::array kAllSampleCounts{
     SampleCount::X1, SampleCount::X2, SampleCount::X4, SampleCount::X8, SampleCount::X16,
 };
 
-struct Extent2D
-{
-    uint32_t Width = 0;
-    uint32_t Height = 0;
-
-    constexpr bool operator==(const Extent2D&) const = default;
-};
-
-struct Extent3D
-{
-    uint32_t Width = 0;
-    uint32_t Height = 0;
-    uint32_t Depth = 1;
-
-    constexpr bool operator==(const Extent3D&) const = default;
-};
 } // namespace Hikari::Rhi

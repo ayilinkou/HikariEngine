@@ -70,7 +70,7 @@ sites) and `engine/rhi` ↔ `engine/core` (`RhiTypes.h`).
 | 4 | `test/baseline` | Baseline captures without UI and reports measured frame times | done |
 | 5 | `fix/signals` | Added SIGTERM handling and screenshot capture on exit | done |
 | 6 | `engine/rhi` | Curated the swapchain format fallback and removed unused RHI code | done (three commits) |
-| 7 | `engine/core` | Moved Extent2D and Extent3D into Engine/Core | not started |
+| 7 | `engine/core` | Moved Extent2D and Extent3D into Engine/Core | done |
 | 8 | `platform/sdl` | Removed the redundant SDL Vulkan loader calls | not started |
 
 ---

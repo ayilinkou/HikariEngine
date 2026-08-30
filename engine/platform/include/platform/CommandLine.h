@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include <platform/Extent2D.h>
+#include <core/Extent2D.h>
 
 namespace Hikari::Platform
 {
@@ -45,7 +45,7 @@ struct CommandLineOption
      * elsewhere, so accepting it here would mean a command line that asks for
      * an explicit size and silently gets a chosen one.
      */
-    Extent2D RequireExtent2D() const;
+    Core::Extent2D RequireExtent2D() const;
 
     /**
      * For flags that take no value. A value is attached to whatever flag

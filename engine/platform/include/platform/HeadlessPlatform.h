@@ -1,6 +1,6 @@
 #pragma once
 
-#include <platform/Extent2D.h>
+#include <core/Extent2D.h>
 #include <platform/IPlatform.h>
 
 namespace Hikari::Platform
@@ -37,7 +37,7 @@ public:
      * no window system to report a change, so unlike SdlPlatform's this never
      * returns {0, 0} and never moves.
      */
-    Extent2D GetFramebufferExtent() const override { return m_Extent; }
+    Core::Extent2D GetFramebufferExtent() const override { return m_Extent; }
 
     /**
      * All no-ops, and silent. Each asks the window system for something, and
@@ -58,6 +58,6 @@ public:
     void* GetNativeWindowHandle() const override { return nullptr; }
 
 private:
-    Extent2D m_Extent{};
+    Core::Extent2D m_Extent{};
 };
 } // namespace Hikari::Platform

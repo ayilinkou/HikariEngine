@@ -11,6 +11,7 @@
 
 #include <core/Log.h>
 
+#include <core/Extent2D.h>
 #include <rhi/BufferDesc.h>
 #include <rhi/ICommandList.h>
 #include <rhi/TextureDesc.h>
@@ -86,7 +87,7 @@ OffscreenTarget::~OffscreenTarget()
     Destroy();
 }
 
-void OffscreenTarget::Create(Extent2D extent)
+void OffscreenTarget::Create(Core::Extent2D extent)
 {
     m_Extent = extent;
 
@@ -216,7 +217,7 @@ std::optional<SemaphoreHandle> OffscreenTarget::TakePendingSignal(uint32_t index
     return image.RenderComplete;
 }
 
-bool OffscreenTarget::Recreate(Extent2D newExtent)
+bool OffscreenTarget::Recreate(Core::Extent2D newExtent)
 {
     // A zero extent is the one request that cannot be met — Vulkan images are
     // at least one texel in every dimension — so it takes the same answer a

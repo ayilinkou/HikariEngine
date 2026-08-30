@@ -142,7 +142,7 @@ ReadTextureLayers(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle sourc
     const Hikari::Rhi::TextureDesc* pDesc = device.GetTextureDesc(source);
     REQUIRE(pDesc != nullptr);
 
-    const Hikari::Rhi::Extent3D extent{std::max(pDesc->Extent.Width >> mipLevel, 1u),
+    const Hikari::Core::Extent3D extent{std::max(pDesc->Extent.Width >> mipLevel, 1u),
                                std::max(pDesc->Extent.Height >> mipLevel, 1u),
                                std::max(pDesc->Extent.Depth >> mipLevel, 1u)};
 
@@ -232,7 +232,7 @@ ReadTextureLayers(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle sourc
  */
 inline std::vector<std::byte>
 ReadRenderedTexture(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle source,
-                    Hikari::Rhi::Extent2D extent, Hikari::Rhi::Format format,
+                    Hikari::Core::Extent2D extent, Hikari::Rhi::Format format,
                     Hikari::Rhi::TextureLayout currentLayout,
                     std::optional<Hikari::Rhi::SemaphoreHandle> waitSemaphore)
 {

@@ -218,8 +218,8 @@ src/             # the application — one class per file, plus main.cpp (App + 
 src/shaders/     # Slang source (.slang, .slangh); compiled to <exe dir>/shaders/*.spv
 engine/core/     # Engine::Core static lib — Log, Timer, MyMacros, SwapbackArray,
                  #   ThreadPool, IJobSystem + SerialJobSystem + SharedQueueJobSystem,
-                 #   Handle + HandlePool. Extent2D/Extent3D move here (planned) — they
-                 #   exist twice today, as ::Extent2D in Platform and Rhi::Extent2D.
+                 #   Handle + HandlePool, Extent2D + Extent3D (one definition, used
+                 #   by Platform and the RHI alike).
 engine/platform/ # Engine::Platform static lib — IPlatform/SdlPlatform, Paths, FileSystem,
                  #   CommandLine
 engine/rhi/      # Engine::RHI static lib — the graphics abstraction.
