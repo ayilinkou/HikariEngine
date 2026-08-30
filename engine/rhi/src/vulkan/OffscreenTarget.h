@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include <rhi/Barrier.h>
@@ -43,6 +44,9 @@ public:
     Format GetFormat() const override { return m_Format; }
     Extent2D GetExtent() const override { return m_Extent; }
     uint32_t GetImageCount() const override { return static_cast<uint32_t>(m_Images.size()); }
+
+    /** Nothing: an offscreen target writes into images and never presents. */
+    std::optional<PresentMode> GetPresentMode() const override { return std::nullopt; }
 
     /**
      * None: this target imposes no layout on the image it hands back, so the

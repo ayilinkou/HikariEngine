@@ -278,6 +278,28 @@ Format FromVk(vk::Format format)
     return ConvertBack(format, kAllFormats, "Format");
 }
 
+vk::PresentModeKHR ToVk(PresentMode mode)
+{
+    switch (mode)
+    {
+        case PresentMode::Immediate:
+            return vk::PresentModeKHR::eImmediate;
+        case PresentMode::Mailbox:
+            return vk::PresentModeKHR::eMailbox;
+        case PresentMode::Fifo:
+            return vk::PresentModeKHR::eFifo;
+        case PresentMode::FifoRelaxed:
+            return vk::PresentModeKHR::eFifoRelaxed;
+    }
+
+    throw std::runtime_error("Rhi::Vulkan::ToVk(PresentMode): unhandled enumerator.");
+}
+
+PresentMode FromVk(vk::PresentModeKHR mode)
+{
+    return ConvertBack(mode, kAllPresentModes, "PresentMode");
+}
+
 vk::SampleCountFlagBits ToVk(SampleCount samples)
 {
     switch (samples)

@@ -67,7 +67,7 @@ sites) and `engine/rhi` ↔ `engine/core` (`RhiTypes.h`).
 | 1 | `docs/backlog` | Moved independent work into a backlog document | done |
 | 2 | `engine/namespace` | Moved the engine into the Hikari namespace | done |
 | 3 | `test/ci` | Split platform-independent checks into their own CI job | done |
-| 4 | `test/baseline` | Baseline captures without UI and reports measured frame times | not started |
+| 4 | `test/baseline` | Baseline captures without UI and reports measured frame times | done |
 | 5 | `fix/signals` | Added SIGTERM handling and screenshot capture on exit | not started |
 | 6 | `engine/rhi` | Curated the swapchain format fallback and removed unused RHI code | not started |
 | 7 | `engine/core` | Moved Extent2D and Extent3D into Engine/Core | not started |
@@ -237,6 +237,24 @@ differ. `App` is told when the process started; one constructor parameter, which
 into part of `RunSpec`.
 
 Schema in [§5](#5-the-run-reports-new-shape).
+
+**Four decisions taken while implementing, beyond what this plan specified.**
+
+- **A frame's wall clock is measured over the iteration itself**, from the top of the loop to
+  the end of it, rather than as a delta between iteration starts. That is what makes
+  `startupMs` and `firstFrame` add up instead of double-counting.
+- **`cpuMs` is the frame's wall clock minus what it spent blocked**, measured at the three
+  places a frame blocks — the fence wait, the acquire and the present — plus the idle sleep an
+  unfocused frame takes. Clamped at zero, since the two totals come from separate clock reads.
+- **The panel's own frame-time and FPS readout now comes from the measurement** rather than
+  from `m_DeltaTime`. It was the same defect wearing a different hat: under `--fixed-dt` the
+  overlay read a constant 16.67ms. Visible only inside the panel, which the baseline no longer
+  captures.
+- **`IPresentTarget::GetPresentMode()` returns `std::optional<PresentMode>`**, empty for an
+  offscreen target, and the report writes `null` there. A `PresentMode::None` enumerator would
+  put a non-mode in the vocabulary that `--present-mode` will later parse; absence is what an
+  offscreen target actually has. `PresentMode` itself is the neutral enum the deferred flag
+  needs, added here because the report has to name what a run presented in.
 
 **`baseline_test.sh` always passes `--no-ui`, and the baseline holds one scene-only pair.**
 Committing a second, UI-bearing capture was rejected: nothing warps the cursor at startup, so

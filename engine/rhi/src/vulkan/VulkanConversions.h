@@ -71,6 +71,9 @@ Format FromVk(vk::Format format);
 vk::SampleCountFlagBits ToVk(SampleCount samples);
 SampleCount FromVk(vk::SampleCountFlagBits samples);
 
+vk::PresentModeKHR ToVk(PresentMode mode);
+PresentMode FromVk(vk::PresentModeKHR mode);
+
 vk::ImageType ToVk(TextureDimension dimension);
 TextureDimension FromVk(vk::ImageType imageType);
 

@@ -259,7 +259,14 @@ target_include_directories(HikariEngine PRIVATE src ${Stb_INCLUDE_DIR})
 target_compile_definitions(
   HikariEngine
   PRIVATE VULKAN_HPP_NO_STRUCT_CONSTRUCTORS GLM_FORCE_DEPTH_ZERO_TO_ONE
-          GLM_ENABLE_EXPERIMENTAL $<$<CONFIG:Debug>:DEBUG>)
+          GLM_ENABLE_EXPERIMENTAL $<$<CONFIG:Debug>:DEBUG>
+          # Named in the run report, because frame times from a debug build and
+          # a release one are not comparable and nothing else in the file says
+          # which produced them. Derived rather than passed in by the preset:
+          # $<CONFIG> is correct under multi-config generators, where there is
+          # no single CMAKE_BUILD_TYPE, and for a tree configured without a
+          # preset at all.
+          HIKARI_BUILD_CONFIG="$<LOWER_CASE:$<CONFIG>>$<$<BOOL:${ENABLE_SANITIZERS}>:+asan>")
 
 if(MSVC)
   if(CMAKE_GENERATOR MATCHES "Visual Studio")

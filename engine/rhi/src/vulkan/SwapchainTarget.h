@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "vulkan/vulkan_raii.hpp"
@@ -8,6 +9,8 @@
 #include <rhi/Handles.h>
 #include <rhi/IPresentTarget.h>
 #include <rhi/RhiTypes.h>
+
+#include "vulkan/VulkanConversions.h"
 
 namespace Hikari::Rhi::Vulkan
 {
@@ -34,6 +37,7 @@ public:
     Format GetFormat() const override { return m_Format; }
     Extent2D GetExtent() const override;
     uint32_t GetImageCount() const override { return static_cast<uint32_t>(m_Images.size()); }
+    std::optional<PresentMode> GetPresentMode() const override { return FromVk(m_PresentMode); }
 
     /**
      * Required rather than chosen: vkQueuePresentKHR rejects an image in any
@@ -66,6 +70,7 @@ private:
 
     vk::raii::SwapchainKHR m_Swapchain = nullptr;
     vk::SurfaceFormatKHR m_SurfaceFormat{};
+    vk::PresentModeKHR m_PresentMode = vk::PresentModeKHR::eFifo;
     vk::Extent2D m_Extent{};
     Format m_Format = Format::Undefined;
 
