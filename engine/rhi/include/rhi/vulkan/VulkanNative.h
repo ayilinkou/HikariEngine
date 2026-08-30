@@ -53,7 +53,6 @@ NativeDevice GetNative(IDevice& device);
  */
 vk::raii::PhysicalDevice& GetPhysicalDevice(IDevice& device);
 vk::raii::Device& GetDevice(IDevice& device);
-vk::raii::SurfaceKHR& GetSurface(IDevice& device);
 vk::raii::Queue& GetGraphicsQueue(IDevice& device);
 uint32_t GetGraphicsQueueFamily(IDevice& device);
 

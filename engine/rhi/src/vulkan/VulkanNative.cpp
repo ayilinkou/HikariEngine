@@ -48,11 +48,6 @@ vk::raii::Device& GetDevice(IDevice& device)
     return AsVulkan(device).GetDevice();
 }
 
-vk::raii::SurfaceKHR& GetSurface(IDevice& device)
-{
-    return AsVulkan(device).GetSurface();
-}
-
 vk::raii::Queue& GetGraphicsQueue(IDevice& device)
 {
     return AsVulkan(device).GetGraphicsQueue();

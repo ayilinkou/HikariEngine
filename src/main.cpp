@@ -587,7 +587,6 @@ public:
           m_RhiDevice(Rhi::CreateDevice(MakeDeviceDesc())),
           m_PhysicalDevice(Rhi::Vulkan::GetPhysicalDevice(*m_RhiDevice)),
           m_Device(Rhi::Vulkan::GetDevice(*m_RhiDevice)),
-          m_Surface(Rhi::Vulkan::GetSurface(*m_RhiDevice)),
           m_GraphicsQueue(Rhi::Vulkan::GetGraphicsQueue(*m_RhiDevice)),
           m_QueueIndex(Rhi::Vulkan::GetGraphicsQueueFamily(*m_RhiDevice)),
           m_ProcessStart(processStart)
@@ -2825,7 +2824,6 @@ private:
      */
     vk::raii::PhysicalDevice& m_PhysicalDevice;
     vk::raii::Device& m_Device;
-    vk::raii::SurfaceKHR& m_Surface;
     vk::raii::Queue& m_GraphicsQueue;
     uint32_t m_QueueIndex;
 
