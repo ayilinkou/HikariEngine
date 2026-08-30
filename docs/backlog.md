@@ -19,13 +19,9 @@ Each item is verified by "output unchanged unless noted, zero validation errors"
 items are deleted rather than struck through, along with any expanded note below the table;
 git history is the record.
 
-Rows marked *(cleanup: `branch`)* are carried by the series in `cleanup_plan.md`, which holds
-the decided approach for each. The notes below the table describe the defect, not the fix.
-
 | Priority | Item | Where | Size | Blocked by |
 |---|---|---|---|---|
 | P1 | Correctness fixes from `suggested_work.md` §1.6 and §3.1 — §3.2 (batched uploads) is done | various | S–M each | |
-| P1 | `SdlPlatform`'s explicit `SDL_Vulkan_LoadLibrary`/`UnloadLibrary` pair is redundant — a `SDL_WINDOW_VULKAN` window loads and unloads the library itself *(cleanup: `platform/sdl`)* | `platform/SdlPlatform.cpp`, `SdlPlatform.h` | XS | |
 | P2 | `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to mailbox; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `main.cpp` | S | |
 | P2 | Document the matrix convention once and apply it consistently | `opaque.slang` header comment | S | |
 | P2 | `.map` format `version` attribute | `XmlParser` | XS | |
@@ -40,7 +36,7 @@ the decided approach for each. The notes below the table describe the defect, no
 | P3 | `CubemapCreateInfo` → `std::array<std::string,6> FacePaths`, delete the 6-case switch | `CubemapLoader.cpp` | S | |
 | P3 | Finish the skybox (loaded at `main.cpp:598`, never rendered) and reuse it for IBL | new pass | M–L | |
 
-Three of these are worth expanding on, because they are latent defects or carry a decision:
+Two of these are worth expanding on, because they are latent defects or carry a decision:
 
 - **The synchronization the GPU tests do not check.** `tests/gpu/rhi/PresentTargetTests.cpp`
   reads an offscreen image after rendering into it, and orders that copy after the render by
@@ -69,30 +65,6 @@ Three of these are worth expanding on, because they are latent defects or carry 
   `VkValidationFeaturesEXT` / `VK_EXT_layer_settings` chain. The check that it worked is the
   experiment above run in reverse — delete the wait, and require that the suite now fails.
 
-- **`SdlPlatform`'s explicit Vulkan loader calls.** The constructor calls
-  `SDL_Vulkan_LoadLibrary(nullptr)` and the destructor `SDL_Vulkan_UnloadLibrary()`, and
-  neither is needed. SDL 3.4's `SDL_CreateWindow` documents that *"if the window is created
-  with any of the `SDL_WINDOW_OPENGL` or `SDL_WINDOW_VULKAN` flags, then the corresponding
-  LoadLibrary function … is called and the corresponding UnloadLibrary function is called by
-  `SDL_DestroyWindow()`"* (`SDL3/SDL_video.h`), and `SdlPlatform` always passes
-  `SDL_WINDOW_VULKAN`. The two SDL entry points that need the library loaded —
-  `SDL_Vulkan_GetInstanceExtensions` and `SDL_Vulkan_CreateSurface` — both run after the
-  window exists, and both are skipped entirely when `bPresent` is false. Nothing else consumes
-  SDL's loader: `SDL_Vulkan_GetVkGetInstanceProcAddr` is never called, because
-  `vk::raii::Context`'s default constructor builds its dispatcher from vulkan.hpp's own
-  `vk::detail::DynamicLoader`, which opens `vulkan-1.dll` / `libvulkan.so.1` itself. Removing
-  the pair also removes an asymmetry: a throw from `SDL_CreateWindow` skips the destructor, so
-  today's explicit load goes unpaired until `SDL_Quit`.
-
-  Two things not to lose with it. The explicit load is what produces *"Failed to load Vulkan
-  library!"* on a machine with no driver, where `SDL_CreateWindow` would fail with *"Failed to
-  create window!"* instead — `SDL_GetError()` still names the real cause, so the message that
-  survives should say so rather than blaming the window. And `SdlPlatform.h`'s class comment
-  ("Because the destructor calls `SDL_Vulkan_UnloadLibrary()`, an `SdlPlatform` must outlive
-  every object holding a Vulkan handle") needs rewriting rather than deleting: the ordering
-  constraint is real, but its cause is `SDL_DestroyWindow` invalidating the surface, not the
-  unload. The loader was never the reason — the app's own `DynamicLoader` holds a reference to
-  the library whatever SDL does with its own.
 - **`--present-mode`, and why the two failure policies differ.** The default stays what it is
   today: prefer mailbox, fall back to FIFO. **An explicitly requested mode that the surface
   does not offer is a hard error naming what was asked for and listing what is available** —

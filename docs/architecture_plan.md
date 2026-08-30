@@ -9,7 +9,7 @@
 supports (a) headless + automated runtime testing, (b) data-oriented performance,
 (c) scalability as features are added.
 
-**Status:** Stage 6 complete. Next: the cleanup series (`cleanup_plan.md`), then Stage 7.
+**Status:** Stage 6 and the cleanup work between the stages are complete. Next: Stage 7.
 
 > Companion document: `suggested_work.md` covers *correctness bugs* and
 > localised fixes. This document deliberately does **not** repeat them. Where a bug is
@@ -55,12 +55,11 @@ supports (a) headless + automated runtime testing, (b) data-oriented performance
 28. [Stage 4 — Platform library](#stage-4--platform-library-steps-2023)
 29. [Stage 5 — RHI extraction](#stage-5--rhi-extraction-steps-2434)
 30. [Stage 6 — Headless capability](#stage-6--headless-capability-steps-3540a)
-31. [Between Stage 6 and Stage 7 — a cleanup PR](#between-stage-6-and-stage-7--a-cleanup-pr)
-32. [Stage 7 — Engine shell & dependency injection](#stage-7--engine-shell--dependency-injection-steps-40b47)
-33. [Stage 8 — Passes & frame graph](#stage-8--passes--frame-graph-steps-4856)
-34. [Stage 9 — Data-oriented rewrite](#stage-9--data-oriented-rewrite-steps-5768)
-35. [Stage 10 — Scalability features](#stage-10--scalability-features-steps-6976)
-36. [Dependency summary](#dependency-summary)
+31. [Stage 7 — Engine shell & dependency injection](#stage-7--engine-shell--dependency-injection-steps-40b47)
+32. [Stage 8 — Passes & frame graph](#stage-8--passes--frame-graph-steps-4856)
+33. [Stage 9 — Data-oriented rewrite](#stage-9--data-oriented-rewrite-steps-5768)
+34. [Stage 10 — Scalability features](#stage-10--scalability-features-steps-6976)
+35. [Dependency summary](#dependency-summary)
 
 **Appendices**
 21. [Appendix A — File relocation table](#appendix-a--file-relocation-table)
@@ -2411,44 +2410,6 @@ seam half on its own is not a milestone worth recording as a step.
 
 ---
 
-## Between Stage 6 and Stage 7 — a cleanup PR
-
-> **Planned in detail in `cleanup_plan.md`** — eight PRs in landing order, with the
-> decisions behind each and what was deliberately left out. That document supersedes
-> this section where the two differ, and is deleted when Stage 7 begins.
-
-Stage 6 ends with the engine able to run without a window. Before Stage 7 starts pulling
-`App` apart, one small PR to clear the things Stage 6 surfaced and to take a pass over the
-`backlog.md`. Nothing here blocks Stage 7 *starting*, but `--no-ui` is not
-optional past step 46, whose comparison is defined on captures taken without the panel — so it
-has to land by then, here or alongside 46. All of it gets harder once `App` is in pieces.
-
-**`--no-ui`, and re-baseline onto it.** The baseline test exists to detect that *the
-rendered scene* changed, and today a fifth of the captured frame is the ImGui panel. Worse,
-that panel is not reproducible on principle: nothing warps the cursor at startup, and the
-capture shows a hover highlight on whichever widget the mouse was last over. It has been
-stable in practice only because the mouse has not moved between runs. Add a flag that
-suppresses the UI, pass it from `tests/scripts/baseline_test.sh`, and promote the new
-screenshot and report together. This also makes a headless capture and a windowed one
-comparable on the scene alone, which is what step 46 asserts — and the reason that step needs
-this flag rather than merely benefiting from it.
-
-**Then pick from `backlog.md`.** The ones Stage 6 either created or made
-cheaper:
-
-- `Extent2D` / `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and
-  `Rhi::Extent2D`. Step 40a adds another conversion site when the offscreen target is sized
-  from `--resolution`.
-- `ChooseSwapchainFormat`'s fallback, which hands `FromNativeFormat` a format it throws on.
-- Frame-time counters recording the timestep rather than wall clock under `--fixed-dt`, which
-  is why `meanFrameTimeMs` and `p99FrameTimeMs` are constants in every report so far.
-- `rhi_boundary_check` running in precommit but not in CI.
-- `App::m_Surface` — bound, never read, and the only caller of `Rhi::Vulkan::GetSurface`.
-- Whether `OffscreenTarget::Readback` survives. If nothing outside the gpu tests has called
-  it by then, delete it and put those cases back on `tests/support/GpuReadback.h`.
-
----
-
 ## Stage 7 — Engine shell & dependency injection (steps 40b–47)
 
 Step 40b (the event seam) joins this stage from Stage 6 — it is loop-shaped work and belongs
@@ -2543,7 +2504,7 @@ next to `IClock` and `RunSpec` rather than next to `HeadlessPlatform`.
   difference is guaranteed, and it says nothing about the renderer. ImGui still *renders*
   headless — see 40a — so this costs no CI coverage of it; step 47's assertions run against a
   build that drew the panel.
-- **Size:** M · **Needs:** 40a, 41, 44, and `--no-ui` from the cleanup PR
+- **Size:** M · **Needs:** 40a, 41, 44 (`--no-ui` already exists)
 
 ### 47. Wire headless tests into CI
 > 🚧 **Blocked on a decision:** this job runs on a runner that may expose both a real GPU and
