@@ -200,113 +200,20 @@ bool OffscreenTarget::Present(uint32_t index)
     return true;
 }
 
-std::vector<std::byte> OffscreenTarget::Readback(uint32_t index, TextureLayout currentLayout)
+std::optional<SemaphoreHandle> OffscreenTarget::TakePendingSignal(uint32_t index)
 {
     if (index >= m_Images.size())
-        throw std::runtime_error("OffscreenTarget::Readback: index out of range.");
+        throw std::runtime_error("OffscreenTarget::TakePendingSignal: index out of range.");
 
-    const uint32_t bytesPerTexel = BytesPerTexel(m_Format);
-    if (bytesPerTexel == 0u)
-        throw std::runtime_error("OffscreenTarget::Readback: the target's format has no single "
-                                 "texel size, so a tightly packed copy cannot be sized.");
-
-    const uint64_t size = static_cast<uint64_t>(m_Extent.Width) * m_Extent.Height * bytesPerTexel;
-
-    // GpuToCpu rather than CpuToGpu: this is read back randomly by the CPU
-    // afterwards, and CpuToGpu may land in write-combined memory where reading
-    // is pathologically slow rather than merely uncached.
-    const UniqueHandle<BufferHandle> staging(
-        m_Device, m_Device.CreateBuffer(BufferDesc{.Size = size,
-                                                   .Usage = BufferUsage::CopyDst,
-                                                   .Access = MemoryAccess::GpuToCpu,
-                                                   .DebugName = "Offscreen Readback"}));
-
-    vk::raii::Device& device = m_Device.GetDevice();
-
-    const vk::CommandPoolCreateInfo poolInfo{.flags = vk::CommandPoolCreateFlagBits::eTransient,
-                                             .queueFamilyIndex =
-                                                 m_Device.GetQueueFamily(QueueType::Graphics)};
-    vk::raii::CommandPool pool(device, poolInfo);
-
-    const vk::CommandBufferAllocateInfo allocInfo{
-        .commandPool = *pool, .level = vk::CommandBufferLevel::ePrimary, .commandBufferCount = 1u};
-    vk::raii::CommandBuffer cmd = std::move(vk::raii::CommandBuffers(device, allocInfo).front());
-    SetVkDebugName(device, *cmd, vk::ObjectType::eCommandBuffer, "Offscreen Readback");
-
-    const TextureBarrier toCopySrc{
-        .Texture = m_Images[index].Texture,
-        // The source scope names the render target rather than nothing, for the
-        // same reason AcquiredImageToRenderTarget does: when the wait below is
-        // present, the layout transition has to be ordered after it, and a
-        // barrier is only ordered after a semaphore wait if its source stage
-        // covers the stage waited at.
-        .SrcStage = PipelineStage::RenderTarget,
-        .SrcAccess = AccessFlags::RenderTargetWrite,
-        .DstStage = PipelineStage::Copy,
-        .DstAccess = AccessFlags::CopySrc,
-        .OldLayout = currentLayout,
-        .NewLayout = TextureLayout::CopySrc,
-        .Aspect = DefaultAspect(m_Format),
-    };
-
-    // The concrete list rather than Rhi::Vulkan::WrapCommandList: that function
-    // exists so code outside the module can get one without naming the type,
-    // and this is inside it.
-    {
-        VulkanCommandList list(m_Device, *cmd);
-        list.Begin();
-        list.Barrier(toCopySrc);
-
-        // No BufferOffset and no row length: BufferTextureCopyRegion is tightly
-        // packed by definition, which is what makes the returned bytes usable
-        // as an image without the caller knowing a stride.
-        list.CopyTextureToBuffer(
-            m_Images[index].Texture, staging.Get(),
-            BufferTextureCopyRegion{.Aspect = DefaultAspect(m_Format),
-                                    .Extent = {m_Extent.Width, m_Extent.Height, 1u}});
-        list.End();
-    }
-
-    // The same signal Acquire would have consumed, consumed here instead. It is
-    // what orders this copy after the rendering that produced the image, and
-    // taking it leaves the semaphore unsignalled for the next frame to signal —
-    // so a Readback between two frames does not break the chain, it stands in
-    // for one link of it. The host wait below is what covers the next write to
-    // this image, which would otherwise be racing the copy.
     Image& image = m_Images[index];
-    std::vector<vk::Semaphore> waitSemaphores;
-    std::vector<vk::PipelineStageFlags> waitStages;
-    if (image.bSignalPending)
-    {
-        waitSemaphores.push_back(m_Device.GetSemaphore(image.RenderComplete));
-        waitStages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
-        image.bSignalPending = false;
-    }
+    if (!image.bSignalPending)
+        return std::nullopt;
 
-    vk::raii::Fence fence(device, vk::FenceCreateInfo{});
-
-    const vk::CommandBuffer rawCommandBuffer = *cmd;
-    const vk::SubmitInfo submitInfo{.waitSemaphoreCount =
-                                        static_cast<uint32_t>(waitSemaphores.size()),
-                                    .pWaitSemaphores = waitSemaphores.data(),
-                                    .pWaitDstStageMask = waitStages.data(),
-                                    .commandBufferCount = 1u,
-                                    .pCommandBuffers = &rawCommandBuffer};
-    m_Device.GetQueue(QueueType::Graphics).submit(submitInfo, *fence);
-
-    if (device.waitForFences(*fence, vk::True, std::numeric_limits<uint64_t>::max()) !=
-        vk::Result::eSuccess)
-        throw std::runtime_error("OffscreenTarget::Readback: failed to wait for the copy.");
-
-    const void* pMapped = m_Device.GetMappedData(staging.Get());
-    if (pMapped == nullptr)
-        throw std::runtime_error("OffscreenTarget::Readback: the staging buffer is not mapped.");
-
-    // Copied out rather than handed back as a view: the staging buffer is freed
-    // on the way out of this function, and a span into it would dangle.
-    std::vector<std::byte> bytes(static_cast<size_t>(size));
-    std::memcpy(bytes.data(), pMapped, bytes.size());
-    return bytes;
+    // Cleared for the same reason Acquire clears it: the caller's wait consumes
+    // the signal, and leaving the flag set would have the next Acquire hand back
+    // a wait for a signal that has already been taken.
+    image.bSignalPending = false;
+    return image.RenderComplete;
 }
 
 bool OffscreenTarget::Recreate(Extent2D newExtent)

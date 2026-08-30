@@ -26,8 +26,6 @@ the decided approach for each. The notes below the table describe the defect, no
 |---|---|---|---|---|
 | P1 | Correctness fixes from `suggested_work.md` §1.6 and §3.1 — §3.2 (batched uploads) is done | various | S–M each | |
 | P1 | Move `Extent2D` and `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and `Rhi::Extent2D` *(cleanup: `engine/core`)* | `core/`, `platform/`, `rhi/` | S | |
-| P1 | `ChooseSwapchainFormat`'s fallback hands `FromNativeFormat` something it may not be able to name *(cleanup: `engine/rhi`)* | `rhi/vulkan/SwapchainUtil.h` | XS | |
-| P1 | Delete `App::m_Surface` — bound, never read, and the only caller of `Rhi::Vulkan::GetSurface` *(cleanup: `engine/rhi`)* | `main.cpp`, `rhi/vulkan/VulkanNative.h` | XS | |
 | P1 | `SdlPlatform`'s explicit `SDL_Vulkan_LoadLibrary`/`UnloadLibrary` pair is redundant — a `SDL_WINDOW_VULKAN` window loads and unloads the library itself *(cleanup: `platform/sdl`)* | `platform/SdlPlatform.cpp`, `SdlPlatform.h` | XS | |
 | P2 | `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to mailbox; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `main.cpp` | S | |
 | P2 | Document the matrix convention once and apply it consistently | `opaque.slang` header comment | S | |
@@ -35,6 +33,7 @@ the decided approach for each. The notes below the table describe the defect, no
 | P2 | Record the GPU name, driver version, Vulkan API version, OS and architecture in the run report — two reports from different machines are otherwise comparable-looking and not comparable | `main.cpp`, `rhi/IDevice.h` | S | a neutral device-info accessor on `IDevice`, which is a seam decision |
 | P2 | A baseline comparison script — decode both PNGs, report the diff bounding box, and diff the report's `counters`. Today `CLAUDE.md` has to tell a human to drive PIL by hand | `tests/scripts/` | S | |
 | P2 | Namespace `src/`'s remaining types under `Hikari::` | `src/` | M | Stages 7–9, which move them into engine modules a piece at a time |
+| P2 | The GPU tests assert a synchronization dependency they cannot detect: with sync validation off, dropping the wait semaphore from an offscreen read still passes | `tests/gpu/`, `rhi/DeviceDesc.h` | M | |
 | P3 | The ImGui panel has no regression coverage: the baseline is captured with `--no-ui`, deliberately, because a UI capture's hover highlight follows wherever the mouse was left | `tests/`, editor | M | Stage 7's `EditorLayer`, which can be driven without a mouse |
 | P3 | Expose cloud push-constants in ImGui (`m_CloudData` is pushed but never written) | `CloudSystem` + editor UI | S | |
 | P3 | `surface.slangh` to de-duplicate ~130 lines across the two surface shaders | `shaders/` | M | |
@@ -50,13 +49,33 @@ Four of these are worth expanding on, because they are latent defects or carry a
   in `RhiTypes.h`. Delete the `Rhi::` spellings rather than aliasing them — one type reachable
   under two names is what makes a reader stop and check whether they differ. Roughly five call
   sites.
-- **The format fallback.** `ChooseSwapchainFormat` returns `formats[0]` when its preference is
-  absent, and the very next line calls `FromNativeFormat`, which throws on anything the
-  curated `Rhi::Format` list cannot name. `Rhi::Format` has `BGRA8Unorm` but no `BGRA8Srgb` —
-  and on an X11 surface with RADV the *only* two formats offered are `B8G8R8A8_SRGB` and
-  `B8G8R8A8_UNORM`, so `formats[0]` is exactly the unnameable one. The "fallback" is therefore
-  a trap: it hands the next line something that aborts startup. Either restrict it to formats
-  the list covers, or fail there with a message naming what the surface offered.
+- **The synchronization the GPU tests do not check.** `tests/gpu/rhi/PresentTargetTests.cpp`
+  reads an offscreen image after rendering into it, and orders that copy after the render by
+  waiting on the target's render-complete semaphore — passed in explicitly so that the wait is
+  visible at the call site rather than hidden in a helper. The comment above the case says the
+  ordering "is ordering it establishes", and that a stray `WaitIdle` would hide a read that
+  established none.
+
+  **It does not currently establish anything the test can see.** Dropping the semaphore and
+  re-running leaves every case passing. Nothing catches it, for two reasons that compound:
+  standard validation does not track memory hazards at all, and synchronization validation —
+  which does — is off by default. What is left is the driver's own timing, which on this
+  machine happens to finish the render before the copy starts.
+
+  That is the worst shape a test can have. It reads as covering the hazard, so a future change
+  that drops the wait, narrows the barrier's source stage below the semaphore's signal stage,
+  or reorders the submit will land green; and a missing dependency does not fail where it was
+  written. It fails intermittently, on another driver, in whatever runs next — which is the
+  most expensive kind of graphics bug precisely because the evidence is nowhere near the cause.
+  This is also the one hazard class the RHI's own design leans on tests to check, since the
+  frame loop hands out semaphores that callers are trusted to wait on.
+
+  Fixing it means running the `gpu`-labelled tests with synchronization validation enabled,
+  which needs a way to ask for it: today `DeviceDesc` carries `bEnableValidation` and nothing
+  finer, so the knob is a new field (or a validation-features struct) plumbed to the instance's
+  `VkValidationFeaturesEXT` / `VK_EXT_layer_settings` chain. The check that it worked is the
+  experiment above run in reverse — delete the wait, and require that the suite now fails.
+
 - **`SdlPlatform`'s explicit Vulkan loader calls.** The constructor calls
   `SDL_Vulkan_LoadLibrary(nullptr)` and the destructor `SDL_Vulkan_UnloadLibrary()`, and
   neither is needed. SDL 3.4's `SDL_CreateWindow` documents that *"if the window is created

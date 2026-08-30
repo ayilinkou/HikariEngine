@@ -18,6 +18,7 @@
 
 #include "vulkan/OffscreenTarget.h"
 
+#include "GpuReadback.h"
 #include "RhiTestFixture.h"
 #include "ValidationGuard.h"
 
@@ -116,7 +117,7 @@ vk::Rect2D WholeImage(Extent2D extent)
  * is not presentable and never can be — VK_IMAGE_LAYOUT_PRESENT_SRC_KHR belongs
  * to VK_KHR_swapchain, which a device with no surface does not enable — so
  * ShaderResource is the finished state that matches the target's Sampled usage,
- * and the layout the readbacks below hand to OffscreenTarget::Readback.
+ * and the layout the readbacks below hand to ReadRenderedTexture.
  */
 void RecordClears(IDevice& device, vk::CommandBuffer cmd, const AcquiredImage& acquired,
                   std::span<const ClearRect> clears)
@@ -207,7 +208,7 @@ void SubmitFrame(IDevice& device, vk::CommandBuffer cmd, std::span<const Semapho
  * Written out rather than assumed, because getting it wrong is precisely the
  * mistake a readback is meant to catch — the renderer's screenshot writer has a
  * hardcoded BGRA swizzle for exactly this reason.
- * The target the device hands back, as the concrete type Readback lives on.
+ * The target the device hands back, as the concrete type TakePendingSignal lives on.
  *
  * A downcast rather than a member on IPresentTarget: reading an image outside a
  * frame is a question only a target that owns its images can answer, so the
@@ -333,10 +334,10 @@ TEST_CASE("Three overlapping frames render into an offscreen target", "[rhi][gpu
         CHECK(target->Present(acquired.Index));
     }
 
-    // No WaitIdle: Readback waits on the render-complete semaphore the frame
+    // No WaitIdle: each read waits on the render-complete semaphore its frame
     // signalled and fences its own copy, so the ordering it needs is ordering it
-    // establishes. A stray WaitIdle here would hide a Readback that established
-    // none.
+    // establishes. A stray WaitIdle here would hide a read that established
+    // none — which is why the semaphore is passed in rather than looked up.
 
     // Image 0 was written by frames 0 and 2, image 1 by frame 1, so what
     // survives is the last colour each of them was cleared to. Checking both
@@ -349,8 +350,9 @@ TEST_CASE("Three overlapping frames render into an offscreen target", "[rhi][gpu
         const std::array<std::byte, 4> expected =
             ExpectedTexel(target->GetFormat(), kFrameColors[lastFrameForImage[index]]);
 
-        const std::vector<std::byte> pixels =
-            AsOffscreen(*target).Readback(index, TextureLayout::ShaderResource);
+        const std::vector<std::byte> pixels = RhiTest::ReadRenderedTexture(
+            device, imagesByIndex[index], kExtent, target->GetFormat(),
+            TextureLayout::ShaderResource, AsOffscreen(*target).TakePendingSignal(index));
         REQUIRE(pixels.size() == static_cast<size_t>(kExtent.Width) * kExtent.Height * 4u);
 
         // Every texel, not a sample of them: a copy that got the row pitch
@@ -497,7 +499,9 @@ TEST_CASE("Readback returns the exact pixels of a solid clear", "[rhi][gpu][pres
     REQUIRE(target->Present(acquired.Index));
 
     const std::vector<std::byte> pixels =
-        AsOffscreen(*target).Readback(acquired.Index, TextureLayout::ShaderResource);
+        RhiTest::ReadRenderedTexture(device, acquired.Texture, target->GetExtent(),
+                                     target->GetFormat(), TextureLayout::ShaderResource,
+                                     AsOffscreen(*target).TakePendingSignal(acquired.Index));
 
     const uint32_t bytesPerTexel = BytesPerTexel(target->GetFormat());
     REQUIRE(bytesPerTexel == 4u);
@@ -556,7 +560,9 @@ TEST_CASE("Readback packs a non-square, non-power-of-two extent tightly", "[rhi]
     REQUIRE(target->Present(acquired.Index));
 
     const std::vector<std::byte> pixels =
-        AsOffscreen(*target).Readback(acquired.Index, TextureLayout::ShaderResource);
+        RhiTest::ReadRenderedTexture(device, acquired.Texture, target->GetExtent(),
+                                     target->GetFormat(), TextureLayout::ShaderResource,
+                                     AsOffscreen(*target).TakePendingSignal(acquired.Index));
 
     const uint32_t bytesPerTexel = BytesPerTexel(target->GetFormat());
     REQUIRE(pixels.size() == static_cast<size_t>(kExtent.Width) * kExtent.Height * bytesPerTexel);
@@ -587,11 +593,11 @@ TEST_CASE("Readback packs a non-square, non-power-of-two extent tightly", "[rhi]
 }
 
 /**
- * The staging buffer Readback allocates is freed on the way out, and the copy
- * it fenced on is finished by then. Neither is visible from the bytes returned,
- * so the counters say it instead: a Readback that leaked its buffer would grow
- * the device's live count once per capture, which in a run capturing every
- * frame is a leak that scales with the run.
+ * The staging buffer a read allocates is freed on the way out, and the copy it
+ * fenced on is finished by then. Neither is visible from the bytes returned, so
+ * the counters say it instead: a read that leaked its buffer would grow the
+ * device's live count once per capture, which in a run capturing every frame is
+ * a leak that scales with the run.
  */
 TEST_CASE("Readback leaves nothing behind on the device", "[rhi][gpu][present]")
 {
@@ -613,7 +619,9 @@ TEST_CASE("Readback leaves nothing behind on the device", "[rhi][gpu][present]")
         REQUIRE(target->Present(acquired.Index));
 
         const std::vector<std::byte> pixels =
-            AsOffscreen(*target).Readback(acquired.Index, TextureLayout::ShaderResource);
+            RhiTest::ReadRenderedTexture(device, acquired.Texture, target->GetExtent(),
+                                     target->GetFormat(), TextureLayout::ShaderResource,
+                                     AsOffscreen(*target).TakePendingSignal(acquired.Index));
         CHECK_FALSE(pixels.empty());
     }
 

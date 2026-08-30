@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <rhi/vulkan/SwapchainUtil.h>
 
@@ -25,6 +26,13 @@ vk::SurfaceCapabilitiesKHR MakeCapabilities(vk::Extent2D current, vk::Extent2D m
     capabilities.minImageExtent = min;
     capabilities.maxImageExtent = max;
     return capabilities;
+}
+
+/** A surface format entry, spelled out because both halves matter. */
+vk::SurfaceFormatKHR MakeFormat(vk::Format format,
+                                vk::ColorSpaceKHR colorSpace = vk::ColorSpaceKHR::eSrgbNonlinear)
+{
+    return vk::SurfaceFormatKHR{format, colorSpace};
 }
 } // namespace
 
@@ -73,4 +81,48 @@ TEST_CASE("A surface sized by its swapchain can also lose its area", "[swapchain
         MakeCapabilities({kSpecialValue, kSpecialValue}, {0u, 0u}, {0u, 0u});
 
     CHECK_FALSE(CanCreateSwapchain(capabilities, {1920u, 1080u}));
+}
+
+TEST_CASE("The preferred swapchain format wins when the surface offers it", "[swapchain]")
+{
+    const std::vector formats{MakeFormat(vk::Format::eR8G8B8A8Unorm),
+                              MakeFormat(vk::Format::eB8G8R8A8Unorm)};
+
+    // Order in the surface's list does not matter; the preference order does.
+    CHECK(ChooseSwapchainFormat(formats).format == vk::Format::eB8G8R8A8Unorm);
+}
+
+TEST_CASE("The second preference is taken when the first is absent", "[swapchain]")
+{
+    const std::vector formats{MakeFormat(vk::Format::eB8G8R8A8Srgb),
+                              MakeFormat(vk::Format::eR8G8B8A8Unorm)};
+
+    // Both preferences are UNORM, so falling through to the second cannot
+    // change what the hardware writes — which is what makes it a fallback
+    // rather than a different image.
+    CHECK(ChooseSwapchainFormat(formats).format == vk::Format::eR8G8B8A8Unorm);
+}
+
+TEST_CASE("A preferred format in the wrong colour space is not a match", "[swapchain]")
+{
+    const std::vector formats{
+        MakeFormat(vk::Format::eB8G8R8A8Unorm, vk::ColorSpaceKHR::eDisplayP3NonlinearEXT),
+        MakeFormat(vk::Format::eR8G8B8A8Unorm)};
+
+    CHECK(ChooseSwapchainFormat(formats).format == vk::Format::eR8G8B8A8Unorm);
+}
+
+TEST_CASE("A surface offering neither preference fails, naming what it offered", "[swapchain]")
+{
+    // The case the old fallback turned into an abort one line later: it
+    // returned formats[0], and FromNativeFormat cannot name B8G8R8A8_SRGB.
+    const std::vector formats{MakeFormat(vk::Format::eB8G8R8A8Srgb)};
+
+    REQUIRE_THROWS_WITH(ChooseSwapchainFormat(formats),
+                        Catch::Matchers::ContainsSubstring("B8G8R8A8Srgb"));
+}
+
+TEST_CASE("A surface with no formats at all fails", "[swapchain]")
+{
+    CHECK_THROWS(ChooseSwapchainFormat({}));
 }
