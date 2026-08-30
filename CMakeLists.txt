@@ -143,54 +143,26 @@ add_subdirectory(engine/rhi)
 # The pinned version lives in .clang-format-version so that this file and the CI
 # workflow read the same number. Bumping it means bumping that file and
 # reformatting the tree in the same commit.
-file(READ ${CMAKE_SOURCE_DIR}/.clang-format-version EXPECTED_CLANG_FORMAT_VERSION)
-string(STRIP "${EXPECTED_CLANG_FORMAT_VERSION}" EXPECTED_CLANG_FORMAT_VERSION)
+#
+# The file list and the invocation live in cmake/Format.cmake, which runs without
+# a configured tree; these targets are a convenience over it, not a second
+# implementation. Checking it here as well is worth the duplicate warning: a
+# developer meets it once at configure time rather than at the moment a
+# formatting diff appears.
+include(${CMAKE_SOURCE_DIR}/cmake/ClangFormatUtil.cmake)
+hikari_find_clang_format(CLANG_FORMAT_EXE CLANG_FORMAT_VERSION)
 
-find_program(CLANG_FORMAT_EXE NAMES clang-format)
 if(CLANG_FORMAT_EXE)
-  execute_process(
-    COMMAND ${CLANG_FORMAT_EXE} --version
-    OUTPUT_VARIABLE CLANG_FORMAT_VERSION_OUTPUT
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET)
-  string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" FOUND_CLANG_FORMAT_VERSION
-               "${CLANG_FORMAT_VERSION_OUTPUT}")
-
-  # A warning rather than an error: a mismatched clang-format still builds and
-  # runs everything else, and refusing to configure over a formatting tool would
-  # be worse than the problem. CI installs the pin, so CI stays authoritative.
-  if(NOT FOUND_CLANG_FORMAT_VERSION VERSION_EQUAL EXPECTED_CLANG_FORMAT_VERSION)
-    message(
-      WARNING
-        "clang-format ${FOUND_CLANG_FORMAT_VERSION} found, but this project is "
-        "formatted with ${EXPECTED_CLANG_FORMAT_VERSION}. The 'format' and "
-        "'format-check' targets will disagree with CI. Install the pinned "
-        "version with:\n"
-        "    pip install clang-format==${EXPECTED_CLANG_FORMAT_VERSION}")
-  endif()
-  file(
-    GLOB_RECURSE
-    FORMAT_SOURCES
-    CONFIGURE_DEPENDS
-    ${CMAKE_SOURCE_DIR}/src/*.cpp
-    ${CMAKE_SOURCE_DIR}/src/*.h
-    ${CMAKE_SOURCE_DIR}/src/*.hpp
-    ${CMAKE_SOURCE_DIR}/engine/*/include/*.h
-    ${CMAKE_SOURCE_DIR}/engine/*/include/*.hpp
-    ${CMAKE_SOURCE_DIR}/engine/*/src/*.cpp
-    ${CMAKE_SOURCE_DIR}/engine/*/src/*.h
-    ${CMAKE_SOURCE_DIR}/engine/*/src/*.hpp)
-
   add_custom_target(
     format
-    COMMAND ${CLANG_FORMAT_EXE} -i ${FORMAT_SOURCES}
+    COMMAND ${CMAKE_COMMAND} -DFIX=ON -P ${CMAKE_SOURCE_DIR}/cmake/Format.cmake
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Running clang-format -i over source files..."
     VERBATIM)
 
   add_custom_target(
     format-check
-    COMMAND ${CLANG_FORMAT_EXE} --dry-run --Werror ${FORMAT_SOURCES}
+    COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/Format.cmake
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Checking clang-format compliance over source files..."
     VERBATIM)

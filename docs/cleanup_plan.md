@@ -66,7 +66,7 @@ sites) and `engine/rhi` ↔ `engine/core` (`RhiTypes.h`).
 |---|---|---|---|
 | 1 | `docs/backlog` | Moved independent work into a backlog document | done |
 | 2 | `engine/namespace` | Moved the engine into the Hikari namespace | done |
-| 3 | `test/ci` | Split platform-independent checks into their own CI job | not started |
+| 3 | `test/ci` | Split platform-independent checks into their own CI job | done |
 | 4 | `test/baseline` | Baseline captures without UI and reports measured frame times | not started |
 | 5 | `fix/signals` | Added SIGTERM handling and screenshot capture on exit | not started |
 | 6 | `engine/rhi` | Curated the swapchain format fallback and removed unused RHI code | not started |

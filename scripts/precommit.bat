@@ -42,7 +42,7 @@ if errorlevel 1 exit /b %errorlevel%
 call tests\scripts\run_gpu_tests.bat "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 
-call tests\scripts\format_check.bat "%PRESET%"
+call tests\scripts\format_check.bat
 if errorlevel 1 exit /b %errorlevel%
 
 echo Precommit succeeded!

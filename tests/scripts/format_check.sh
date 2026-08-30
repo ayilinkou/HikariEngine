@@ -1,18 +1,8 @@
 #!/bin/bash
 set -e
 
-if [ -n "$1" ]; then
-  PRESET="$1"
-else
-  OS="$(uname -s)"
-  case "$OS" in
-    Darwin) PRESET="ninja-debug-macos" ;;
-    Linux)  PRESET="ninja-debug-linux" ;;
-    *)
-      echo "Unsupported OS: $OS" >&2
-      exit 1
-      ;;
-  esac
-fi
-
-cmake --build build/$PRESET --target format-check
+# Thin wrapper: the file list and the invocation live in cmake/Format.cmake so
+# that this, the .bat and the `format-check` build target share one
+# implementation. No preset argument — checking formatting needs no configured
+# tree, which is what lets CI run it on a bare runner.
+cmake -P "$(dirname "$0")/../../cmake/Format.cmake"

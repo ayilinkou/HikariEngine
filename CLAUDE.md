@@ -42,12 +42,8 @@ the plan. Fix what the step asks for; note anything else you spot rather than fi
 
 **Verify every change with `scripts/precommit.sh`** (configure + build + build tests +
 `ctest -L unit` + `ctest -L gpu` + format-check) before reporting a change as done. It is a
-superset of CI: everything CI enforces, plus three things CI does not run — the GPU tests
-(CI's runners have no Vulkan ICD), `rhi_boundary_check` (an oversight, tracked in
-`docs/backlog.md`; CI does still enforce header *neutrality* through
-`HeaderSelfContainment_RHI_Neutral`, but not the allowlist ratchet), and `namespace_check`
-(wired into CI by the `test/ci` PR, which is where the source-level checks get their own
-job). The GPU tests skip
+superset of CI: everything CI enforces, plus the GPU tests, which CI's runners cannot run
+because they have no Vulkan ICD. The GPU tests skip
 rather than fail on a machine without an ICD, so a green precommit on such a machine has
 proved less than it looks — check whether they ran before relying on them. Report failures
 with the actual output — never claim a build passed without running it.
@@ -134,14 +130,22 @@ tests/scripts/run_gpu_tests.sh      # ctest -L gpu --output-on-failure (needs a 
 tests/scripts/header_check.sh       # compile every header standalone, no PCH
 tests/scripts/rhi_boundary_check.sh # the RHI seam: neutral headers, and who may bypass them
 tests/scripts/namespace_check.sh    # every engine header opens its module's namespace
-tests/scripts/format_check.sh       # dry-run, -Werror
+tests/scripts/format_check.sh       # dry-run, -Werror; needs no configured tree
 scripts/format.sh                   # clang-format -i over src/ and engine/
-scripts/precommit.sh                # all of the above, CI's checks in CI's order
+scripts/precommit.sh                # all of the above, everything CI runs plus the GPU tests
 ```
 
 `header_check.sh` builds the `HeaderSelfContainment` aggregate: one check target per layer
 (`_App` for `src/`, one per engine module), each linking only what that layer may link.
-`precommit.sh` runs it straight after the build, matching CI's ordering.
+`precommit.sh` runs it straight after the build.
+
+**CI runs each check at the frequency its answer varies.** The source-level checks — format,
+`rhi_boundary_check`, `namespace_check` — are one `static-checks` job on a bare runner, since
+their verdict cannot differ between configurations and they need neither a toolchain nor a
+configured tree. `HeaderSelfContainment` runs in the debug job of each OS, because its answer
+*does* differ by compiler and standard library but not by configuration. Build and unit tests
+run in all nine. `precommit.sh` runs the same set locally in one sequence, so its ordering no
+longer mirrors CI's job layout.
 
 Everything that *verifies* the tree lives in `tests/scripts/`; `scripts/` holds the things
 that build or change it (`build.sh` at the root, `format.sh`, `precommit.sh`, and the

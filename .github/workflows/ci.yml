@@ -12,6 +12,72 @@ env:
   VULKAN_SDK_VERSION: "1.4.357.0"
 
 jobs:
+  # The checks whose answer cannot differ between configurations, run once
+  # instead of nine times. All three are source-level: they need clang-format
+  # and the files, and nothing else — no vcpkg, no Vulkan SDK, no compiler. That
+  # is also why they are a separate job rather than steps in the matrix: here
+  # they report in about a minute, and they still report when the build is
+  # broken, whereas in the matrix they ran in the eleventh minute of nine
+  # parallel builds and only if the build had succeeded.
+  #
+  # HeaderSelfContainment deliberately stays in the matrix: it compiles headers
+  # with the platform's compiler and standard library, and that difference is
+  # the whole point of it — libstdc++ supplies <cstdint> transitively where MSVC
+  # does not. It is config-independent though, so it runs in the debug job of
+  # each OS rather than in all nine.
+  static-checks:
+    name: Static checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install CMake and Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Set up Python for clang-format
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The pinned clang-format, ahead of any the runner image already ships:
+      # clang-format's output is not stable across major versions, and
+      # /usr/bin/clang-format on Ubuntu is a different one. The version comes
+      # from .clang-format-version, the same file CMake checks against.
+      - name: Install pinned clang-format
+        run: |
+          version="$(tr -d '[:space:]' < .clang-format-version)"
+          python -m pip install --quiet "clang-format==${version}"
+          python -c "import sysconfig; print(sysconfig.get_path('scripts'))" >> "$GITHUB_PATH"
+          clang-format --version
+
+      - name: Format check
+        id: format-check
+        continue-on-error: true
+        run: cmake -P cmake/Format.cmake
+
+      - name: RHI boundary check
+        id: boundary-check
+        continue-on-error: true
+        run: cmake -P cmake/RhiBoundaryCheck.cmake
+
+      - name: Namespace check
+        id: namespace-check
+        continue-on-error: true
+        run: cmake -P cmake/NamespaceCheck.cmake
+
+      # continue-on-error above, and one gate here, so that a run reports every
+      # violation it found rather than only the first.
+      - name: Fail if any check failed
+        if: steps.format-check.outcome == 'failure' || steps.boundary-check.outcome == 'failure' || steps.namespace-check.outcome == 'failure'
+        run: |
+          echo "One or more static checks failed:"
+          echo "  Format:       ${{ steps.format-check.outcome }}"
+          echo "  RHI boundary: ${{ steps.boundary-check.outcome }}"
+          echo "  Namespace:    ${{ steps.namespace-check.outcome }}"
+          exit 1
+
   build:
     strategy:
       fail-fast: false
@@ -51,30 +117,6 @@ jobs:
 
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
-
-      # The pinned clang-format, ahead of any the runner image already ships.
-      # clang-format's output is not stable across major versions, so leaving
-      # this to PATH means the Ubuntu, macOS and Windows images each run a
-      # different one — which is how a commit passes two OSes and fails the
-      # third on formatting alone. The version comes from .clang-format-version,
-      # the same file CMake checks against.
-      - name: Set up Python for clang-format
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install pinned clang-format
-        shell: bash
-        run: |
-          version="$(tr -d '[:space:]' < .clang-format-version)"
-          python -m pip install --quiet "clang-format==${version}"
-          # Python prints its scripts directory in the native form each OS's
-          # PATH expects, which avoids hand-converting paths on Windows. Entries
-          # written to GITHUB_PATH are prepended, so this wins over the
-          # clang-format the runner image already has (/usr/bin/clang-format on
-          # Ubuntu is a different major version).
-          python -c "import sysconfig; print(sysconfig.get_path('scripts'))" >> "$GITHUB_PATH"
-          clang-format --version
 
       - name: Install Ninja via Homebrew (macOS only)
         if: runner.os == 'macOS'
@@ -135,26 +177,26 @@ jobs:
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
 
+      # Config-independent — debug, release and asan compile the same headers to
+      # the same verdict — but not OS-independent, which is the reason it runs
+      # per OS rather than once in the static-checks job.
       - name: Header self-containment check
         id: header-check
+        if: contains(matrix.preset, 'debug')
         continue-on-error: true
         run: cmake --build --preset ${{ matrix.preset }} --target HeaderSelfContainment
-
-      - name: Format check
-        id: format-check
-        continue-on-error: true
-        run: cmake --build --preset ${{ matrix.preset }} --target format-check
 
       - name: Catch2 tests
         id: catch2-tests
         continue-on-error: true
         run: ctest --test-dir build/${{ matrix.preset }} -L unit --output-on-failure
 
+      # header-check reports "skipped" in the six non-debug jobs, which is not a
+      # failure and so passes this gate.
       - name: Fail if any check failed
-        if: steps.header-check.outcome == 'failure' || steps.format-check.outcome == 'failure' || steps.catch2-tests.outcome == 'failure'
+        if: steps.header-check.outcome == 'failure' || steps.catch2-tests.outcome == 'failure'
         run: |
           echo "One or more checks failed:"
           echo "  Header self-containment: ${{ steps.header-check.outcome }}"
-          echo "  Format check: ${{ steps.format-check.outcome }}"
           echo "  Catch2 tests: ${{ steps.catch2-tests.outcome }}"
           exit 1
