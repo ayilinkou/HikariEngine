@@ -4,6 +4,7 @@
 #include <optional>
 #include <span>
 
+#include <core/Extent2D.h>
 #include <rhi/Barrier.h>
 #include <rhi/Handles.h>
 #include <rhi/RhiTypes.h>
@@ -27,7 +28,7 @@ struct PresentTargetDesc
      * The size to create at. Pixels, not screen coordinates — the two differ on
      * high-DPI displays, and a swapchain is specified in the former.
      */
-    Extent2D Extent;
+    Core::Extent2D Extent;
 
     /**
      * How many acquires the caller can have outstanding. Sizes the target's ring
@@ -74,7 +75,7 @@ public:
     virtual ~IPresentTarget() = default;
 
     virtual Format GetFormat() const = 0;
-    virtual Extent2D GetExtent() const = 0;
+    virtual Core::Extent2D GetExtent() const = 0;
     virtual uint32_t GetImageCount() const = 0;
 
     /**
@@ -158,6 +159,6 @@ public:
      * per-image state against a target still at the old extent, believes that
      * extent is the window's, and nothing asks again.
      */
-    [[nodiscard]] virtual bool Recreate(Extent2D newExtent) = 0;
+    [[nodiscard]] virtual bool Recreate(Core::Extent2D newExtent) = 0;
 };
 } // namespace Hikari::Rhi

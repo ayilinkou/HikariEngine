@@ -21,6 +21,7 @@
  * compiles — a mismapped format or a barrier missing a stage bit produces
  * corruption or an intermittent hazard, not a build failure.
  */
+using namespace Hikari::Core;
 using namespace Hikari::Rhi;
 using namespace Hikari::Rhi::Vulkan;
 

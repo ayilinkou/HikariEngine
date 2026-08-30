@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <span>
 
+#include <core/Extent3D.h>
 #include <rhi/Barrier.h>
 #include <rhi/Handles.h>
 #include <rhi/RhiTypes.h>
@@ -39,7 +40,7 @@ struct BufferTextureCopyRegion
     uint32_t BaseLayer = 0u;
     uint32_t LayerCount = 1u;
 
-    Extent3D Extent{};
+    Core::Extent3D Extent{};
 };
 
 /**

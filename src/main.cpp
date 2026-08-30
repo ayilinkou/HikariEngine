@@ -887,7 +887,7 @@ private:
      */
     vk::Extent2D SwapchainExtent() const
     {
-        const Rhi::Extent2D extent = m_PresentTarget->GetExtent();
+        const Core::Extent2D extent = m_PresentTarget->GetExtent();
         return vk::Extent2D{extent.Width, extent.Height};
     }
 

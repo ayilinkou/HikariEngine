@@ -5,7 +5,7 @@
 using namespace Hikari;
 
 Cubemap::Cubemap(Rhi::IDevice& device, const CubemapCreateInfo& createInfo,
-                 Rhi::Extent2D faceExtent)
+                 Core::Extent2D faceExtent)
     : m_Texture(device,
                 Rhi::TextureDesc{.Format = createInfo.Format,
                                  .Extent = {faceExtent.Width, faceExtent.Height, 1u},

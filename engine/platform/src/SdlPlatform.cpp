@@ -26,9 +26,9 @@ constexpr float kDefaultDisplayFraction = 0.75f;
  * Only used when the display cannot be queried at all. Small enough to fit on
  * any display that could plausibly be attached.
  */
-constexpr Extent2D kFallbackWindowSize{1280u, 720u};
+constexpr Core::Extent2D kFallbackWindowSize{1280u, 720u};
 
-Extent2D DefaultWindowSize(SDL_DisplayID display)
+Core::Extent2D DefaultWindowSize(SDL_DisplayID display)
 {
     // Screen coordinates, which is what SDL_CreateWindow sizes in — the pixel
     // count differs from this on a high-density display, and is the swapchain's
@@ -87,7 +87,7 @@ SdlPlatform::SdlPlatform(const WindowDesc& desc)
         flags |= SDL_WINDOW_BORDERLESS;
 
     const SDL_DisplayID display = SDL_GetPrimaryDisplay();
-    Extent2D size{desc.Width, desc.Height};
+    Core::Extent2D size{desc.Width, desc.Height};
     if (size.Width == 0u || size.Height == 0u)
         size = DefaultWindowSize(display);
 
@@ -126,7 +126,7 @@ SdlPlatform::~SdlPlatform()
     SDL_Quit();
 }
 
-Extent2D SdlPlatform::GetFramebufferExtent() const
+Core::Extent2D SdlPlatform::GetFramebufferExtent() const
 {
     // Pixels rather than screen coordinates — the two differ on high-DPI
     // displays, and the swapchain is sized in pixels.

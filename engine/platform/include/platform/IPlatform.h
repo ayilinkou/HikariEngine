@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-#include <platform/Extent2D.h>
+#include <core/Extent2D.h>
 
 namespace Hikari::Platform
 {
@@ -68,7 +68,7 @@ public:
      * window size, is what the swapchain must be sized against. Reports
      * {0, 0} while the window is minimised.
      */
-    virtual Extent2D GetFramebufferExtent() const = 0;
+    virtual Core::Extent2D GetFramebufferExtent() const = 0;
 
     /**
      * Reveals the window, which is created hidden so that initialisation is

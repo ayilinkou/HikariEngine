@@ -5,6 +5,7 @@
 #include <optional>
 #include <vector>
 
+#include <core/Extent2D.h>
 #include <rhi/Barrier.h>
 #include <rhi/Handles.h>
 #include <rhi/IPresentTarget.h>
@@ -42,7 +43,7 @@ public:
     OffscreenTarget& operator=(const OffscreenTarget&) = delete;
 
     Format GetFormat() const override { return m_Format; }
-    Extent2D GetExtent() const override { return m_Extent; }
+    Core::Extent2D GetExtent() const override { return m_Extent; }
     uint32_t GetImageCount() const override { return static_cast<uint32_t>(m_Images.size()); }
 
     /** Nothing: an offscreen target writes into images and never presents. */
@@ -59,7 +60,7 @@ public:
     [[nodiscard]] AcquiredImage Acquire() override;
     SemaphoreHandle GetRenderCompleteSemaphore(uint32_t index) const override;
     bool Present(uint32_t index) override;
-    [[nodiscard]] bool Recreate(Extent2D newExtent) override;
+    [[nodiscard]] bool Recreate(Core::Extent2D newExtent) override;
 
     /**
      * Hands over the pending render-complete signal for `index`, if there is
@@ -97,7 +98,7 @@ private:
         bool bSignalPending = false;
     };
 
-    void Create(Extent2D extent);
+    void Create(Core::Extent2D extent);
     void Destroy();
 
     /**
@@ -118,7 +119,7 @@ private:
      */
     VulkanDevice& m_Device;
 
-    Extent2D m_Extent{};
+    Core::Extent2D m_Extent{};
     Format m_Format = Format::Undefined;
 
     /**

@@ -37,6 +37,7 @@
  * architecture plan's CI section, and is why the windowed path is still checked
  * by running the application.
  */
+using namespace Hikari::Core;
 using namespace Hikari::Rhi;
 
 namespace

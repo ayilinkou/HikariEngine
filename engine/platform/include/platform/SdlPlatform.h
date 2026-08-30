@@ -34,7 +34,7 @@ public:
     SdlPlatform& operator=(const SdlPlatform&) = delete;
 
     bool IsHeadless() const override { return false; }
-    Extent2D GetFramebufferExtent() const override;
+    Core::Extent2D GetFramebufferExtent() const override;
     void Show() override;
     void SetWindowMode(WindowMode mode) override;
     void SetRelativeMouseMode(bool bEnabled) override;

@@ -19,12 +19,12 @@ constexpr Core::LogCategory LogHeadless("Headless");
  * decides" keeps one meaning across both implementations, instead of being
  * SdlPlatform's rule for one path and main()'s for the other.
  */
-constexpr Extent2D kDefaultHeadlessSize{1280u, 720u};
+constexpr Core::Extent2D kDefaultHeadlessSize{1280u, 720u};
 } // namespace
 
 HeadlessPlatform::HeadlessPlatform(const WindowDesc& desc)
     : m_Extent(desc.Width == 0u || desc.Height == 0u ? kDefaultHeadlessSize
-                                                     : Extent2D{desc.Width, desc.Height})
+                                                     : Core::Extent2D{desc.Width, desc.Height})
 {
     Core::LogMsg(Core::LogSeverity::Info, LogHeadless, "Running headless at {}x{}", m_Extent.Width,
                  m_Extent.Height);
