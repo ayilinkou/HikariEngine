@@ -61,7 +61,6 @@ supports (a) headless + automated runtime testing, (b) data-oriented performance
 34. [Stage 9 — Data-oriented rewrite](#stage-9--data-oriented-rewrite-steps-5768)
 35. [Stage 10 — Scalability features](#stage-10--scalability-features-steps-6976)
 36. [Dependency summary](#dependency-summary)
-37. [Independent work — pick up any time](#independent-work--pick-up-any-time)
 
 **Appendices**
 21. [Appendix A — File relocation table](#appendix-a--file-relocation-table)
@@ -1191,7 +1190,7 @@ For a headless test to be a *test* rather than a coin flip:
 | Source of non-determinism | Fix |
 |---|---|
 | `high_resolution_clock` delta time | `FixedStepClock` when `bDeterministic` |
-| Smoothed FPS/frame time feedback loop | Report raw values; smoothing is a UI concern. **The current code overshoots this**: under `--fixed-dt` it records the *timestep* rather than measured cost, so the reported frame times are a constant. Measure wall clock separately from simulation dt — see the independent-work table |
+| Smoothed FPS/frame time feedback loop | Report raw values; smoothing is a UI concern. **The current code overshoots this**: under `--fixed-dt` it records the *timestep* rather than measured cost, so the reported frame times are a constant. Measure wall clock separately from simulation dt — see `backlog.md` |
 | `eMailbox` present mode | **Not a determinism problem — struck.** Present mode changes timing, not pixels, and forcing FIFO would cap frame times at the refresh interval and hide real regressions. See step 45 |
 | Thread pool completion order affecting sort/batch order | Serial job system, plus: keys must be **total orders** (include instance index as a tiebreaker) so the sort is stable regardless of algorithm |
 | `unordered_map` iteration order (`ModelData::m_MeshLocalTransforms`, caches) | Never iterate a hash map to produce ordered output; use sorted vectors in the hot path |
@@ -2166,7 +2165,7 @@ validation errors.
   packed bytes. Reuse step 5's PNG writer, now shared by both targets.
 - **Prerequisite:** the PNG writer is not shareable as written — `WriteScreenshot` hardcodes
   a BGRA→RGBA swizzle. Drive it from `IPresentTarget::GetFormat()` first. Worth doing
-  independently of this step; see the independent-work table for why it is already a latent
+  independently of this step; see `backlog.md` for why it is already a latent
   bug.
 - **Share, do not copy:** `tests/support/GpuReadback.h` already does record → submit → fence
   → read mapped bytes against the neutral `ICommandList`. Exactly one piece of it should move
@@ -2252,7 +2251,7 @@ bottom, so that a fresh session can start work without re-opening them.
   vulkan.hpp's own dispatcher. The proof is already in the tree — the gpu tests create real
   devices with no SDL anywhere. So `HeadlessPlatform` is a plain class with no window-system
   dependency, and the unit test this step asks for needs no SDL subsystem. That call turns out
-  to be redundant in `SdlPlatform` too, for a second reason — see the independent-work table.
+  to be redundant in `SdlPlatform` too, for a second reason — see `backlog.md`.
 - **Takes a `WindowDesc`, exactly like `SdlPlatform`**, so `main()` builds one description
   and hands it to whichever implementation it picked — which is the swap the seam exists to
   make possible. `Title`, `bResizable` and `bBorderless` are ignored; say so on the class.
@@ -2420,7 +2419,7 @@ seam half on its own is not a milestone worth recording as a step.
 
 Stage 6 ends with the engine able to run without a window. Before Stage 7 starts pulling
 `App` apart, one small PR to clear the things Stage 6 surfaced and to take a pass over the
-independent-work table below. Nothing here blocks Stage 7 *starting*, but `--no-ui` is not
+`backlog.md`. Nothing here blocks Stage 7 *starting*, but `--no-ui` is not
 optional past step 46, whose comparison is defined on captures taken without the panel — so it
 has to land by then, here or alongside 46. All of it gets harder once `App` is in pieces.
 
@@ -2434,7 +2433,7 @@ screenshot and report together. This also makes a headless capture and a windowe
 comparable on the scene alone, which is what step 46 asserts — and the reason that step needs
 this flag rather than merely benefiting from it.
 
-**Then pick from the independent-work table.** The ones Stage 6 either created or made
+**Then pick from `backlog.md`.** The ones Stage 6 either created or made
 cheaper:
 
 - `Extent2D` / `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and
@@ -2525,7 +2524,7 @@ next to `IClock` and `RunSpec` rather than next to `HeadlessPlatform`.
   refresh interval, so every regression faster than 16.67 ms becomes invisible. A measurement
   harness wants vsync **off**, not on. Once step 38 lands the deterministic path has no
   swapchain at all, which settles it. Choosing a present mode is still worth having on its own
-  merits and lives in the independent-work table as `--present-mode`.
+  merits and lives in `backlog.md` as `--present-mode`.
 
 ### 46. `apps/` split
 - **Do:** `apps/hikariengine/main.cpp` (SDL + Editor, ~40 lines) and
@@ -2777,144 +2776,6 @@ Steps you should **not** attempt out of order:
 | Frame graph (56) before passes are classes (50–54) | Two large refactors superimposed |
 | ECS (67) before headless CI (47) | The largest-blast-radius change with no safety net |
 | Bindless (70) before growable descriptors (31) | You'd rewrite the descriptor layer twice |
-
----
-
-## Independent work — pick up any time
-
-Small, self-contained items with no architectural prerequisites. Useful for short sessions or
-when the main chain is blocked. Each is verified by "output unchanged unless noted, zero
-validation errors".
-
-| Item | Where | Size |
-|---|---|---|
-| [IN PROGRESS] P0/P1 correctness fixes from `suggested_work.md` — 3.2 done (batched uploads); 1.6, 3.1 open | various | S–M each |
-| `SIGTERM` goes unhandled, so a CI timeout kills even a bounded run before it writes its screenshot and report — `SIGINT` is handled and `SIGTERM` should be too | `main.cpp:2562` | XS |
-| Ctrl-C with `--screenshot` usually writes no PNG, only the "called without a captured frame" error. `WriteScreenshot` does run — `HandleSIGINT` leaves the loop the ordinary way — but whether anything was captured is a race: the capture is recorded in-frame, decided at `main.cpp:569` from `g_bShouldClose`, so a signal arriving after that line in the last iteration exits at the top of the next one with nothing staged. Capture on the way out instead when the flag was asked for and `m_bScreenshotBufferReady` is false | `main.cpp:493-575` | S |
-| Expose cloud push-constants in ImGui (`m_CloudData` is pushed but never written) | `CloudSystem` + editor UI | S |
-| [DONE] Guard `DirLights[0]` when `DirLightCount == 0` (currently NaNs) | `clouds.comp.slang:106` | XS |
-| [DONE] Epsilon on `dir.y` instead of `== 0.f` | `clouds.comp.slang:24,96` | XS |
-| [DONE] Hoist sun-slab setup inside `if (density > 0)` | `clouds.comp.slang:119` | XS |
-| [DONE] Delete unused `VS_Out::Color : TEXCOORD1` interpolator — `opaque.slang` done | `weightedBlendedOIT.slang:54` | XS |
-| [DONE (deferred)] Delete dead `transmit` arithmetic | `weightedBlendedOIT.slang:177-180` | XS |
-| `surface.slangh` to de-duplicate ~130 lines across the two surface shaders | `shaders/` | M |
-| Split `pbr.slangh` into `brdf`/`tonemap`/`phase` | `shaders/` | S |
-| [DONE] `-warnings-as-errors` + `spirv-val` on shader compilation | `cmake/Shaders.cmake` | S |
-| Document the matrix convention once and apply it consistently | `opaque.slang` header comment | S |
-| `CubemapCreateInfo` → `std::array<std::string,6> FacePaths`, delete the 6-case switch | `CubemapLoader.cpp` | S |
-| [DONE] Hash all six faces into the cubemap cache key | `Cubemap.h:22` | S |
-| [DONE] Delete the duplicated `GetDefaultTransform()` on `Entity` and `Model` | `Entity.h:82`, `Model.h:27` | XS |
-| [DONE] In-class initialisers for `Camera::m_MoveSpeed` / `m_LookSens` | `Camera.h:45-46` | XS |
-| [DONE] Warn once when lights are clamped instead of silently dropping | `UpdateGlobalBuffer` | XS |
-| Finish the skybox (loaded at `main.cpp:598`, never rendered) and reuse it for IBL | new pass | M–L |
-| `.map` format `version` attribute | `XmlParser` | XS |
-| `--no-ui`, and re-baseline onto it — the baseline captures a fifth of the frame as ImGui, whose hover state depends on where the mouse was left | `main.cpp`, `tests/scripts/baseline_test.sh`, `tests/baseline/` | S |
-| Move `Extent2D` and `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and `Rhi::Extent2D` | `core/`, `platform/`, `rhi/` | S |
-| [DONE] Drive `WriteScreenshot`'s channel swizzle from `IPresentTarget::GetFormat()` instead of hardcoding BGRA | `main.cpp` | S |
-| `ChooseSwapchainFormat`'s fallback hands `FromNativeFormat` something it may not be able to name | `rhi/vulkan/SwapchainUtil.h` | XS |
-| Frame-time counters record the timestep, not wall clock, under `--fixed-dt` | `App::Run` | XS |
-| `rhi_boundary_check` runs in precommit but not in CI | `.github/workflows/ci.yml` | XS |
-| Delete `App::m_Surface` — bound, never read, and the only caller of `Rhi::Vulkan::GetSurface` | `main.cpp`, `rhi/vulkan/VulkanNative.h` | XS |
-| `SdlPlatform`'s explicit `SDL_Vulkan_LoadLibrary`/`UnloadLibrary` pair is redundant — a `SDL_WINDOW_VULKAN` window loads and unloads the library itself | `platform/SdlPlatform.cpp`, `SdlPlatform.h` | XS |
-| [DONE] Promote `BytesPerTexel` out of `tests/support/GpuReadback.h` into neutral RHI API | `rhi/RhiTypes.h` | XS |
-| `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to mailbox; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `main.cpp` | S |
-
-The top of that list is scheduled rather than merely available: see *Between Stage 6 and
-Stage 7 — a cleanup PR*, which takes `--no-ui` and whichever of the rest are worth the trip.
-
-Nine of those are new since the original review, and six are worth expanding on because they
-are latent defects or carry a decision:
-
-- **`Extent2D` in two places.** `::Extent2D` (Platform) and `Rhi::Extent2D` are the same two
-  `uint32_t`s; only the RHI's has `operator==`. `Core` is what both modules already link, so
-  it is where the type belongs, and `Extent3D` goes with it rather than being stranded alone
-  in `RhiTypes.h`. Delete the `Rhi::` spellings rather than aliasing them — one type reachable
-  under two names is what makes a reader stop and check whether they differ. Roughly five call
-  sites. Worth doing before step 40a, which adds another conversion site when the offscreen
-  target is sized from `--resolution`.
-- **The screenshot swizzle — ✅ done in step 39.** `WriteScreenshot` read mapped bytes as BGRA
-  and swapped R and B. That was correct only because `ChooseSwapchainFormat` asks for
-  `BGRA8Unorm` first; the shader itself is channel-order agnostic, since it writes
-  `SV_Target` component 0 and the hardware maps it to whatever the format's first component
-  is. It now reads `GetFormat()`, so an `OffscreenTarget` that picked a different format
-  would be written correctly rather than with its channels crossed.
-- **The format fallback.** `ChooseSwapchainFormat` returns `formats[0]` when its preference is
-  absent, and the very next line calls `FromNativeFormat`, which throws on anything the
-  curated `Rhi::Format` list cannot name. `Rhi::Format` has `BGRA8Unorm` but no `BGRA8Srgb` —
-  and on an X11 surface with RADV the *only* two formats offered are `B8G8R8A8_SRGB` and
-  `B8G8R8A8_UNORM`, so `formats[0]` is exactly the unnameable one. The "fallback" is therefore
-  a trap: it hands the next line something that aborts startup. Either restrict it to formats
-  the list covers, or fail there with a message naming what the surface offered.
-- **Frame times under `--fixed-dt`.** `App::Run` computes `currentFrameTime` from
-  `m_DeltaTime`, which `--fixed-dt` *sets* to 1/60 — so `m_FrameTimesMs` records the timestep
-  rather than the cost, and `meanFrameTimeMs`/`p99FrameTimeMs` read exactly 16.6667 whatever
-  the frame actually took. `baseline_test.sh` always passes `--fixed-dt`, so those two
-  counters can never detect a regression in the one mode that is supposed to detect
-  regressions. §14 already says the fix: measure wall clock separately from the simulation
-  timestep, and report raw values. Do this before any step starts making performance claims.
-- **`SdlPlatform`'s explicit Vulkan loader calls.** The constructor calls
-  `SDL_Vulkan_LoadLibrary(nullptr)` and the destructor `SDL_Vulkan_UnloadLibrary()`, and
-  neither is needed. SDL 3.4's `SDL_CreateWindow` documents that *"if the window is created
-  with any of the `SDL_WINDOW_OPENGL` or `SDL_WINDOW_VULKAN` flags, then the corresponding
-  LoadLibrary function … is called and the corresponding UnloadLibrary function is called by
-  `SDL_DestroyWindow()`"* (`SDL3/SDL_video.h`), and `SdlPlatform` always passes
-  `SDL_WINDOW_VULKAN`. The two SDL entry points that need the library loaded —
-  `SDL_Vulkan_GetInstanceExtensions` and `SDL_Vulkan_CreateSurface` — both run after the
-  window exists, and both are skipped entirely when `bPresent` is false. Nothing else consumes
-  SDL's loader: `SDL_Vulkan_GetVkGetInstanceProcAddr` is never called, because
-  `vk::raii::Context`'s default constructor builds its dispatcher from vulkan.hpp's own
-  `vk::detail::DynamicLoader`, which opens `vulkan-1.dll` / `libvulkan.so.1` itself. Removing
-  the pair also removes an asymmetry: a throw from `SDL_CreateWindow` skips the destructor, so
-  today's explicit load goes unpaired until `SDL_Quit`.
-
-  Two things not to lose with it. The explicit load is what produces *"Failed to load Vulkan
-  library!"* on a machine with no driver, where `SDL_CreateWindow` would fail with *"Failed to
-  create window!"* instead — `SDL_GetError()` still names the real cause, so the message that
-  survives should say so rather than blaming the window. And `SdlPlatform.h`'s class comment
-  ("Because the destructor calls `SDL_Vulkan_UnloadLibrary()`, an `SdlPlatform` must outlive
-  every object holding a Vulkan handle") needs rewriting rather than deleting: the ordering
-  constraint is real, but its cause is `SDL_DestroyWindow` invalidating the surface, not the
-  unload. The loader was never the reason — the app's own `DynamicLoader` holds a reference to
-  the library whatever SDL does with its own.
-- **`--present-mode`, and why the two failure policies differ.** The default stays what it is
-  today: prefer mailbox, fall back to FIFO. **An explicitly requested mode that the surface
-  does not offer is a hard error naming what was asked for and listing what is available** —
-  never a silent downgrade. The whole reason to pass the flag is to test a specific mode, and
-  a run that quietly measured a different one is worse than a run that refused: it produces a
-  number that looks valid and is not.
-
-  That is deliberately the opposite policy from `DeviceDesc::DisabledOptionalExtensions`,
-  which reports and ignores a name it does not recognise. The cases differ: disabling an
-  extension that was never present still achieves the intent, whereas asking for immediate
-  and getting FIFO means the measurement is of something else.
-
-  Two constraints on the implementation. **The default must stay a preference**, because only
-  FIFO is guaranteed by the spec — mailbox is not, and a strict default would refuse to launch
-  on a surface without it. And the *mode* is neutral vocabulary under D13 ("where only one API
-  has the concept at all, its term stands"): Vulkan names these, D3D12 spells the same
-  behaviour as `SyncInterval` plus `ALLOW_TEARING`, so this is `--present-mode` rather than
-  `--vk-present-mode`.
-
-  Reject `--present-mode` together with `--headless`, alongside the borderless/fullscreen
-  check step 40a adds — an offscreen target does not present, so there is no mode to choose.
-
-  **Log the mode that was actually chosen**, so a fallback is visible rather than inferred.
-  The place for it is the existing one-line summary at the end of `SwapchainTarget::Create` —
-  `"Swapchain: {}x{}, {} images"` — which becomes `"Swapchain: {}x{}, {} images, {}"`. Not
-  surface creation: the surface exists before any mode is chosen, and `ChoosePresentMode` runs
-  against `getSurfacePresentModesKHR` during swapchain creation, so the surface has nothing to
-  report yet. `Create` is also called from `Recreate`, so the line already fires on every
-  resize and fullscreen toggle and already carries an extent that changes each time — the mode
-  rides along at no extra noise, and a mode that changed across a recreate shows up without a
-  second log site or a "did it change" comparison.
-
-  That one line covers both paths. An explicit mode that is unavailable throws before this
-  point, naming what the surface offers; the default path cannot throw, so printing what it
-  settled on is the only way a mailbox→FIFO fallback is ever visible.
-
-  Worth pairing with the frame-time fix above: once the report carries real wall-clock
-  timings, it should also carry the present mode, because two reports taken under different
-  modes are not comparable.
 
 ---
 

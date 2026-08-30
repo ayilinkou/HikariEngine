@@ -5,7 +5,7 @@
 > See [§8 Retirement](#8-retirement) for what to keep and what to throw away.
 
 **Created:** 30 August 2026 · **Expands:** `architecture_plan.md`, *Between Stage 6 and
-Stage 7 — a cleanup PR* · **Status:** not started — see the [progress table](#progress)
+Stage 7 — a cleanup PR* · **Status:** in progress — see the [progress table](#progress)
 
 ---
 
@@ -64,7 +64,7 @@ sites) and `engine/rhi` ↔ `engine/core` (`RhiTypes.h`).
 
 | # | Branch | Title | Status |
 |---|---|---|---|
-| 1 | `docs/backlog` | Moved independent work into a backlog document | not started |
+| 1 | `docs/backlog` | Moved independent work into a backlog document | done |
 | 2 | `engine/namespace` | Moved the engine into the Hikari namespace | not started |
 | 3 | `test/ci` | Split platform-independent checks into their own CI job | not started |
 | 4 | `test/baseline` | Baseline captures without UI and reports measured frame times | not started |
