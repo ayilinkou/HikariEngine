@@ -48,6 +48,11 @@ void SwapchainTarget::Create(Extent2D extent)
     m_SurfaceFormat = ChooseSwapchainFormat(physicalDevice.getSurfaceFormatsKHR(surface));
     m_Extent = ChooseSwapchainExtent(capabilities, vk::Extent2D{extent.Width, extent.Height});
 
+    // Kept rather than passed straight into the create info: the default is a
+    // preference, so which mode the surface actually offered is a fact about
+    // this target, and the run report carries it.
+    m_PresentMode = ChoosePresentMode(physicalDevice.getSurfacePresentModesKHR(surface));
+
     const vk::SwapchainCreateInfoKHR createInfo{
         .surface = *surface,
         .minImageCount = ChooseSwapMinImageCount(capabilities),
@@ -60,7 +65,7 @@ void SwapchainTarget::Create(Extent2D extent)
         .imageSharingMode = vk::SharingMode::eExclusive,
         .preTransform = capabilities.currentTransform,
         .compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque,
-        .presentMode = ChoosePresentMode(physicalDevice.getSurfacePresentModesKHR(surface)),
+        .presentMode = m_PresentMode,
         .clipped = true,
         .oldSwapchain = nullptr};
 

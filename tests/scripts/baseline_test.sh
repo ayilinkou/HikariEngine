@@ -29,5 +29,12 @@ fi
 #
 # Both only pin the extent to *this* display's. A capture that does not depend
 # on the display at all needs an offscreen render target (Part IV steps 38-39).
+#
+# --no-ui is what makes the capture about the scene. The editor panel is a fifth
+# of the frame, and it is not reproducible on principle: nothing warps the
+# cursor at startup, so the panel carries a hover highlight on whichever widget
+# the mouse was last over. It has been stable in practice only because the mouse
+# did not move between runs. ImGui still initialises and its pass still records,
+# so the counters in the report are unaffected by the flag.
 ./build/$PRESET/HikariEngine --report --screenshot --frames --fixed-dt --scene --camera-preset 1 \
-    --resolution 1920x1080 --borderless
+    --resolution 1920x1080 --borderless --no-ui

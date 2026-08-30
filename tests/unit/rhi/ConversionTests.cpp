@@ -139,6 +139,13 @@ TEST_CASE("Sampler and texture scalar enums map both ways", "[RhiConversions]")
     RequireRoundTrips(kAllBorderColors);
 }
 
+TEST_CASE("Every PresentMode round-trips", "[RhiConversions]")
+{
+    // The report names the mode a run actually presented in, so a mapping that
+    // lost a mode would mislabel the measurement rather than fail loudly.
+    RequireRoundTrips(kAllPresentModes);
+}
+
 TEST_CASE("SampleCount values are the sample counts themselves", "[RhiConversions]")
 {
     // The enum's numeric values are load-bearing: they are the sample counts,

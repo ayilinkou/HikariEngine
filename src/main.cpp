@@ -180,6 +180,15 @@ struct Options
     bool bHeadless = false; // --headless: render with no window
 
     /**
+     * --no-ui. Suppresses the editor panel without touching anything else:
+     * ImGui stays initialised and its pass still records, so a run with the
+     * flag differs from one without it only in what is drawn. The baseline
+     * capture uses it because the panel is a fifth of the frame and its hover
+     * state depends on where the mouse was last left.
+     */
+    bool bNoUi = false;
+
+    /**
      * --resolution. Zero in either half leaves the choice to the platform,
      * which sizes the window from the display it opens on.
      */
@@ -276,6 +285,10 @@ void PrintUsage()
                      "offscreen target.\n"
                      "                          Requires --frames, and cannot be combined with "
                      "--borderless or --fullscreen\n"
+                     "  --no-ui                 Suppress the editor panel. ImGui still "
+                     "initialises and its\n"
+                     "                          pass still runs, so only what is drawn "
+                     "changes\n"
                      "  --jobs <N>              Worker thread count (0 = SerialJobSystem, "
                      "no threads; default = hardware_concurrency() - 1)\n"
                      "  --vk-disable-extension <name>\n"
@@ -417,6 +430,11 @@ Options ParseArgs(int argc, char** argv)
                 option.RequireNoValue();
                 options.bHeadless = true;
             }
+            else if (flag == "--no-ui")
+            {
+                option.RequireNoValue();
+                options.bNoUi = true;
+            }
             else if (flag == "--jobs")
                 options.JobCount = option.RequireInt();
             else if (flag == "--vk-disable-extension")
@@ -483,11 +501,57 @@ Options ParseArgs(int argc, char** argv)
     return options;
 }
 
+/**
+ * Elapsed milliseconds since `start`.
+ *
+ * steady_clock, not high_resolution_clock: libstdc++ makes the latter an alias
+ * for system_clock, which the standard does not require to move only forwards,
+ * so an NTP correction mid-run can produce a nonsense interval or a negative
+ * one. core/Timer.h makes the same choice for the same reason.
+ */
+inline float MillisecondsSince(std::chrono::steady_clock::time_point start)
+{
+    return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start)
+        .count();
+}
+
+/** The four numbers the run report carries for a series of frame timings. */
+struct TimingStats
+{
+    float Mean = 0.f;
+    float P99 = 0.f;
+    float Min = 0.f;
+    float Max = 0.f;
+};
+
+/** Takes the samples by value because it sorts them to find the percentile. */
+inline TimingStats ComputeTimingStats(std::vector<float> samples)
+{
+    if (samples.empty())
+        return {};
+
+    double sum = 0.0;
+    for (const float sample : samples)
+        sum += sample;
+
+    std::sort(samples.begin(), samples.end());
+
+    // Nearest-rank: the smallest sample at or above the 99th percentile, which
+    // for fewer than 100 samples is the largest one.
+    size_t index = static_cast<size_t>(std::ceil(0.99 * static_cast<double>(samples.size())));
+    index = std::min(index, samples.size()) - 1;
+
+    return TimingStats{.Mean = static_cast<float>(sum / static_cast<double>(samples.size())),
+                       .P99 = samples[index],
+                       .Min = samples.front(),
+                       .Max = samples.back()};
+}
+
 class App
 {
 public:
     App(IPlatform& platform, const Paths& paths, Options options, IJobSystem& jobSystem,
-        Rhi::Diagnostics& diagnostics)
+        Rhi::Diagnostics& diagnostics, std::chrono::steady_clock::time_point processStart)
         : m_Platform(platform), m_Paths(paths), m_Options(std::move(options)),
           m_JobSystem(jobSystem), m_Diagnostics(diagnostics),
           m_RhiDevice(Rhi::CreateDevice(MakeDeviceDesc())),
@@ -495,7 +559,8 @@ public:
           m_Device(Rhi::Vulkan::GetDevice(*m_RhiDevice)),
           m_Surface(Rhi::Vulkan::GetSurface(*m_RhiDevice)),
           m_GraphicsQueue(Rhi::Vulkan::GetGraphicsQueue(*m_RhiDevice)),
-          m_QueueIndex(Rhi::Vulkan::GetGraphicsQueueFamily(*m_RhiDevice))
+          m_QueueIndex(Rhi::Vulkan::GetGraphicsQueueFamily(*m_RhiDevice)),
+          m_ProcessStart(processStart)
     {
     }
     ~App()
@@ -513,12 +578,26 @@ public:
 
         m_Platform.Show();
 
+        // Everything before the first frame: argument parsing, the window, the
+        // device, every pipeline, and the scene's uploads.
+        m_StartupMs = MillisecondsSince(m_ProcessStart);
+
         while (!g_bShouldClose)
         {
-            if (!m_bIsFocused)
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            const auto frameStart = std::chrono::steady_clock::now();
+            m_FrameWaitMs = 0.f;
 
-            auto now = std::chrono::high_resolution_clock::now();
+            if (!m_bIsFocused)
+            {
+                // Counted as waiting rather than as work: an unfocused frame is
+                // idling on purpose, and charging that to the CPU cost would
+                // make a backgrounded run look like a slow one.
+                const auto idleStart = std::chrono::steady_clock::now();
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                m_FrameWaitMs += MillisecondsSince(idleStart);
+            }
+
+            const auto now = frameStart;
             if (m_Options.bFixedDt)
             {
                 m_DeltaTime = 1.f / 60.f;
@@ -534,17 +613,6 @@ public:
                         .count();
             }
             m_LastTime = now;
-
-            const float smoothing = 0.9f;
-            float currentFrameTime = m_DeltaTime * 1000.f;
-            m_DisplayFrameTime =
-                (m_DisplayFrameTime * smoothing) + (currentFrameTime * (1.f - smoothing));
-
-            if (!m_Options.ReportPath.empty() || m_Options.bReportAutoPath)
-                m_FrameTimesMs.push_back(currentFrameTime);
-
-            float currentFPS = 1.f / m_DeltaTime;
-            m_DisplayFPS = (m_DisplayFPS * smoothing) + (currentFPS * (1.f - smoothing));
 
             // Guarded rather than abstracted: a headless run never initialised
             // SDL, so polling it is not merely pointless but a call into a
@@ -584,7 +652,7 @@ public:
             m_Camera->Tick();
             HandleMovement();
 
-            if (m_bCursorVisible)
+            if (m_bCursorVisible && !m_Options.bNoUi)
                 DrawImGuiFrame();
 
             ModelManager::Get()->GenerateBatches();
@@ -597,6 +665,8 @@ public:
             DrawFrame(captureScreenshot);
 
             ++m_FrameCounter;
+            RecordFrameTiming(frameStart);
+
             if (m_Options.Frames != 0 && m_FrameCounter >= m_Options.Frames)
             {
                 g_bShouldClose = true;
@@ -638,7 +708,7 @@ private:
     {
         LogMsg(LogSeverity::Info, LogMain, "Init()");
 
-        m_StartTime = std::chrono::high_resolution_clock::now();
+        m_StartTime = std::chrono::steady_clock::now();
         m_LastTime = m_StartTime;
 
         InitVulkan();
@@ -857,34 +927,15 @@ private:
         const std::string DEFAULT_PATH = "tests/reports/report_";
         EnsureParentDirectoryExists(DEFAULT_PATH);
 
-        uint64_t validationErrors = m_Diagnostics.ErrorCount();
-        uint64_t validationWarnings = m_Diagnostics.WarningCount();
-        uint32_t drawCalls = m_OpaqueDrawCallCount + m_TransparentDrawCallCount;
-        uint32_t batches = m_OpaqueBatchCount + m_TransparentBatchCount;
-        uint32_t instances = m_OpaqueInstanceCount + m_TransparentInstanceCount;
-        // The last frame's counts, as the draw call and batch numbers above also
+        // The last frame's counts, as the draw call and batch numbers below also
         // are. Worth knowing when comparing two reports: --screenshot captures
         // on the final frame, and the copy it inserts costs one extra barrier
         // and one extra call, so a captured run legitimately reads one higher
         // than an uncaptured one.
-        Rhi::BarrierCounts barrierCounts = FrameBarrierCounts();
+        const Rhi::BarrierCounts barrierCounts = FrameBarrierCounts();
 
-        float meanFrameTimeMs = 0.f;
-        float p99FrameTimeMs = 0.f;
-        if (!m_FrameTimesMs.empty())
-        {
-            double sum = 0.0;
-            for (float t : m_FrameTimesMs)
-                sum += t;
-            meanFrameTimeMs = static_cast<float>(sum / m_FrameTimesMs.size());
-
-            std::vector<float> sorted = m_FrameTimesMs;
-            std::sort(sorted.begin(), sorted.end());
-            size_t index =
-                static_cast<size_t>(std::ceil(0.99 * static_cast<double>(sorted.size())));
-            index = std::min(index, sorted.size()) - 1;
-            p99FrameTimeMs = sorted[index];
-        }
+        const TimingStats frame = ComputeTimingStats(m_FrameMs);
+        const TimingStats cpu = ComputeTimingStats(m_CpuMs);
 
         std::string path =
             m_Options.bReportAutoPath ? DEFAULT_PATH + CaptureTimestamp() : m_Options.ReportPath;
@@ -896,21 +947,80 @@ private:
             return;
         }
 
+        const auto stats = [](const TimingStats& s)
+        {
+            return std::format("{{ \"mean\": {:.4f}, \"p99\": {:.4f}, \"min\": {:.4f}, "
+                               "\"max\": {:.4f} }}",
+                               s.Mean, s.P99, s.Min, s.Max);
+        };
+
+        // Two objects rather than one flat list, because they are read
+        // differently: everything under "counters" is an expectation that must
+        // match exactly, everything under "timings" is a measurement that varies
+        // with the machine. A reader cannot tell those apart in a flat object,
+        // and a number that looks authoritative and is not is worse than no
+        // number. "run" is what makes two reports comparable at all — the same
+        // scene at a different resolution, present mode or build configuration
+        // is not the same measurement.
         file << "{\n"
              << "  \"frames\": " << m_FrameCounter << ",\n"
-             << "  \"validationErrors\": " << validationErrors << ",\n"
-             << "  \"validationWarnings\": " << validationWarnings << ",\n"
-             << "  \"drawCalls\": " << drawCalls << ",\n"
-             << "  \"batches\": " << batches << ",\n"
-             << "  \"instances\": " << instances << ",\n"
-             << "  \"barriers\": " << barrierCounts.Barriers << ",\n"
-             << "  \"barrierCalls\": " << barrierCounts.Calls << ",\n"
-             << "  \"meanFrameTimeMs\": " << meanFrameTimeMs << ",\n"
-             << "  \"p99FrameTimeMs\": " << p99FrameTimeMs << "\n"
+             << "  \"counters\": {\n"
+             << "    \"validationErrors\": " << m_Diagnostics.ErrorCount() << ",\n"
+             << "    \"validationWarnings\": " << m_Diagnostics.WarningCount() << ",\n"
+             << "    \"drawCalls\": " << (m_OpaqueDrawCallCount + m_TransparentDrawCallCount)
+             << ",\n"
+             << "    \"batches\": " << (m_OpaqueBatchCount + m_TransparentBatchCount) << ",\n"
+             << "    \"instances\": " << (m_OpaqueInstanceCount + m_TransparentInstanceCount)
+             << ",\n"
+             << "    \"barriers\": " << barrierCounts.Barriers << ",\n"
+             << "    \"barrierCalls\": " << barrierCounts.Calls << "\n"
+             << "  },\n"
+             << "  \"timings\": {\n"
+             << std::format("    \"startupMs\": {:.4f},\n", m_StartupMs)
+             << std::format("    \"firstFrame\": {{ \"frameMs\": {:.4f}, \"cpuMs\": {:.4f} }},\n",
+                            m_FirstFrameMs, m_FirstFrameCpuMs)
+             << "    \"frameMs\": " << stats(frame) << ",\n"
+             << "    \"cpuMs\": " << stats(cpu) << "\n"
+             << "  },\n"
+             << "  \"run\": {\n"
+             << "    \"fixedDt\": " << (m_Options.bFixedDt ? "true" : "false") << ",\n"
+             << "    \"headless\": " << (m_Platform.IsHeadless() ? "true" : "false") << ",\n"
+             << "    \"noUi\": " << (m_Options.bNoUi ? "true" : "false") << ",\n"
+             << "    \"width\": " << SwapchainExtent().width << ",\n"
+             << "    \"height\": " << SwapchainExtent().height << ",\n"
+             << "    \"jobCount\": " << m_JobSystem.WorkerCount() << ",\n"
+             << "    \"presentMode\": " << PresentModeJson() << ",\n"
+             << "    \"buildConfig\": \"" << HIKARI_BUILD_CONFIG << "\"\n"
+             << "  }\n"
              << "}\n";
         file.close();
 
         LogMsg(LogSeverity::Info, LogMain, "Wrote report to {}", path);
+    }
+
+    /**
+     * The present mode as a JSON value: a quoted name, or null when the target
+     * does not present at all, which is what an offscreen run reports.
+     */
+    std::string PresentModeJson() const
+    {
+        const std::optional<Rhi::PresentMode> mode = m_PresentTarget->GetPresentMode();
+        if (!mode)
+            return "null";
+
+        switch (*mode)
+        {
+            case Rhi::PresentMode::Immediate:
+                return "\"immediate\"";
+            case Rhi::PresentMode::Mailbox:
+                return "\"mailbox\"";
+            case Rhi::PresentMode::Fifo:
+                return "\"fifo\"";
+            case Rhi::PresentMode::FifoRelaxed:
+                return "\"fifo-relaxed\"";
+        }
+
+        return "null";
     }
 
     /**
@@ -1098,6 +1208,44 @@ private:
             m_Camera->GetTransform().Position += camOffset;
     }
 
+    /**
+     * Closes out the frame that started at `frameStart`.
+     *
+     * Frame 0 goes to its own pair of fields rather than into the series: it
+     * pays for the first use of every pipeline, the first descriptor writes and
+     * the first acquire, so it is an outlier by construction and mixing it in
+     * describes neither it nor a steady-state frame. The panel's readout is fed
+     * from the measurement too, so that it shows what a frame cost rather than
+     * what --fixed-dt told the simulation to pretend.
+     */
+    void RecordFrameTiming(std::chrono::steady_clock::time_point frameStart)
+    {
+        const float frameMs = MillisecondsSince(frameStart);
+
+        // Clamped because the two are measured by different calls to the same
+        // clock: a wait can be charged a few microseconds the frame total has
+        // not yet accrued, and a negative CPU cost is worse than a zero one.
+        const float cpuMs = std::max(0.f, frameMs - m_FrameWaitMs);
+
+        const float smoothing = 0.9f;
+        m_DisplayFrameTime = (m_DisplayFrameTime * smoothing) + (frameMs * (1.f - smoothing));
+        if (frameMs > 0.f)
+            m_DisplayFPS = (m_DisplayFPS * smoothing) + ((1000.f / frameMs) * (1.f - smoothing));
+
+        if (m_Options.ReportPath.empty() && !m_Options.bReportAutoPath)
+            return;
+
+        if (m_FrameCounter == 1)
+        {
+            m_FirstFrameMs = frameMs;
+            m_FirstFrameCpuMs = cpuMs;
+            return;
+        }
+
+        m_FrameMs.push_back(frameMs);
+        m_CpuMs.push_back(cpuMs);
+    }
+
     void DrawFrame(bool captureScreenshot = false)
     {
         // Semaphores coordinate GPU to GPU synchronisation, for example
@@ -1119,11 +1267,19 @@ private:
         }
 
         FrameData& frameData = m_Frames[m_FrameIndex];
+
+        // The frame's blocking calls are measured rather than assumed away: on a
+        // FIFO surface the wait is most of the wall clock, and a CPU cost that
+        // included it would read as a regression whenever the display paced us.
+        const auto fenceWaitStart = std::chrono::steady_clock::now();
         auto fenceResult = m_Device.waitForFences(*frameData.DrawFence, vk::True, UINT64_MAX);
+        m_FrameWaitMs += MillisecondsSince(fenceWaitStart);
         if (fenceResult != vk::Result::eSuccess)
             throw std::runtime_error("Failed to wait for fence!");
 
+        const auto acquireStart = std::chrono::steady_clock::now();
         const Rhi::AcquiredImage image = m_PresentTarget->Acquire();
+        m_FrameWaitMs += MillisecondsSince(acquireStart);
         if (image.bNeedsRecreate)
         {
             RecreateSwapchainAndRenderImages();
@@ -1212,7 +1368,10 @@ private:
             .pSignalSemaphores = &signalOnComplete};
         m_GraphicsQueue.submit(submitInfo, *frameData.DrawFence);
 
-        if (!m_PresentTarget->Present(image.Index))
+        const auto presentStart = std::chrono::steady_clock::now();
+        const bool bPresented = m_PresentTarget->Present(image.Index);
+        m_FrameWaitMs += MillisecondsSince(presentStart);
+        if (!bPresented)
             RecreateSwapchainAndRenderImages();
 
         m_FrameIndex = (m_FrameIndex + 1) % NUM_FRAMES_IN_FLIGHT;
@@ -1916,7 +2075,10 @@ private:
 
         cmd.beginRendering(renderingInfo);
 
-        if (m_bCursorVisible)
+        // The pass itself still records: its barrier and its render pass are what
+        // a frame costs whether or not the panel is drawn, so suppressing the
+        // panel alone leaves every counter in the run report untouched.
+        if (m_bCursorVisible && !m_Options.bNoUi)
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *cmd);
 
         cmd.endRendering();
@@ -2659,8 +2821,15 @@ private:
     uint32_t m_FrameIndex = 0;
     bool m_bIsFocused = true;
     bool m_bCursorVisible = true;
-    std::chrono::time_point<std::chrono::high_resolution_clock> m_StartTime;
-    std::chrono::time_point<std::chrono::high_resolution_clock> m_LastTime;
+    /**
+     * Set in main() before anything else runs, so startupMs covers argument
+     * parsing and the window as well as device creation and the scene's
+     * uploads — the two paths a windowed and a headless run differ on.
+     */
+    std::chrono::steady_clock::time_point m_ProcessStart;
+
+    std::chrono::steady_clock::time_point m_StartTime;
+    std::chrono::steady_clock::time_point m_LastTime;
     uint64_t m_FrameCounter = 0;
     float m_RunTime = 0.f;
     float m_DeltaTime = 0.f;
@@ -2692,13 +2861,31 @@ private:
     uint32_t m_TransparentDrawCallCount = 0;
     uint32_t m_TransparentBatchCount = 0;
     uint32_t m_TransparentInstanceCount = 0;
-    std::vector<float> m_FrameTimesMs;
+    /**
+     * Wall clock per frame, and the same minus everything the frame spent
+     * blocked. Frame 0 is held separately rather than mixed in: it pays for
+     * first use of every pipeline and the first acquire, so averaging it with
+     * the rest describes neither.
+     */
+    std::vector<float> m_FrameMs;
+    std::vector<float> m_CpuMs;
+    float m_FirstFrameMs = 0.f;
+    float m_FirstFrameCpuMs = 0.f;
+    float m_StartupMs = 0.f;
+
+    /** Time this frame spent blocked, accumulated across its blocking calls. */
+    float m_FrameWaitMs = 0.f;
     Rhi::UniqueHandle<Rhi::BufferHandle> m_ScreenshotStagingBuffer;
     bool m_bScreenshotBufferReady = false;
 };
 
 int main(int argc, char** argv)
 {
+    // First statement in the process, so that startupMs in the run report
+    // covers argument parsing and window creation as well as device setup —
+    // which is where a windowed and a headless run differ most.
+    const auto processStart = std::chrono::steady_clock::now();
+
 #ifdef _WIN32
     EnableAnsiColors();
 #endif
@@ -2774,7 +2961,8 @@ int main(int argc, char** argv)
 
         pPaths = std::make_unique<Paths>(options.ContentRoot);
 
-        pApp = std::make_unique<App>(*pPlatform, *pPaths, options, *pJobSystem, diagnostics);
+        pApp = std::make_unique<App>(*pPlatform, *pPaths, options, *pJobSystem, diagnostics,
+                                     processStart);
         pApp->Run();
     }
     catch (const SDLException& e)

@@ -21,8 +21,15 @@ REM three quarters of the display.
 REM
 REM Both only pin the extent to *this* display's. A capture that does not depend
 REM on the display at all needs an offscreen render target (Part IV steps 38-39).
+REM
+REM --no-ui is what makes the capture about the scene. The editor panel is a fifth
+REM of the frame, and it is not reproducible on principle: nothing warps the
+REM cursor at startup, so the panel carries a hover highlight on whichever widget
+REM the mouse was last over. It has been stable in practice only because the mouse
+REM did not move between runs. ImGui still initialises and its pass still records,
+REM so the counters in the report are unaffected by the flag.
 build\%PRESET%\HikariEngine.exe --report --screenshot --frames --fixed-dt --scene --camera-preset 1 ^
-    --resolution 1920x1080 --borderless
+    --resolution 1920x1080 --borderless --no-ui
 if errorlevel 1 exit /b %errorlevel%
 
 endlocal

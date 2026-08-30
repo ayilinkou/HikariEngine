@@ -176,17 +176,24 @@ a PNG and a JSON report:
 ```bash
 tests/scripts/baseline_test.sh   # --scene (default scenes/test_scene.map) --frames (default 1000)
                                  # --fixed-dt --camera-preset 1 --screenshot --report
-                                 # --resolution 1920x1080 --borderless
+                                 # --resolution 1920x1080 --borderless --no-ui
 ```
 
 Output goes to `tests/screenshots/` and `tests/reports/` (both gitignored). Compare against
 the committed `tests/baseline/`. Two signals, and **both are usable**:
 
-- **The report** carries `validationErrors`, `validationWarnings`, `drawCalls`, `batches`,
-  `instances`, `barriers`, `barrierCalls`. Validation errors must stay at 0. Ignore
-  `meanFrameTimeMs`/`p99FrameTimeMs` — under `--fixed-dt` the app records the *timestep*
-  rather than measured cost, so both read exactly 16.6667 regardless of performance. That is
-  a known defect, tracked in `docs/backlog.md`.
+- **The report's `counters`** — `validationErrors`, `validationWarnings`, `drawCalls`,
+  `batches`, `instances`, `barriers`, `barrierCalls`. These are expectations: they must match
+  the committed baseline exactly, and validation errors must stay at 0.
+- **The report's `timings`** — `startupMs`, `firstFrame`, and `mean`/`p99`/`min`/`max` for
+  both `frameMs` (wall clock) and `cpuMs` (the same minus what the frame spent blocked).
+  These are measurements, not expectations: they vary with the machine, so read them for
+  drift rather than diffing them. `frameMs` is bounded below by the display refresh whenever
+  the present path throttles the CPU, which is what `cpuMs` exists to see past. Frame 0 is
+  reported separately as `firstFrame` and excluded from the series, since it pays for first
+  use of every pipeline. Two reports are comparable only when their `run` blocks agree —
+  `buildConfig` in particular, since a debug and a release run differ by an order of
+  magnitude and nothing else in the file would say so.
 - **A pixel diff of the screenshot**, which is the stronger check and is now reliable: the
   script forces `--resolution 1920x1080 --borderless`, so captures come out at a fixed extent
   instead of at whatever size the window manager chose. **Never byte-compare** — PNG encoding

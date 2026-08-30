@@ -308,6 +308,30 @@ inline constexpr std::array kAllMemoryAccesses{
 };
 
 /**
+ * How a presented frame reaches the display.
+ *
+ * Vulkan is the API that names these, so its terms stand (D13): D3D12 spells
+ * the same behaviour as a SyncInterval plus ALLOW_TEARING, and has no single
+ * name to borrow. Only Fifo is guaranteed by the Vulkan specification — a
+ * surface need not offer any of the others, which is why the default is a
+ * preference rather than a requirement.
+ */
+enum class PresentMode : uint8_t
+{
+    Immediate,
+    Mailbox,
+    Fifo,
+    FifoRelaxed,
+};
+
+inline constexpr std::array kAllPresentModes{
+    PresentMode::Immediate,
+    PresentMode::Mailbox,
+    PresentMode::Fifo,
+    PresentMode::FifoRelaxed,
+};
+
+/**
  * Values are the sample counts themselves, so a count can be converted to a
  * bit position arithmetically rather than through another table.
  */

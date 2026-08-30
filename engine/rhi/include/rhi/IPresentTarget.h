@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include <rhi/Barrier.h>
@@ -75,6 +76,16 @@ public:
     virtual Format GetFormat() const = 0;
     virtual Extent2D GetExtent() const = 0;
     virtual uint32_t GetImageCount() const = 0;
+
+    /**
+     * The mode this target actually presents in, or nothing when it does not
+     * present — an offscreen target has no display to pace against.
+     *
+     * Worth reporting rather than assuming: the default is a preference, so a
+     * surface without Mailbox silently yields Fifo, and two runs measured under
+     * different modes are not comparable.
+     */
+    virtual std::optional<PresentMode> GetPresentMode() const = 0;
 
     /**
      * The layout this target needs an image left in when the frame that drew it
