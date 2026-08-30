@@ -1,10 +1,13 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <format>
 #include <limits>
 #include <ranges>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "vulkan/vulkan.hpp"
@@ -22,23 +25,66 @@ namespace Hikari::Rhi::Vulkan
  */
 
 /**
- * Chooses an ideal swapchain format if available, if not picks the first
- * one.
+ * Chooses the swapchain format from an ordered preference, and fails when the
+ * surface offers none of them.
+ *
+ * A curated order rather than a fallback to formats[0], for two reasons.
+ *
+ * It is a *rendering* hazard. Both candidates here are UNORM with an
+ * sRGB-nonlinear colour space, so whichever is chosen the hardware does the
+ * same thing on write and the image is identical. Falling back to whatever the
+ * surface listed first can land on an _SRGB format, which encodes on write: the
+ * same shader output becomes different pixels, and a baseline comparison fails
+ * for a reason that has nothing to do with the change under test.
+ *
+ * And it is a *naming* hazard. The caller converts the result with
+ * FromNativeFormat, which throws on anything the curated Rhi::Format list
+ * cannot name. Rhi::Format has BGRA8Unorm and RGBA8Unorm but no BGRA8Srgb — and
+ * on an X11 surface with RADV the only two formats offered are B8G8R8A8_SRGB
+ * and B8G8R8A8_UNORM, so formats[0] is exactly the unnameable one. The old
+ * fallback therefore aborted startup one line later, with a message about
+ * format conversion rather than about the surface.
+ *
+ * Extending the list is a deliberate act: a third entry has to be nameable by
+ * Rhi::Format *and* leave the image unchanged, or it is not a fallback.
  */
 inline vk::SurfaceFormatKHR ChooseSwapchainFormat(const std::vector<vk::SurfaceFormatKHR>& formats)
 {
     if (formats.empty())
         throw std::runtime_error("No surface formats available!");
 
-    const auto formatIt =
-        std::ranges::find_if(formats,
-                             [](const auto& format)
-                             {
-                                 return format.format == vk::Format::eB8G8R8A8Unorm &&
-                                        format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
-                             });
+    constexpr std::array kPreferred{vk::Format::eB8G8R8A8Unorm, vk::Format::eR8G8B8A8Unorm};
 
-    return formatIt != formats.end() ? *formatIt : formats[0];
+    for (const vk::Format preferred : kPreferred)
+    {
+        const auto formatIt =
+            std::ranges::find_if(formats,
+                                 [preferred](const auto& format)
+                                 {
+                                     return format.format == preferred &&
+                                            format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
+                                 });
+
+        if (formatIt != formats.end())
+            return *formatIt;
+    }
+
+    // Names what was wanted and what the surface has, because the two together
+    // are what a reader needs: the failure is a driver or platform whose
+    // surface offers something this list has not met yet.
+    std::string offered;
+    for (const vk::SurfaceFormatKHR& format : formats)
+    {
+        if (!offered.empty())
+            offered += ", ";
+        offered +=
+            std::format("{} / {}", vk::to_string(format.format), vk::to_string(format.colorSpace));
+    }
+
+    throw std::runtime_error(
+        std::format("No usable swapchain format: this surface offers none of B8G8R8A8_UNORM or "
+                    "R8G8B8A8_UNORM with SRGB_NONLINEAR. Offered: {}.",
+                    offered));
 }
 
 /** Chooses mailbox presentation mode if available. Falls back to FIFO. */
