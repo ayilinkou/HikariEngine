@@ -28,7 +28,7 @@ struct DeviceRequirements
 
 struct DeviceDesc
 {
-    std::string ApplicationName = "VulkanApp";
+    std::string ApplicationName = "HikariEngine";
 
     DeviceRequirements Requirements;
 

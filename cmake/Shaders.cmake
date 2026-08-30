@@ -26,9 +26,9 @@ endif()
 
 # Compiles .slang sources to SPIR-V beside the executable that loads them.
 #
-# The output directory is VULKANAPP_EXE_DIR/shaders — set next to
-# add_executable(VulkanApp), so the two cannot drift — rather than a fixed path
-# in the source tree, and that is load-bearing. Debug and Release
+# The output directory is HIKARI_EXE_DIR/shaders — set next to
+# add_executable(HikariEngine), so the two cannot drift — rather than a fixed
+# path in the source tree, and that is load-bearing. Debug and Release
 # compile the same sources with different flags (-O0 -g1 against -O3 -g0), so a
 # shared output directory means the two configurations overwrite each other's
 # work. Worse, they do it silently: each build directory judges the .spv
@@ -46,7 +46,7 @@ function(add_slang_shader_target target)
   cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
 
   set(shaders_source_dir ${CMAKE_SOURCE_DIR}/src/shaders)
-  set(shaders_out_dir ${VULKANAPP_EXE_DIR}/shaders)
+  set(shaders_out_dir ${HIKARI_EXE_DIR}/shaders)
 
   set(spv_outputs "")
   foreach(shader ${SHADER_SOURCES})
@@ -100,4 +100,4 @@ file(GLOB_RECURSE shader_slang_sources CONFIGURE_DEPENDS
      ${CMAKE_SOURCE_DIR}/src/shaders/*.slang)
 
 add_slang_shader_target(CompileShadersTarget SOURCES ${shader_slang_sources})
-add_dependencies(VulkanApp CompileShadersTarget)
+add_dependencies(HikariEngine CompileShadersTarget)

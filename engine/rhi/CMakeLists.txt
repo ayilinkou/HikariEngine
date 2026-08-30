@@ -35,8 +35,8 @@ target_include_directories(RHI PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # vulkan.hpp defines its structs differently depending on this macro (aggregates
 # without constructors when set), so a translation unit that disagrees with its
 # neighbours is an ODR violation waiting to be diagnosed as something else
-# entirely. VulkanApp already sets it; PUBLIC here keeps every consumer of this
-# module — the app, the tests, and anything Stage 6+ adds — in agreement.
+# entirely. HikariEngine already sets it; PUBLIC here keeps every consumer of
+# this module — the app, the tests, and anything Stage 6+ adds — in agreement.
 target_compile_definitions(RHI PUBLIC VULKAN_HPP_NO_STRUCT_CONSTRUCTORS)
 
 # vk::MetalSurfaceCreateInfoEXT / vk::EXTMetalSurfaceExtensionName and

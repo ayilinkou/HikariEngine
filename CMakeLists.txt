@@ -27,7 +27,7 @@ if(CMAKE_EXPORT_COMPILE_COMMANDS AND CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
 endif()
 
 project(
-  VulkanApp
+  HikariEngine
   VERSION 1.0
   LANGUAGES CXX)
 
@@ -241,7 +241,7 @@ engine_header_self_containment(
   GLM_ENABLE_EXPERIMENTAL
   $<$<CONFIG:Debug>:DEBUG>)
 
-add_executable(VulkanApp)
+add_executable(HikariEngine)
 
 # Where the executable lands, and — via cmake/Shaders.cmake — the shaders it
 # loads. Both are derived from this one variable so that they cannot drift
@@ -256,20 +256,20 @@ add_executable(VulkanApp)
 # — the automatic append happens to the target property only.
 get_property(is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if(is_multi_config)
-  set(VULKANAPP_EXE_DIR ${CMAKE_BINARY_DIR}/$<CONFIG>)
+  set(HIKARI_EXE_DIR ${CMAKE_BINARY_DIR}/$<CONFIG>)
 else()
-  set(VULKANAPP_EXE_DIR ${CMAKE_BINARY_DIR})
+  set(HIKARI_EXE_DIR ${CMAKE_BINARY_DIR})
 endif()
 
-set_target_properties(VulkanApp PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                                           ${VULKANAPP_EXE_DIR})
+set_target_properties(HikariEngine PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                              ${HIKARI_EXE_DIR})
 
-target_precompile_headers(VulkanApp PRIVATE src/pch.h)
+target_precompile_headers(HikariEngine PRIVATE src/pch.h)
 
-target_sources(VulkanApp PRIVATE ${SOURCES})
+target_sources(HikariEngine PRIVATE ${SOURCES})
 
 target_link_libraries(
-  VulkanApp
+  HikariEngine
   PRIVATE Engine::Core
           Engine::Platform
           Engine::RHI
@@ -282,34 +282,34 @@ target_link_libraries(
           pugixml::pugixml
           ImGuiFileDialog)
 
-target_include_directories(VulkanApp PRIVATE src ${Stb_INCLUDE_DIR})
+target_include_directories(HikariEngine PRIVATE src ${Stb_INCLUDE_DIR})
 
 target_compile_definitions(
-  VulkanApp
+  HikariEngine
   PRIVATE VULKAN_HPP_NO_STRUCT_CONSTRUCTORS GLM_FORCE_DEPTH_ZERO_TO_ONE
           GLM_ENABLE_EXPERIMENTAL $<$<CONFIG:Debug>:DEBUG>)
 
 if(MSVC)
   if(CMAKE_GENERATOR MATCHES "Visual Studio")
     # MSBuild batches TUs into one cl invocation, so /MP is what parallelises.
-    target_compile_options(VulkanApp PRIVATE /MP)
+    target_compile_options(HikariEngine PRIVATE /MP)
   else()
     # Ninja parallelises itself; /Z7 embeds debug info in each .obj and avoids
     # serialising all TUs through mspdbsrv writing a shared PDB.
-    set_target_properties(VulkanApp PROPERTIES MSVC_DEBUG_INFORMATION_FORMAT
-                                               "$<$<CONFIG:Debug>:Embedded>")
+    set_target_properties(HikariEngine PROPERTIES MSVC_DEBUG_INFORMATION_FORMAT
+                                                  "$<$<CONFIG:Debug>:Embedded>")
   endif()
 
-  target_compile_options(VulkanApp PRIVATE $<$<CONFIG:Debug>:/Od>
-                                           $<$<CONFIG:Release>:/O2>)
+  target_compile_options(HikariEngine PRIVATE $<$<CONFIG:Debug>:/Od>
+                                              $<$<CONFIG:Release>:/O2>)
 
   target_link_options(
-    VulkanApp PRIVATE $<$<CONFIG:Debug>:/DEBUG> # optional but useful for crash
-                                                # reports
+    HikariEngine PRIVATE $<$<CONFIG:Debug>:/DEBUG> # optional but useful for crash
+                                                   # reports
     $<$<CONFIG:Release>:/DEBUG>)
 else()
   target_compile_options(
-    VulkanApp
+    HikariEngine
     PRIVATE $<$<CONFIG:Debug>:
             -O0
             -g
@@ -326,16 +326,16 @@ else()
     include(CheckLinkerFlag)
     check_linker_flag(CXX "-fuse-ld=lld" LLD_LINKER_AVAILABLE)
     if(LLD_LINKER_AVAILABLE)
-      target_link_options(VulkanApp PRIVATE -fuse-ld=lld)
+      target_link_options(HikariEngine PRIVATE -fuse-ld=lld)
     endif()
   endif()
 endif()
 
-engine_set_warnings(VulkanApp)
+engine_set_warnings(HikariEngine)
 
 include(cmake/Shaders.cmake)
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT
-                                                            VulkanApp)
-set_target_properties(VulkanApp PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY
-                                           "${CMAKE_SOURCE_DIR}")
+                                                            HikariEngine)
+set_target_properties(HikariEngine PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY
+                                              "${CMAKE_SOURCE_DIR}")

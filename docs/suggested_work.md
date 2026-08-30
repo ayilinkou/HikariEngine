@@ -1,4 +1,4 @@
-# VulkanApp — Codebase Review & Suggested Work
+# HikariEngine — Codebase Review & Suggested Work
 
 **Date:** 04/08/2026
 

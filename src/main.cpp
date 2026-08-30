@@ -222,9 +222,9 @@ constexpr bool IsWritablePngFormat(Rhi::Format format)
 
 void PrintUsage()
 {
-    std::cout << "VulkanApp\n"
+    std::cout << "HikariEngine\n"
                  "\n"
-                 "Usage: VulkanApp [options]\n"
+                 "Usage: HikariEngine [options]\n"
                  "\n"
                  "Options:\n"
                  "  --scene <path>          Load a scene (.map) on startup\n"
@@ -596,7 +596,7 @@ private:
     [[nodiscard]] Rhi::DeviceDesc MakeDeviceDesc() const
     {
         Rhi::DeviceDesc desc;
-        desc.ApplicationName = "Vulkan App";
+        desc.ApplicationName = "HikariEngine";
         desc.bEnableValidation = bEnableValidationLayers;
         desc.pDiagnostics = &m_Diagnostics;
         // The line the whole headless path turns on: no present requirement

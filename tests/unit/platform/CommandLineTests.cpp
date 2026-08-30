@@ -11,7 +11,7 @@ namespace
 // parser expects to skip.
 CommandLine Parse(std::vector<const char*> args)
 {
-    args.insert(args.begin(), "VulkanApp");
+    args.insert(args.begin(), "HikariEngine");
     return CommandLine(static_cast<int>(args.size()), args.data());
 }
 } // namespace

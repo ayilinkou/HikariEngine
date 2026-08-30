@@ -12,12 +12,12 @@ namespace
 {
 constexpr LogCategory LogPaths("Paths");
 
-constexpr const char* kContentEnvVar = "VULKANAPP_CONTENT";
+constexpr const char* kContentEnvVar = "HIKARI_CONTENT";
 constexpr const char* kContentDirName = "content";
 constexpr const char* kShaderDirName = "shaders";
 
-constexpr const char* kUserDataEnvVar = "VULKANAPP_USER_DATA";
-constexpr const char* kAppName = "VulkanApp";
+constexpr const char* kUserDataEnvVar = "HIKARI_USER_DATA";
+constexpr const char* kAppName = "HikariEngine";
 
 bool IsDirectory(const std::filesystem::path& path)
 {
@@ -56,8 +56,8 @@ std::filesystem::path ResolveUserDataRoot()
     }
 
     // SDL_GetPrefPath() creates the directory and returns it with a trailing
-    // separator: $XDG_DATA_HOME/VulkanApp on Linux, %APPDATA%\VulkanApp on
-    // Windows, ~/Library/Application Support/VulkanApp on macOS.
+    // separator: $XDG_DATA_HOME/HikariEngine on Linux, %APPDATA%\HikariEngine
+    // on Windows, ~/Library/Application Support/HikariEngine on macOS.
     //
     // The organisation argument is empty because this project has no
     // organisation name to give, and passing the application name for both
@@ -138,7 +138,7 @@ Paths::Paths(std::string_view commandLineOverride)
 
     // Last resort, so that a freshly built tree runs before anything has been
     // installed next to the executable.
-    candidates.SourceRelative = std::filesystem::path(VULKANAPP_SOURCE_DIR) / kContentDirName;
+    candidates.SourceRelative = std::filesystem::path(HIKARI_SOURCE_DIR) / kContentDirName;
 
     m_ContentRoot = ResolveContentRoot(candidates);
 

@@ -1,5 +1,5 @@
 {
-	"name": "vulkan-app",
+	"name": "hikari-engine",
 	"version-string": "0.1.0",
 	"dependencies": [
 		{

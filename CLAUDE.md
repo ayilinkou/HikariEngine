@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Cross-platform game engine (Windows / Linux / macOS-ARM) built on Vulkan, with a D3D12
-backend planned later. C++20, CMake + vcpkg, Slang shaders.
+HikariEngine — a cross-platform game engine (Windows / Linux / macOS-ARM) built on Vulkan,
+with a D3D12 backend planned later. C++20, CMake + vcpkg, Slang shaders.
 
 The engine is mid-refactor from a single-executable prototype into a layered library set.
 Three reference documents drive that work — read the relevant section before proposing
@@ -146,13 +146,13 @@ debug-linux build for clangd.
 Asset paths resolve against a content root, not the CWD, so the app runs from anywhere:
 
 ```bash
-./build/ninja-debug-linux/VulkanApp --scene scenes/test_scene.map   # content-relative
-./build/ninja-debug-linux/VulkanApp --content /path/to/content      # explicit root
-./build/ninja-debug-linux/VulkanApp --help
+./build/ninja-debug-linux/HikariEngine --scene scenes/test_scene.map   # content-relative
+./build/ninja-debug-linux/HikariEngine --content /path/to/content      # explicit root
+./build/ninja-debug-linux/HikariEngine --help
 ```
 
 `Paths` (in `engine/platform`) resolves the root in priority order: `--content` →
-`VULKANAPP_CONTENT` → `<exe dir>/content` → `<source dir>/content`. An override given
+`HIKARI_CONTENT` → `<exe dir>/content` → `<source dir>/content`. An override given
 explicitly must exist — a mistyped `--content` fails rather than silently falling back.
 Paths handed to `Paths::Content()` are content-relative unless absolute, in which case they
 are used as given.

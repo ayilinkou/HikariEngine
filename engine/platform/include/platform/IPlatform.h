@@ -12,7 +12,7 @@ struct WindowDesc
     // main one, are unknown until the window system has been initialised.
     uint32_t Width = 0u;
     uint32_t Height = 0u;
-    std::string Title = "Vulkan App";
+    std::string Title = "Hikari Engine";
     bool bResizable = true;
     bool bBorderless = false;
 };

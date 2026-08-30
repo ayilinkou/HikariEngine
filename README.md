@@ -1,14 +1,14 @@
-# VulkanApp
+# HikariEngine
 
-[![Linux Release](https://img.shields.io/github/check-runs/ayilinkou/VulkanApp/main?nameFilter=build%20%28ubuntu-latest%2C%20ninja-release-linux%29&label=Linux%20Release)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
-[![Linux Debug](https://img.shields.io/github/check-runs/ayilinkou/VulkanApp/main?nameFilter=build%20%28ubuntu-latest%2C%20ninja-debug-linux%29&label=Linux%20Debug)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
-[![Linux ASan](https://img.shields.io/github/check-runs/ayilinkou/VulkanApp/main?nameFilter=build%20%28ubuntu-latest%2C%20ninja-asan-linux%29&label=Linux%20ASan)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
-[![Windows Release](https://img.shields.io/github/check-runs/ayilinkou/VulkanApp/main?nameFilter=build%20%28windows-latest%2C%20ninja-release-windows%29&label=Windows%20Release)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
-[![Windows Debug](https://img.shields.io/github/check-runs/ayilinkou/VulkanApp/main?nameFilter=build%20%28windows-latest%2C%20ninja-debug-windows%29&label=Windows%20Debug)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
-[![Windows ASan](https://img.shields.io/github/check-runs/ayilinkou/VulkanApp/main?nameFilter=build%20%28windows-latest%2C%20ninja-asan-windows%29&label=Windows%20ASan)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
-[![macOS Release](https://img.shields.io/github/check-runs/ayilinkou/VulkanApp/main?nameFilter=build%20%28macos-latest%2C%20ninja-release-macos%29&label=macOS%20Release)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
-[![macOS Debug](https://img.shields.io/github/check-runs/ayilinkou/VulkanApp/main?nameFilter=build%20%28macos-latest%2C%20ninja-debug-macos%29&label=macOS%20Debug)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
-[![macOS ASan](https://img.shields.io/github/check-runs/ayilinkou/VulkanApp/main?nameFilter=build%20%28macos-latest%2C%20ninja-asan-macos%29&label=macOS%20ASan)](https://github.com/ayilinkou/VulkanApp/actions/workflows/ci.yml)
+[![Linux Release](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28ubuntu-latest%2C%20ninja-release-linux%29&label=Linux%20Release)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
+[![Linux Debug](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28ubuntu-latest%2C%20ninja-debug-linux%29&label=Linux%20Debug)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
+[![Linux ASan](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28ubuntu-latest%2C%20ninja-asan-linux%29&label=Linux%20ASan)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
+[![Windows Release](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28windows-latest%2C%20ninja-release-windows%29&label=Windows%20Release)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
+[![Windows Debug](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28windows-latest%2C%20ninja-debug-windows%29&label=Windows%20Debug)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
+[![Windows ASan](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28windows-latest%2C%20ninja-asan-windows%29&label=Windows%20ASan)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
+[![macOS Release](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28macos-latest%2C%20ninja-release-macos%29&label=macOS%20Release)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
+[![macOS Debug](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28macos-latest%2C%20ninja-debug-macos%29&label=macOS%20Debug)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
+[![macOS ASan](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28macos-latest%2C%20ninja-asan-macos%29&label=macOS%20ASan)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
 
 ## Requirements
 This project requires CMake, vcpkg and the Vulkan SDK to be installed. Please make sure the `VULKAN_SDK` environment variable is set to the correct path.
