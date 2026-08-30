@@ -1,18 +1,11 @@
 @echo off
 setlocal
 
-if not "%~1"=="" (
-    set "PRESET=%~1"
-) else (
-    set "PRESET=ninja-debug-windows"
-)
-
-if not "%PRESET%"=="msvc" (
-    call "%~dp0..\..\scripts\envsetup.bat"
-    if errorlevel 1 exit /b %errorlevel%
-)
-
-cmake --build build\%PRESET% --target format-check
+REM Thin wrapper: the file list and the invocation live in cmake\Format.cmake so
+REM that this, the .sh and the `format-check` build target share one
+REM implementation. No preset argument — checking formatting needs no configured
+REM tree, which is what lets CI run it on a bare runner.
+cmake -P "%~dp0..\..\cmake\Format.cmake"
 if errorlevel 1 exit /b %errorlevel%
 
 endlocal

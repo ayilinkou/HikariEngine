@@ -32,7 +32,6 @@ the decided approach for each. The notes below the table describe the defect, no
 | P1 | Move `Extent2D` and `Extent3D` into `Engine::Core` — one type instead of `::Extent2D` and `Rhi::Extent2D` *(cleanup: `engine/core`)* | `core/`, `platform/`, `rhi/` | S | |
 | P1 | `ChooseSwapchainFormat`'s fallback hands `FromNativeFormat` something it may not be able to name *(cleanup: `engine/rhi`)* | `rhi/vulkan/SwapchainUtil.h` | XS | |
 | P1 | Delete `App::m_Surface` — bound, never read, and the only caller of `Rhi::Vulkan::GetSurface` *(cleanup: `engine/rhi`)* | `main.cpp`, `rhi/vulkan/VulkanNative.h` | XS | |
-| P1 | `rhi_boundary_check` runs in precommit but not in CI *(cleanup: `test/ci`)* | `.github/workflows/ci.yml` | XS | |
 | P1 | `SdlPlatform`'s explicit `SDL_Vulkan_LoadLibrary`/`UnloadLibrary` pair is redundant — a `SDL_WINDOW_VULKAN` window loads and unloads the library itself *(cleanup: `platform/sdl`)* | `platform/SdlPlatform.cpp`, `SdlPlatform.h` | XS | |
 | P2 | `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to mailbox; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `main.cpp` | S | |
 | P2 | Document the matrix convention once and apply it consistently | `opaque.slang` header comment | S | |
