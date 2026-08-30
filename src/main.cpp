@@ -215,6 +215,11 @@ struct Options
      * flag differs from one without it only in what is drawn. The baseline
      * capture uses it because the panel is a fifth of the frame and its hover
      * state depends on where the mouse was last left.
+     *
+     * Orthogonal to --headless on purpose: a headless run still draws the panel,
+     * which is what keeps ImGui exercised once the headless tests run in CI, and
+     * comparing a windowed capture against a headless one needs the flag passed
+     * explicitly on both sides rather than implied by one of them.
      */
     bool bNoUi = false;
 
@@ -715,6 +720,12 @@ public:
         // capture on frame N-1 and never gets here. The extra frame counts as an
         // ordinary one, in the frame total and in the timing series: it is a
         // frame the app drew, and an interrupted run is not a measured one.
+        //
+        // The obvious alternative — stage a copy every frame while --screenshot
+        // is set, so one is always ready — is what this avoids. It would add a
+        // copy and a barrier to every frame of the mode used for measurement,
+        // moving barriers and barrierCalls in every captured run and inflating
+        // the very timings the report exists to make honest.
         if (bWantsScreenshot && !m_bScreenshotBufferReady)
         {
             const auto frameStart = std::chrono::steady_clock::now();

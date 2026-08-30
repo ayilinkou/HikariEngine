@@ -3,7 +3,6 @@
 #include <format>
 
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_vulkan.h>
 
 #include <core/Log.h>
 
@@ -75,9 +74,11 @@ SdlPlatform::SdlPlatform(const WindowDesc& desc)
     Core::LogMsg(Core::LogSeverity::Info, LogSDL, "SDL video driver: {}",
                  SDL_GetCurrentVideoDriver());
 
-    if (!SDL_Vulkan_LoadLibrary(nullptr))
-        throw SDLException("Failed to load Vulkan library!");
-
+    // No SDL_Vulkan_LoadLibrary here: SDL_CreateWindow does it. SDL_video.h
+    // documents that a window created with SDL_WINDOW_VULKAN calls
+    // SDL_Vulkan_LoadLibrary itself, and that SDL_DestroyWindow calls the
+    // matching unload — and this window always carries that flag.
+    //
     // Hidden so the window isn't visible while initialisation is taking place;
     // Show() reveals it.
     SDL_WindowFlags flags = SDL_WINDOW_VULKAN | SDL_WINDOW_HIDDEN;
@@ -93,8 +94,15 @@ SdlPlatform::SdlPlatform(const WindowDesc& desc)
 
     m_pWindow = SDL_CreateWindow(desc.Title.c_str(), static_cast<int>(size.Width),
                                  static_cast<int>(size.Height), flags);
+    // Names the Vulkan driver, because this is where a machine without one
+    // fails: SDL_video.h says "if SDL_WINDOW_VULKAN is specified and there
+    // isn't a working Vulkan driver, SDL_CreateWindow() will fail, because
+    // SDL_Vulkan_LoadLibrary() will fail". Blaming the window would send a
+    // reader looking at window flags and display bounds instead. SDLException
+    // appends SDL_GetError(), which names the real cause.
     if (m_pWindow == nullptr)
-        throw SDLException("Failed to create window!");
+        throw SDLException("Failed to create the window — SDL loads the Vulkan library as part of "
+                           "this, so a missing or broken driver fails here:");
 
     // SDL_CreateWindow takes no position, so without this the window manager
     // places the window — on Windows, cascaded down from the top left. Setting
@@ -122,7 +130,6 @@ SdlPlatform::~SdlPlatform()
         SDL_DestroyWindow(m_pWindow);
     }
 
-    SDL_Vulkan_UnloadLibrary();
     SDL_Quit();
 }
 

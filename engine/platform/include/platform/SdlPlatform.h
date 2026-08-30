@@ -18,11 +18,17 @@ public:
 };
 
 /**
- * Owns SDL init, the Vulkan loader and the window — brought up in that order
- * by the constructor, torn down in reverse by the destructor.
+ * Owns SDL init and the window — brought up in that order by the constructor,
+ * torn down in reverse by the destructor.
  *
- * Because the destructor calls SDL_Vulkan_UnloadLibrary(), an SdlPlatform must
- * outlive every object holding a Vulkan handle.
+ * An SdlPlatform must outlive every object holding a Vulkan handle, because its
+ * destructor destroys the window and that invalidates the surface created from
+ * it. Destroying a VkSurfaceKHR after its window is gone, or presenting to it,
+ * is use-after-free — the swapchain built on that surface has to go first.
+ *
+ * The Vulkan library itself is not the reason. SDL loads it as part of creating
+ * an SDL_WINDOW_VULKAN window and unloads it in SDL_DestroyWindow, and the app's
+ * own dispatcher holds its own reference regardless of what SDL does.
  */
 class SdlPlatform final : public IPlatform
 {
