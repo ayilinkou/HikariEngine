@@ -4,7 +4,7 @@ HikariEngine — a cross-platform game engine (Windows / Linux / macOS-ARM) buil
 with a D3D12 backend planned later. C++20, CMake + vcpkg, Slang shaders.
 
 The engine is mid-refactor from a single-executable prototype into a layered library set.
-Four reference documents drive that work — read the relevant section before proposing
+Five reference documents drive that work — read the relevant section before proposing
 architecture, and prefer them over inventing a design:
 
 - `docs/architecture_plan.md` — target architecture (Part II), test strategy
@@ -23,6 +23,12 @@ architecture, and prefer them over inventing a design:
   Read it before touching anything under `engine/rhi/include/`. Its §10 lists what should
   eventually be promoted into the architecture plan; retiring it is a deliberate future
   decision, not a step in the roadmap.
+- `docs/stage7_plan.md` — **temporary, and deleted when Stage 7 completes.** How steps 40b
+  and 41–47 are to be built: the decisions settled before the stage started, the order they
+  run in (41 → 47, then 40b), what is deferred and what each deferral blocks, and the
+  amendments the architecture plan is owed as the work lands. Where it and Part IV disagree,
+  it wins — it was written later; where it and the RHI plan disagree about the RHI's seam,
+  the RHI plan wins.
 
 ---
 
