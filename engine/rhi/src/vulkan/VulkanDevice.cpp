@@ -111,13 +111,21 @@ void AddBundledLayerPath()
 
     std::string value = HIKARI_VULKAN_LAYER_PATH;
 
+#if defined(_WIN32)
+    // getenv is flagged unsafe by MSVC (C4996); _dupenv_s is its thread-safe replacement.
+    char* existing = nullptr;
+    std::size_t existingLen = 0;
+    _dupenv_s(&existing, &existingLen, "VK_ADD_LAYER_PATH");
+    if (existing != nullptr && existing[0] != '\0')
+        value = std::string(existing) + kSeparator + value;
+    std::free(existing);
+
+    _putenv_s("VK_ADD_LAYER_PATH", value.c_str());
+#else
     const char* existing = std::getenv("VK_ADD_LAYER_PATH");
     if (existing != nullptr && existing[0] != '\0')
         value = std::string(existing) + kSeparator + value;
 
-#if defined(_WIN32)
-    _putenv_s("VK_ADD_LAYER_PATH", value.c_str());
-#else
     setenv("VK_ADD_LAYER_PATH", value.c_str(), 1);
 #endif
 }

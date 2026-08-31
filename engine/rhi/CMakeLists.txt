@@ -37,8 +37,9 @@ target_include_directories(RHI PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # HIKARI_VULKAN_LAYER_PATH on VK_ADD_LAYER_PATH before its first enumeration.
 #
 # The manifest is deliberately not used as vcpkg ships it. Its "library_path"
-# names the layer by bare filename, which asks the loader to find it on the
-# system's shared library search path — where it is not. An ordinary build gets
+# names the layer by filename alone — bare on Linux, ".\"-prefixed on Windows —
+# which asks the loader to find it on the system's shared library search path,
+# where it is not. An ordinary build gets
 # away with that because the search reaches the loader's own $ORIGIN, which is
 # the directory the layer sits in; a sanitizer build does not, because ASan
 # interposes dlopen and the RUNPATH glibc then consults belongs to the sanitizer
@@ -49,6 +50,10 @@ if(WIN32)
       "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/VkLayer_khronos_validation.json")
   set(layer_library_dir "bin")
   set(layer_library_name "VkLayer_khronos_validation.dll")
+  # vcpkg's Windows manifest spells library_path as ".\VkLayer_khronos_validation.dll" —
+  # a relative-path prefix, unlike Linux's bare filename — so the search text below has
+  # to include it too, or the REPLACE below silently matches nothing.
+  set(layer_library_search ".\\\\${layer_library_name}")
 else()
   set(layer_manifest
       "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json"
@@ -56,6 +61,34 @@ else()
   set(layer_library_dir "lib")
   set(layer_library_name
       "${CMAKE_SHARED_LIBRARY_PREFIX}VkLayer_khronos_validation${CMAKE_SHARED_LIBRARY_SUFFIX}")
+  set(layer_library_search "${layer_library_name}")
+endif()
+
+# vcpkg's release build of the layer, deliberately, in every configuration. The
+# layer is a tool the loader injects rather than part of this program: it is
+# reached through the C Vulkan ABI and shares no allocator, CRT or STL type with
+# us, so its build config is independent of ours — which is why the LunarG SDK
+# ships a single optimised layer that debug applications load too. Taking vcpkg's
+# debug build in a Debug configuration instead costs roughly 12x the frame time
+# (measured headless: 9.8 ms/frame against 0.8 ms) for byte-identical validation
+# output, because an unoptimised layer built against the debug CRT pays
+# _ITERATOR_DEBUG_LEVEL=2 on the container lookups it performs for every command.
+set(layer_library_path
+    "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/${layer_library_dir}/${layer_library_name}"
+)
+
+# Windows separators, doubled because JSON escapes them. The direction is
+# load-bearing rather than cosmetic: LoadLibraryEx documents that a path must be
+# spelled with backslashes, and vcpkg's layer needs that to hold. It imports
+# mimalloc, whose DLL sits beside the layer and on no default search path, so the
+# only thing that finds it is the LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR retry the
+# loader makes after ERROR_MOD_NOT_FOUND — and that flag requires a fully
+# qualified path, which a forward-slash one is not held to be. Left as CMake
+# writes it, the layer fails to load and instance creation returns
+# VK_ERROR_LAYER_NOT_PRESENT: a missing-layer error for a layer that is present,
+# correctly named, and whose manifest the loader has already read.
+if(WIN32)
+  string(REPLACE "/" "\\\\" layer_library_path "${layer_library_path}")
 endif()
 
 # A textual replacement of the one value, rather than a JSON edit: CMake's
@@ -63,9 +96,8 @@ endif()
 # which silently cost the manifest its instance_extensions block — and with it the
 # VK_EXT_debug_utils the messenger needs.
 file(READ "${layer_manifest}" layer_manifest_json)
-string(REPLACE "\"${layer_library_name}\""
-       "\"${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/$<$<CONFIG:Debug>:debug/>${layer_library_dir}/${layer_library_name}\""
-       layer_manifest_json "${layer_manifest_json}")
+string(REPLACE "\"${layer_library_search}\"" "\"${layer_library_path}\""
+               layer_manifest_json "${layer_manifest_json}")
 file(GENERATE
      OUTPUT "${CMAKE_BINARY_DIR}/vulkan_layers/$<CONFIG>/VkLayer_khronos_validation.json"
      CONTENT "${layer_manifest_json}")
