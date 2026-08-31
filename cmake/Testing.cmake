@@ -17,8 +17,11 @@ function(engine_test test_name)
 
   add_executable(${test_name} ${TEST_SOURCES})
 
+  # SanitizerShims is linked directly rather than inherited: an OBJECT
+  # library's files reach only the targets that name it. See
+  # engine/core/CMakeLists.txt.
   target_link_libraries(${test_name} PRIVATE Catch2::Catch2WithMain
-                                             ${TEST_LIBS})
+                                             SanitizerShims ${TEST_LIBS})
 
   engine_set_warnings(${test_name})
 
