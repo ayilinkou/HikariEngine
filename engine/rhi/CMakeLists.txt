@@ -126,21 +126,6 @@ target_compile_definitions(RHI PUBLIC VULKAN_HPP_NO_STRUCT_CONSTRUCTORS)
 # agree.
 target_compile_definitions(RHI PUBLIC VULKAN_HPP_ENABLE_DYNAMIC_LOADER_TOOL=0)
 
-# vk::MetalSurfaceCreateInfoEXT / vk::EXTMetalSurfaceExtensionName and
-# vk::KHRPortabilitySubsetExtensionName only exist in vulkan.hpp when these are
-# defined, because VK_EXT_metal_surface and VK_KHR_portability_subset are both
-# "beta"/provisional extensions. VulkanDevice.cpp (CreateInstance/CreateSurface)
-# uses them directly for macOS surface creation, and every RHI header that
-# reaches vulkan.hpp/vulkan_raii.hpp does so with no macro guard of its own — so
-# this has to be set before any of them are included, for every translation
-# unit in the module, not just VulkanDevice.cpp. PUBLIC for the same ODR reason
-# as VULKAN_HPP_NO_STRUCT_CONSTRUCTORS above: the app also includes these
-# headers and must agree with the module on what they expand to.
-if(APPLE)
-  target_compile_definitions(RHI PUBLIC VK_USE_PLATFORM_METAL_EXT
-                                         VK_ENABLE_BETA_EXTENSIONS)
-endif()
-
 # SetVkDebugName (rhi/vulkan/DebugNames.h) compiles to nothing without this, and
 # it is a template — so its body is instantiated in whichever translation unit
 # calls it. Callers exist both inside this module and in the application, so
@@ -154,8 +139,8 @@ if(MSVC)
   # The conversion tables rely on "switch with no default:" turning a forgotten
   # mapping into a build failure. That is -Wswitch on GCC/Clang, which -Wall
   # already enables, but MSVC's equivalent C4062 is a level-4 warning that /W3
-  # leaves off — so without this the guarantee would hold on six of the nine CI
-  # configurations and quietly not on the other three.
+  # leaves off — so without this the guarantee would hold on the three Linux CI
+  # configurations and quietly not on the three Windows ones.
   target_compile_options(RHI PRIVATE /w14062)
 endif()
 

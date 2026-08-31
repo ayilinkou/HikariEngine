@@ -64,7 +64,7 @@ std::filesystem::path ResolveUserDataRoot()
 
     // SDL_GetPrefPath() creates the directory and returns it with a trailing
     // separator: $XDG_DATA_HOME/HikariEngine on Linux, %APPDATA%\HikariEngine
-    // on Windows, ~/Library/Application Support/HikariEngine on macOS.
+    // on Windows.
     //
     // The organisation argument is empty because this project has no
     // organisation name to give, and passing the application name for both
@@ -129,8 +129,7 @@ Paths::Paths(std::string_view commandLineOverride)
         candidates.EnvironmentOverride = environmentRoot;
 
     // SDL_GetBasePath() is the directory the executable lives in, already
-    // terminated with a separator. On macOS it resolves to the .app bundle's
-    // Resources directory when bundled, which is where content belongs there.
+    // terminated with a separator.
     if (const char* basePath = SDL_GetBasePath())
     {
         candidates.ExecutableRelative = std::filesystem::path(basePath) / kContentDirName;

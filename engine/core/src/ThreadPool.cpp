@@ -2,9 +2,6 @@
 
 #if defined(__linux__)
 #include <pthread.h>
-#elif defined(__APPLE__)
-#include <TargetConditionals.h>
-#include <pthread.h>
 #elif defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -22,8 +19,6 @@ inline void SetCurrentThreadName(const std::string& name)
 {
 #if defined(__linux__)
     pthread_setname_np(pthread_self(), name.c_str());
-#elif defined(__APPLE__)
-    pthread_setname_np(name.c_str());
 #elif defined(_WIN32)
     std::wstring wname(name.begin(), name.end());
     SetThreadDescription(GetCurrentThread(), wname.c_str());

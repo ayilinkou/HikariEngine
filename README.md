@@ -6,9 +6,6 @@
 [![Windows Release](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28windows-latest%2C%20ninja-release-windows%29&label=Windows%20Release)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
 [![Windows Debug](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28windows-latest%2C%20ninja-debug-windows%29&label=Windows%20Debug)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
 [![Windows ASan](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28windows-latest%2C%20ninja-asan-windows%29&label=Windows%20ASan)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
-[![macOS Release](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28macos-latest%2C%20ninja-release-macos%29&label=macOS%20Release)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
-[![macOS Debug](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28macos-latest%2C%20ninja-debug-macos%29&label=macOS%20Debug)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
-[![macOS ASan](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28macos-latest%2C%20ninja-asan-macos%29&label=macOS%20ASan)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
 
 ## Requirements
 This project requires CMake and vcpkg. Make sure the `VCPKG_ROOT` environment variable points at your vcpkg checkout.
@@ -19,15 +16,13 @@ Linux needs the X11 and Wayland development packages. On Debian/Ubuntu:
 sudo apt install libxcb1-dev libx11-dev libxrandr-dev libwayland-dev
 ```
 
-macOS requires the Vulkan SDK, with the `VULKAN_SDK` environment variable set to it.
-
 ## Build
-`CMakePresets.json` contains presets for building on Windows, Linux and macOS (Apple Silicon). These presets set the `CMAKE_TOOLCHAIN_FILE` variable using a `VCPKG_ROOT` environment variable. If you're using these presets, please make sure that the `VCPKG_ROOT` environment variable is set correctly.
+`CMakePresets.json` contains presets for building on Windows and Linux. These presets set the `CMAKE_TOOLCHAIN_FILE` variable using a `VCPKG_ROOT` environment variable. If you're using these presets, please make sure that the `VCPKG_ROOT` environment variable is set correctly.
 
 ```Terminal
 cmake --workflow generate-sln
 cmake --workflow ninja-debug-linux
-cmake --workflow ninja-release-macos
+cmake --workflow ninja-release-windows
 cmake --workflow ninja-asan-windows
 ```
 
@@ -49,11 +44,9 @@ To build the debug config using ninja, just run the `build.bat` script.
 build.bat
 ```
 
-### Linux and macOS (Apple Silicon, Experimental)
+### Linux
 
 To build the debug config, just run the `build.sh` script.
 ```Terminal
 ./build.sh
 ```
-
-The macOS build is not tested as regularly as Windows and Linux and so is tagged as experimental.

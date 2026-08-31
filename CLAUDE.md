@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-HikariEngine — a cross-platform game engine (Windows / Linux / macOS-ARM) built on Vulkan,
+HikariEngine — a cross-platform game engine (Windows / Linux) built on Vulkan,
 with a D3D12 backend planned later. C++20, CMake + vcpkg, Slang shaders.
 
 The engine is mid-refactor from a single-executable prototype into a layered library set.
@@ -87,7 +87,7 @@ on every platform whether or not an SDK is installed, and they match the version
 | Vulkan headers | `<vcpkg>/include/vulkan/vulkan_core.h` | exact enum values, struct fields, function signatures |
 | Vulkan registry | `<vcpkg>/share/vulkan/registry/vk.xml` | which extension/version a symbol belongs to, aliases, deprecations |
 | Valid Usage database | `<vcpkg>/share/vulkan/registry/validusage.json` | look up a `VUID-...` from a validation message verbatim |
-| Slang docs | `$VULKAN_SDK/share/doc/slang/`, or <https://shader-slang.org/docs/> | shader language and `slangc` flags — vcpkg ships the compiler but no docs |
+| Slang docs | <https://shader-slang.org/docs/> | shader language and `slangc` flags — vcpkg ships the compiler, but no docs to go with it |
 | Vulkan spec | <https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html> | synchronization chapter, layout rules, the prose behind a VUID |
 | VMA docs | <https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/> | allocation flags, mapping and usage patterns |
 | Driver support | <https://vulkan.gpuinfo.org> | whether a feature/format/limit is realistically available |
@@ -126,10 +126,10 @@ Update this table when a stage completes.
 
 ## Build & run
 
-Presets are `ninja-{debug,asan,release}-{linux,windows,macos}` plus `msvc` (VS solution).
+Presets are `ninja-{debug,asan,release}-{linux,windows}` plus `msvc` (VS solution).
 Requires `VCPKG_ROOT` to be set. The Vulkan headers, the loader, the validation layer,
-`slangc` and `spirv-val` all come from vcpkg, so **Linux and Windows need no Vulkan SDK and
-no `VULKAN_SDK`**. macOS still does, because MoltenVK has no vcpkg port. A Debug *run* has
+`slangc` and `spirv-val` all come from vcpkg, so **nothing needs a Vulkan SDK or
+`VULKAN_SDK`**. A Debug *run* has
 validation as a hard requirement rather than a degradable one (`backlog.md`), and gets it
 from the layer vcpkg built: `VulkanDevice::CreateInstance` puts that on
 `VK_ADD_LAYER_PATH`, so nothing has to be installed system-wide.
@@ -165,7 +165,7 @@ scripts/precommit.sh                # all of the above, everything CI runs plus 
 their verdict cannot differ between configurations and they need neither a toolchain nor a
 configured tree. `HeaderSelfContainment` runs in the debug job of each OS, because its answer
 *does* differ by compiler and standard library but not by configuration. Build and unit tests
-run in all nine. `precommit.sh` runs the same set locally in one sequence, so its ordering no
+run in all six. `precommit.sh` runs the same set locally in one sequence, so its ordering no
 longer mirrors CI's job layout.
 
 Everything that *verifies* the tree lives in `tests/scripts/`; `scripts/` holds the things
@@ -333,7 +333,7 @@ columns, left-aligned `*`/`&`) — run `scripts/format.sh` rather than hand-matc
 **The clang-format version is pinned in `.clang-format-version`, and it matters.**
 clang-format's output is not stable across major versions — the same `.clang-format` gives
 different results from clang-format 18 and 22, with no option that reconciles them. Left to
-whatever is on `PATH`, the nine CI configurations run three different clang-formats and
+whatever is on `PATH`, the six CI configurations run two different clang-formats and
 disagree with each other. CI installs the pin; CMake warns at configure time if the local
 one differs and tells you what to install:
 
@@ -371,7 +371,7 @@ Other rules:
   here and fails on MSVC or a newer libstdc++. Include what you use rather than relying on
   the check.
 - **Warnings are errors** (`CMAKE_COMPILE_WARNING_AS_ERROR ON`, `-Wall -Wextra -Wpedantic
-  -Wshadow` / `/W3`). A new warning breaks the build on all nine CI configs.
+  -Wshadow` / `/W3`). A new warning breaks the build on all six CI configs.
 - **Every engine type lives in `Hikari::<Module>`** — `Hikari::Core::Timer`,
   `Hikari::Platform::Paths`, `Hikari::Rhi::IDevice`, `Hikari::Rhi::Vulkan::SetVkDebugName`.
   The nesting is uniform and mirrors the directory: `engine/<mod>/include/<mod>/` opens
@@ -410,7 +410,7 @@ Other rules:
   on a single line as `/** … */`. Comments inside a function body, trailing comments, section
   labels (`// --- Uploads ---`) and commented-out code stay `//`. Two boundary cases, decided:
   a macro other code invokes (`RHI_DEFINE_FLAG_OPERATORS`) is documented as a declaration,
-  while a macro that configures the build (`src/pch.h`'s `VK_USE_PLATFORM_METAL_EXT`) is not;
+  while a macro that configures the build (`ThreadPool.cpp`'s `WIN32_LEAN_AND_MEAN`) is not;
   and a header-level comment keeps the blank line between itself and the first declaration,
   because it documents the header rather than that declaration. The leading `*` is not decoration:
   clang-format reflows a block comment without it to a mis-indented continuation line, so the
@@ -446,13 +446,13 @@ Other rules:
 - **GPU struct layouts are declared twice by hand** — once in C++, once in Slang — with no
   `static_assert` linking them. Changing one without the other produces silent corruption.
   Unified in step 48.
-- **macOS pins `find_package(Vulkan)` to the SDK**, not vcpkg's loader; a loader/layer version
-  mismatch causes infinite recursion in `vkGetDeviceProcAddr` during ImGui init. Don't
-  "simplify" that block in the root `CMakeLists.txt`.
 - **MSVC + ASan needs `_DISABLE_STL_ANNOTATION`** to keep its STL ABI compatible with vcpkg's
   prebuilt libraries; removing it produces LNK2038 errors.
-- **macOS is tagged experimental** — it builds in CI but is exercised far less than
-  Linux/Windows.
+- **Windows and Linux are the platforms.** macOS was removed outright — presets, CI jobs,
+  `if(APPLE)` blocks, the Metal surface path, the MoltenVK portability extensions. Don't
+  reintroduce a `__APPLE__` branch as a courtesy to a port that does not exist; the git
+  history has the old paths if one is ever wanted, and a port that has to be rewritten
+  against a real Mac is worth more than a branch nobody can compile.
 - **The instance buffer and the descriptor pools grow** — both were fixed ceilings that
   aborted, and no longer are. Growing the instance buffer reallocates storage the GPU may
   still be reading, so the wait before the swap is the load-bearing part, not the

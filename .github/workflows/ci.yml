@@ -9,7 +9,6 @@ on:
 env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_DISABLE_METRICS: "1"
-  VULKAN_SDK_VERSION: "1.4.357.0"
 
 jobs:
   # The checks whose answer cannot differ between configurations, run once
@@ -17,7 +16,7 @@ jobs:
   # and the files, and nothing else — no vcpkg, no Vulkan SDK, no compiler. That
   # is also why they are a separate job rather than steps in the matrix: here
   # they report in about a minute, and they still report when the build is
-  # broken, whereas in the matrix they ran in the eleventh minute of nine
+  # broken, whereas in the matrix they ran in the eleventh minute of six
   # parallel builds and only if the build had succeeded.
   #
   # HeaderSelfContainment deliberately stays in the matrix: it compiles headers
@@ -95,12 +94,6 @@ jobs:
             preset: ninja-debug-windows
           - os: windows-latest
             preset: ninja-asan-windows
-          - os: macos-latest
-            preset: ninja-release-macos
-          - os: macos-latest
-            preset: ninja-debug-macos
-          - os: macos-latest
-            preset: ninja-asan-macos
 
     runs-on: ${{ matrix.os }}
 
@@ -117,34 +110,6 @@ jobs:
 
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
-
-      - name: Install Ninja via Homebrew (macOS only)
-        if: runner.os == 'macOS'
-        run: brew install ninja
-
-      - name: Cache Vulkan SDK (macOS)
-        if: runner.os == 'macOS'
-        id: vulkan-cache-macos
-        uses: actions/cache@v5
-        with:
-          path: ~/VulkanSDK/${{ env.VULKAN_SDK_VERSION }}
-          key: vulkan-sdk-macos-${{ env.VULKAN_SDK_VERSION }}
-
-      - name: Install Vulkan SDK (macOS)
-        if: runner.os == 'macOS' && steps.vulkan-cache-macos.outputs.cache-hit != 'true'
-        run: |
-          curl -sL -o vulkan_sdk.zip \
-            "https://sdk.lunarg.com/sdk/download/${VULKAN_SDK_VERSION}/mac/vulkan_sdk.zip"
-          unzip -q vulkan_sdk.zip
-          sudo "./vulkansdk-macOS-${VULKAN_SDK_VERSION}.app/Contents/MacOS/vulkansdk-macOS-${VULKAN_SDK_VERSION}" \
-            --root "$HOME/VulkanSDK/${VULKAN_SDK_VERSION}" \
-            --accept-licenses --default-answer --confirm-command install
-
-      - name: Set Vulkan SDK env vars (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          echo "VULKAN_SDK=$HOME/VulkanSDK/${VULKAN_SDK_VERSION}/macOS" >> "$GITHUB_ENV"
-          echo "$HOME/VulkanSDK/${VULKAN_SDK_VERSION}/macOS/bin" >> "$GITHUB_PATH"
 
       # vcpkg has no ports for the X11 and Wayland client libraries, so
       # vulkan-loader[xcb,xlib] and vulkan-validationlayers take them from the
@@ -198,7 +163,7 @@ jobs:
         continue-on-error: true
         run: ctest --test-dir build/${{ matrix.preset }} -L unit --output-on-failure
 
-      # header-check reports "skipped" in the six non-debug jobs, which is not a
+      # header-check reports "skipped" in the four non-debug jobs, which is not a
       # failure and so passes this gate.
       - name: Fail if any check failed
         if: steps.header-check.outcome == 'failure' || steps.catch2-tests.outcome == 'failure'

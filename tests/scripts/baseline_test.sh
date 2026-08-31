@@ -6,7 +6,6 @@ if [ -n "$1" ]; then
 else
   OS="$(uname -s)"
   case "$OS" in
-    Darwin) PRESET="ninja-debug-macos" ;;
     Linux)  PRESET="ninja-debug-linux" ;;
     *)
       echo "Unsupported OS: $OS" >&2

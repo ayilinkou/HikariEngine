@@ -13,9 +13,6 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
-#if defined(__APPLE__)
-#include <SDL3/SDL_metal.h>
-#endif
 
 #include <core/Log.h>
 
@@ -600,19 +597,6 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
                                   instanceExtensions + countInstanceExtensions);
     }
 
-#if defined(__APPLE__)
-    // MoltenVK is a portability driver. On macOS the Vulkan loader requires the
-    // app to explicitly opt into enumerating portability drivers, otherwise
-    // vkCreateInstance fails with VK_ERROR_INCOMPATIBLE_DRIVER. Needed whether
-    // or not anything is presented, since it gates enumeration itself.
-    requiredExtensions.push_back(vk::KHRPortabilityEnumerationExtensionName);
-
-    // Required so we can build the swapchain surface via VK_EXT_metal_surface
-    // (SDL_Vulkan_CreateSurface is unreliable on macOS).
-    if (desc.Requirements.bPresent)
-        requiredExtensions.push_back(vk::EXTMetalSurfaceExtensionName);
-#endif
-
     auto extensionProperties = m_Context.enumerateInstanceExtensionProperties();
 
     // VK_EXT_layer_settings is implemented by layers (e.g.
@@ -694,9 +678,6 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
 
     vk::InstanceCreateInfo createInfo{.pNext =
                                           desc.bEnableValidation ? &layerSettingsInfo : nullptr,
-#if defined(__APPLE__)
-                                      .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,
-#endif
                                       .pApplicationInfo = &appInfo,
                                       .enabledLayerCount = (uint32_t)requiredLayers.size(),
                                       .ppEnabledLayerNames = requiredLayers.data(),
@@ -748,26 +729,11 @@ void VulkanDevice::CreateSurface(const DeviceRequirements& requirements)
 
     auto* pWindow = static_cast<SDL_Window*>(requirements.NativeWindowHandle);
 
-#if defined(__APPLE__)
-    // SDL_Vulkan_CreateSurface can crash on macOS because SDL resolves the
-    // surface-creation function pointer through its own Vulkan loader, which may
-    // differ from the one this app linked (and the instance belongs to). Create
-    // the Metal surface directly via our Vulkan loader instead.
-    SDL_MetalView metalView = SDL_Metal_CreateView(pWindow);
-    if (!metalView)
-        throw std::runtime_error("Failed to create Metal view!");
-
-    void* metalLayer = SDL_Metal_GetLayer(metalView);
-    vk::MetalSurfaceCreateInfoEXT createInfo{.pLayer = metalLayer};
-
-    m_Surface = m_Instance.createMetalSurfaceEXT(createInfo);
-#else
     VkSurfaceKHR rawSurface;
     if (!SDL_Vulkan_CreateSurface(pWindow, *m_Instance, nullptr, &rawSurface))
         throw std::runtime_error("Failed to create Vulkan surface!");
 
     m_Surface = vk::raii::SurfaceKHR(m_Instance, rawSurface);
-#endif
 }
 
 bool VulkanDevice::IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& device,
@@ -1015,13 +981,6 @@ void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
     std::vector<const char*> deviceExtensions;
     if (requirements.bPresent)
         deviceExtensions.push_back(vk::KHRSwapchainExtensionName);
-
-#if defined(__APPLE__)
-    // MoltenVK exposes VK_KHR_portability_subset and requires it to be enabled
-    // on the logical device; otherwise device creation has undefined behaviour
-    // and can crash.
-    deviceExtensions.push_back(vk::KHRPortabilitySubsetExtensionName);
-#endif
 
     if (m_bMaintenance8Enabled)
         deviceExtensions.push_back(vk::KHRMaintenance8ExtensionName);

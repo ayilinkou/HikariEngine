@@ -149,7 +149,7 @@ Three edges are worth calling out because they will fight every refactor:
 | SDL init, window creation, shutdown | `InitSDL`, `CreateSDLWindow`, `ShutdownSDL` |
 | Vulkan instance, layers, extensions, portability | `CreateInstance` (~120 lines) |
 | Debug messenger + validation callback | `DebugCallback`, `SetupDebugMessenger` |
-| Surface creation (with macOS Metal branch) | `CreateSurface` |
+| Surface creation | `CreateSurface` |
 | Physical device selection + feature gating | `IsPhysicalDeviceSuitable`, `PickPhysicalDevice` |
 | Logical device + queue selection | `CreateLogicalDevice` |
 | Swapchain + image views + recreate | `CreateSwapchain`, `CreateSwapchainImageViews`, `RecreateSwapchainAndRenderImages` |
@@ -759,7 +759,6 @@ two reports cannot be compared without knowing what produced them. Also a backlo
 | `ubuntu-latest` + **Mesa lavapipe** (`mesa-vulkan-drivers`) | software, Vulkan 1.3, dynamic rendering + sync2 supported | Primary headless GPU job |
 | `ubuntu-latest` + lavapipe + ASan/UBSan | same | The highest-value job in the whole matrix |
 | `windows-latest` | none by default | Unit + contract tests only |
-| `macos-latest` | none (no software ICD for MoltenVK) | Unit + contract tests only |
 | Self-hosted with a real GPU (optional, later) | real | Golden images, perf budgets |
 
 Practical notes for lavapipe:
@@ -1420,10 +1419,10 @@ five. Test presets are added to `CMakePresets.json` alongside the existing ones.
 
 ```yaml
 jobs:
-  build:              # unchanged: 3 OS × Debug/Release + Linux ASan (7 jobs)
+  build:              # unchanged: 2 OS × Debug/Release/ASan (6 jobs)
 
   unit-tests:
-    strategy: { matrix: { os: [ubuntu-latest, windows-latest, macos-latest] } }
+    strategy: { matrix: { os: [ubuntu-latest, windows-latest] } }
     steps:
       - configure/build preset  (…-debug-…, -DENGINE_BUILD_TESTS=ON)
       - run: ctest --preset ... -L "unit|contract" --output-on-failure
@@ -1618,7 +1617,7 @@ prefixes, `p` for raw pointers). Codify rather than change it:
 | 2 | **lavapipe fidelity.** It is not a real driver; some bugs won't reproduce, some lavapipe quirks aren't real bugs. | Treat it as a *smoke and correctness* device, not a conformance oracle. Golden images per-driver-class. Add a self-hosted GPU runner later if it becomes worthwhile. |
 | 3 | **ECS rewrite risk.** Replacing `Entity`/`Component` touches scene, serialization, editor and renderer. | Sequenced *after* headless tests exist (Phase 5, not Phase 1). Sparse sets over archetypes to limit complexity. Keep `SceneDesc`/`.map` stable so scenes don't need re-authoring. |
 | 4 | **Frame graph complexity.** Easy to over-engineer into 3k lines. | Constrain: no async compute in v1, no aliasing in v1, no multi-queue in v1. Add only when a pass needs it. Target < 900 lines. |
-| 5 | **Bindless portability.** MoltenVK's descriptor-indexing support is weaker. | `descriptorBindingPartiallyBound` is already required and working. Keep a non-bindless fallback path behind a device-capability flag; the `gpu` test suite runs both. |
+| 5 | **Bindless portability.** Older and mobile-class drivers have weaker descriptor-indexing support. | `descriptorBindingPartiallyBound` is already required and working. Keep a non-bindless fallback path behind a device-capability flag; the `gpu` test suite runs both. |
 | 6 | **Build time** with 9 targets and no PCH sharing. | Per-module PCHs, `ccache` (already wired), unity builds for the leaf modules if needed. Note that splitting *reduces* rebuild cost: touching a pass no longer rebuilds a 2,453-line TU. |
 | 7 | **Golden-image flakiness eroding trust.** | Non-blocking until stable; perceptual tolerance; determinism fixes (esp. the pointer-value sort order) land first. |
 | 8 | **Catch2 vs GoogleTest.** | Recommendation: Catch2 v3. Decide once, in Phase 0. |
