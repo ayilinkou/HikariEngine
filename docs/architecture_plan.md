@@ -742,16 +742,15 @@ went missing; the behaviour it names was never written. On a machine with an int
 discrete GPU you get whichever the loader lists first, which is why §14 counts device
 selection as a source of non-determinism.
 
-> 🚧 **Undecided — confirm before building anything that depends on it.** The shape of the fix
-> is open: a `DeviceRequirements` field, a `--gpu <name-substring|index>` flag, relying on
-> `VK_DRIVER_FILES` to make lavapipe the only visible ICD in CI, or some combination. Note
-> that `vkEnumeratePhysicalDevices` order is not guaranteed stable across driver updates or
-> between machines, so a bare index is a poor persistent identifier. Do **not** implement a
-> selection mechanism as a side effect of step 47 — raise it and agree the approach first.
->
-> Independently of which is chosen, **log the selected device name and driver version and put
-> them in the run report**: two reports cannot be compared without knowing what produced
-> them, and that part needs no decision.
+**Decided: CI pins the ICD rather than the engine picking a device.** `VK_DRIVER_FILES` makes
+lavapipe the only device the loader offers, which is deterministic without any selection code,
+and no mechanism is written until a case needs one — `--gpu <name-substring>` is a `backlog.md`
+row, not part of step 47. When that row is picked up, note that `vkEnumeratePhysicalDevices`
+order is not guaranteed stable across driver updates or between machines, so a bare index is a
+poor persistent identifier and is not the answer.
+
+Independently of that, **log the selected device name and driver version into the run report** —
+two reports cannot be compared without knowing what produced them. Also a backlog row.
 
 ### 10.4 CI device availability
 
@@ -2507,9 +2506,10 @@ next to `IClock` and `RunSpec` rather than next to `HeadlessPlatform`.
 - **Size:** M · **Needs:** 40a, 41, 44 (`--no-ui` already exists)
 
 ### 47. Wire headless tests into CI
-> 🚧 **Blocked on a decision:** this job runs on a runner that may expose both a real GPU and
-> lavapipe, and nothing currently chooses between them (§10.3). Confirm the device-selection
-> approach before starting, rather than inventing one here.
+**How this step is built is settled in `docs/stage7_plan.md`**, which supersedes the Do and
+Verify below where they differ: device selection is `VK_DRIVER_FILES` (§10.3), the two new jobs
+became steps inside the existing ubuntu matrix jobs, and the scene set gained an instancing case
+and a real-content one.
 - **Do:** `tests/data/scenes/{empty,single_cube,two_materials,lights_only,transparent_only}.map`
   plus a tiny committed `cube.gltf`. Write `scene_launch_test.cpp` asserting `bSucceeded`,
   `ValidationErrors == 0`, expected `FramesRendered`, `DrawCalls > 0`, and expected batch
