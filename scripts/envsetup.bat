@@ -39,6 +39,8 @@ if /i "%VCToolsVersion%"=="%VCVER%" (
     exit /b 0
 )
 
+set "VSCMD_SKIP_SENDTELEMETRY=1"
+
 if defined VCVER (
     call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=%VCVER%
 ) else (
