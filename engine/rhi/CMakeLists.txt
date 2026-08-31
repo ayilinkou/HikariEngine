@@ -32,12 +32,67 @@ engine_module(
 # reach these headers, which is half of what keeps the boundary in place.
 target_include_directories(RHI PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+# The validation layer comes from vcpkg rather than from a system-wide SDK, so
+# the loader has to be pointed at it: VulkanDevice::CreateInstance puts
+# HIKARI_VULKAN_LAYER_PATH on VK_ADD_LAYER_PATH before its first enumeration.
+#
+# The manifest is deliberately not used as vcpkg ships it. Its "library_path"
+# names the layer by bare filename, which asks the loader to find it on the
+# system's shared library search path — where it is not. An ordinary build gets
+# away with that because the search reaches the loader's own $ORIGIN, which is
+# the directory the layer sits in; a sanitizer build does not, because ASan
+# interposes dlopen and the RUNPATH glibc then consults belongs to the sanitizer
+# runtime rather than to the loader. Writing a copy whose library_path is
+# absolute takes the search out of the picture on every configuration.
+if(WIN32)
+  set(layer_manifest
+      "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/VkLayer_khronos_validation.json")
+  set(layer_library_dir "bin")
+  set(layer_library_name "VkLayer_khronos_validation.dll")
+else()
+  set(layer_manifest
+      "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json"
+  )
+  set(layer_library_dir "lib")
+  set(layer_library_name
+      "${CMAKE_SHARED_LIBRARY_PREFIX}VkLayer_khronos_validation${CMAKE_SHARED_LIBRARY_SUFFIX}")
+endif()
+
+# A textual replacement of the one value, rather than a JSON edit: CMake's
+# string(JSON SET) reserialises the document and drops members it does not model,
+# which silently cost the manifest its instance_extensions block — and with it the
+# VK_EXT_debug_utils the messenger needs.
+file(READ "${layer_manifest}" layer_manifest_json)
+string(REPLACE "\"${layer_library_name}\""
+       "\"${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/$<$<CONFIG:Debug>:debug/>${layer_library_dir}/${layer_library_name}\""
+       layer_manifest_json "${layer_manifest_json}")
+file(GENERATE
+     OUTPUT "${CMAKE_BINARY_DIR}/vulkan_layers/$<CONFIG>/VkLayer_khronos_validation.json"
+     CONTENT "${layer_manifest_json}")
+
+target_compile_definitions(
+  RHI PRIVATE HIKARI_VULKAN_LAYER_PATH="${CMAKE_BINARY_DIR}/vulkan_layers/$<CONFIG>")
+
 # vulkan.hpp defines its structs differently depending on this macro (aggregates
 # without constructors when set), so a translation unit that disagrees with its
 # neighbours is an ODR violation waiting to be diagnosed as something else
 # entirely. HikariEngine already sets it; PUBLIC here keeps every consumer of
 # this module — the app, the tests, and anything Stage 6+ adds — in agreement.
 target_compile_definitions(RHI PUBLIC VULKAN_HPP_NO_STRUCT_CONSTRUCTORS)
+
+# vulkan.hpp's raii Context otherwise builds its dispatcher from a loader it
+# dlopens by bare filename, which need not be the loader this module is linked
+# against: a bare-name dlopen resolves through the calling object's RUNPATH, and
+# AddressSanitizer interposes dlopen, so the RUNPATH consulted becomes the
+# sanitizer runtime's rather than the loader's. A sanitizer build then picked up
+# whatever libvulkan.so.1 was installed system-wide and ran with two loaders at
+# once. Turning the tool off selects the Context constructor that takes a
+# vkGetInstanceProcAddr, which VulkanDevice hands the linked one.
+#
+# PUBLIC for the same ODR reason as the macros around it: it changes what
+# vulkan_raii.hpp declares, so every translation unit that includes it has to
+# agree.
+target_compile_definitions(RHI PUBLIC VULKAN_HPP_ENABLE_DYNAMIC_LOADER_TOOL=0)
 
 # vk::MetalSurfaceCreateInfoEXT / vk::EXTMetalSurfaceExtensionName and
 # vk::KHRPortabilitySubsetExtensionName only exist in vulkan.hpp when these are

@@ -122,13 +122,6 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja
 
-      - name: Install Vulkan SDK (Linux/Windows)
-        if: runner.os != 'macOS'
-        uses: humbletim/install-vulkan-sdk@v1.2
-        with:
-          version: latest
-          cache: true
-
       - name: Cache Vulkan SDK (macOS)
         if: runner.os == 'macOS'
         id: vulkan-cache-macos

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -86,6 +87,41 @@ void ValidateTextureDesc(const TextureDesc& desc)
         (desc.Dimension != TextureDimension::Texture2D || desc.ArrayLayers % 6u != 0u))
         fail("a cube-compatible texture must be 2D with a multiple of 6 array layers.");
 }
+/**
+ * Adds the validation layer vcpkg installed to the loader's layer search path.
+ *
+ * Without this the layer has to come from a system-wide Vulkan SDK, which is the
+ * only thing a Linux or Windows build would still need one for. VK_ADD_LAYER_PATH
+ * adds to the standard search paths rather than replacing them, and the loader
+ * reads it when layers are enumerated rather than at its own startup — so setting
+ * it here, before the first enumeration in CreateInstance, is early enough. That
+ * is not true of every loader variable: VK_LOADER_* settings are read during
+ * loader initialisation, which has already happened by the time any of this runs.
+ *
+ * Whatever the environment already asked for is kept and comes first, so a
+ * developer pointing at their own layers still gets them.
+ */
+void AddBundledLayerPath()
+{
+#if defined(_WIN32)
+    constexpr char kSeparator = ';';
+#else
+    constexpr char kSeparator = ':';
+#endif
+
+    std::string value = HIKARI_VULKAN_LAYER_PATH;
+
+    const char* existing = std::getenv("VK_ADD_LAYER_PATH");
+    if (existing != nullptr && existing[0] != '\0')
+        value = std::string(existing) + kSeparator + value;
+
+#if defined(_WIN32)
+    _putenv_s("VK_ADD_LAYER_PATH", value.c_str());
+#else
+    setenv("VK_ADD_LAYER_PATH", value.c_str(), 1);
+#endif
+}
+
 } // namespace
 
 VulkanDevice::VulkanDevice(const DeviceDesc& desc)
@@ -522,6 +558,11 @@ VKAPI_ATTR vk::Bool32 VKAPI_CALL VulkanDevice::DebugCallback(
 void VulkanDevice::CreateInstance(const DeviceDesc& desc)
 {
     Core::LogMsg(Core::LogSeverity::Info, LogRhi, "CreateInstance()");
+
+    // Before the first enumeration below, which is what the loader answers from
+    // its manifest scan.
+    if (desc.bEnableValidation)
+        AddBundledLayerPath();
 
     const vk::ApplicationInfo appInfo{.pApplicationName = desc.ApplicationName.c_str(),
                                       .applicationVersion = VK_MAKE_VERSION(1, 0, 0),

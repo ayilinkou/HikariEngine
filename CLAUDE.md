@@ -77,14 +77,17 @@ it compiles, it usually renders correctly on one driver, and it fails intermitte
 another. Say "I need to check the spec" rather than producing something that reads
 authoritative and isn't.
 
-Authoritative sources, local copies first (they match the installed SDK version):
+Authoritative sources, local copies first. `<vcpkg>` is
+`build/<preset>/vcpkg_installed/<triplet>/` — the tree a build populates, so these exist
+on every platform whether or not an SDK is installed, and they match the version
+`vcpkg.json` resolves to rather than whatever is installed system-wide:
 
 | Source | Where | Use for |
 |---|---|---|
-| Vulkan headers | `$VULKAN_SDK/include/vulkan/vulkan_core.h` | exact enum values, struct fields, function signatures |
-| Vulkan registry | `$VULKAN_SDK/share/vulkan/registry/vk.xml` | which extension/version a symbol belongs to, aliases, deprecations |
-| Valid Usage database | `$VULKAN_SDK/share/vulkan/registry/validusage.json` | look up a `VUID-...` from a validation message verbatim |
-| Slang docs | `$VULKAN_SDK/share/doc/slang/` (`user-guide/`, `language-reference/`, `command-line-slangc-reference.md`) | shader language and `slangc` flags |
+| Vulkan headers | `<vcpkg>/include/vulkan/vulkan_core.h` | exact enum values, struct fields, function signatures |
+| Vulkan registry | `<vcpkg>/share/vulkan/registry/vk.xml` | which extension/version a symbol belongs to, aliases, deprecations |
+| Valid Usage database | `<vcpkg>/share/vulkan/registry/validusage.json` | look up a `VUID-...` from a validation message verbatim |
+| Slang docs | `$VULKAN_SDK/share/doc/slang/`, or <https://shader-slang.org/docs/> | shader language and `slangc` flags — vcpkg ships the compiler but no docs |
 | Vulkan spec | <https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html> | synchronization chapter, layout rules, the prose behind a VUID |
 | VMA docs | <https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/> | allocation flags, mapping and usage patterns |
 | Driver support | <https://vulkan.gpuinfo.org> | whether a feature/format/limit is realistically available |
@@ -124,7 +127,11 @@ Update this table when a stage completes.
 ## Build & run
 
 Presets are `ninja-{debug,asan,release}-{linux,windows,macos}` plus `msvc` (VS solution).
-Requires `VULKAN_SDK` and `VCPKG_ROOT` to be set; `slangc` must be on `PATH`.
+Requires `VCPKG_ROOT` to be set. The Vulkan headers, the loader, `slangc` and `spirv-val`
+all come from vcpkg, so **Linux and Windows need no Vulkan SDK and no `VULKAN_SDK`**. macOS
+still does, because MoltenVK has no vcpkg port. A Debug *run* additionally needs
+`VK_LAYER_KHRONOS_validation` installed — from the SDK or a distribution package — because
+validation is a hard requirement there rather than a degradable one (`backlog.md`).
 
 ```bash
 ./build.sh                          # configure+build the host default (ninja-debug-linux)

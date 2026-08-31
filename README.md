@@ -11,7 +11,9 @@
 [![macOS ASan](https://img.shields.io/github/check-runs/ayilinkou/HikariEngine/main?nameFilter=build%20%28macos-latest%2C%20ninja-asan-macos%29&label=macOS%20ASan)](https://github.com/ayilinkou/HikariEngine/actions/workflows/ci.yml)
 
 ## Requirements
-This project requires CMake, vcpkg and the Vulkan SDK to be installed. Please make sure the `VULKAN_SDK` environment variable is set to the correct path.
+This project requires CMake and vcpkg. Make sure the `VCPKG_ROOT` environment variable points at your vcpkg checkout.
+
+macOS requires the Vulkan SDK, with the `VULKAN_SDK` environment variable set to it.
 
 ## Build
 `CMakePresets.json` contains presets for building on Windows, Linux and macOS (Apple Silicon). These presets set the `CMAKE_TOOLCHAIN_FILE` variable using a `VCPKG_ROOT` environment variable. If you're using these presets, please make sure that the `VCPKG_ROOT` environment variable is set correctly.
