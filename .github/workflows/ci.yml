@@ -146,6 +146,20 @@ jobs:
           echo "VULKAN_SDK=$HOME/VulkanSDK/${VULKAN_SDK_VERSION}/macOS" >> "$GITHUB_ENV"
           echo "$HOME/VulkanSDK/${VULKAN_SDK_VERSION}/macOS/bin" >> "$GITHUB_PATH"
 
+      # vcpkg has no ports for the X11 and Wayland client libraries, so
+      # vulkan-loader[xcb,xlib] and vulkan-validationlayers take them from the
+      # system: both hard-require the xcb, x11, xrandr and wayland-client
+      # pkg-config modules and fail to configure without them. The runner image
+      # ships some but not all of that set, which is why SDL3 built here before
+      # the loader was added to the manifest — name all four rather than
+      # depending on what the image happens to carry.
+      - name: Install WSI development packages (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxcb1-dev libx11-dev libxrandr-dev libwayland-dev
+
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
         with:

@@ -127,11 +127,18 @@ Update this table when a stage completes.
 ## Build & run
 
 Presets are `ninja-{debug,asan,release}-{linux,windows,macos}` plus `msvc` (VS solution).
-Requires `VCPKG_ROOT` to be set. The Vulkan headers, the loader, `slangc` and `spirv-val`
-all come from vcpkg, so **Linux and Windows need no Vulkan SDK and no `VULKAN_SDK`**. macOS
-still does, because MoltenVK has no vcpkg port. A Debug *run* additionally needs
-`VK_LAYER_KHRONOS_validation` installed — from the SDK or a distribution package — because
-validation is a hard requirement there rather than a degradable one (`backlog.md`).
+Requires `VCPKG_ROOT` to be set. The Vulkan headers, the loader, the validation layer,
+`slangc` and `spirv-val` all come from vcpkg, so **Linux and Windows need no Vulkan SDK and
+no `VULKAN_SDK`**. macOS still does, because MoltenVK has no vcpkg port. A Debug *run* has
+validation as a hard requirement rather than a degradable one (`backlog.md`), and gets it
+from the layer vcpkg built: `VulkanDevice::CreateInstance` puts that on
+`VK_ADD_LAYER_PATH`, so nothing has to be installed system-wide.
+
+What vcpkg does not supply on Linux is the X11 and Wayland client libraries. `vulkan-loader`
+and `vulkan-validationlayers` configure against the system's `xcb`, `x11`, `xrandr` and
+`wayland-client` pkg-config modules and fail outright without them, so a Linux machine needs
+those development packages — `libxcb1-dev libx11-dev libxrandr-dev libwayland-dev` on
+Debian/Ubuntu — before a build will configure.
 
 ```bash
 ./build.sh                          # configure+build the host default (ninja-debug-linux)
