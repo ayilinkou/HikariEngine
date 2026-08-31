@@ -7,7 +7,6 @@ on:
     branches: [main]
 
 env:
-  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_DISABLE_METRICS: "1"
 
 jobs:
@@ -97,16 +96,19 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    # vcpkg keeps built ports as zips in this directory and reuses one whenever
+    # its ABI hash — port version, features, triplet, compiler, dependency
+    # hashes — matches what a rebuild would produce, so a hit is never a stale
+    # answer. "clear" drops the default provider first, leaving this directory
+    # as the only one. It replaces the x-gha backend, which vcpkg-tool removed;
+    # until this landed every job rebuilt Slang and the validation layers from
+    # source, which is most of a 50-minute Windows job.
+    env:
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-binary-cache,readwrite"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Enable vcpkg GitHub Actions binary cache
-        uses: actions/github-script@v9
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
@@ -124,6 +126,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libxcb1-dev libx11-dev libxrandr-dev libwayland-dev
+
+      # vcpkg creates this itself when it first writes a zip, but the save step
+      # below runs even when the job failed early, and actions/cache fails on a
+      # path that does not exist.
+      - name: Create the vcpkg binary cache directory
+        shell: bash
+        run: mkdir -p "${{ github.workspace }}/vcpkg-binary-cache"
+
+      # One entry per OS rather than per preset: all three presets of an OS
+      # resolve to the same triplet, so they need the same zips and sharing one
+      # entry is what makes the second and third job of a run nearly free.
+      # Restore and save are split rather than the combined actions/cache
+      # because the combined action skips its upload when the job fails — and a
+      # failing job is exactly when the next run must not pay for the ports
+      # again, as three rounds of a broken Linux configure just demonstrated.
+      #
+      # The key carries vcpkg.json's hash, so changing a dependency starts a new
+      # entry; restore-keys let that new entry begin from the previous one
+      # instead of building the whole manifest again. Zips whose ports are gone
+      # ride along in it — bump the v1 to start from empty if that ever adds up.
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ github.workspace }}/vcpkg-binary-cache
+          key: vcpkg-v1-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-v1-${{ matrix.os }}-
 
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
@@ -172,3 +201,14 @@ jobs:
           echo "  Header self-containment: ${{ steps.header-check.outcome }}"
           echo "  Catch2 tests: ${{ steps.catch2-tests.outcome }}"
           exit 1
+
+      # An exact key hit means the entry already holds every zip this job could
+      # have produced, and a key can only be written once, so there is nothing
+      # to upload. Any other outcome — a restore-keys hit, or no hit at all —
+      # leaves newly built ports worth keeping.
+      - name: Save vcpkg binary cache
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ github.workspace }}/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
