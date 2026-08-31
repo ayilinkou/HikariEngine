@@ -1001,8 +1001,13 @@ void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
     // created.
     SetVkDebugName(m_Device, *m_Instance, vk::ObjectType::eInstance, "Instance");
     SetVkDebugName(m_Device, *m_PhysicalDevice, vk::ObjectType::ePhysicalDevice, "Physical Device");
-    if (*m_Surface)
-        SetVkDebugName(m_Device, *m_Surface, vk::ObjectType::eSurfaceKHR, "Surface");
+    // The surface is deliberately not named. It is created by the loader rather than by the
+    // driver, so an ICD has no object of its own to attach a name to: Mesa falls back to a side
+    // hash table, creates it on the first such name and never frees it, which every windowed
+    // sanitizer run then reports as a 600-byte leak. Naming it is legal —
+    // VUID-vkSetDebugUtilsObjectNameEXT-pNameInfo-07872 allows an instance-level object to be
+    // named through a device descended from the same instance — but the name is worth less than
+    // the report it costs, and a surface is not something a capture is read through anyway.
 }
 
 } // namespace Hikari::Rhi::Vulkan

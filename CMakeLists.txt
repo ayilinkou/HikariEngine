@@ -252,7 +252,8 @@ target_link_libraries(
           assimp::assimp
           imgui::imgui
           pugixml::pugixml
-          ImGuiFileDialog)
+          ImGuiFileDialog
+          SanitizerShims)
 
 target_include_directories(HikariEngine PRIVATE src ${Stb_INCLUDE_DIR})
 

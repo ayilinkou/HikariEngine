@@ -260,6 +260,13 @@ Source lists are explicit, not globbed — a new `.cpp` will silently not build 
 Headers *are* globbed (into the header checks and the format targets), so a new header is
 checked automatically.
 
+**One file is deliberately outside that rule: `engine/core/src/SanitizerShims.cpp`.** It is
+its own `SanitizerShims` OBJECT library, linked directly by the app and by `engine_test()`,
+and it must stay that way. Moving it into `Core`'s `SOURCES` would compile and link without
+complaint and silently do nothing: the linker only extracts an archive member to resolve an
+undefined symbol, and nothing here calls the libc function it interposes. The reasoning is in
+the file and in `engine/core/CMakeLists.txt`.
+
 A new engine module is `engine/<name>/` with `include/<name>/` + `src/`, one line of
 `engine_module(<Name> SOURCES ... LINK_LIBRARIES ...)`, and `add_subdirectory` in the root
 `CMakeLists.txt`. Header-only modules omit `SOURCES` and become INTERFACE libraries.
