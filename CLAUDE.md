@@ -137,8 +137,14 @@ from the layer vcpkg built: `VulkanDevice::CreateInstance` puts that on
 What vcpkg does not supply on Linux is the X11 and Wayland client libraries. `vulkan-loader`
 and `vulkan-validationlayers` configure against the system's `xcb`, `x11`, `xrandr` and
 `wayland-client` pkg-config modules and fail outright without them, so a Linux machine needs
-those development packages — `libxcb1-dev libx11-dev libxrandr-dev libwayland-dev` on
-Debian/Ubuntu — before a build will configure.
+those development packages before a build will configure. Installing them also commits you to
+a second set: SDL3 skips its X11 extension probes entirely when libX11 is absent, and starts
+hard-requiring Xcursor, Xi, Xfixes and Xtst once it is there. On Debian/Ubuntu the whole set is
+
+```bash
+sudo apt install libxcb1-dev libx11-dev libxext-dev libxrandr-dev libwayland-dev \
+                 libxcursor-dev libxi-dev libxfixes-dev libxtst-dev
+```
 
 ```bash
 ./build.sh                          # configure+build the host default (ninja-debug-linux)

@@ -13,7 +13,8 @@ This project requires CMake and vcpkg. Make sure the `VCPKG_ROOT` environment va
 Linux needs the X11 and Wayland development packages. On Debian/Ubuntu:
 
 ```Terminal
-sudo apt install libxcb1-dev libx11-dev libxrandr-dev libwayland-dev
+sudo apt install libxcb1-dev libx11-dev libxext-dev libxrandr-dev libwayland-dev \
+                 libxcursor-dev libxi-dev libxfixes-dev libxtst-dev
 ```
 
 ## Build

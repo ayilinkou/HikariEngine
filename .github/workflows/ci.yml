@@ -116,16 +116,25 @@ jobs:
       # vcpkg has no ports for the X11 and Wayland client libraries, so
       # vulkan-loader[xcb,xlib] and vulkan-validationlayers take them from the
       # system: both hard-require the xcb, x11, xrandr and wayland-client
-      # pkg-config modules and fail to configure without them. The runner image
-      # ships some but not all of that set, which is why SDL3 built here before
-      # the loader was added to the manifest — name all four rather than
-      # depending on what the image happens to carry.
+      # pkg-config modules and fail to configure without them.
+      #
+      # Installing those is also what obliges the second line. SDL3's CheckX11
+      # gates every X11 extension probe behind finding libX11 and Xext.h at all;
+      # a bare runner image has neither, so before the loader joined the
+      # manifest SDL configured with that gate shut and quietly built with no
+      # X11 video driver (the port passes SDL_UNIX_CONSOLE_BUILD=ON, so that is
+      # not an error). libx11-dev opens the gate, and SDL then hard-errors on
+      # each of SDL_X11_XCURSOR/XINPUT/XFIXES/XTEST — all default-ON — whose
+      # headers the image does not carry. Every package is named explicitly
+      # rather than left to another one's dependencies, because the failure mode
+      # is a port that stops building, not one that degrades.
       - name: Install WSI development packages (Linux only)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libxcb1-dev libx11-dev libxrandr-dev libwayland-dev
+            libxcb1-dev libx11-dev libxext-dev libxrandr-dev libwayland-dev \
+            libxcursor-dev libxi-dev libxfixes-dev libxtst-dev
 
       # vcpkg creates this itself when it first writes a zip, but the save step
       # below runs even when the job failed early, and actions/cache fails on a
