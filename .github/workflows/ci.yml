@@ -151,8 +151,10 @@ jobs:
       # failing job is exactly when the next run must not pay for the ports
       # again, as three rounds of a broken Linux configure just demonstrated.
       #
-      # The key carries vcpkg.json's hash, so changing a dependency starts a
-      # new generation, and the run id, so every run writes a key of its own.
+      # The key carries both manifests and the run id, in that order: the
+      # baseline in vcpkg-configuration.json, which decides every port's
+      # version; then vcpkg.json, which decides which ports; then an id unique
+      # to this run, so no two runs ever compete for one key.
       #
       # The run id is load-bearing rather than decorative. A cache key can be
       # written only once, so a fixed key plus a save that runs on failure
@@ -171,22 +173,29 @@ jobs:
       # its run id, and without it a re-run would collide with the key its own
       # first attempt already wrote.
       #
-      # restore-keys is what ties the generations together: it returns the most
-      # recently created match, so a run starts from the newest snapshot and
-      # saves a strictly better one, which is what makes a partial entry heal
-      # itself in a single run. The second prefix is the wider net that lets a
-      # dependency change begin from the previous manifest rather than building
-      # everything again. Zips whose ports are gone ride along in it — bump the
-      # v1 to start from empty if that ever adds up.
+      # restore-keys ties the generations together, and its two tiers are where
+      # the cache prunes itself. It returns the most recently created match, so
+      # a run starts from the newest snapshot and saves a strictly better one,
+      # which is what heals a partial entry in a single run. The first tier is
+      # the same two manifests from an earlier run; the second widens to the
+      # same baseline with a different vcpkg.json, so adding a dependency
+      # reuses every port already built against that baseline.
+      #
+      # Nothing falls back across a baseline change, and that is deliberate. A
+      # new baseline moves nearly every port version at once, so the previous
+      # generation's zips are dead weight whose ABI hash will never be asked
+      # for again. Starting empty there costs a rebuild the bump was going to
+      # pay for regardless, and it is what keeps dead zips from accumulating
+      # for the life of the repository with no way out but a hand-bumped v1.
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
         uses: actions/cache/restore@v5
         with:
           path: ${{ github.workspace }}/vcpkg-binary-cache
-          key: vcpkg-v1-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-v1-${{ matrix.os }}-${{ hashFiles('vcpkg-configuration.json') }}-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            vcpkg-v1-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}-
-            vcpkg-v1-${{ matrix.os }}-
+            vcpkg-v1-${{ matrix.os }}-${{ hashFiles('vcpkg-configuration.json') }}-${{ hashFiles('vcpkg.json') }}-
+            vcpkg-v1-${{ matrix.os }}-${{ hashFiles('vcpkg-configuration.json') }}-
 
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
