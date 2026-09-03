@@ -7,9 +7,7 @@ on:
     branches: [main]
 
 env:
-  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_DISABLE_METRICS: "1"
-  VULKAN_SDK_VERSION: "1.4.357.0"
 
 jobs:
   # The checks whose answer cannot differ between configurations, run once
@@ -17,7 +15,7 @@ jobs:
   # and the files, and nothing else — no vcpkg, no Vulkan SDK, no compiler. That
   # is also why they are a separate job rather than steps in the matrix: here
   # they report in about a minute, and they still report when the build is
-  # broken, whereas in the matrix they ran in the eleventh minute of nine
+  # broken, whereas in the matrix they ran in the eleventh minute of six
   # parallel builds and only if the build had succeeded.
   #
   # HeaderSelfContainment deliberately stays in the matrix: it compiles headers
@@ -95,63 +93,100 @@ jobs:
             preset: ninja-debug-windows
           - os: windows-latest
             preset: ninja-asan-windows
-          - os: macos-latest
-            preset: ninja-release-macos
-          - os: macos-latest
-            preset: ninja-debug-macos
-          - os: macos-latest
-            preset: ninja-asan-macos
 
     runs-on: ${{ matrix.os }}
+
+    # vcpkg keeps built ports as zips in this directory and reuses one whenever
+    # its ABI hash — port version, features, triplet, compiler, dependency
+    # hashes — matches what a rebuild would produce, so a hit is never a stale
+    # answer. "clear" drops the default provider first, leaving this directory
+    # as the only one. It replaces the x-gha backend, which vcpkg-tool removed;
+    # until this landed every job rebuilt Slang and the validation layers from
+    # source, which is most of a 50-minute Windows job.
+    env:
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-binary-cache,readwrite"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Enable vcpkg GitHub Actions binary cache
-        uses: actions/github-script@v9
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
 
-      - name: Install Ninja via Homebrew (macOS only)
-        if: runner.os == 'macOS'
-        run: brew install ninja
-
-      - name: Install Vulkan SDK (Linux/Windows)
-        if: runner.os != 'macOS'
-        uses: humbletim/install-vulkan-sdk@v1.2
-        with:
-          version: latest
-          cache: true
-
-      - name: Cache Vulkan SDK (macOS)
-        if: runner.os == 'macOS'
-        id: vulkan-cache-macos
-        uses: actions/cache@v5
-        with:
-          path: ~/VulkanSDK/${{ env.VULKAN_SDK_VERSION }}
-          key: vulkan-sdk-macos-${{ env.VULKAN_SDK_VERSION }}
-
-      - name: Install Vulkan SDK (macOS)
-        if: runner.os == 'macOS' && steps.vulkan-cache-macos.outputs.cache-hit != 'true'
+      # vcpkg has no ports for the X11 and Wayland client libraries, so
+      # vulkan-loader[xcb,xlib] and vulkan-validationlayers take them from the
+      # system: both hard-require the xcb, x11, xrandr and wayland-client
+      # pkg-config modules and fail to configure without them.
+      #
+      # Installing those is also what obliges the second line. SDL3's CheckX11
+      # gates every X11 extension probe behind finding libX11 and Xext.h at all;
+      # a bare runner image has neither, so before the loader joined the
+      # manifest SDL configured with that gate shut and quietly built with no
+      # X11 video driver (the port passes SDL_UNIX_CONSOLE_BUILD=ON, so that is
+      # not an error). libx11-dev opens the gate, and SDL then hard-errors on
+      # each of SDL_X11_XCURSOR/XINPUT/XFIXES/XTEST — all default-ON — whose
+      # headers the image does not carry. Every package is named explicitly
+      # rather than left to another one's dependencies, because the failure mode
+      # is a port that stops building, not one that degrades.
+      - name: Install WSI development packages (Linux only)
+        if: runner.os == 'Linux'
         run: |
-          curl -sL -o vulkan_sdk.zip \
-            "https://sdk.lunarg.com/sdk/download/${VULKAN_SDK_VERSION}/mac/vulkan_sdk.zip"
-          unzip -q vulkan_sdk.zip
-          sudo "./vulkansdk-macOS-${VULKAN_SDK_VERSION}.app/Contents/MacOS/vulkansdk-macOS-${VULKAN_SDK_VERSION}" \
-            --root "$HOME/VulkanSDK/${VULKAN_SDK_VERSION}" \
-            --accept-licenses --default-answer --confirm-command install
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxcb1-dev libx11-dev libxext-dev libxrandr-dev libwayland-dev \
+            libxcursor-dev libxi-dev libxfixes-dev libxtst-dev
 
-      - name: Set Vulkan SDK env vars (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          echo "VULKAN_SDK=$HOME/VulkanSDK/${VULKAN_SDK_VERSION}/macOS" >> "$GITHUB_ENV"
-          echo "$HOME/VulkanSDK/${VULKAN_SDK_VERSION}/macOS/bin" >> "$GITHUB_PATH"
+      # vcpkg creates this itself when it first writes a zip, but the save step
+      # below runs even when the job failed early, and actions/cache fails on a
+      # path that does not exist.
+      - name: Create the vcpkg binary cache directory
+        shell: bash
+        run: mkdir -p "${{ github.workspace }}/vcpkg-binary-cache"
+
+      # One entry per OS rather than per preset: all three presets of an OS
+      # resolve to the same triplet, so they need the same zips and sharing one
+      # entry is what makes the second and third job of a run nearly free.
+      # Restore and save are split rather than the combined actions/cache
+      # because the combined action skips its upload when the job fails — and a
+      # failing job is exactly when the next run must not pay for the ports
+      # again, as three rounds of a broken Linux configure just demonstrated.
+      #
+      # The key carries vcpkg.json's hash, so changing a dependency starts a
+      # new generation, and the run id, so every run writes a key of its own.
+      #
+      # The run id is load-bearing rather than decorative. A cache key can be
+      # written only once, so a fixed key plus a save that runs on failure
+      # eventually seals a half-built directory under the one key anything ever
+      # looks up, and no later run can replace it: each one restores the stub,
+      # rebuilds the missing ports, and is then forbidden from saving them
+      # because the key is taken. That is not hypothetical. A Linux configure
+      # that failed in its second minute sealed a 76 MB stub, and every Linux
+      # job afterwards spent eighteen minutes rebuilding Slang and the
+      # validation layers from source and discarding them. A key that is unique
+      # per run keeps the property that motivated saving on failure, that
+      # partial progress survives, while letting the next run supersede a
+      # partial entry instead of being locked out by it.
+      #
+      # The attempt number is in there because re-running a failed job reuses
+      # its run id, and without it a re-run would collide with the key its own
+      # first attempt already wrote.
+      #
+      # restore-keys is what ties the generations together: it returns the most
+      # recently created match, so a run starts from the newest snapshot and
+      # saves a strictly better one, which is what makes a partial entry heal
+      # itself in a single run. The second prefix is the wider net that lets a
+      # dependency change begin from the previous manifest rather than building
+      # everything again. Zips whose ports are gone ride along in it — bump the
+      # v1 to start from empty if that ever adds up.
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ github.workspace }}/vcpkg-binary-cache
+          key: vcpkg-v1-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vcpkg-v1-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}-
+            vcpkg-v1-${{ matrix.os }}-
 
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
@@ -191,7 +226,7 @@ jobs:
         continue-on-error: true
         run: ctest --test-dir build/${{ matrix.preset }} -L unit --output-on-failure
 
-      # header-check reports "skipped" in the six non-debug jobs, which is not a
+      # header-check reports "skipped" in the four non-debug jobs, which is not a
       # failure and so passes this gate.
       - name: Fail if any check failed
         if: steps.header-check.outcome == 'failure' || steps.catch2-tests.outcome == 'failure'
@@ -200,3 +235,16 @@ jobs:
           echo "  Header self-containment: ${{ steps.header-check.outcome }}"
           echo "  Catch2 tests: ${{ steps.catch2-tests.outcome }}"
           exit 1
+
+      # Unconditional, because this run's key is its own and cannot collide with
+      # a previous run's, so there is never an entry to leave alone. The three
+      # jobs of one OS do collide with each other — same run, same key, and the
+      # same triplet, so the same zips — and the two that lose the race log a
+      # warning and upload nothing, which is the intended outcome rather than a
+      # failure to fix.
+      - name: Save vcpkg binary cache
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ github.workspace }}/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}

@@ -21,17 +21,6 @@
 #include <unordered_map>
 #include <vector>
 
-#if defined(__APPLE__)
-// Enable Vulkan Metal-surface (VK_EXT_metal_surface) support on macOS so we
-// can create the swapchain surface directly through our Vulkan loader instead
-// of relying on SDL_Vulkan_CreateSurface (which is unreliable on macOS).
-#define VK_USE_PLATFORM_METAL_EXT
-// VK_KHR_portability_subset (required by MoltenVK on the logical device) is a
-// "beta" extension; its vk:: wrappers only exist when this is defined.
-#define VK_ENABLE_BETA_EXTENSIONS
-#include "SDL3/SDL_metal.h"
-#endif
-
 #include "vulkan/vulkan.hpp"
 #include "vulkan/vulkan_raii.hpp"
 

@@ -86,22 +86,6 @@ set(SOURCES
     src/CloudSystem.cpp
     src/XmlParser.cpp)
 
-# On macOS the Vulkan validation layer only ships with the Vulkan SDK (vcpkg
-# ships none) and is selected at runtime via VK_LAYER_PATH. vcpkg's own
-# libvulkan loader is frequently a DIFFERENT version than the SDK's layer; that
-# mismatch makes the loader recurse inside vkGetDeviceProcAddr (segfault during
-# ImGui init). To keep the linked loader version in lock-step with the SDK
-# validation layer, point find_package(Vulkan) at the SDK when VULKAN_SDK is
-# set.
-if(APPLE AND DEFINED ENV{VULKAN_SDK})
-  set(Vulkan_LIBRARY
-      "$ENV{VULKAN_SDK}/lib/libvulkan.dylib"
-      CACHE FILEPATH "" FORCE)
-  set(Vulkan_INCLUDE_DIR
-      "$ENV{VULKAN_SDK}/include"
-      CACHE PATH "" FORCE)
-endif()
-
 find_package(Vulkan REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
@@ -135,10 +119,10 @@ add_subdirectory(engine/platform)
 add_subdirectory(engine/rhi)
 
 # clang-format's output is not stable across major versions, so the version is
-# pinned rather than left to whatever is on PATH. Without the pin, the nine CI
-# configurations run three different clang-formats (the Ubuntu image's, Homebrew's
-# and the Windows image's LLVM) and disagree with each other and with developers —
-# which is exactly how a commit lands green on macOS and Windows and red on Linux.
+# pinned rather than left to whatever is on PATH. Without the pin, the six CI
+# configurations run two different clang-formats (the Ubuntu image's and the
+# Windows image's LLVM) and disagree with each other and with developers — which
+# is exactly how a commit lands green on Windows and red on Linux.
 #
 # The pinned version lives in .clang-format-version so that this file and the CI
 # workflow read the same number. Bumping it means bumping that file and
@@ -299,15 +283,11 @@ else()
             >)
 
   # lld links noticeably faster than bfd, which matters most for the ASan/UBSan
-  # build (large instrumented runtime + debug info to link). Not used on Apple
-  # platforms since Xcode's ld already handles this well and lld's Mach-O
-  # support is less mature.
-  if(NOT APPLE)
-    include(CheckLinkerFlag)
-    check_linker_flag(CXX "-fuse-ld=lld" LLD_LINKER_AVAILABLE)
-    if(LLD_LINKER_AVAILABLE)
-      target_link_options(HikariEngine PRIVATE -fuse-ld=lld)
-    endif()
+  # build (large instrumented runtime + debug info to link).
+  include(CheckLinkerFlag)
+  check_linker_flag(CXX "-fuse-ld=lld" LLD_LINKER_AVAILABLE)
+  if(LLD_LINKER_AVAILABLE)
+    target_link_options(HikariEngine PRIVATE -fuse-ld=lld)
   endif()
 endif()
 

@@ -1,6 +1,11 @@
+# Both shader tools come from vcpkg, which is what keeps the Vulkan SDK off the
+# list of things a build needs. vcpkg's toolchain appends its tools directories
+# to CMAKE_PROGRAM_PATH, and find_program searches CMake variables ahead of the
+# environment's PATH, so these resolve to the versions vcpkg.json pins rather
+# than to whichever copy a developer happens to have installed.
 find_program(SLANGC_EXE slangc)
 if(NOT SLANGC_EXE)
-  message(FATAL_ERROR "slangc not found!")
+  message(FATAL_ERROR "slangc not found! It is provided by the shader-slang vcpkg port.")
 endif()
 
 # The Vulkan specification makes valid SPIR-V the application's responsibility,
@@ -15,13 +20,13 @@ endif()
 # correctness check CI can run. slangc does not stand in for it — it accepts
 # modules spirv-val rejects.
 #
-# Searched beside the SDK rather than on PATH alone, and fatal rather than
-# optional, because a check that silently disappears on one of the nine CI
-# configurations is worse than no check: the build stays green and the coverage
-# is imaginary.
-find_program(SPIRV_VAL_EXE spirv-val HINTS $ENV{VULKAN_SDK}/bin)
+# Fatal rather than optional, because a check that silently disappears on one of
+# the six CI configurations is worse than no check: the build stays green and
+# the coverage is imaginary. Depending on the spirv-tools port's "tools" feature
+# rather than on an SDK install is what makes it present everywhere.
+find_program(SPIRV_VAL_EXE spirv-val)
 if(NOT SPIRV_VAL_EXE)
-  message(FATAL_ERROR "spirv-val not found! Expected it in $ENV{VULKAN_SDK}/bin.")
+  message(FATAL_ERROR "spirv-val not found! It is provided by the spirv-tools vcpkg port.")
 endif()
 
 # Compiles .slang sources to SPIR-V beside the executable that loads them.

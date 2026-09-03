@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -12,9 +13,6 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
-#if defined(__APPLE__)
-#include <SDL3/SDL_metal.h>
-#endif
 
 #include <core/Log.h>
 
@@ -86,6 +84,49 @@ void ValidateTextureDesc(const TextureDesc& desc)
         (desc.Dimension != TextureDimension::Texture2D || desc.ArrayLayers % 6u != 0u))
         fail("a cube-compatible texture must be 2D with a multiple of 6 array layers.");
 }
+/**
+ * Adds the validation layer vcpkg installed to the loader's layer search path.
+ *
+ * Without this the layer has to come from a system-wide Vulkan SDK, which is the
+ * only thing a Linux or Windows build would still need one for. VK_ADD_LAYER_PATH
+ * adds to the standard search paths rather than replacing them, and the loader
+ * reads it when layers are enumerated rather than at its own startup — so setting
+ * it here, before the first enumeration in CreateInstance, is early enough. That
+ * is not true of every loader variable: VK_LOADER_* settings are read during
+ * loader initialisation, which has already happened by the time any of this runs.
+ *
+ * Whatever the environment already asked for is kept and comes first, so a
+ * developer pointing at their own layers still gets them.
+ */
+void AddBundledLayerPath()
+{
+#if defined(_WIN32)
+    constexpr char kSeparator = ';';
+#else
+    constexpr char kSeparator = ':';
+#endif
+
+    std::string value = HIKARI_VULKAN_LAYER_PATH;
+
+#if defined(_WIN32)
+    // getenv is flagged unsafe by MSVC (C4996); _dupenv_s is its thread-safe replacement.
+    char* existing = nullptr;
+    std::size_t existingLen = 0;
+    _dupenv_s(&existing, &existingLen, "VK_ADD_LAYER_PATH");
+    if (existing != nullptr && existing[0] != '\0')
+        value = std::string(existing) + kSeparator + value;
+    std::free(existing);
+
+    _putenv_s("VK_ADD_LAYER_PATH", value.c_str());
+#else
+    const char* existing = std::getenv("VK_ADD_LAYER_PATH");
+    if (existing != nullptr && existing[0] != '\0')
+        value = std::string(existing) + kSeparator + value;
+
+    setenv("VK_ADD_LAYER_PATH", value.c_str(), 1);
+#endif
+}
+
 } // namespace
 
 VulkanDevice::VulkanDevice(const DeviceDesc& desc)
@@ -523,6 +564,11 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
 {
     Core::LogMsg(Core::LogSeverity::Info, LogRhi, "CreateInstance()");
 
+    // Before the first enumeration below, which is what the loader answers from
+    // its manifest scan.
+    if (desc.bEnableValidation)
+        AddBundledLayerPath();
+
     const vk::ApplicationInfo appInfo{.pApplicationName = desc.ApplicationName.c_str(),
                                       .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
                                       .pEngineName = "No Engine",
@@ -550,19 +596,6 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
         requiredExtensions.insert(requiredExtensions.end(), instanceExtensions,
                                   instanceExtensions + countInstanceExtensions);
     }
-
-#if defined(__APPLE__)
-    // MoltenVK is a portability driver. On macOS the Vulkan loader requires the
-    // app to explicitly opt into enumerating portability drivers, otherwise
-    // vkCreateInstance fails with VK_ERROR_INCOMPATIBLE_DRIVER. Needed whether
-    // or not anything is presented, since it gates enumeration itself.
-    requiredExtensions.push_back(vk::KHRPortabilityEnumerationExtensionName);
-
-    // Required so we can build the swapchain surface via VK_EXT_metal_surface
-    // (SDL_Vulkan_CreateSurface is unreliable on macOS).
-    if (desc.Requirements.bPresent)
-        requiredExtensions.push_back(vk::EXTMetalSurfaceExtensionName);
-#endif
 
     auto extensionProperties = m_Context.enumerateInstanceExtensionProperties();
 
@@ -645,9 +678,6 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
 
     vk::InstanceCreateInfo createInfo{.pNext =
                                           desc.bEnableValidation ? &layerSettingsInfo : nullptr,
-#if defined(__APPLE__)
-                                      .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,
-#endif
                                       .pApplicationInfo = &appInfo,
                                       .enabledLayerCount = (uint32_t)requiredLayers.size(),
                                       .ppEnabledLayerNames = requiredLayers.data(),
@@ -699,26 +729,11 @@ void VulkanDevice::CreateSurface(const DeviceRequirements& requirements)
 
     auto* pWindow = static_cast<SDL_Window*>(requirements.NativeWindowHandle);
 
-#if defined(__APPLE__)
-    // SDL_Vulkan_CreateSurface can crash on macOS because SDL resolves the
-    // surface-creation function pointer through its own Vulkan loader, which may
-    // differ from the one this app linked (and the instance belongs to). Create
-    // the Metal surface directly via our Vulkan loader instead.
-    SDL_MetalView metalView = SDL_Metal_CreateView(pWindow);
-    if (!metalView)
-        throw std::runtime_error("Failed to create Metal view!");
-
-    void* metalLayer = SDL_Metal_GetLayer(metalView);
-    vk::MetalSurfaceCreateInfoEXT createInfo{.pLayer = metalLayer};
-
-    m_Surface = m_Instance.createMetalSurfaceEXT(createInfo);
-#else
     VkSurfaceKHR rawSurface;
     if (!SDL_Vulkan_CreateSurface(pWindow, *m_Instance, nullptr, &rawSurface))
         throw std::runtime_error("Failed to create Vulkan surface!");
 
     m_Surface = vk::raii::SurfaceKHR(m_Instance, rawSurface);
-#endif
 }
 
 bool VulkanDevice::IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& device,
@@ -966,13 +981,6 @@ void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
     std::vector<const char*> deviceExtensions;
     if (requirements.bPresent)
         deviceExtensions.push_back(vk::KHRSwapchainExtensionName);
-
-#if defined(__APPLE__)
-    // MoltenVK exposes VK_KHR_portability_subset and requires it to be enabled
-    // on the logical device; otherwise device creation has undefined behaviour
-    // and can crash.
-    deviceExtensions.push_back(vk::KHRPortabilitySubsetExtensionName);
-#endif
 
     if (m_bMaintenance8Enabled)
         deviceExtensions.push_back(vk::KHRMaintenance8ExtensionName);

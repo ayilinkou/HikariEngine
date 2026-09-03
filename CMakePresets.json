@@ -14,7 +14,8 @@
             "inherits": "base",
             "hidden": true,
             "cacheVariables": {
-                "VCPKG_TARGET_TRIPLET": "x64-linux"
+                "VCPKG_TARGET_TRIPLET": "x64-linux",
+                "VCPKG_HOST_TRIPLET": "x64-linux"
             }
         },
         {
@@ -30,9 +31,7 @@
             "inherits": "ninja-debug-linux",
             "description": "Debug config for Ninja on Linux using Address Sanitizer and Undefined Behaviour Sanitizer",
             "cacheVariables": {
-                "ENABLE_SANITIZERS": "ON",
-                "VCPKG_TARGET_TRIPLET": "x64-linux-asan",
-                "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/vcpkg-triplets"
+                "ENABLE_SANITIZERS": "ON"
             }
         },
         {
@@ -48,7 +47,8 @@
             "inherits": "base",
             "hidden": true,
             "cacheVariables": {
-                "VCPKG_TARGET_TRIPLET": "x64-windows"
+                "VCPKG_TARGET_TRIPLET": "x64-windows",
+                "VCPKG_HOST_TRIPLET": "x64-windows"
             }
         },
         {
@@ -88,41 +88,6 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
-        },
-        {
-            "name": "macos-base",
-            "inherits": "base",
-            "hidden": true,
-            "cacheVariables": {
-                "VCPKG_TARGET_TRIPLET": "arm64-osx",
-                "CMAKE_CXX_COMPILER": "/usr/bin/clang++"
-            }
-        },
-        {
-            "name": "ninja-debug-macos",
-            "inherits": "macos-base",
-            "generator": "Ninja",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
-        },
-        {
-            "name": "ninja-asan-macos",
-            "inherits": "ninja-debug-macos",
-            "description": "Debug config for Ninja on macOS using Address Sanitizer and Undefined Behaviour Sanitizer",
-            "cacheVariables": {
-                "ENABLE_SANITIZERS": "ON",
-                "VCPKG_TARGET_TRIPLET": "arm64-osx-asan",
-                "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/vcpkg-triplets"
-            }
-        },
-        {
-            "name": "ninja-release-macos",
-            "inherits": "macos-base",
-            "generator": "Ninja",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release"
-            }
         }
     ],
     "buildPresets": [
@@ -150,18 +115,6 @@
         {
             "name": "ninja-release-windows",
             "configurePreset": "ninja-release-windows"
-        },
-        {
-            "name": "ninja-debug-macos",
-            "configurePreset": "ninja-debug-macos"
-        },
-        {
-            "name": "ninja-asan-macos",
-            "configurePreset": "ninja-asan-macos"
-        },
-        {
-            "name": "ninja-release-macos",
-            "configurePreset": "ninja-release-macos"
         }
     ],
     "workflowPresets": [
@@ -241,45 +194,6 @@
                 {
                     "type": "build",
                     "name": "ninja-release-windows"
-                }
-            ]
-        },
-        {
-            "name": "ninja-debug-macos",
-            "steps": [
-                {
-                    "type": "configure",
-                    "name": "ninja-debug-macos"
-                },
-                {
-                    "type": "build",
-                    "name": "ninja-debug-macos"
-                }
-            ]
-        },
-        {
-            "name": "ninja-asan-macos",
-            "steps": [
-                {
-                    "type": "configure",
-                    "name": "ninja-asan-macos"
-                },
-                {
-                    "type": "build",
-                    "name": "ninja-asan-macos"
-                }
-            ]
-        },
-        {
-            "name": "ninja-release-macos",
-            "steps": [
-                {
-                    "type": "configure",
-                    "name": "ninja-release-macos"
-                },
-                {
-                    "type": "build",
-                    "name": "ninja-release-macos"
                 }
             ]
         },

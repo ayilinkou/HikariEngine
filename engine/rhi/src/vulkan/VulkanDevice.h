@@ -211,7 +211,21 @@ private:
     /** Either the caller's or m_OwnedDiagnostics; never null after construction. */
     Diagnostics* m_pDiagnostics = nullptr;
 
-    vk::raii::Context m_Context;
+    /**
+     * Built from the loader this module is linked against, rather than from the
+     * one vk::raii::Context would dlopen by bare filename for itself.
+     *
+     * Those are not always the same library. A bare-name dlopen resolves through
+     * the calling object's RUNPATH, which for the linked loader is its own
+     * directory — but AddressSanitizer interposes dlopen, and the RUNPATH glibc
+     * then consults is the sanitizer runtime's. A sanitizer build therefore
+     * picked up whichever libvulkan.so.1 happened to be installed system-wide,
+     * leaving two loaders in one process: the instance created through one, its
+     * function pointers queried through the other, and every extension entry
+     * point null. The first casualty was vkCreateDebugUtilsMessengerEXT, which
+     * aborts in a debug build rather than failing quietly.
+     */
+    vk::raii::Context m_Context{&::vkGetInstanceProcAddr};
     vk::raii::Instance m_Instance = nullptr;
     vk::raii::DebugUtilsMessengerEXT m_DebugMessenger = nullptr;
     vk::raii::SurfaceKHR m_Surface = nullptr;
