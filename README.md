@@ -51,3 +51,8 @@ To build the debug config, just run the `build.sh` script.
 ```Terminal
 ./build.sh
 ```
+
+`build.bat` and `build.sh` can both be appended with the config name to build for a specific config.
+```Terminal
+./build.sh ninja-release-linux
+```
