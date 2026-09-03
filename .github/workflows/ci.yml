@@ -151,17 +151,42 @@ jobs:
       # failing job is exactly when the next run must not pay for the ports
       # again, as three rounds of a broken Linux configure just demonstrated.
       #
-      # The key carries vcpkg.json's hash, so changing a dependency starts a new
-      # entry; restore-keys let that new entry begin from the previous one
-      # instead of building the whole manifest again. Zips whose ports are gone
-      # ride along in it — bump the v1 to start from empty if that ever adds up.
+      # The key carries vcpkg.json's hash, so changing a dependency starts a
+      # new generation, and the run id, so every run writes a key of its own.
+      #
+      # The run id is load-bearing rather than decorative. A cache key can be
+      # written only once, so a fixed key plus a save that runs on failure
+      # eventually seals a half-built directory under the one key anything ever
+      # looks up, and no later run can replace it: each one restores the stub,
+      # rebuilds the missing ports, and is then forbidden from saving them
+      # because the key is taken. That is not hypothetical. A Linux configure
+      # that failed in its second minute sealed a 76 MB stub, and every Linux
+      # job afterwards spent eighteen minutes rebuilding Slang and the
+      # validation layers from source and discarding them. A key that is unique
+      # per run keeps the property that motivated saving on failure, that
+      # partial progress survives, while letting the next run supersede a
+      # partial entry instead of being locked out by it.
+      #
+      # The attempt number is in there because re-running a failed job reuses
+      # its run id, and without it a re-run would collide with the key its own
+      # first attempt already wrote.
+      #
+      # restore-keys is what ties the generations together: it returns the most
+      # recently created match, so a run starts from the newest snapshot and
+      # saves a strictly better one, which is what makes a partial entry heal
+      # itself in a single run. The second prefix is the wider net that lets a
+      # dependency change begin from the previous manifest rather than building
+      # everything again. Zips whose ports are gone ride along in it — bump the
+      # v1 to start from empty if that ever adds up.
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
         uses: actions/cache/restore@v5
         with:
           path: ${{ github.workspace }}/vcpkg-binary-cache
-          key: vcpkg-v1-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}
-          restore-keys: vcpkg-v1-${{ matrix.os }}-
+          key: vcpkg-v1-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vcpkg-v1-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}-
+            vcpkg-v1-${{ matrix.os }}-
 
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
@@ -211,12 +236,14 @@ jobs:
           echo "  Catch2 tests: ${{ steps.catch2-tests.outcome }}"
           exit 1
 
-      # An exact key hit means the entry already holds every zip this job could
-      # have produced, and a key can only be written once, so there is nothing
-      # to upload. Any other outcome — a restore-keys hit, or no hit at all —
-      # leaves newly built ports worth keeping.
+      # Unconditional, because this run's key is its own and cannot collide with
+      # a previous run's, so there is never an entry to leave alone. The three
+      # jobs of one OS do collide with each other — same run, same key, and the
+      # same triplet, so the same zips — and the two that lose the race log a
+      # warning and upload nothing, which is the intended outcome rather than a
+      # failure to fix.
       - name: Save vcpkg binary cache
-        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        if: always()
         uses: actions/cache/save@v5
         with:
           path: ${{ github.workspace }}/vcpkg-binary-cache
