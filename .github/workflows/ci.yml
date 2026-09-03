@@ -128,13 +128,22 @@ jobs:
       # headers the image does not carry. Every package is named explicitly
       # rather than left to another one's dependencies, because the failure mode
       # is a port that stops building, not one that degrades.
-      - name: Install WSI development packages (Linux only)
+      #
+      # The last line is autotools, which no port supplies and which the graph
+      # reaches through SDL3: its Linux default features gained dbus, dbus pulls
+      # libsystemd, libsystemd pulls libxcrypt, and libxcrypt configures with
+      # vcpkg-make, which runs autoreconf. Of the four only autoconf-archive is
+      # actually absent from the runner image, but all four are named for the
+      # reason the lines above name theirs — a port that stops building costs
+      # more than a package installed twice.
+      - name: Install system build dependencies (Linux only)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libxcb1-dev libx11-dev libxext-dev libxrandr-dev libwayland-dev \
-            libxcursor-dev libxi-dev libxfixes-dev libxtst-dev
+            libxcursor-dev libxi-dev libxfixes-dev libxtst-dev \
+            autoconf autoconf-archive automake libtool
 
       # vcpkg creates this itself when it first writes a zip, but the save step
       # below runs even when the job failed early, and actions/cache fails on a

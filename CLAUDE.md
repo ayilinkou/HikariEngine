@@ -139,11 +139,19 @@ and `vulkan-validationlayers` configure against the system's `xcb`, `x11`, `xran
 `wayland-client` pkg-config modules and fail outright without them, so a Linux machine needs
 those development packages before a build will configure. Installing them also commits you to
 a second set: SDL3 skips its X11 extension probes entirely when libX11 is absent, and starts
-hard-requiring Xcursor, Xi, Xfixes and Xtst once it is there. On Debian/Ubuntu the whole set is
+hard-requiring Xcursor, Xi, Xfixes and Xtst once it is there.
+
+A third set is autotools, which nothing in `vcpkg.json` asks for and SDL3 reaches anyway: its
+Linux default features include `dbus`, which pulls `libsystemd`, which pulls `libxcrypt`, which
+configures through `vcpkg-make` and so runs `autoreconf`. `autoconf-archive` is the member most
+distributions leave out, and therefore the one that actually fails the build — the other three
+are usually already present, which is what makes the failure look arbitrary. On Debian/Ubuntu
+the whole set is
 
 ```bash
 sudo apt install libxcb1-dev libx11-dev libxext-dev libxrandr-dev libwayland-dev \
-                 libxcursor-dev libxi-dev libxfixes-dev libxtst-dev
+                 libxcursor-dev libxi-dev libxfixes-dev libxtst-dev \
+                 autoconf autoconf-archive automake libtool
 ```
 
 ```bash
