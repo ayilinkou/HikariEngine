@@ -639,7 +639,18 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
                                  std::string(*unsupportedLayerIt));
 
     const vk::Bool32 bSyncValEnabled = VK_TRUE;
-    const vk::Bool32 bBestPracticesValEnabled = VK_TRUE;
+
+    // Best-practices validation is off because the layer crashes on it, not because
+    // we stopped wanting it. vulkan-validationlayers 1.4.357.0 — the newest version
+    // vcpkg offers — reads an image's last-used queue family in a maintenance9-gated
+    // branch of BestPractices::ValidateImageInQueue without first checking it against
+    // VK_QUEUE_FAMILY_IGNORED, so the first use of any image in a submit indexes at
+    // 0xFFFFFFFF and segfaults inside the layer. We enable maintenance9, so this hit
+    // every debug run and two GPU tests. Fixed upstream by Vulkan-ValidationLayers
+    // PR #12922 (issue #12449), merged after the 1.4.357.0 tag was cut, so the first
+    // SDK release carrying it is later than anything vcpkg has today. Restore this
+    // line and the setting below once vcpkg offers such a version.
+    // const vk::Bool32 bBestPracticesValEnabled = VK_TRUE;
 
     // VUIDs the validation layer must not emit. The best-practices layer raises a
     // performance warning for every VK_SUBOPTIMAL_KHR returned by
@@ -650,22 +661,24 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
     // is the one the present-time check actually uses (Vulkan-ValidationLayers
     // bp_wsi.cpp, PostCallRecordQueuePresentKHR). Muted at the layer via
     // message_id_filter so it is never generated, keeping DebugCallback generic
-    // and the run report's validation counts clean.
+    // and the run report's validation counts clean. The filter matches nothing while
+    // best-practices validation is disabled above, and is kept so that re-enabling it
+    // brings the mute back with it.
     static constexpr const char* kMutedMessageIds[] = {
         "BestPractices-vkCreateSharedSwapchainsKHR-SuboptimalSwapchain",
     };
 
-    std::array<vk::LayerSettingEXT, 3> settings = {
+    std::array<vk::LayerSettingEXT, 2> settings = {
         vk::LayerSettingEXT{.pLayerName = kValidationLayerName,
                             .pSettingName = "validate_sync",
                             .type = vk::LayerSettingTypeEXT::eBool32,
                             .valueCount = 1,
                             .pValues = &bSyncValEnabled},
-        vk::LayerSettingEXT{.pLayerName = kValidationLayerName,
-                            .pSettingName = "validate_best_practices",
-                            .type = vk::LayerSettingTypeEXT::eBool32,
-                            .valueCount = 1,
-                            .pValues = &bBestPracticesValEnabled},
+        // vk::LayerSettingEXT{.pLayerName = kValidationLayerName,
+        //                     .pSettingName = "validate_best_practices",
+        //                     .type = vk::LayerSettingTypeEXT::eBool32,
+        //                     .valueCount = 1,
+        //                     .pValues = &bBestPracticesValEnabled},
         vk::LayerSettingEXT{.pLayerName = kValidationLayerName,
                             .pSettingName = "message_id_filter",
                             .type = vk::LayerSettingTypeEXT::eString,
