@@ -2437,6 +2437,27 @@ next to `IClock` and `RunSpec` rather than next to `HeadlessPlatform`.
   `--frames-in-flight 1` and `3` and confirm both render correctly — a good latent-bug
   detector, since it's currently a compile-time constant baked into array sizes.
 - **Size:** L · **Needs:** 23, 35
+- **Landed (2026-09-05), with four deviations worth keeping:**
+  - **The `Engine` class stays in `src/main.cpp`**, in `namespace Hikari::Engine`, and moves to
+    `engine/engine` at step 46. It reaches for sixteen `src/` headers, which an engine module
+    cannot include, and step 43 requires `MaterialFactory` to stay in `src/` while `Engine`
+    constructs it — so the class cannot leave before the things it holds do. The module was
+    created now and holds `EngineConfig`, `RunSpec`, `RunReport`, `CapturedFrame`, `RunResult`,
+    `CameraPresetData`/`kCameraPresets`, and the option parsing. Same pattern this step's own
+    §41 note already applies to `WriteRunReport`: name the eventual home, move it when the step
+    that owns the move arrives.
+  - **`ParseRunSpec` is `ParseEngineOption` + `PrintEngineUsage`**, taking one option at a time
+    and filling `EngineConfig` alongside `RunSpec`. An app has flags of its own to interleave,
+    so it walks the options once and offers each to the engine first; and `--frames-in-flight`
+    configures the engine rather than the run, so one entry point fills both.
+  - **`RunSpec` carries `bRecordTimings`** as well as `bCaptureFinalFrame`. The frame-timing
+    samples were collected only when `--report` was passed, and the engine can no longer see
+    that flag — without the field it would either lose the condition or accumulate two floats
+    per frame forever in an unbounded run.
+  - **ImGui's `ImageCount` is `max({2u, GetImageCount(), FramesInFlight})`**, not
+    `max(2u, GetImageCount())`. The ring is reused every `ImageCount` frames, so a two-image
+    swapchain with three frames in flight would be overwritten while an earlier frame still
+    read it. `--screenshot` and `--report` stayed app flags, since the paths are the app's.
 - **Note:** this step used to name `WIDTH` and `HEIGHT` as well. They no longer exist — the
   window-mode work replaced them with `WindowDesc` plus `--resolution`, where zero means "ask
   the display". `RunSpec` should carry the resolution and the window mode rather than
@@ -2451,11 +2472,38 @@ next to `IClock` and `RunSpec` rather than next to `HeadlessPlatform`.
 - **Verify:** Output unchanged. Unit test constructs **two** independent registries and
   confirms their caches are separate (impossible today).
 - **Size:** L · **Needs:** 41
+- **Landed (2026-09-05), with two deviations:**
+  - **`engine/assets` holds `AssetCache` only; `AssetRegistry` stays in `src/`.** The registry
+    caches `Texture`, `Cubemap` and `ModelData`, and its implementation needs those complete —
+    they are `src/` types until Stage 8 splits them into `TextureData`/`MeshData`. Same
+    constraint that kept `Engine` in `src/` at step 41, and it resolves the same way: the
+    registry follows its types into the module rather than dragging them in early.
+  - **The two-registries test is a two-caches test.** `AssetRegistry` is not linkable from
+    `tests/` while it lives in `src/` and needs a device, so the independence the step is about
+    — no process-wide table behind the caches — is asserted against `AssetCache` directly, in
+    `tests/unit/assets/AssetCacheTests.cpp`. The registry-level test arrives with the registry.
+
+  What did land in full: the `Get()` singletons for `ResourceManager`, `TextureLoader`,
+  `CubemapLoader` and `ModelLoader` are gone, the registry owns the three loaders and is
+  constructor-injected through `XmlParser::LoadScene` → `Model` and through `ModelLoader` →
+  `MaterialFactory::CreatePBRMaterial` → `PBRMaterial`, and `counters` split into
+  `counters.frame` and `counters.run` with `uploadSubmissions` in the latter. `ModelManager`'s
+  `Init`/`Shutdown` moved to `Engine`, where they wait for step 44.
 
 ### 43. Inject `MaterialFactory`
 - **Do:** Same treatment; owned by `AssetRegistry`.
 - **Verify:** Output unchanged.
 - **Size:** M · **Needs:** 42
+- **Landed (2026-09-05), owned by `Engine` rather than by `AssetRegistry`.** The factory has
+  callers on both sides of the asset/renderer line: `ModelLoader` builds materials with it while
+  loading, and the opaque and transparent pipeline layouts are built against its descriptor set
+  layout. Registry ownership would put a `vk::DescriptorSetLayout` on `engine/assets`' public
+  surface — and an `rhi/vulkan/` allowlist entry on a module that otherwise needs none — for the
+  sake of the renderer's use of it. `Engine` builds it before the registry and passes it through
+  to `ModelLoader`, the one loader that needs it; it is destroyed after the registry, since the
+  materials that hold descriptor sets from its allocator die with the models. It stays in `src/`:
+  it is not an assets type, and Stage 8 relocates materials and pipelines together, which is when
+  the materials-versus-pipeline-layouts question has to be answered anyway.
 
 ### 44. Inject `ModelManager` and break `Model`'s back-pointer
 - **Do:** The awkward one. `Model`'s constructor currently calls `ModelManager::Get()->
@@ -2466,6 +2514,17 @@ next to `IClock` and `RunSpec` rather than next to `HeadlessPlatform`.
   `LiveCount()` returns to baseline after unloading (a leak check). Unit test constructs a
   `Model` with **no** `ModelManager` in existence.
 - **Size:** L · **Needs:** 42
+- **Landed (2026-09-05).** `ModelManager` is a value member of `Engine` with no `Get()`, no
+  `Init`/`Shutdown` and no model list: `GenerateBatches(const SceneGraph&)` walks the scene it is
+  handed through a private `CollectRenderables`, every frame, as the registration it replaced
+  effectively did. `Model` no longer includes `ModelManager.h` at all — that absence is what the
+  planned "construct a `Model` with no `ModelManager`" test was there to assert, and it is not a
+  test that can be written yet: `Model` lives in `src/` and needs an `AssetRegistry`, so it is
+  reachable from neither a unit nor a GPU test until Stage 8 splits it. The runtime scene swap
+  got more robust rather than less — batches are rebuilt from whatever the scene is now, so a
+  replaced scene needs nothing to have unregistered itself. Of the verify list, output-unchanged
+  and the leak check are covered (`AssetRegistry`'s destructor asserts every cache is empty, on
+  every debug run); **reload is not reachable without input scripting**, which arrives at 40b.
 
 ### 45. Deterministic clock
 - **Do:** `IClock` with `RealClock` and `FixedStepClock`. In `bDeterministic` mode force

@@ -45,7 +45,8 @@ deliberately — moving them earlier would be drawing that boundary by accident.
   business describing a window mode to something that cannot open one.
 - **A shared `ParseRunSpec` lives in `engine/engine`**, beside `RunSpec`. Each app adds its own
   platform flags and its own help section on top, so the two binaries cannot drift on the flags
-  they share.
+  they share. *Landed as `ParseEngineOption`, one option at a time and filling `EngineConfig`
+  too — see the architecture plan's §41 note.*
 - **`Engine::Run` returns data and writes nothing** — a `RunReport` plus a `CapturedFrame`. The apps
   write files. `RunSpec` therefore carries `bCaptureFinalFrame`, not paths: a test that wants the
   pixels should not have to give the engine a filename and read them back off disk.
@@ -60,7 +61,10 @@ deliberately — moving them earlier would be drawing that boundary by accident.
   (`imgui_impl_vulkan.cpp:1298-1299`), and an `OffscreenTarget` makes one image per frame in
   flight — so this step's own verify, `--frames-in-flight 1`, would violate it. `ImageCount` sizes
   only ImGui's private vertex/index ring (`:547`) and its unused-texture delay (`:899`), so
-  over-provisioning it is safe and under-provisioning is the hazard. The engine's real frame count
+  over-provisioning it is safe and under-provisioning is the hazard. *Landed as
+  `max({2u, GetImageCount(), FramesInFlight})`: the ring is reused every `ImageCount` frames, so
+  three frames in flight against a two-image swapchain would under-provision it.* The engine's
+  real frame count
   is unaffected, and `--frames-in-flight 1` keeps testing the one-image path it was added to test.
   Handle it deliberately rather than leaving it: `IM_ASSERT` is `assert`, so the violation aborts
   in Debug and passes silently in Release.
@@ -70,7 +74,8 @@ deliberately — moving them earlier would be drawing that boundary by accident.
 - **Minimal, and deliberately so: de-singleton in place.** `AssetRegistry` is today's
   `ResourceManager` without `Get()` — still path-keyed, still owning the loaders. The
   `AssetId`/`*Data` redesign is Stage 9's, and doing it here would hide a dependency-injection
-  change inside a data-model change.
+  change inside a data-model change. *Landed with the registry still in `src/` — see the
+  architecture plan's §42 note; `engine/assets` was created holding `AssetCache`.*
 - **`LoadScope`'s batching invariant must survive the move.** Injecting an `IUploadContext&` into
   each loader would undo it silently — every loader would flush its own uploads and the batching
   would be gone with nothing failing.

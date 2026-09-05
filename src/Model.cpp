@@ -1,19 +1,16 @@
 #include "Model.h"
 
+#include "AssetRegistry.h"
 #include "ModelData.h"
-#include "ModelManager.h"
-#include "ResourceManager.h"
 
-Model::Model(const std::string& path)
-    : m_ModelData(ResourceManager::Get()->LoadModel(path)), m_Path(path)
+Model::Model(const std::string& path, AssetRegistry& assets)
+    : m_ModelData(assets.LoadModel(path)), m_Path(path)
 {
-    ModelManager::Get()->RegisterModel(this);
 }
 
-Model::~Model()
-{
-    ModelManager::Get()->UnregisterModel(this);
-}
+// Defined here rather than defaulted in the header: destroying the shared
+// pointer needs ModelData complete, and the header only declares it.
+Model::~Model() = default;
 
 std::vector<Drawable> Model::GetDrawables() const
 {

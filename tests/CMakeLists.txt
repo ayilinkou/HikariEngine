@@ -13,6 +13,11 @@ engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
   unit/platform/CommandLineTests.cpp unit/platform/HeadlessPlatformTests.cpp
   LIBS Engine::Platform)
 
+engine_test(assets_tests SOURCES unit/assets/AssetCacheTests.cpp LIBS Engine::Assets)
+
+engine_test(engine_tests SOURCES unit/engine/ParseEngineOptionTests.cpp
+  LIBS Engine::Engine)
+
 engine_test(rhi_tests SOURCES unit/rhi/ConversionTests.cpp
   unit/rhi/DiagnosticsTests.cpp unit/rhi/FormatTests.cpp
   unit/rhi/OwnershipTransferTests.cpp unit/rhi/QueueFamilyTests.cpp

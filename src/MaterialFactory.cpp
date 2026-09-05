@@ -25,34 +25,18 @@ constexpr std::array kMaterialDescriptorsPerSet = {vk::DescriptorPoolSize{
  */
 constexpr uint32_t kInitialMaterialSetCapacity = 100u;
 
-MaterialFactory* MaterialFactory::s_Instance = nullptr;
-
 MaterialFactory::MaterialFactory(Rhi::IDevice& rhiDevice, Rhi::SamplerHandle sampler)
     : m_RhiDevice(rhiDevice), m_Device(Rhi::Vulkan::GetDevice(rhiDevice)), m_Sampler(sampler),
       m_DescriptorAllocator(m_Device, kMaterialDescriptorsPerSet, kInitialMaterialSetCapacity,
                             "Material Factory")
 {
+    LogMsg(LogSeverity::Info, LogMaterialFactory, "Constructed");
     CreateDescriptorSetLayout();
 }
 
-void MaterialFactory::Init(Rhi::IDevice& rhiDevice, Rhi::SamplerHandle sampler)
+MaterialFactory::~MaterialFactory()
 {
-    LogMsg(LogSeverity::Info, LogMaterialFactory, "Init()");
-
-    if (s_Instance)
-        throw std::runtime_error("MaterialFactory singleton is already initialised!");
-    s_Instance = new MaterialFactory(rhiDevice, sampler);
-}
-
-void MaterialFactory::Shutdown()
-{
-    LogMsg(LogSeverity::Info, LogMaterialFactory, "Shutdown()");
-
-    if (!s_Instance)
-        throw std::runtime_error("Attempting to shutdown MaterialFactory when it is already null!");
-
-    delete s_Instance;
-    s_Instance = nullptr;
+    LogMsg(LogSeverity::Info, LogMaterialFactory, "Destroyed");
 }
 
 void MaterialFactory::CreateDescriptorSetLayout()
@@ -88,8 +72,9 @@ void MaterialFactory::CreateDescriptorSetLayout()
 }
 
 PBRMaterial* MaterialFactory::CreatePBRMaterial(aiMaterial* mat,
-                                                const std::string& texturesParentFolder)
+                                                const std::string& texturesParentFolder,
+                                                AssetRegistry& assets)
 {
     return new PBRMaterial(m_RhiDevice, m_DescriptorAllocator, m_SetLayout, m_Sampler, mat,
-                           texturesParentFolder);
+                           texturesParentFolder, assets);
 }
