@@ -1,46 +1,46 @@
 {
-	"name": "hikari-engine",
-	"version-string": "0.1.0",
-	"dependencies": [
-		{
-			"name": "sdl3",
-			"features": [
-				"vulkan"
-			]
-		},
-		"glm",
-		"stb",
-		"assimp",
-		{
-			"name": "imgui",
-			"features": [
-				"vulkan-binding",
-				"sdl3-binding"
-			]
-		},
-		"pugixml",
-		"vulkan-memory-allocator",
-		{
-			"name": "vulkan-loader",
-			"features": [
-				"wayland",
-				"xcb",
-				"xlib"
-			],
-			"platform": "linux"
-		},
-		"vulkan-validationlayers",
-		{
-			"name": "shader-slang",
-			"host": true
-		},
-		{
-			"name": "spirv-tools",
-			"features": [
-				"tools"
-			],
-			"host": true
-		},
-        "catch2"
-	]
+  "name": "hikari-engine",
+  "version-string": "0.1.0",
+  "dependencies": [
+    {
+      "name": "sdl3",
+      "features": [
+        "vulkan"
+      ]
+    },
+    "glm",
+    "stb",
+    "assimp",
+    {
+      "name": "imgui",
+      "features": [
+        "vulkan-binding",
+        "sdl3-binding"
+      ]
+    },
+    "pugixml",
+    "vulkan-memory-allocator",
+    {
+      "name": "vulkan-loader",
+      "features": [
+        "wayland",
+        "xcb",
+        "xlib"
+      ],
+      "platform": "linux"
+    },
+    "vulkan-validationlayers",
+    {
+      "name": "shader-slang",
+      "host": true
+    },
+    {
+      "name": "spirv-tools",
+      "features": [
+        "tools"
+      ],
+      "host": true
+    },
+    "catch2"
+  ]
 }

@@ -22,6 +22,7 @@ git history is the record.
 | Priority | Item | Where | Size | Blocked by |
 |---|---|---|---|---|
 | P1 | Correctness fixes from `suggested_work.md` §1.6 and §3.1 — §3.2 (batched uploads) is done | various | S–M each | |
+| P1 | Restore `validate_best_practices` in `VulkanDevice.cpp`, commented out on 2026-09-05. vulkan-validationlayers 1.4.357.0 reads an image's last-used queue family in a maintenance9-gated branch of `BestPractices::ValidateImageInQueue` without checking it against `VK_QUEUE_FAMILY_IGNORED`, so the first use of any image in a submit segfaults inside the layer — every Debug run and two GPU tests. Fixed upstream by Vulkan-ValidationLayers PR #12922, merged after the 1.4.357.0 tag was cut, so no version vcpkg offers yet contains it | `VulkanDevice.cpp`, `vcpkg-configuration.json` | XS | a vcpkg baseline offering vulkan-validationlayers newer than 1.4.357.0 |
 | P2 | `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to mailbox; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `main.cpp` | S | |
 | P2 | Document the matrix convention once and apply it consistently | `opaque.slang` header comment | S | |
 | P2 | `.map` format `version` attribute | `XmlParser` | XS | |
