@@ -15,7 +15,7 @@ Linux needs the X11 and Wayland development packages, and autotools for the port
 ```Terminal
 sudo apt install libxcb1-dev libx11-dev libxext-dev libxrandr-dev libwayland-dev \
                  libxcursor-dev libxi-dev libxfixes-dev libxtst-dev \
-                 autoconf autoconf-archive automake libtool
+                 autoconf autoconf-archive automake libtool libltdl-dev
 ```
 
 ## Build

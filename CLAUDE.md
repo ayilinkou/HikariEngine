@@ -143,15 +143,18 @@ hard-requiring Xcursor, Xi, Xfixes and Xtst once it is there.
 
 A third set is autotools, which nothing in `vcpkg.json` asks for and SDL3 reaches anyway: its
 Linux default features include `dbus`, which pulls `libsystemd`, which pulls `libxcrypt`, which
-configures through `vcpkg-make` and so runs `autoreconf`. `autoconf-archive` is the member most
-distributions leave out, and therefore the one that actually fails the build — the other three
-are usually already present, which is what makes the failure look arbitrary. On Debian/Ubuntu
-the whole set is
+configures through `vcpkg-make` and so runs `autoreconf`. Two members of that set are the ones
+that actually fail a build, because the rest are usually already present: `autoconf-archive`,
+which most distributions leave out, and `libltdl-dev`, which libxcrypt's `configure.ac` needs
+and which Debian and Ubuntu split out of `libtool` — so having libtool proves nothing there,
+and `--no-install-recommends` will not drag it in. Arch ships those files inside `libtool`
+itself, which is why the failure is invisible on one distribution and arbitrary-looking on the
+other. On Debian/Ubuntu the whole set is
 
 ```bash
 sudo apt install libxcb1-dev libx11-dev libxext-dev libxrandr-dev libwayland-dev \
                  libxcursor-dev libxi-dev libxfixes-dev libxtst-dev \
-                 autoconf autoconf-archive automake libtool
+                 autoconf autoconf-archive automake libtool libltdl-dev
 ```
 
 ```bash

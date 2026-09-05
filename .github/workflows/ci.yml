@@ -143,7 +143,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libxcb1-dev libx11-dev libxext-dev libxrandr-dev libwayland-dev \
             libxcursor-dev libxi-dev libxfixes-dev libxtst-dev \
-            autoconf autoconf-archive automake libtool
+            autoconf autoconf-archive automake libtool libltdl-dev
 
       # vcpkg creates this itself when it first writes a zip, but the save step
       # below runs even when the job failed early, and actions/cache fails on a

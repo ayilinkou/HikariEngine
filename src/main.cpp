@@ -861,7 +861,7 @@ private:
         initInfo.QueueFamily = native.GraphicsQueueFamily;
         initInfo.Queue = native.GraphicsQueue;
         initInfo.DescriptorPool = VK_NULL_HANDLE;
-        initInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
+        initInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE;
         initInfo.MinImageCount = m_PresentTarget->GetImageCount();
         initInfo.MinAllocationSize = 1024 * 1024;
         initInfo.ImageCount = m_PresentTarget->GetImageCount();
