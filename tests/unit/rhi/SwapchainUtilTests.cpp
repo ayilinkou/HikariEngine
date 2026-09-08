@@ -126,3 +126,47 @@ TEST_CASE("A surface with no formats at all fails", "[swapchain]")
 {
     CHECK_THROWS(ChooseSwapchainFormat({}));
 }
+
+TEST_CASE("Mailbox wins when the surface offers it", "[swapchain]")
+{
+    const std::vector modes{vk::PresentModeKHR::eImmediate, vk::PresentModeKHR::eFifo,
+                            vk::PresentModeKHR::eMailbox};
+
+    // Order in the surface's list does not matter; the preference order does.
+    // Mailbox is uncapped and tear-free, so nothing later in the chain improves
+    // on it.
+    CHECK(ChoosePresentMode(modes) == vk::PresentModeKHR::eMailbox);
+}
+
+TEST_CASE("Immediate is taken when the surface has no mailbox", "[swapchain]")
+{
+    // Exactly what the AMD proprietary Windows driver reports for a Win32
+    // surface. Falling through to FIFO here paced the whole engine to the
+    // display's refresh rate, on a machine with several times the headroom.
+    const std::vector modes{vk::PresentModeKHR::eImmediate, vk::PresentModeKHR::eFifo,
+                            vk::PresentModeKHR::eFifoRelaxed};
+
+    CHECK(ChoosePresentMode(modes) == vk::PresentModeKHR::eImmediate);
+}
+
+TEST_CASE("FIFO relaxed does not stand in for an uncapped mode", "[swapchain]")
+{
+    // It skips the wait only for a frame that was already late, so it paces a
+    // fast application exactly as FIFO does — which is why it is not in the
+    // chain and why the choice here is FIFO rather than the relaxed variant.
+    const std::vector modes{vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eFifoRelaxed};
+
+    CHECK(ChoosePresentMode(modes) == vk::PresentModeKHR::eFifo);
+}
+
+TEST_CASE("A surface offering only what the spec guarantees gets FIFO", "[swapchain]")
+{
+    const std::vector modes{vk::PresentModeKHR::eFifo};
+
+    CHECK(ChoosePresentMode(modes) == vk::PresentModeKHR::eFifo);
+}
+
+TEST_CASE("A surface with no present modes at all fails", "[swapchain]")
+{
+    CHECK_THROWS(ChoosePresentMode({}));
+}
