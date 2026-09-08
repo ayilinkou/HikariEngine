@@ -24,7 +24,7 @@ git history is the record.
 | P1 | Correctness fixes from `suggested_work.md` §1.6 and §3.1 — §3.2 (batched uploads) is done | various | S–M each | |
 | P1 | Restore `validate_best_practices` in `VulkanDevice.cpp`, commented out on 2026-09-05. vulkan-validationlayers 1.4.357.0 reads an image's last-used queue family in a maintenance9-gated branch of `BestPractices::ValidateImageInQueue` without checking it against `VK_QUEUE_FAMILY_IGNORED`, so the first use of any image in a submit segfaults inside the layer — every Debug run and two GPU tests. Fixed upstream by Vulkan-ValidationLayers PR #12922, merged after the 1.4.357.0 tag was cut, so no version vcpkg offers yet contains it | `VulkanDevice.cpp`, `vcpkg-configuration.json` | XS | a vcpkg baseline offering vulkan-validationlayers newer than 1.4.357.0 |
 | P2 | One capture per run, and a name that cannot hold two. `DrawFrame` stages a capture only while `m_bScreenshotBufferReady` is false, so a script asking for `screenshot` twice gets one file and no warning about the other; `Engine::Run` returns a single `CapturedFrame` and the app writes it once. The naming compounds it: `GenerateTimestamp()` is second-resolution and the PNG and the report share one stamp, so two runs a second apart overwrite each other, and per-capture files would collide the moment more than one is written. Wants a captures list keyed by frame, a name that includes the frame, and a dropped request that says so | `Engine.cpp`, `RunApp.cpp` | M | |
-| P2 | `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to mailbox; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `RunSpec` | S | |
+| P2 | `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to the preference chain; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `RunSpec` | S | |
 | P2 | Document the matrix convention once and apply it consistently | `opaque.slang` header comment | S | |
 | P2 | `.map` format `version` attribute | `XmlParser` | XS | |
 | P2 | Record the GPU name, driver version, API version, OS, architecture **and which backend produced it** in the run report — two reports from different machines are otherwise comparable-looking and not comparable, and with `--backend` two from the same machine are too | `Engine.cpp`, `rhi/IDevice.h` | S | nothing — its blocker was "a seam decision", and Stage 7.5 is complete. `backend_readiness_plan.md` §6 places it in Stage 7.6 |
@@ -48,11 +48,11 @@ git history is the record.
 One of these is worth expanding on, because it carries a decision:
 
 - **`--present-mode`, and why the two failure policies differ.** The default stays what it is
-  today: prefer mailbox, fall back to FIFO. **An explicitly requested mode that the surface
-  does not offer is a hard error naming what was asked for and listing what is available** —
-  never a silent downgrade. The whole reason to pass the flag is to test a specific mode, and
-  a run that quietly measured a different one is worse than a run that refused: it produces a
-  number that looks valid and is not.
+  today: the chain in `ChoosePresentMode` — mailbox, then immediate, then FIFO. **An explicitly
+  requested mode that the surface does not offer is a hard error naming what was asked for and
+  listing what is available** — never a silent downgrade. The whole reason to pass the flag is
+  to test a specific mode, and a run that quietly measured a different one is worse than a run
+  that refused: it produces a number that looks valid and is not.
 
   That is deliberately the opposite policy from `DeviceDesc::DisabledOptionalExtensions`,
   which reports and ignores a name it does not recognise. The cases differ: disabling an
