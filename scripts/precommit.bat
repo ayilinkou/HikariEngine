@@ -21,7 +21,7 @@ if not "%PRESET%"=="msvc" (
     if errorlevel 1 exit /b %errorlevel%
 )
 
-call build.bat "%PRESET%"
+call "%~dp0..\build.bat" "%PRESET%"
 if errorlevel 1 exit /b %errorlevel%
 
 call tests\scripts\header_check.bat "%PRESET%"

@@ -110,6 +110,41 @@ void RequireDevice()
 }
 
 /**
+ * Runs a command line through the shell and hands back its exit status.
+ *
+ * The wrapping is what this exists for. cmd.exe strips the leading and trailing
+ * quote from the string it is handed whenever that string holds more than two
+ * quote characters — which every command here does, since the executable path
+ * is quoted and so is each path argument. What reaches the shell is then a
+ * command name with a stray quote welded to it, and cmd answers "The filename,
+ * directory name, or volume label syntax is incorrect" without ever launching
+ * the binary. One more pair of quotes around the whole line feeds that rule the
+ * quotes it means to eat.
+ *
+ * The failure is silent in the worst way: a case asserting on a *non-zero*
+ * status passes, because a shell that refused to run anything also exits
+ * non-zero. Anything that shells out must go through here.
+ */
+int RunCommand(const std::string& command)
+{
+#if defined(_WIN32)
+    return std::system(("\"" + command + "\"").c_str());
+#else
+    return std::system(command.c_str());
+#endif
+}
+
+/**
+ * The null device, which is not spelled the same on both platforms — and a
+ * literal "/dev/null" on Windows is a path cmd cannot parse at all.
+ */
+#if defined(_WIN32)
+constexpr const char* kNullDevice = "NUL";
+#else
+constexpr const char* kNullDevice = "/dev/null";
+#endif
+
+/**
  * One headless run of one scene, start to finish, in this process.
  *
  * In-process rather than by launching the binary: every counter is assertable
@@ -304,7 +339,7 @@ TEST_CASE("The headless binary runs a scene and writes what it was asked for", "
                                 report.string() + "\"";
 
     INFO("command: " << command);
-    REQUIRE(std::system(command.c_str()) == 0);
+    REQUIRE(RunCommand(command) == 0);
 
     REQUIRE(std::filesystem::exists(screenshot));
     REQUIRE(std::filesystem::file_size(screenshot) > 0u);
@@ -401,7 +436,7 @@ TEST_CASE("The headless binary replays a script and needs no frame count", "[sce
                                 "\"";
 
     INFO("command: " << command);
-    REQUIRE(std::system(command.c_str()) == 0);
+    REQUIRE(RunCommand(command) == 0);
     REQUIRE(std::filesystem::exists(report));
 
     std::ifstream reportFile(report);
@@ -430,8 +465,8 @@ TEST_CASE("The headless binary refuses a script it cannot run", "[scene]")
     SECTION("a script that is not there")
     {
         const std::string command = binary + " --input \"" + (outputDir / "missing.txt").string() +
-                                    "\" > /dev/null 2>&1";
-        CHECK(std::system(command.c_str()) != 0);
+                                    "\" > " + kNullDevice + " 2>&1";
+        CHECK(RunCommand(command) != 0);
     }
 
     SECTION("a script that never quits, with no frame count to fall back on")
@@ -440,7 +475,7 @@ TEST_CASE("The headless binary refuses a script it cannot run", "[scene]")
         std::ofstream(script) << "frame 1 key.down W\n";
 
         const std::string command =
-            binary + " --input \"" + script.string() + "\" > /dev/null 2>&1";
-        CHECK(std::system(command.c_str()) != 0);
+            binary + " --input \"" + script.string() + "\" > " + kNullDevice + " 2>&1";
+        CHECK(RunCommand(command) != 0);
     }
 }
