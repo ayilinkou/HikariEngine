@@ -1,0 +1,34 @@
+#pragma once
+
+/*
+ * Where push constants live, spelled once for both APIs.
+ *
+ * Shader source rather than engine C++, which is why it is not in Common.h
+ * beside the shared values: that file is compiled as C++ too, and nothing in
+ * engine/ outside the RHI module may name Vulkan — a rule the boundary check
+ * enforces on names rather than on includes.
+ */
+
+/*
+ * A push constant block, spelled for both APIs at once.
+ *
+ * Both halves are needed and neither is redundant: Vulkan reads the attribute,
+ * which is what makes the declaration a push constant rather than an ordinary
+ * uniform buffer, and D3D12 reads the register, because root constants appear to
+ * a shader as a constant buffer at a b register and it is the root signature
+ * rather than the declaration that decides the slot holds constants.
+ *
+ * Space 7 is reserved for push constants and no bind group may ever use it.
+ * That is a portability floor rather than a preference: Vulkan guarantees only
+ * sets 0-6 on a 1.4 implementation (maxBoundDescriptorSets is 4 in core and 7
+ * for 1.4), and this engine binds four groups, so space 7 is the first number no
+ * portable bind group can occupy. It costs nothing on either side — the SPIR-V
+ * path reads the attribute and never turns the space into a descriptor set, and
+ * D3D12 register spaces are an arbitrary uint32 rather than a budget.
+ *
+ * A macro rather than the register pasted at each declaration, so that the
+ * number exists once. Slang's preprocessor will not expand a function-like macro
+ * inside another macro's body, so the space cannot itself be a named constant
+ * here.
+ */
+#define PUSH_CONSTANT(Type, name) [[vk::push_constant]] Type name : register(b0, space7)

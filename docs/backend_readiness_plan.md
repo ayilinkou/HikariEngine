@@ -523,7 +523,7 @@ sixty lines short of being it, so promoting it later is a rename and a move.
 The project is cross-platform, and a Linux build cannot contain a D3D12 backend at all. So
 Windows links both backends and Linux links Vulkan only.
 
-**Selection is at run time, not compile time.** `--backend vulkan|d3d12` feeds `RunSpec`. A
+**Selection is at run time, not compile time.** `--backend Vulkan|D3D12` feeds `RunSpec`. A
 value the build does not contain is a **hard error** naming what was asked for and listing what
 is available — the same policy `backlog.md` argues for `--present-mode`, for the same reason: a
 run that quietly measured something else is worse than a run that refused.
@@ -631,7 +631,7 @@ only through the backend 7.7 builds, so in 7.6 the item could only have meant Vu
 and the runner has no Vulkan ICD at all. Supplying one means pinning a third-party Mesa build in
 CI, which is a supply-chain surface `vcpkg.json` has otherwise kept clear.
 
-**So the job moves to 7.7, and every Windows job there runs `--backend d3d12` explicitly.**
+**So the job moves to 7.7, and every Windows job there runs `--backend D3D12` explicitly.**
 D25 is unchanged: Vulkan is still the default everywhere, and asking for D3D12 by name in CI is
 what makes CI the backend's routine exercise. Vulkan on Windows keeps the coverage it has today,
 which is compilation and the unit tests.
@@ -728,11 +728,30 @@ the two light `Data` structs, and the three push-constant blocks. Eight declarat
 five, and the duplicate `MaterialPushConstant` that `opaque.slang` and `weightedBlendedOIT.slang`
 each carry disappears as a side effect.
 
-Two riders. **`bool` cannot appear in a shared block** — one byte in C++, four in both shader
-targets — so the Slang side's `bool` fields become `int`, which is what the C++ already declares.
-And matrices need a comment rather than a decision: `glm::mat4` and `float4x4` are both 64 bytes,
-so what keeps them interchangeable is the transposition convention, which belongs next to the
-shared declaration rather than in one shader's header comment.
+Two riders. **A shared block spells a boolean `bool32`, never `bool`** — a C++ `bool` is one byte
+and a shader's is four, so a block carrying one disagrees about every offset after it. Built at
+step 11 as an alias with a half in each language: `int32_t` under `__cplusplus`, and a `typedef bool
+bool32` for Slang. That keeps the shader side reading as a boolean — `if (pc.bTwoSided)`, no `!= 0`
+— while both sides lay it out the same, and it is honest in both directions, where a C++ type
+*named* `bool` that occupies four bytes would not be.
+
+*Rejected: `#define bool int32_t` around the declarations, `#undef` after.* It gives the shared
+block a literal `bool`, and the undef does contain the leak — but `bool` is a keyword, so defining
+it is ill-formed (`[macro.names]`), and that is not academic: **Clang rejects it by default** with
+`-Wkeyword-macro`, which this repository would hit through clangd whatever the build did. GCC
+accepts it silently, which is the worse half of the result.
+
+The four-byte shader side is measured rather than assumed, and re-measured on every build: the
+reflection reports these fields as `bool` of size 4, and the layout test compares that against
+`sizeof` on both targets. Two further cases read the header as *text*, which is the only way to
+catch what a compiler cannot object to — one refuses a plain `bool` anywhere but the alias itself,
+naming the line; the other pins the struct inventory, since a struct missing from the layout test's
+list would otherwise pass by never being looked at.
+
+And matrices need a comment rather than a decision: `glm::mat4` and `float4x4` are both 64 bytes, so
+what keeps them interchangeable is the transposition convention — the engine transposes on upload
+and the shaders multiply row-vector first — which belongs next to the shared declaration rather than
+in one shader's header comment.
 
 ### D32 — Vertex input is checked, not shared — and the seam cannot express it yet
 
@@ -829,8 +848,12 @@ window is already on screen and skips the usage block.
 
 **The RHI owns the spelling of enums that cross the process boundary** — those appearing as
 command-line input or run-report output, and nothing else. `ToString` and `FromString` sit over
-one table, so a new backend is named in exactly one place and `--backend d3d12` cannot drift from
-`"backend": "d3d12"`. That matters more here than for any other enum, because the comparison tool
+one table, so a new backend is named in exactly one place and `--backend D3D12` cannot drift from
+`"backend": "D3D12"`. The spellings are the project's own proper nouns, which keeps a run report
+internally consistent — its `os` is `"Linux"` and its `arch` is `"x86_64"`, because one is a name
+and the other an identifier — and the input half folds case, since it is typed by hand while the
+output half is written to a file. That matters more here than for any other enum, because the
+comparison tool
 matches the report's `backend` as text to pick its tolerance, and `--backend` has to accept the
 word a report contains. `PresentModeJson` in `RunApp.cpp` is the engine-side precedent, and it
 survives only because `--present-mode` does not exist yet; when `backlog.md`'s row for it lands,
@@ -1188,7 +1211,7 @@ exists.
 | 2 | **The shader build** — per-stage blobs, D29's registers, DXIL emission and the gate that proves validation ran | `cmake/Shaders.cmake` is SPIR-V only. The first draft put this in the backend stage; that is wrong, because it is build-system and content-pipeline work with its own failure modes, and doing it there means finding out whether Slang's DXIL path handles `pbr.slangh` halfway through writing a device. §4.2 | 8–10 |
 | 3 | **Step 48 — `ShaderTypes.h` shared with Slang, extended with per-target layout assertions** | See below | 11 |
 | 4 | **Runtime-selectable validation** | `backlog.md` P2. The engine gates validation on `NDEBUG`, so a release run reports zero validation errors trivially. Two backends mean two validation surfaces, and 7.7's Windows release job is worth having assert rather than silently pass — which it cannot do unless this lands first | 12 |
-| 5 | **Backend selection** — `--backend`, the neutral `Backend` enum and the availability query | D25 decided all three and no step ever scheduled them. Doing it here keeps 7.7's steps about D3D12, and the only behaviour a Linux build will ever have — refusing `--backend d3d12` and listing what it does have — is testable now | 5 |
+| 5 | **Backend selection** — `--backend`, the neutral `Backend` enum and the availability query | D25 decided all three and no step ever scheduled them. Doing it here keeps 7.7's steps about D3D12, and the only behaviour a Linux build will ever have — refusing `--backend D3D12` and listing what it does have — is testable now | 5 |
 | 6 | **Device info in the run report** — GPU, driver, API version, OS, architecture, and which backend | `backlog.md` P2, which §6 places here. The comparison tool is its first consumer: without it, a run on another GPU differs from the committed baseline with nothing in either report to say why | 6 |
 
 **Step 48 needs extending, and the reason is the only silent-corruption path a second backend
@@ -1330,9 +1353,15 @@ APIs need different halves: Vulkan reads the attribute, D3D12 reads the register
 place instead of at every declaration:
 
 ```slang
-// Common.h
+// engine/engine/src/shaders/registers.slangh
 #define PUSH_CONSTANT(Type, name) [[vk::push_constant]] Type name : register(b0, space7)
 ```
+
+**A shader header rather than `Common.h`**, which this section first said. `Common.h` holds the
+values shared with C++ and is compiled as C++ too, and nothing in `engine/` outside the RHI module
+may name Vulkan — `rhi_boundary_check` catches `vk::` there on sight, and it was right to. The new
+header is what `bakePerlinWorley.comp.slang` includes, since it is the one shader that wants the
+convention and not the global buffer.
 
 so each shader writes `PUSH_CONSTANT(MaterialPushConstant, pcMatData);`. *Rejected: Slang's own
 `[push_constant]` alone*, which compiles but leaves the D3D12 side at an implicit `b1` in space 0,
@@ -1346,12 +1375,20 @@ test is what ties them, since reflection reports the space (`"space": 7`).
 
 **The DXIL gate is a signature check, not a second validator.** DXC validates and signs every
 compile, so the one silent failure is validation being switched off, which leaves the container hash
-all zeros. A `cmake -P` script reads the container's magic and 16-byte hash after each DXIL compile
-and fails the build on a wrong magic, an all-zero hash or the preview-bypass pattern — the same
-placement `spirv-val` has, and for the same reason its comment gives: a check that can silently
-disappear is worse than no check. *Rejected: trusting DXC's default*, which leaves the gate as a
-downstream tool's default that nothing in this repository asserts. *Rejected: `dxv`*, which vcpkg's
-port does not install and which passed the unsigned control anyway.
+all zeros. `cmake/CheckDxilSignature.cmake` reads the container's magic and 16-byte hash after each
+DXIL compile and fails the build on a wrong magic, an all-zero hash or the preview-bypass pattern —
+the same placement `spirv-val` has, and for the same reason its comment gives: a check that can
+silently disappear is worse than no check. *Rejected: trusting DXC's default*, which leaves the gate
+as a downstream tool's default that nothing in this repository asserts. *Rejected: `dxv`*, which
+vcpkg's port does not install and which passed the unsigned control anyway.
+
+Built at step 10, with every constant taken from DirectXShaderCompiler's own
+`include/dxc/DxilContainer/DxilContainer.h` rather than from memory: `DxilContainerHeader` is packed
+to 1, so the four-character code `DXBC` is at offset 0 and the sixteen hash bytes at offset 4, and
+`PreviewByPassHash` is sixteen bytes of `0x02`. All four branches were exercised against real
+containers — a signed one passes, `-Xdxc -Vd` fails on the zeroed hash, a hand-patched bypass hash
+fails, and a wrong magic fails. The `-Vd` control was also run through the build itself, which
+stopped on the first shader.
 
 ### 4.3 The step sequence
 
@@ -1363,7 +1400,7 @@ Twelve steps, flat-numbered now that the order is settled — the same count Sta
 | 2 | `TestSupport` and the image comparison — limits, worst pixel, fraction, bounding box, diff images. Scene tests stop using `==` | unit tests with positive controls (a one-pixel change fails and names its coordinates); the scene tests | M |
 | 3 | Report reading, the gating table over today's fields, the four outcomes, missing and unclassified fields, the provisional comparison, the completeness and round-trip tests | unit tests | M |
 | 4 | `HikariCompare`; `baseline_test.sh` and its `.bat` capture then compare; `--update` and its guard; the baseline renamed to fixed names; `CLAUDE.md`'s regression section rewritten | a run against the still-unchanged baseline exits 0; an edited PNG exits 1 with a diff image; `--update` refused on a release build | M |
-| 5 | Backend selection (D34): `rhi/Backend.h`, `DeviceDesc::Backend`, parse-time refusal, `--backend` | `--backend d3d12` refused on Linux naming what the build has; the comparison exits 3, provisional, nothing moved | M |
+| 5 | Backend selection (D34): `rhi/Backend.h`, `DeviceDesc::Backend`, parse-time refusal, `--backend` | `--backend D3D12` refused on Linux naming what the build has; `baseline_test.sh` exits 0, since this step adds no report field | M |
 | 6 | Device info (D35): `DeviceInfo`, `GetInfo()`, the report's `system` block, `os` and `arch` as compile definitions | exit 3, provisional, nothing moved | M |
 | 7 | The eleven new `run` fields, `IPlatform`'s window-mode getter, the input-script path, every classification; the baseline recaptured once through `--update` | a provisional "nothing moved", then `--update` | M |
 | 8 | Per-stage blobs; entry points become `main`; `EntryPoint` leaves `ShaderStageDesc` (D33) | `baseline_test.sh` exits 0; gpu and scene tests | M |
@@ -1508,7 +1545,7 @@ Out of scope for this document beyond three constraints that are decided:
   semantics applies to the API that is not in the tree yet, and applies hardest there.
 - **Vulkan stays the default** (D25). The backend's routine exercise is CI, and that job lives
   here rather than in 7.6: **WARP is a D3D12 adapter**, so there was nothing for a Windows GPU job
-  to run until this stage exists (D28). Every Windows job asks for `--backend d3d12` by name.
+  to run until this stage exists (D28). Every Windows job asks for `--backend D3D12` by name.
   Until the job exists, a local Windows install is what the D3D12 work is built and tested on.
 - **Two things are already recorded as this stage's to decide.** The vertex-input seam — D32,
   where `VertexAttribute::Location` cannot fill in a `D3D12_INPUT_ELEMENT_DESC` — and the
@@ -1531,7 +1568,7 @@ part of this.
 | **Step 58** — `Mesh*`/`Material*` become handles | Stage 9 | **Stays in Stage 9.** See below |
 | **Step 70** — bindless | Stage 10 | Explicitly after the backend (D14) |
 | Device info in the run report | `backlog.md` (P2) | **Stage 7.6 step 6.** Its blocker was "a neutral device-info accessor on `IDevice`, which is a seam decision"; D35 takes it |
-| Runtime-selectable validation | `backlog.md` (P2) | **Stage 7.6 step 12** — see §4.4 |
+| Runtime-selectable validation | `backlog.md` (P2) | **Done**, at Stage 7.6 step 12. Its backlog row is retired |
 
 **Why step 58 stays in Stage 9**, against the first draft's recommendation to pull it forward.
 `Drawable::operator<` falls through to comparing `pMesh` and `pMat` pointers, so batch order
@@ -1665,8 +1702,14 @@ which is dxc 1.9.0.5191. Both ports install prebuilt binaries, so the whole prob
   classes — Vulkan requires that of a set layout — so D29's respelling is one-to-one.
 - **Shader model 6.9 is a full release** in the pinned DXC, not the preview its 1.8.2505 notes
   describe, so the choice was wider than §4.1 assumed. §4.2 takes `sm_6_0` regardless.
-- *Still open:* whether the per-stage split and the respelling leave the baseline pixel-identical.
-  Steps F and G answer that by running it rather than asserting it.
+- **The per-stage split leaves the baseline pixel-identical.** Measured at step 8 on 12 September
+  2026, not asserted: `baseline_test.sh` exits 0 after it, and `spirv-dis` confirms every blob
+  carries exactly one `OpEntryPoint` named `"main"` once `-fvk-use-entrypoint-name` is dropped —
+  the SSA id keeps the source name, which is not what Vulkan matches `pName` against.
+- **D29's respelling leaves the baseline pixel-identical too**, measured at step 9 on the same
+  day. Every emitted `DescriptorSet`/`Binding` pair was compared against what the attributes
+  produced and not one moved, so the respelling is the one-to-one spelling change this entry
+  predicted. Nothing in §9 is open any more.
 
 ---
 

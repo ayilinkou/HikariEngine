@@ -41,6 +41,11 @@
       ],
       "host": true
     },
-    "catch2"
+    {
+      "name": "directx-dxc",
+      "host": true
+    },
+    "catch2",
+    "nlohmann-json"
   ]
 }

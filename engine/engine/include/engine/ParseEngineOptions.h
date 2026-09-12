@@ -33,6 +33,20 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
                        EngineConfig& config);
 
 /**
+ * Rejects combinations of engine flags that contradict each other.
+ *
+ * Separate from ParseEngineOption because a combination cannot be judged one
+ * option at a time: an app walks the command line first and calls this once it
+ * has the whole picture. Shared for the same reason the parsing is — these
+ * checks were written out once per binary before, which is how two apps come to
+ * disagree about what is allowed.
+ *
+ * Throws Platform::CommandLineError, so a caller reports it wherever it reports
+ * a bad flag.
+ */
+void RejectContradictoryOptions(const RunSpec& spec);
+
+/**
  * The engine's section of --help, with no heading of its own so that an app can
  * print its own flags into the same list. Two spaces of indent, descriptions
  * starting at column 26, which is what an app's lines should match.

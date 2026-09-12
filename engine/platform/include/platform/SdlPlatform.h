@@ -6,6 +6,8 @@
 #include <memory>
 #include <span>
 
+#include <optional>
+
 #include <platform/IPlatform.h>
 #include <platform/InputScript.h>
 #include <platform/ScriptedInputSource.h>
@@ -48,6 +50,7 @@ public:
     Core::Extent2D GetFramebufferExtent() const override;
     void Show() override;
     void SetWindowMode(WindowMode mode) override;
+    std::optional<WindowMode> GetWindowMode() const override;
     std::span<const PlatformEvent> PumpEvents() override;
     bool IsKeyDown(Key key) const override;
 

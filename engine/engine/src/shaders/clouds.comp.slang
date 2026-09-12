@@ -1,25 +1,15 @@
 #include "common.slangh"
 #include "pbr.slangh"
 
-[[vk::binding(0, 1)]] Texture2D<float> depthTexture;
-[[vk::binding(0, 2)]] RWTexture2D<float4> outputImage;
-[[vk::binding(1, 2)]] Texture3D<float> perlinWorley;
+Texture2D<float> depthTexture : register(t0, space1);
+// Unique across classes within space 2: u0, t1, s2 rather than u0, t0, s0.
+RWTexture2D<float4> outputImage : register(u0, space2);
+Texture3D<float> perlinWorley : register(t1, space2);
 // Separate from the texture: D3D12 keeps samplers in their own heap and has no
 // combined descriptor, so the RHI's binding model has none either.
-[[vk::binding(2, 2)]] SamplerState perlinWorleySampler;
+SamplerState perlinWorleySampler : register(s2, space2);
 
-struct PushConstants
-{
-	float3 windVelocity;
-    float minHeight;
-    float maxHeight;
-    float coverage;
-	float anisotropy;
-	float boundaryDisplacement;
-    uint viewStepCount;
-	uint sunStepCount;
-};
-[[vk::push_constant]] PushConstants pc;
+PUSH_CONSTANT(CloudPushConstants, pc);
 
 static const float kSlabEpsilon = 1e-5f;
 
@@ -39,21 +29,21 @@ float SampleDensity(float3 pos)
 {
 	const float windSpeed = 0.1f;
 
-	float3 samplePos = pos * 0.00001f + pc.windVelocity * windSpeed * globalBuffer.Time;
+	float3 samplePos = pos * 0.00001f + pc.WindVelocity * windSpeed * globalBuffer.Time;
     float n = perlinWorley.SampleLevel(perlinWorleySampler, samplePos, 0).r;
 
     // low-frequency 2D perturbation of the layer bounds, so the boundary isn't a flat plane
-    float2 boundaryNoiseCoord = pos.xz * 0.0003f + pc.windVelocity.xz * globalBuffer.Time * 0.5f;
+    float2 boundaryNoiseCoord = pos.xz * 0.0003f + pc.WindVelocity.xz * globalBuffer.Time * 0.5f;
     float boundaryNoise = perlinWorley.SampleLevel(perlinWorleySampler, float3(boundaryNoiseCoord, 0.f), 0).r;
-    float heightOffset = (boundaryNoise - 0.5f) * 2.f * pc.boundaryDisplacement;
+    float heightOffset = (boundaryNoise - 0.5f) * 2.f * pc.BoundaryDisplacement;
 
-    float localMin = pc.minHeight + heightOffset;
-    float localMax = pc.maxHeight + heightOffset;
+    float localMin = pc.MinHeight + heightOffset;
+    float localMax = pc.MaxHeight + heightOffset;
 
     float h = saturate((pos.y - localMin) / (localMax - localMin));
     float heightGradient = smoothstep(0.f, 0.3f, h) * smoothstep(1.f, 0.6f, h);
 
-    return saturate(n - pc.coverage) * heightGradient;
+    return saturate(n - pc.Coverage) * heightGradient;
 }
 
 [shader("compute")]
@@ -96,7 +86,7 @@ void main(uint3 dispatchId : SV_DispatchThreadID)
 
     // Ray-slab intersection
 	float tNear, tFar;
-	IntersectHeightSlab(rayOrigin, rayDir, pc.minHeight, pc.maxHeight, pc.boundaryDisplacement, tNear, tFar);
+	IntersectHeightSlab(rayOrigin, rayDir, pc.MinHeight, pc.MaxHeight, pc.BoundaryDisplacement, tNear, tFar);
 
     tNear = max(tNear, 0.f);
     tFar = min(tFar, sceneDist);
@@ -107,7 +97,7 @@ void main(uint3 dispatchId : SV_DispatchThreadID)
         return;
     }
 
-    float stepSize = (tFar - tNear) / float(pc.viewStepCount);
+    float stepSize = (tFar - tNear) / float(pc.ViewStepCount);
     float viewTransmittance = 1.f;
     float t = tNear;
 	float3 scatteredLight = float3(0.f, 0.f, 0.f);
@@ -116,10 +106,10 @@ void main(uint3 dispatchId : SV_DispatchThreadID)
 	const float sunIntensity = globalBuffer.Lights.DirLights[0].Intensity;
 	const float extinction = 0.01f;
 	const float cosTheta = dot(rayDir, sunDir);
-	const float phase = HenyeyGreenstein(cosTheta, pc.anisotropy);
+	const float phase = HenyeyGreenstein(cosTheta, pc.Anisotropy);
 	const float3 ambientColor = float3(0.5f, 0.55f, 0.65f) * 0.3f;
 
-	for (uint i = 0u; i < pc.viewStepCount; i++)
+	for (uint i = 0u; i < pc.ViewStepCount; i++)
 	{
         float3 samplePos = rayOrigin + rayDir * t;
         float density = SampleDensity(samplePos);
@@ -127,16 +117,16 @@ void main(uint3 dispatchId : SV_DispatchThreadID)
 		float sunTNear, sunTFar;
         if (density > 0.f)
 		{
-            IntersectHeightSlab(samplePos, sunDir, pc.minHeight, pc.maxHeight, pc.boundaryDisplacement, sunTNear, sunTFar);
+            IntersectHeightSlab(samplePos, sunDir, pc.MinHeight, pc.MaxHeight, pc.BoundaryDisplacement, sunTNear, sunTFar);
             sunTNear = max(sunTNear, 0.f);
 
-            float sunStepSize = (sunTFar - sunTNear) / float(pc.sunStepCount);
+            float sunStepSize = (sunTFar - sunTNear) / float(pc.SunStepCount);
             float sunT = sunTNear;
 
 			float sigmaT = density * extinction;
 			float sunTransmittance = 1.f;
 
-			for (uint j = 0u; j < pc.sunStepCount; j++)
+			for (uint j = 0u; j < pc.SunStepCount; j++)
 			{
 				float3 sunSamplePos = samplePos + sunDir * sunT;
 				float sunDensity = SampleDensity(sunSamplePos);

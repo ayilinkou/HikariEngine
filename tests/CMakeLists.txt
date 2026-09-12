@@ -1,3 +1,33 @@
+# The image comparison, shared rather than reimplemented: the scene tests, the
+# command-line baseline comparison and 7.7's cross-backend runs all ask the same
+# question, and two implementations of it would eventually answer differently —
+# which is D26's "one implementation, two settings". Catch2-free on purpose, so
+# that a plain command-line tool can be one of its callers.
+add_library(TestSupport STATIC support/ImageCompare.cpp support/ReportCompare.cpp)
+target_include_directories(TestSupport PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/support)
+target_link_libraries(TestSupport PUBLIC Engine::Core Engine::Asset
+                      PRIVATE nlohmann_json::nlohmann_json)
+engine_set_warnings(TestSupport)
+
+# The command-line face of the same comparison. Not a test: nothing registers it
+# with CTest, because it needs a display and the baseline's GPU to be worth
+# running. Engine::Platform is linked for CommandLine, so the tool's flags are
+# parsed by the one parser this project has rather than a second one.
+add_executable(HikariCompare tools/compare/main.cpp)
+target_link_libraries(HikariCompare PRIVATE TestSupport Engine::Platform
+                                            SanitizerShims)
+set_target_properties(HikariCompare PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                               ${HIKARI_EXE_DIR})
+engine_set_warnings(HikariCompare)
+hikari_apply_build_options(HikariCompare)
+
+# Engine::Engine is linked for one reason: the test that pins the gating table
+# asks ToJson what the report actually emits, rather than carrying a second list
+# of field names that would agree with the format only until the next field is
+# added. Nothing here creates a device.
+engine_test(support_tests SOURCES unit/support/ImageCompareTests.cpp
+  unit/support/ReportCompareTests.cpp LIBS TestSupport Engine::Engine)
+
 engine_test(core_tests SOURCES unit/core/SwapbackArrayTests.cpp
   unit/core/ClockTests.cpp
   unit/core/LogTests.cpp unit/core/JobSystemTests.cpp
@@ -15,17 +45,33 @@ engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
   unit/platform/InputScriptTests.cpp unit/platform/HeadlessPlatformTests.cpp
   LIBS Engine::Platform)
 
-engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp LIBS Engine::Asset)
+engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
+  unit/asset/ImageReaderTests.cpp LIBS Engine::Asset)
 
 engine_test(engine_tests SOURCES unit/engine/ParseEngineOptionTests.cpp
-  unit/engine/BindGroupLayoutInventoryTests.cpp LIBS Engine::Engine)
+  unit/engine/BindGroupLayoutInventoryTests.cpp unit/engine/ShaderLayoutTests.cpp
+  LIBS Engine::Engine)
+
+# The layout test reads what Slang reflected out of the compiles that shipped,
+# so the shaders have to be built before it runs, and it needs to be told where
+# the JSON went. nlohmann-json is the same test-only dependency the comparison
+# uses.
+target_link_libraries(engine_tests PRIVATE nlohmann_json::nlohmann_json)
+add_dependencies(engine_tests CompileShadersTarget)
+target_compile_definitions(
+  engine_tests PRIVATE
+  HIKARI_SHADER_REFLECTION_DIR="${HIKARI_SHADER_REFLECTION_DIR}"
+  # Read as text, not compiled: two of the layout cases are about what the
+  # shared header may say, which a compiler cannot object to.
+  HIKARI_SHADER_TYPES_HEADER="${CMAKE_SOURCE_DIR}/engine/engine/src/shaders/ShaderTypes.h")
 
 # The bind group layout inventory lives in the module's private sources, because
 # it is the renderer's own declaration rather than something the RHI publishes.
 # Pinning it (plan D21) is the one reason a test reaches in.
 target_include_directories(engine_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/engine/src)
 
-engine_test(rhi_tests SOURCES unit/rhi/ConversionTests.cpp
+engine_test(rhi_tests SOURCES unit/rhi/BackendTests.cpp
+  unit/rhi/ConversionTests.cpp
   unit/rhi/DiagnosticsTests.cpp unit/rhi/FormatTests.cpp
   unit/rhi/OwnershipTransferTests.cpp unit/rhi/QueueFamilyTests.cpp
   unit/rhi/SwapchainUtilTests.cpp unit/rhi/UniqueHandleTests.cpp
@@ -57,7 +103,7 @@ target_include_directories(
 # they return. Labelled "scene" rather than "gpu" so that ctest -L gpu keeps its
 # under-a-minute meaning and a red step says which kind of thing broke.
 engine_test(scene_tests SOURCES scene/SceneLaunchTests.cpp LIBS Engine::Engine
-            Engine::Editor LABEL scene)
+            Engine::Editor TestSupport LABEL scene)
 
 # Beside the shaders rather than in tests/: the engine loads them from its own
 # directory, so a test that runs the engine has to live where a binary does.

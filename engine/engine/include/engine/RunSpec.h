@@ -1,9 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include <rhi/Backend.h>
 #include <rhi/Diagnostics.h>
 
 namespace Hikari::Engine
@@ -30,6 +32,14 @@ struct RunSpec
 
     /** --content; empty resolves the content root the usual way. Read by the app. */
     std::string ContentRoot;
+
+    /**
+     * The input script replayed during this run, as given on the command line,
+     * or empty for none. Read by the app, which loads it and hands it to the
+     * platform; the engine only records it, because a run driven by a script is
+     * not the same run as one driven by nothing and a report has to say which.
+     */
+    std::string InputScriptPath;
 
     /** 0 runs until something asks the run to stop. */
     uint64_t Frames = 0;
@@ -68,8 +78,42 @@ struct RunSpec
     /** Exit non-zero if any validation error occurred. Read by the app. */
     bool bStrictValidation = false;
 
+    /**
+     * Whether to load the backend's validation layer at all.
+     *
+     * Tri-state on purpose: nothing means the build configuration decides, which
+     * is what every run did before this existed, so a command line that does not
+     * mention validation behaves exactly as it always has. A value overrides
+     * that in either direction — a release build can be asked to validate, which
+     * is the point, and a debug build can be asked not to.
+     *
+     * Distinct from ValidationPolicy below, which decides what a message means
+     * once the layer is loaded. This decides whether there is a layer.
+     */
+    std::optional<bool> bValidationEnabled;
+
     /** How the diagnostics sink treats validation messages. Read by the app. */
     Rhi::ValidationPolicy ValidationPolicy = Rhi::ValidationPolicy::Count;
+
+    /**
+     * Whether synchronization validation runs, where validation runs at all.
+     *
+     * On by default, because it catches the class of defect that is hardest to
+     * find any other way. It is also the expensive sub-mode, which is why it can
+     * be turned off: a release run that validates is what --validation exists
+     * for, and a release run is the only one whose timings mean anything.
+     *
+     * Vulkan-only, as the flag's --vk- prefix says: D3D12 has no synchronization
+     * validator, so a neutral flag would be one exactly one backend could honour.
+     */
+    bool bVulkanSyncValidation = true;
+
+    /**
+     * Which backend to build the device from. Vulkan on every platform unless
+     * asked otherwise, permanently (plan D25): a bug report, a baseline capture
+     * and a run report then mean the same thing whoever produced them.
+     */
+    Rhi::Backend Backend = Rhi::Backend::Vulkan;
 
     /**
      * Optional extensions to behave as though the device did not support, so a

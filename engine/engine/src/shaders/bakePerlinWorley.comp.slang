@@ -1,11 +1,11 @@
-[[vk::binding(0, 0)]] RWTexture3D<float> outputNoise;
+// Only the push constant convention: this shader has no lighting and no global
+// buffer, so including common.slangh would bring a b0 declaration it never uses.
+#include "ShaderTypes.h"
+#include "registers.slangh"
 
-struct BakeConstants
-{
-    uint resolution;
-    uint worleyPointsPerCell; // typically 1, controls Worley cell density
-};
-[[vk::push_constant]] BakeConstants pc;
+RWTexture3D<float> outputNoise : register(u0, space0);
+
+PUSH_CONSTANT(BakeConstants, pc);
 
 // ---- Tileable hash: wraps cell coordinates before hashing ----
 float3 hash33(int3 p, uint res)
@@ -94,13 +94,13 @@ float WorleyFBM(float3 p, uint res, uint pointsPerCell, int octaves)
 [numthreads(4, 4, 4)]
 void main(uint3 dispatchId : SV_DispatchThreadID)
 {
-    if (any(dispatchId >= pc.resolution)) return;
+    if (any(dispatchId >= pc.Resolution)) return;
 
     // frequency measured in "cells" across the texture — e.g. 4 means noise repeats every res/4 texels
     float3 p = float3(dispatchId);
 
-    float perlin = PerlinFBM(p / 8.f, pc.resolution / 8u, 4);       // low frequency base shape
-    float worley = WorleyFBM(p / 16.f, pc.resolution / 16u, pc.worleyPointsPerCell, 3); // erosion mask
+    float perlin = PerlinFBM(p / 8.f, pc.Resolution / 8u, 4);       // low frequency base shape
+    float worley = WorleyFBM(p / 16.f, pc.Resolution / 16u, pc.WorleyPointsPerCell, 3); // erosion mask
 
     // classic Perlin-Worley remap (Schneider, "Real-Time Volumetric Cloudscapes"):
     // use inverted worley FBM as a floor, so perlin only shows through where worley carves cavities

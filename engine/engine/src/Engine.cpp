@@ -8,7 +8,10 @@
 // by promoting whole passes out, not by cutting it in half here.
 
 #include <atomic>
+#include <ctime>
+#include <iomanip>
 #include <span>
+#include <sstream>
 
 #include "AssetRegistry.h"
 #include "BindGroupLayouts.h"
@@ -27,6 +30,7 @@
 #include "Texture.h"
 #include "Vertex.h"
 #include "XmlParser.h"
+#include "shaders/ShaderTypes.h"
 
 #include <core/Clock.h>
 #include <core/IJobSystem.h>
@@ -72,38 +76,27 @@ constexpr LogCategory LogWindow("Window");
 constexpr LogCategory LogEngine("Engine");
 constexpr LogCategory LogRenderer("Renderer");
 
-struct LightData
-{
-    uint32_t PointLightCount;
-    uint32_t DirLightCount;
-    glm::vec2 Padding;
-    PointLight::Data PointLights[MAX_POINT_LIGHTS];
-    DirectionalLight::Data DirLights[MAX_DIR_LIGHTS];
-};
-
-struct CameraData
-{
-    glm::mat4 View;
-    glm::mat4 Proj;
-    glm::mat4 InvViewProj;
-    glm::vec3 Pos;
-    float NearPlane;
-    glm::vec3 Padding;
-    float FarPlane;
-};
-
 /**
- * Each member must start at an offset that is a multiple of its base alignment.
- * Eg. a float can start on offset 0, 4, 8 or 12.
- * glm::vec3 is 12 bytes wide by default but is 16 byte aligned.
+ * The wall-clock time, ISO 8601 in UTC.
+ *
+ * Not the same as RunApp's GenerateTimestamp, deliberately: that one names a
+ * file and so avoids the colons a path cannot always carry, while this one is
+ * read by a person and by anything that sorts reports.
  */
-struct GlobalBuffer
+std::string FormatUtcTimestamp()
 {
-    LightData Lights;
-    CameraData CamData;
-    glm::vec3 SkyColor;
-    float Time;
-};
+    const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm utc{};
+#if defined(_WIN32)
+    gmtime_s(&utc, &now);
+#else
+    gmtime_r(&now, &utc);
+#endif
+
+    std::ostringstream out;
+    out << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+    return out.str();
+}
 
 #ifdef NDEBUG
 constexpr bool bEnableValidationLayers = false;
@@ -177,7 +170,8 @@ public:
            std::chrono::steady_clock::time_point processStart)
         : m_Platform(platform), m_Paths(paths), m_pUiBackend(pUiBackend), m_Spec(std::move(spec)),
           m_Config(config), m_JobSystem(jobSystem), m_Diagnostics(diagnostics),
-          m_RhiDevice(Rhi::CreateDevice(MakeDeviceDesc())), m_ProcessStart(processStart)
+          m_RhiDevice(Rhi::CreateDevice(MakeDeviceDesc())), m_ProcessStart(processStart),
+          m_StartedAt(FormatUtcTimestamp())
     {
         // Sized here rather than at first use: every per-frame resource below is
         // built by index into this, and a run with one frame in flight has to
@@ -357,13 +351,17 @@ private:
     {
         Rhi::DeviceDesc desc;
         desc.ApplicationName = "HikariEngine";
-        desc.bEnableValidation = bEnableValidationLayers;
+        // Nothing asked for means the build decides, which is what every run
+        // did before the flag existed.
+        desc.bEnableValidation = m_Spec.bValidationEnabled.value_or(bEnableValidationLayers);
+        desc.bSyncValidation = m_Spec.bVulkanSyncValidation;
         desc.pDiagnostics = &m_Diagnostics;
         // The line the whole headless path turns on: no present requirement
         // means the device creates no surface, and CreatePresentTarget hands
         // back an OffscreenTarget instead of a SwapchainTarget.
         desc.Requirements.bPresent = !m_Platform.IsHeadless();
         desc.Requirements.NativeWindowHandle = m_Platform.GetNativeWindowHandle();
+        desc.Backend = m_Spec.Backend;
         desc.DisabledOptionalExtensions = m_Spec.DisabledVulkanExtensions;
         desc.bForceSingleQueue = m_Spec.bForceSingleQueue;
         return desc;
@@ -547,6 +545,7 @@ private:
         RunReport report;
         report.Frames = m_FrameCounter;
 
+        report.StartedAt = m_StartedAt;
         report.Counters.Frame = {.DrawCalls = m_OpaqueDrawCallCount + m_TransparentDrawCallCount,
                                  .Batches = m_OpaqueBatchCount + m_TransparentBatchCount,
                                  .Instances = m_OpaqueInstanceCount + m_TransparentInstanceCount,
@@ -562,6 +561,8 @@ private:
                           .FrameMs = ComputeTimingStats(m_FrameMs),
                           .CpuMs = ComputeTimingStats(m_CpuMs)};
 
+        const bool bValidationOn = m_Spec.bValidationEnabled.value_or(bEnableValidationLayers);
+
         report.Run = {.bFixedDt = m_Spec.bFixedDt,
                       .bHeadless = m_Platform.IsHeadless(),
                       .bNoUi = m_Spec.bNoUi,
@@ -569,7 +570,30 @@ private:
                       .Height = SwapchainExtent().Height,
                       .JobCount = static_cast<uint32_t>(m_JobSystem.WorkerCount()),
                       .PresentMode = m_PresentTarget->GetPresentMode(),
-                      .BuildConfig = HIKARI_BUILD_CONFIG};
+                      .BuildConfig = HIKARI_BUILD_CONFIG,
+                      .ScenePath = m_Spec.ScenePath,
+                      .CameraPreset = m_Spec.CameraPreset,
+                      .InputScriptPath = m_Spec.InputScriptPath,
+                      .CaptureFrame = m_CaptureFrame,
+                      // What the run actually did, not what was asked: the
+                      // layer settings chain is only attached when the layer is
+                      // loaded, so sync validation off is also what "no
+                      // validation at all" looks like.
+                      .bValidationEnabled = bValidationOn,
+                      .ValidationPolicy = m_Spec.ValidationPolicy,
+                      .bSyncValidation = bValidationOn && m_Spec.bVulkanSyncValidation,
+                      .DisabledVulkanExtensions = m_Spec.DisabledVulkanExtensions,
+                      .bForceSingleQueue = m_Spec.bForceSingleQueue,
+                      .FramesInFlight = m_Config.FramesInFlight,
+                      .WindowMode = m_Platform.GetWindowMode()};
+
+        const Rhi::DeviceInfo& device = m_RhiDevice->GetInfo();
+        report.System = {.Backend = device.Backend,
+                         .Gpu = device.Gpu,
+                         .Driver = device.Driver,
+                         .ApiVersion = device.ApiVersion,
+                         .Os = HIKARI_OS,
+                         .Arch = HIKARI_ARCH};
 
         return report;
     }
@@ -841,6 +865,11 @@ private:
                                                           .Access = Rhi::MemoryAccess::GpuToCpu,
                                                           .DebugName = "Screenshot Staging"}));
             m_bScreenshotBufferReady = true;
+
+            // Which frame the capture shows. Recorded here rather than at
+            // readback because this is the frame whose pixels are staged, and
+            // the guard above means the first request wins.
+            m_CaptureFrame = m_FrameCounter;
         }
 
         {
@@ -1020,6 +1049,12 @@ private:
     /**
      * The compiled shader named `name`, as a module the device owns.
      *
+     * `name` carries the stage — "opaque.vert", "clouds.comp" — because the
+     * build emits one blob per stage rather than one module holding several,
+     * which is what lets a pipeline description name a module and nothing else
+     * (plan D24 and D33). The two stages of a surface shader are two files and
+     * two modules.
+     *
      * The engine resolves the file and the device says which kind it can read
      * (plan D24): resolving a name to a path is a content question, and the RHI
      * has no business owning a filesystem. Modules are kept alive for the run
@@ -1074,8 +1109,8 @@ private:
             m_RhiDevice->CreateGraphicsPipeline(
                 Rhi::GraphicsPipelineDesc{
                     .Layout = m_OpaquePipelineLayout.Get(),
-                    .VertexShader = {LoadShader("opaque"), "vertMain"},
-                    .PixelShader = {m_ShaderModules.back().Get(), "fragMain"},
+                    .VertexShader = {LoadShader("opaque.vert")},
+                    .PixelShader = {LoadShader("opaque.frag")},
                     .VertexBuffers = kSurfaceVertexBuffers,
                     .VertexAttributes = kAttributes,
                     .RenderTargetFormats = formats,
@@ -1124,8 +1159,8 @@ private:
             m_RhiDevice->CreateGraphicsPipeline(
                 Rhi::GraphicsPipelineDesc{
                     .Layout = m_TransparentPipelineLayout.Get(),
-                    .VertexShader = {LoadShader("weightedBlendedOIT"), "vertMain"},
-                    .PixelShader = {m_ShaderModules.back().Get(), "fragMain"},
+                    .VertexShader = {LoadShader("weightedBlendedOIT.vert")},
+                    .PixelShader = {LoadShader("weightedBlendedOIT.frag")},
                     .VertexBuffers = kSurfaceVertexBuffers,
                     .VertexAttributes = kAttributes,
                     .RenderTargetFormats = formats,
@@ -1159,8 +1194,8 @@ private:
             *m_RhiDevice,
             m_RhiDevice->CreateGraphicsPipeline(
                 Rhi::GraphicsPipelineDesc{.Layout = m_CompositePipelineLayout.Get(),
-                                          .VertexShader = {LoadShader("composite"), "vertMain"},
-                                          .PixelShader = {m_ShaderModules.back().Get(), "fragMain"},
+                                          .VertexShader = {LoadShader("composite.vert")},
+                                          .PixelShader = {LoadShader("composite.frag")},
                                           .VertexBuffers = kQuadBuffers,
                                           .VertexAttributes = kQuadAttributes,
                                           .RenderTargetFormats = formats,
@@ -1706,9 +1741,9 @@ private:
     void UpdateGlobalBuffer(uint32_t frameIndex)
     {
         m_GlobalBuffer.Time = m_RunTime;
-        m_GlobalBuffer.CamData.Pos = m_Camera->GetPosition();
+        m_GlobalBuffer.Camera.Pos = m_Camera->GetPosition();
         glm::mat4 view = m_Camera->GetViewMatrix();
-        m_GlobalBuffer.CamData.View = glm::transpose(view);
+        m_GlobalBuffer.Camera.View = glm::transpose(view);
         glm::mat4 proj = m_Camera->GetProjMatrix();
         // GLM was designed for OpenGL, which has its Y coordinate in clip
         // space inverted. Compensate for this by scaling here.
@@ -1718,12 +1753,12 @@ private:
         // it, D3D12 does not. This is the only site permitted to apply it.
         if (m_RhiDevice->GetCaps().bFlipClipSpaceY)
             proj[1][1] *= -1.f;
-        m_GlobalBuffer.CamData.Proj = glm::transpose(proj);
-        m_GlobalBuffer.CamData.NearPlane = m_Camera->GetNearPlane();
-        m_GlobalBuffer.CamData.FarPlane = m_Camera->GetFarPlane();
+        m_GlobalBuffer.Camera.Proj = glm::transpose(proj);
+        m_GlobalBuffer.Camera.NearPlane = m_Camera->GetNearPlane();
+        m_GlobalBuffer.Camera.FarPlane = m_Camera->GetFarPlane();
 
-        m_GlobalBuffer.CamData.InvViewProj =
-            glm::inverse(glm::transpose(m_GlobalBuffer.CamData.Proj) * view);
+        m_GlobalBuffer.Camera.InvViewProj =
+            glm::inverse(glm::transpose(m_GlobalBuffer.Camera.Proj) * view);
 
         uint32_t& pointLightCount = m_GlobalBuffer.Lights.PointLightCount;
         for (pointLightCount = 0u;
@@ -2072,6 +2107,15 @@ private:
      * uploads — the two paths a windowed and a headless run differ on.
      */
     std::chrono::steady_clock::time_point m_ProcessStart;
+
+    /**
+     * Wall clock, taken once at construction. m_ProcessStart is a steady_clock
+     * point, which measures elapsed time and cannot be turned back into a date.
+     */
+    std::string m_StartedAt;
+
+    /** The frame a capture was staged from, or nothing where none was. */
+    std::optional<uint64_t> m_CaptureFrame;
 
     /**
      * The simulation's clock, chosen by --fixed-dt. Owned rather than injected:

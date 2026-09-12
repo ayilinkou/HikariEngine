@@ -4,19 +4,6 @@
 #include "common.slangh"
 #include "pbr.slangh"
 
-struct MaterialPushConstant
-{
-	float4 Albedo;
-	float Metallic;
-	float Roughness;
-	float AO;
-	float Opacity;
-	bool bHasAlbedoTex;
-	bool bHasNormalTex;
-	bool bHasMetallicRoughnessTex;
-	bool bTwoSided;
-};
-
 struct VS_In
 {
 	// per vertex
@@ -70,21 +57,20 @@ VS_Out vertMain(VS_In v)
 	return o;
 }
 
-// [[vk::binding(binding, set)]]
-[[vk::binding(0, 1)]]
-Texture2D<float4> albedoTex;
-[[vk::binding(1, 1)]]
-Texture2D<float4> normalTex;
-[[vk::binding(2, 1)]]
-Texture2D<float4> metallicRoughnessTex;
+// register(<class><index>, space<bind group>). The index must be unique across
+// classes within a space, not just within its own class — Vulkan has one
+// binding namespace per descriptor set where HLSL has four — so the sampler is
+// s3 rather than s0. A collision there is silent: it compiles clean and aliases
+// two resources onto one binding.
+Texture2D<float4> albedoTex : register(t0, space1);
+Texture2D<float4> normalTex : register(t1, space1);
+Texture2D<float4> metallicRoughnessTex : register(t2, space1);
 // One sampler for all three: they are read the same way, and a combined image
 // sampler is not something the RHI's binding model has (D3D12 has no such
 // descriptor).
-[[vk::binding(3, 1)]]
-SamplerState materialSampler;
+SamplerState materialSampler : register(s3, space1);
 
-[[vk::push_constant]]
-MaterialPushConstant pcMatData;
+PUSH_CONSTANT(MaterialPushConstant, pcMatData);
 
 struct FS_Out
 {

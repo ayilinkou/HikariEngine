@@ -116,11 +116,22 @@ on every platform whether or not an SDK is installed, and they match the version
 | Driver support | <https://vulkan.gpuinfo.org> | whether a feature/format/limit is realistically available |
 
 The validation layers are the empirical check, not a substitute for the spec — a clean
-validation run proves nothing was caught, not that the code is correct. Synchronization
-validation is off by *Vulkan's* default but on in this project: `VulkanDevice::CreateInstance`
-sets `validate_sync` unconditionally through the `VK_EXT_layer_settings` chain, so every Debug
-run and every GPU test has it. Best-practices validation is the one currently switched off, for
-a layer crash — see `backlog.md`.
+validation run proves nothing was caught, not that the code is correct.
+
+**Validation is chosen at run time, and the default is unchanged from what it always was.**
+`--validation on|off` decides whether the layer is loaded at all; leaving it off the command line
+means the build configuration decides, as it always did — on in Debug, off in Release. That is a
+different question from `--validation-policy ignore|count|failfast`, which decides what a message
+*means* once a layer is loaded, and the combinations that read as stricter than they are —
+`--validation off` with a policy or with `--strict-validation` — are refused at parse time.
+
+Synchronization validation is off by *Vulkan's* default and on in this project, through the
+`VK_EXT_layer_settings` chain in `VulkanDevice::CreateInstance`. It is the expensive sub-mode —
+measured on a release build of the test scene at 1.035 ms/frame against 0.802 with it off and 0.337
+with no validation at all — so `--vk-sync-validation on|off` exists for the one case that needs it:
+a release run that validates *and* whose timings still mean something. Vulkan-only, as the prefix
+says; D3D12 has no synchronization validator. Best-practices validation is the one currently
+switched off, for a layer crash — see `backlog.md`.
 `grep`ping this repo for prior art is also not a source. Known-wrong places to copy from
 today: `ModelData::Init` (`suggested_work.md` §1.6 — a live P0 that dereferences a null
 material), `WriteScreenshot`'s hardcoded BGRA swizzle, `ChooseSwapchainFormat`'s fallback
@@ -145,9 +156,9 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | Cleanup between 6 and 7 | — | ✅ done (`Hikari::` namespace + `namespace_check`, CI's `static-checks` job, the `counters`/`timings`/`run` report + `--no-ui`, `docs/backlog.md`) |
 | 7 — Engine shell + DI | 40b, 41–47 | ✅ done (`engine/engine` + `engine/asset` + `engine/editor`, `HikariEditor` + `HikariHeadless`, injected subsystems, the event seam, and headless scene tests in CI) |
 | 7.5 — Backend readiness | 1–12 | ✅ done (`ICommandAllocator`, submission and fences, rendering scope, bind groups, pipelines, draw and dispatch recording — the transitional area is 2 headers from 4 sites, down from 7 from 18) |
-| **7.6 — Backend prerequisites** | **1–12** | **next** — the comparison tool (1–4, 7), backend selection (5), device info (6), the shader build (8–10), step 48 extended (11), runtime validation (12). Grilled 6, 11 and 12 September 2026: D27–D35 decided, the twelve steps sequenced, nothing open |
-| 7.7 — D3D12 backend | — | not started — stepped small, Vulkan stays the default, and it now owns the Windows GPU CI job (D28) |
-| 8+ — Frame graph, DOD, scalability | 48–76 | not started; 48–56 partly superseded by Stage 7.5, and 48 moves to 7.6 |
+| 7.6 — Backend prerequisites | 1–12 | ✅ done (`HikariCompare` and the gating table, `--backend` and `rhi/Backend.h`, `DeviceInfo` and the report's `system` block, per-stage blobs with DXIL and its signature gate, `ShaderTypes.h` shared with the shaders and its layout pinned, `--validation` and `--vk-sync-validation`) |
+| **7.7 — D3D12 backend** | — | **next** — stepped small, Vulkan stays the default, and it owns the Windows GPU CI job (D28). Not yet grilled |
+| 8+ — Frame graph, DOD, scalability | 49–76 | not started; 49–56 partly superseded by Stage 7.5. Step 48 landed at 7.6 step 11 |
 
 Update this table when a stage completes.
 
@@ -223,10 +234,11 @@ longer mirrors CI's job layout.
 **The GPU and scene tests run on Linux against lavapipe**, pinned with `VK_DRIVER_FILES`
 rather than discovered — enumeration order is not a stable identifier. `ctest -L gpu` runs in
 all three Linux jobs including release, because `RhiTestFixture.h` enables validation
-unconditionally, so a release run asserts everything a debug one does. `ctest -L scene` runs
-in the debug and ASan jobs only: the engine gates validation on `NDEBUG`, so a release run
-would report zero validation errors trivially. Promoting it is a two-line change once
-validation is runtime-selectable (`backlog.md`).
+unconditionally, so a release run asserts everything a debug one does. **`ctest -L scene` runs
+in all three Linux jobs too**, because `RunScene` asks for validation explicitly rather than
+inheriting it from the build — the same eleven cases assert the same thing in every
+configuration. Before that a release run reported zero validation errors trivially, which made
+the headline assertion theatre.
 
 Everything that *verifies* the tree lives in `tests/scripts/`; `scripts/` holds the things
 that build or change it (`build.sh` at the root, `format.sh`, `precommit.sh`, and the
@@ -261,56 +273,84 @@ are used as given.
 
 ### Regression checking
 
-`tests/scripts/baseline_test.sh` runs the app with fixed timestep and a fixed camera, writing
-a PNG and a JSON report:
+`tests/scripts/baseline_test.sh` is the whole workflow in one command: it runs the app with a
+fixed timestep and a fixed camera, then compares what came out against the committed
+`tests/baseline/` and exits with the comparison's status.
 
 ```bash
-tests/scripts/baseline_test.sh   # --scene (default scenes/test_scene.map) --frames (default 1000)
-                                 # --fixed-dt --camera-preset 1 --screenshot --report
-                                 # --resolution 1920x1080 --borderless --no-ui
+tests/scripts/baseline_test.sh                       # capture, then compare
+tests/scripts/baseline_test.sh --update              # capture, compare, promote the baseline
+tests/scripts/baseline_test.sh ninja-release-linux   # any preset; default is the host's debug
 ```
 
-Output goes to `tests/screenshots/` and `tests/reports/` (both gitignored). Compare against
-the committed `tests/baseline/`. Two signals, and **both are usable**:
+The run writes `tests/reports/baseline.json` and `tests/screenshots/baseline.png`, both
+gitignored and both overwritten each time. **Exit codes, strongest first:**
 
-- **The report's `counters`**, split by scope. `counters.frame` — `drawCalls`, `batches`,
-  `instances`, `barriers`, `barrierCalls` — describes the last frame drawn, which is the frame
-  a capture shows. `counters.run` — `validationErrors`, `validationWarnings`,
-  `uploadSubmissions` — accumulates over the whole run. Both are expectations: they must match
-  the committed baseline exactly, and validation errors must stay at 0. `uploadSubmissions` is
-  what guards the asset layer's batching from a distance — one scene's textures loaded inside
-  one load scope is a handful of submissions, and a number that tracks the texture count means
-  the scoping broke.
-- **The report's `timings`** — `startupMs`, `firstFrame`, and `mean`/`p99`/`min`/`max` for
-  both `frameMs` (wall clock) and `cpuMs` (the same minus what the frame spent blocked).
-  These are measurements, not expectations: they vary with the machine, so read them for
-  drift rather than diffing them. `frameMs` is bounded below by the display refresh whenever
-  the present path throttles the CPU, which is what `cpuMs` exists to see past. Frame 0 is
-  reported separately as `firstFrame` and excluded from the series, since it pays for first
-  use of every pipeline. Two reports are comparable only when their `run` blocks agree —
-  `buildConfig` in particular, since a debug and a release run differ by an order of
-  magnitude and nothing else in the file would say so.
-- **A pixel diff of the screenshot**, which is the stronger check and is now reliable: the
-  script forces `--resolution 1920x1080 --borderless`, so captures come out at a fixed extent
-  instead of at whatever size the window manager chose. **Never byte-compare** — PNG encoding
-  is not reproducible, so `cmp`/`md5sum` on a pixel-identical pair still differs. Compare
-  decoded pixels, and **convert to RGB first**:
+| Code | Meaning |
+|---|---|
+| **3** | No verdict — a report would not read, or a field is missing from one of them or absent from the comparison's table |
+| **1** | A compared signal moved |
+| **2** | Nothing moved, but a signal could not be compared |
+| **0** | Everything was compared, and it matched |
 
-  ```python
-  a = Image.open(before).convert("RGB")   # not RGBA
-  b = Image.open(after).convert("RGB")
-  assert ImageChops.difference(a, b).getbbox() is None
-  ```
+1 outranks 2 because a difference in a signal that *was* compared is real whatever happened to
+the others. A no-verdict is not a pass: it means nothing was established.
 
-  The conversion is the load-bearing part. `Image.getbbox()` defaults to `alpha_only=True`, so
-  on an RGBA pair it inspects **only the alpha channel** — and every capture this engine writes
-  is fully opaque, which makes the check pass for two images of completely different scenes.
-  `.convert("RGB")` removes the channel it would look at; `getbbox(alpha_only=False)` is the
-  other way to say it. This was wrong here for a while and nobody noticed, because a check that
-  always passes looks exactly like a check that keeps passing.
+`HikariCompare` is the tool underneath, and it works on any two runs:
 
-`--borderless` rather than `--resolution` alone is what makes that work: a window size is a
-request the window system may refuse, and a tiling compositor always does. The rationale is
+```bash
+./build/<preset>/HikariCompare --actual-report a.json --expected-report b.json \
+                               --actual-image a.png  --expected-image b.png
+```
+
+**Each signal is compared only when the conditions it depends on match**, and a skip names the
+field that caused it — `run.buildConfig` differing skips the counters, because a release build
+reports zero validation errors trivially. Two classifications deliberately never gate anything:
+`run.jobCount`, since a difference across job counts is a race and gating would excuse it, and
+`run.headless` for pixels, which step 46 verified. The table lives in
+`tests/support/ReportCompare.cpp` with the evidence for each entry beside it, and a unit test
+fails the build if the report gains a field the table does not classify.
+
+**On a pixel failure the tool writes `comparison_actual.png`, `comparison_expected.png` and an
+amplified `comparison_diff.png`** beside the capture, so a reader can see *where* an image moved
+rather than only by how much. The diff is scaled so that the tolerance ceiling is full
+brightness; within one backend the tolerance is zero, so every differing pixel is fully bright.
+CI cannot retrieve those files yet — `ci.yml` has no artefact step — which is a `backlog.md` row.
+
+**`--update` promotes the run into `tests/baseline/`, and refuses more often than it accepts.**
+It replaces both committed files together or neither. It refuses outright when the run's
+conditions differ from the baseline's, so a baseline cannot quietly move to another machine or
+another build configuration — a release run is rejected against a debug baseline. And it does
+nothing at all when nothing moved, because PNG encoding is not reproducible and rewriting an
+identical capture would still put a binary diff into git. A field the baseline simply lacks is
+the one difference it is *for*, so that is not a refusal.
+
+Read the two report signals differently, which is why they sit in separate blocks:
+
+- **`counters`** are expectations that must match exactly. `counters.frame` — `drawCalls`,
+  `batches`, `instances`, `barriers`, `barrierCalls` — describes the last frame drawn, which is
+  the frame a capture shows. `counters.run` — `validationErrors`, `validationWarnings`,
+  `uploadSubmissions` — accumulates over the whole run. `uploadSubmissions` is what guards the
+  asset layer's batching from a distance: one scene's textures loaded inside one load scope is a
+  handful of submissions, and a number that tracks the texture count means the scoping broke.
+- **`timings`** — `startupMs`, `firstFrame`, and `mean`/`p99`/`min`/`max` for both `frameMs`
+  (wall clock) and `cpuMs` (the same minus what the frame spent blocked) — are measurements, not
+  expectations. The comparison never diffs them; read them for drift. `frameMs` is bounded below
+  by the display refresh whenever the present path throttles the CPU, which is what `cpuMs`
+  exists to see past. Frame 0 is reported separately as `firstFrame` and excluded from the
+  series, since it pays for first use of every pipeline.
+
+**Never byte-compare two captures.** PNG encoding is not reproducible, so `cmp` and `md5sum`
+differ on a pixel-identical pair. Comparing decoded pixels by hand is also a trap worth knowing
+about, because this project fell into it: PIL's `Image.getbbox()` defaults to `alpha_only=True`,
+so on an RGBA pair it inspects only the alpha channel — and every capture here is fully opaque,
+which made the check pass for two images of completely different scenes. That is why the
+comparison is a tested tool now rather than a recipe, and why its tests include a case asserting
+that a difference in colour alone, with alpha identical, is caught.
+
+`--borderless` rather than `--resolution` alone is what pins the capture's extent: a window size
+is a request the window system may refuse, and a tiling compositor always does. Without it the
+capture comes out at whatever size the layout chose, and no two machines agree. The rationale is
 in the script, next to the flags.
 
 `HikariHeadless` renders into an offscreen target with no window at all. It needs something
@@ -360,7 +400,10 @@ tests/scene/     # real headless runs of the engine asserting on the RunReport t
                  #   return, CTest label "scene" — run by CI on the two Linux debug jobs
 tests/data/      # a content root of its own: two hand-authored glTF cubes and the
                  #   scenes built from them, so expected counters are derivable
-tests/support/   # shared test helpers (TestPaths.h, CaptureStream.h, RhiTestFixture.h)
+tests/support/   # TestSupport — the shared image and report comparison, plus the
+                 #   header-only helpers (TestPaths.h, CaptureStream.h,
+                 #   RhiTestFixture.h). Catch2-free, so the tool can link it too
+tests/tools/     # HikariCompare — the command-line face of that comparison
 content/         # runtime content root — models/ scenes/ textures/ shaders/ (.spv is gitignored)
 ```
 

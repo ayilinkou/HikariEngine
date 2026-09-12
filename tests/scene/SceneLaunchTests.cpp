@@ -22,6 +22,7 @@
 
 #include <engine/IEngine.h>
 
+#include "ImageCompare.h"
 #include "TestEnvironment.h"
 #include "TestPaths.h"
 
@@ -171,6 +172,13 @@ Engine::RunResult RunScene(const std::string& contentRoot, const std::string& sc
     Paths paths(contentRoot);
 
     Engine::RunSpec spec;
+
+    // Explicit rather than inherited from the build: these cases assert that a
+    // run produced no validation errors, and a release build with no layer
+    // loaded reports zero trivially. Setting it here makes the same eleven cases
+    // assert the same thing in every configuration, rather than being theatre in
+    // three of them.
+    spec.bValidationEnabled = true;
     spec.ScenePath = scenePath;
     spec.Frames = kFrames;
     spec.bFixedDt = true;
@@ -242,19 +250,28 @@ void CheckScene(const SceneExpectation& expected)
     CHECK(second.Report.Counters.Frame.Barriers == first.Report.Counters.Frame.Barriers);
     CHECK(second.Report.Counters.Frame.BarrierCalls == first.Report.Counters.Frame.BarrierCalls);
     CHECK(second.Report.Counters.Run.ValidationErrors == 0u);
-    // Compared as a bool: Catch2 stringifies the operands of a failed
+    // Two runs of the same scene on the same device, so the tolerance is zero:
+    // this is exactly as strict as the byte comparison it replaces, and now says
+    // where an image moved rather than only that it did. Catch2 is still never
+    // handed the buffers themselves — it stringifies the operands of a failed
     // comparison, and these are a megabyte of bytes each.
-    const bool bPixelsMatch = second.Capture.Pixels == first.Capture.Pixels;
-    CHECK(bPixelsMatch);
+    const TestSupport::ImageComparison pixels = TestSupport::CompareImages(
+        second.Capture.Pixels, second.Capture.Extent, first.Capture.Pixels, first.Capture.Extent);
 
-    if (!bPixelsMatch && second.Capture.Pixels.size() == first.Capture.Pixels.size())
+    INFO("pixels: " << TestSupport::Describe(pixels));
+    CHECK(pixels.bComparable);
+    CHECK(pixels.bWithinTolerance);
+
+    if (pixels.bComparable && !pixels.bWithinTolerance)
     {
-        size_t differing = 0u;
-        for (size_t i = 0u; i < first.Capture.Pixels.size(); ++i)
-            differing += first.Capture.Pixels[i] != second.Capture.Pixels[i] ? 1u : 0u;
-
-        FAIL_CHECK("pixel bytes differing between the two runs: "
-                   << differing << " of " << first.Capture.Pixels.size());
+        // Beside the test binary rather than in the source tree, and only on a
+        // failure. CI cannot retrieve them yet, which is a backlog.md row.
+        const std::string prefix =
+            "comparison_failures/" + std::filesystem::path(expected.Scene).stem().string() + "_";
+        TestSupport::WriteComparisonImages(second.Capture.Pixels, second.Capture.Extent,
+                                           first.Capture.Pixels, first.Capture.Extent,
+                                           TestSupport::ImageTolerance{}, prefix);
+        WARN("comparison images written with prefix " << prefix);
     }
 }
 

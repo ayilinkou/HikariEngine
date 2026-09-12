@@ -29,6 +29,7 @@ class RecordingDevice final : public IDevice
 {
 public:
     const DeviceCaps& GetCaps() const override { return m_Caps; }
+    const DeviceInfo& GetInfo() const override { return m_Info; }
     Diagnostics& GetDiagnostics() override { return m_Diagnostics; }
     void WaitIdle() override {}
 
@@ -193,6 +194,7 @@ public:
 
 private:
     DeviceCaps m_Caps{};
+    DeviceInfo m_Info{};
     Diagnostics m_Diagnostics{Diagnostics::Desc{}};
     uint32_t m_NextIndex = 0u;
 };

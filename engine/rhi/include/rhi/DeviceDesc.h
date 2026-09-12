@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include <rhi/Backend.h>
 #include <rhi/Diagnostics.h>
 
 namespace Hikari::Rhi
@@ -35,6 +36,17 @@ struct DeviceRequirements
 struct DeviceDesc
 {
     std::string ApplicationName = "HikariEngine";
+
+    /**
+     * Which implementation to build the device from. A field here rather than a
+     * parameter of CreateDevice because the fields around it — the validation
+     * switch, the disabled extensions, the single-queue lever — are all read
+     * differently depending on which backend reads them, so one object
+     * describes the whole request; and because Vulkan being permanently the
+     * default (plan D25) is then a struct default rather than a convention
+     * every call site has to observe.
+     */
+    Rhi::Backend Backend = Rhi::Backend::Vulkan;
 
     DeviceRequirements Requirements;
 
@@ -90,12 +102,32 @@ struct DeviceDesc
      * queue. A backend that cannot honour it must say so rather than pretend.
      */
     bool bForceSingleQueue = false;
+
+    /**
+     * Whether the validation layer's synchronization checks run, where
+     * bEnableValidation turned validation on at all.
+     *
+     * On by default: it catches the class of defect that is hardest to find any
+     * other way, and it is off by *Vulkan's* default, so leaving it alone would
+     * quietly give up the check. It is also the expensive sub-mode, which is the
+     * only reason to expose it.
+     *
+     * A backend with no synchronization validator ignores this, as one with no
+     * optional extensions ignores the list above — the field describes what to
+     * ask for, and what a backend can honour is the backend's business.
+     */
+    bool bSyncValidation = true;
 };
 
 /**
  * What a device turned out to be able to do, as opposed to what was asked of
  * it. Read this rather than testing the backend or the platform: that is the
  * whole point of it existing.
+ *
+ * **Caps are branched on; DeviceInfo below is reported and never branched on.**
+ * That is the whole of the split, and it is why the GPU's name is not here: a
+ * caller holding that string has everything it needs to write the driver check
+ * this struct exists to prevent.
  */
 struct DeviceCaps
 {
@@ -138,5 +170,47 @@ struct DeviceCaps
      * name so that resolving it is the same on both backends (plan D24).
      */
     const char* ShaderExtension = "";
+};
+
+/**
+ * Which device produced a run, as opposed to what it can do.
+ *
+ * **Info is reported and never branched on; DeviceCaps above is what a caller
+ * branches on.** Nothing in the engine should read these strings for anything
+ * but printing them: the moment one is compared against a known driver name,
+ * the capability seam above has been routed around. `ShaderExtension` is the
+ * exception that proves the rule rather than the precedent that dissolves it —
+ * it exists so that callers need *not* know the backend, which is the opposite
+ * of what a GPU name gets used for.
+ *
+ * The device's half only. A run report also names the operating system and the
+ * architecture, and those are properties of the process rather than of the
+ * device, so they do not come from here.
+ */
+struct DeviceInfo
+{
+    /** Which backend actually built this device, not which one was requested. */
+    Rhi::Backend Backend = Rhi::Backend::Vulkan;
+
+    /** The adapter's own name for itself. */
+    std::string Gpu;
+
+    /**
+     * Whatever the backend can say about its driver, as opaque text. Never
+     * parsed: its only use is telling two machines apart in a run report.
+     */
+    std::string Driver;
+
+    /**
+     * What the device *supports*, not what the run asked for — the requested
+     * version is a constant in our source and identical on every machine, so it
+     * would say nothing about the machine a report describes.
+     *
+     * Opaque text, because the two APIs do not answer the same question:
+     * Vulkan has an API version ("1.4.321") and D3D12 has a feature level
+     * ("feature level 12_2") instead. The value rather than the field name
+     * carries the disambiguation, so a feature level never reads as a version.
+     */
+    std::string ApiVersion;
 };
 } // namespace Hikari::Rhi

@@ -43,6 +43,12 @@ public:
     virtual const DeviceCaps& GetCaps() const = 0;
 
     /**
+     * Which device this is, for a run report to print. Never branch on it —
+     * DeviceCaps is what says what the device can do.
+     */
+    virtual const DeviceInfo& GetInfo() const = 0;
+
+    /**
      * The device's validation counters and policy. Always valid: a device given
      * no Diagnostics creates its own rather than returning null.
      */
@@ -269,9 +275,13 @@ protected:
 };
 
 /**
- * Creates the device for whichever backend this build was compiled with.
+ * Creates the device for the backend DeviceDesc names, which defaults to Vulkan.
+ *
  * Throws on failure rather than returning null: there is no useful degraded
- * mode, and every caller would otherwise have to check.
+ * mode, and every caller would otherwise have to check. A backend this build
+ * does not contain throws too — it is a precondition, so the message is aimed at
+ * a programmer; the flag that a user types is refused at parse time, where the
+ * message can list what the build does have.
  */
 [[nodiscard]] std::unique_ptr<IDevice> CreateDevice(const DeviceDesc& desc);
 } // namespace Hikari::Rhi

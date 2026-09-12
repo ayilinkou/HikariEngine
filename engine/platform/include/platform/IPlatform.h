@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 
 #include <core/Extent2D.h>
 #include <platform/PlatformEvent.h>
@@ -52,6 +54,28 @@ enum class WindowMode
 };
 
 /**
+ * The mode's name, and the only spelling of it.
+ *
+ * Here rather than beside the one caller that used to log it, because a run
+ * report names it too — and two switches over one enum are two things to keep in
+ * step. Lower case with a space, as prose rather than as an identifier.
+ */
+constexpr std::string_view ToString(WindowMode mode)
+{
+    switch (mode)
+    {
+        case WindowMode::Windowed:
+            return "windowed";
+        case WindowMode::BorderlessFullscreen:
+            return "borderless fullscreen";
+        case WindowMode::ExclusiveFullscreen:
+            return "exclusive fullscreen";
+    }
+
+    return "unknown";
+}
+
+/**
  * The windowing/OS seam, with two implementations: SdlPlatform opens a real
  * window, HeadlessPlatform has none at all. Having both is what lets the engine
  * run in CI with no display attached — and what keeps the renderer above this
@@ -84,6 +108,17 @@ public:
      * event, so callers rebuild nothing here.
      */
     virtual void SetWindowMode(WindowMode mode) = 0;
+
+    /**
+     * The mode the window is actually in, asked of the window system rather
+     * than remembered from the last request — SetWindowMode is a request the
+     * window system may refuse, and SdlPlatform falls back from exclusive to
+     * borderless on a display that advertises no fullscreen modes.
+     *
+     * Nothing where there is no window, which is honest rather than a stand-in
+     * value: a headless run has no mode to be in.
+     */
+    virtual std::optional<WindowMode> GetWindowMode() const = 0;
 
     /**
      * Everything that happened since the last call, in order.

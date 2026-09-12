@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -49,6 +50,45 @@ enum class ValidationPolicy : uint8_t
      */
     FailFast,
 };
+
+/**
+ * The policy's name, and the only spelling of it.
+ *
+ * Here rather than in the two places that would otherwise each write a switch:
+ * --validation-policy parses these words and a run report prints them, and the
+ * flag has to accept whatever a report contains. Backend.h's reasoning, for the
+ * same reason — an enum that crosses the process boundary is spelled by the
+ * module that owns it.
+ */
+constexpr std::string_view ToString(ValidationPolicy policy)
+{
+    switch (policy)
+    {
+        case ValidationPolicy::Ignore:
+            return "ignore";
+        case ValidationPolicy::Count:
+            return "count";
+        case ValidationPolicy::FailFast:
+            return "failfast";
+    }
+
+    return "unknown";
+}
+
+/** The inverse, returning nothing for a word that names no policy. */
+constexpr std::optional<ValidationPolicy> ValidationPolicyFromString(std::string_view name)
+{
+    if (name == "ignore")
+        return ValidationPolicy::Ignore;
+
+    if (name == "count")
+        return ValidationPolicy::Count;
+
+    if (name == "failfast")
+        return ValidationPolicy::FailFast;
+
+    return std::nullopt;
+}
 
 /**
  * Counts, captures and routes the backend's validation output, and owns the

@@ -9,6 +9,7 @@ engine_module(
   src/Engine.cpp
   src/RunApp.cpp
   src/ParseEngineOptions.cpp
+  src/RunReportJson.cpp
   src/AssetRegistry.cpp
   src/Camera.cpp
   src/CloudSystem.cpp
@@ -47,6 +48,20 @@ engine_module(
 target_include_directories(Engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
                                           ${Stb_INCLUDE_DIR})
 
+# One spelling per architecture, whatever the platform calls it. Lower case,
+# because these are identifiers rather than prose: the run report's "os" is a
+# proper noun and its "arch" is not.
+string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" hikari_processor)
+if(hikari_processor MATCHES "^(amd64|x86_64|x64)$")
+  set(HIKARI_ARCH_NAME "x86_64")
+elseif(hikari_processor MATCHES "^(aarch64|arm64)$")
+  set(HIKARI_ARCH_NAME "arm64")
+else()
+  # Reported as it came rather than guessed at: an unknown name in a report is
+  # readable, and a wrong one is worse than an unfamiliar one.
+  set(HIKARI_ARCH_NAME "${hikari_processor}")
+endif()
+
 target_precompile_headers(Engine PRIVATE src/pch.h)
 
 hikari_apply_build_options(Engine)
@@ -63,4 +78,11 @@ target_compile_definitions(
     # produced them. Derived rather than passed in by the preset: $<CONFIG> is
     # correct under multi-config generators, where there is no single
     # CMAKE_BUILD_TYPE, and for a tree configured without a preset at all.
-    HIKARI_BUILD_CONFIG="$<LOWER_CASE:$<CONFIG>>$<$<BOOL:${ENABLE_SANITIZERS}>:+asan>")
+    HIKARI_BUILD_CONFIG="$<LOWER_CASE:$<CONFIG>>$<$<BOOL:${ENABLE_SANITIZERS}>:+asan>"
+    # The machine a report describes, as the build's target rather than a
+    # runtime query. CMAKE_SYSTEM_NAME is already spelled "Linux" / "Windows";
+    # the architecture is normalised above, because CMAKE_SYSTEM_PROCESSOR says
+    # "AMD64" on Windows and "x86_64" on Linux for the same hardware, and a
+    # report that names the same machine two ways is a report nobody can diff.
+    HIKARI_OS="${CMAKE_SYSTEM_NAME}"
+    HIKARI_ARCH="${HIKARI_ARCH_NAME}")

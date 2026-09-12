@@ -9,6 +9,7 @@
 #include <ranges>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -30,6 +31,14 @@
 namespace Hikari::Rhi::Vulkan
 {
 constexpr Core::LogCategory LogRhi("RHI");
+
+/**
+ * Every blob holds exactly one entry point and the build names it main (plan
+ * D33), so this is the only value Vulkan would accept: pName must name an
+ * OpEntryPoint whose execution model matches the stage
+ * (VUID-VkPipelineShaderStageCreateInfo-pName-00707).
+ */
+constexpr const char* kEntryPointName = "main";
 namespace
 {
 
@@ -152,6 +161,47 @@ VulkanDevice::VulkanDevice(const DeviceDesc& desc)
     m_Caps.bHasDedicatedComputeQueue = m_QueueFamilies.IsDedicated(QueueType::Compute);
     m_Caps.bHasDedicatedCopyQueue = m_QueueFamilies.IsDedicated(QueueType::Copy);
     m_Caps.ShaderExtension = "spv";
+
+    FillDeviceInfo();
+}
+
+/**
+ * The device's identity, for a run report. Read once here rather than on
+ * demand: nothing about it changes for the life of the device, and a report is
+ * written after the frame loop has stopped.
+ */
+void VulkanDevice::FillDeviceInfo()
+{
+    // VkPhysicalDeviceDriverProperties gives the driver a *name* — "radv",
+    // "NVIDIA" — where VkPhysicalDeviceProperties::driverVersion is a
+    // vendor-encoded integer that means something different per vendor. Core
+    // since Vulkan 1.2 (vk.xml: VK_KHR_driver_properties promotedto
+    // VK_VERSION_1_2), and this device was required to report 1.3 or higher, so
+    // the chain is always answerable.
+    const auto chain =
+        m_PhysicalDevice
+            .getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceDriverProperties>();
+
+    const vk::PhysicalDeviceProperties& properties =
+        chain.get<vk::PhysicalDeviceProperties2>().properties;
+    const vk::PhysicalDeviceDriverProperties& driver =
+        chain.get<vk::PhysicalDeviceDriverProperties>();
+
+    m_Info.Backend = Rhi::Backend::Vulkan;
+    m_Info.Gpu = static_cast<const char*>(properties.deviceName);
+
+    // Both halves: driverName is the implementation ("radv"), driverInfo its own
+    // version string ("Mesa 25.2.3"), and neither alone identifies a machine.
+    m_Info.Driver = std::string(static_cast<const char*>(driver.driverName));
+    const std::string_view driverInfo = static_cast<const char*>(driver.driverInfo);
+    if (!driverInfo.empty())
+        m_Info.Driver += " " + std::string(driverInfo);
+
+    // What the device supports, which is not what we requested: kApiVersion is
+    // a constant in this source and would be identical on every machine.
+    m_Info.ApiVersion = std::format("{}.{}.{}", vk::apiVersionMajor(properties.apiVersion),
+                                    vk::apiVersionMinor(properties.apiVersion),
+                                    vk::apiVersionPatch(properties.apiVersion));
 }
 
 VulkanDevice::~VulkanDevice()
@@ -865,10 +915,10 @@ GraphicsPipelineHandle VulkanDevice::CreateGraphicsPipeline(const GraphicsPipeli
     const std::array stages{
         vk::PipelineShaderStageCreateInfo{.stage = vk::ShaderStageFlagBits::eVertex,
                                           .module = *pVertex->Module,
-                                          .pName = desc.VertexShader.EntryPoint.c_str()},
+                                          .pName = kEntryPointName},
         vk::PipelineShaderStageCreateInfo{.stage = vk::ShaderStageFlagBits::eFragment,
                                           .module = *pPixel->Module,
-                                          .pName = desc.PixelShader.EntryPoint.c_str()}};
+                                          .pName = kEntryPointName}};
 
     std::vector<vk::VertexInputBindingDescription> bindings;
     bindings.reserve(desc.VertexBuffers.size());
@@ -1008,7 +1058,7 @@ ComputePipelineHandle VulkanDevice::CreateComputePipeline(const ComputePipelineD
     const vk::ComputePipelineCreateInfo createInfo{
         .stage = vk::PipelineShaderStageCreateInfo{.stage = vk::ShaderStageFlagBits::eCompute,
                                                    .module = *pShader->Module,
-                                                   .pName = desc.Shader.EntryPoint.c_str()},
+                                                   .pName = kEntryPointName},
         .layout = GetPipelineLayout(desc.Layout)};
 
     VulkanComputePipeline pipeline{
@@ -1314,7 +1364,9 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
         throw std::runtime_error("Required layer not supported: " +
                                  std::string(*unsupportedLayerIt));
 
-    const vk::Bool32 bSyncValEnabled = VK_TRUE;
+    // Off by Vulkan's own default, so this is a setting the project makes rather
+    // than one it inherits — and the only reason it is a knob at all is cost.
+    const vk::Bool32 bSyncValEnabled = desc.bSyncValidation ? VK_TRUE : VK_FALSE;
 
     // Best-practices validation is off because the layer crashes on it, not because
     // we stopped wanting it. vulkan-validationlayers 1.4.357.0 — the newest version
@@ -1731,10 +1783,10 @@ void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
 
 } // namespace Hikari::Rhi::Vulkan
 
-namespace Hikari::Rhi
+namespace Hikari::Rhi::Vulkan
 {
-std::unique_ptr<IDevice> CreateDevice(const DeviceDesc& desc)
+std::unique_ptr<IDevice> CreateVulkanDevice(const DeviceDesc& desc)
 {
-    return std::make_unique<Vulkan::VulkanDevice>(desc);
+    return std::make_unique<VulkanDevice>(desc);
 }
-} // namespace Hikari::Rhi
+} // namespace Hikari::Rhi::Vulkan

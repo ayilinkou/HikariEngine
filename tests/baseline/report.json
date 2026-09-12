@@ -1,0 +1,53 @@
+{
+  "startedAt": "2026-09-12T18:17:38Z",
+  "frames": 1000,
+  "counters": {
+    "frame": {
+      "drawCalls": 22,
+      "batches": 22,
+      "instances": 23,
+      "barriers": 14,
+      "barrierCalls": 9
+    },
+    "run": {
+      "validationErrors": 0,
+      "validationWarnings": 0,
+      "uploadSubmissions": 4
+    }
+  },
+  "timings": {
+    "startupMs": 2383.8779,
+    "firstFrame": { "frameMs": 6.1207, "cpuMs": 6.0007 },
+    "frameMs": { "mean": 1.6843, "p99": 2.6039, "min": 1.1427, "max": 9.7453 },
+    "cpuMs": { "mean": 1.4972, "p99": 2.2600, "min": 0.9595, "max": 9.6228 }
+  },
+  "run": {
+    "fixedDt": true,
+    "headless": false,
+    "noUi": true,
+    "width": 1920,
+    "height": 1080,
+    "jobCount": 15,
+    "presentMode": "mailbox",
+    "buildConfig": "debug",
+    "scene": "scenes/test_scene.map",
+    "cameraPreset": 1,
+    "inputScript": null,
+    "captureFrame": 999,
+    "validationEnabled": true,
+    "validationPolicy": "count",
+    "vkSyncValidation": true,
+    "vkDisabledExtensions": [],
+    "vkForceSingleQueue": false,
+    "framesInFlight": 2,
+    "windowMode": "borderless fullscreen"
+  },
+  "system": {
+    "backend": "Vulkan",
+    "gpu": "AMD Radeon RX 580 Series (RADV POLARIS10)",
+    "driver": "radv Mesa 26.2.2-arch1.1",
+    "apiVersion": "1.4.354",
+    "os": "Linux",
+    "arch": "x86_64"
+  }
+}

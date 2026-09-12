@@ -148,7 +148,13 @@ EditorOptions ParseArgs(int argc, char** argv)
             else if (flag == "--resolution")
                 options.WindowSize = option.RequireExtent2D();
             else if (flag == "--input")
+            {
                 options.InputScriptPath = option.RequireValue();
+
+                // Recorded in the run report: a scripted run is not the same run
+                // as an unscripted one, and the report has to say which.
+                options.Run.Spec.InputScriptPath = options.InputScriptPath;
+            }
             else if (flag == "--borderless")
             {
                 option.RequireNoValue();
@@ -176,15 +182,13 @@ EditorOptions ParseArgs(int argc, char** argv)
         ExitWithUsage(EXIT_FAILURE);
     }
 
-    // Ignore stops errors ever being counted, so --strict-validation would pass
-    // a run that had them. Rejected rather than silently preferred either way:
-    // in CI that combination reads as "validation is enforced" and is not.
-    if (options.Run.Spec.bStrictValidation &&
-        options.Run.Spec.ValidationPolicy == Rhi::ValidationPolicy::Ignore)
+    try
     {
-        LogMsg(LogSeverity::Error, LogEditor,
-               "--strict-validation cannot be combined with --validation-policy ignore: "
-               "no errors would be counted for it to act on");
+        Engine::RejectContradictoryOptions(options.Run.Spec);
+    }
+    catch (const CommandLineError& e)
+    {
+        LogMsg(LogSeverity::Error, LogEditor, "{}", e.what());
         ExitWithUsage(EXIT_FAILURE);
     }
 

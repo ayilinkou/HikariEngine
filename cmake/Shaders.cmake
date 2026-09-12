@@ -50,52 +50,153 @@ endif()
 function(add_slang_shader_target target)
   cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
 
+  # Emitted on every platform, not only on Windows (plan D27). Slang and DXC both
+  # come from vcpkg as host dependencies, so a Linux build compiles the DXIL a
+  # Windows build will run — which means a shader that cannot be expressed in
+  # both is caught by whichever CI job runs first, rather than by the person
+  # writing the D3D12 backend. The shader model is the lowest every current
+  # shader compiles at; raising it lifts the minimum hardware the D3D12 backend
+  # will run on, so it waits until a shader needs it.
+  set(dxil_profile sm_6_0)
+
+  # Reflection rides on the compiles that ship rather than on a pass of its own
+  # (plan §4.4), so the JSON describes exactly the blob that was produced, under
+  # exactly the flags it was produced with. A separate invocation would drift the
+  # first time a flag was added to one and not the other, and the test would go
+  # on agreeing with a compile nobody runs.
+  #
+  # Build bookkeeping, so it stays in the build tree rather than in the directory
+  # deployed beside the executable — the same argument the depfiles carry.
+  # Nothing at run time reads it; the layout test does.
+  set(reflection_dir ${CMAKE_CURRENT_BINARY_DIR}/shader_reflection/$<CONFIG>)
+  set(HIKARI_SHADER_REFLECTION_DIR ${reflection_dir} PARENT_SCOPE)
+
+  # What makes a single `: register(tN, spaceM)` annotation serve both APIs
+  # (plan D29). slangc's own help: "For a resource attached with :register(bX,
+  # <space>) but not [vk::binding(...)], sets its Vulkan descriptor set to
+  # <space> and binding number to X + N." A shift of zero therefore makes the
+  # Vulkan set the register space and the Vulkan binding the register index, so
+  # the SPIR-V comes out with exactly the sets and bindings the attributes used
+  # to spell — one annotation per declaration instead of two, in the vocabulary
+  # D13 already chose, and the only one of the two that can express a space at
+  # all. "all" applies the shift to every space rather than one.
+  set(vulkan_register_shifts
+      -fvk-b-shift 0 all
+      -fvk-t-shift 0 all
+      -fvk-s-shift 0 all
+      -fvk-u-shift 0 all)
+
   set(shaders_source_dir ${CMAKE_SOURCE_DIR}/engine/engine/src/shaders)
   set(shaders_out_dir ${HIKARI_EXE_DIR}/shaders)
 
   set(spv_outputs "")
   foreach(shader ${SHADER_SOURCES})
     file(RELATIVE_PATH rel_path ${shaders_source_dir} ${shader})
-    set(output_file ${shaders_out_dir}/${rel_path})
-    string(REPLACE ".slang" ".spv" output_file ${output_file})
 
-    # Depfiles are build bookkeeping, so they stay in the build tree rather
-    # than in the directory that gets deployed next to the executable. Keyed by
-    # configuration for the same reason the SPIR-V is: the multi-config
-    # generators build every configuration out of one build directory.
-    set(depfile ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>/${rel_path}.d)
-
+    # One blob per stage, each holding exactly one entry point named main (plan
+    # D24 and D33). The stage is part of the output name rather than of the
+    # module's contents, so resolving a stage to a file is the same question on
+    # both backends — D3D12's DXIL container cannot hold two entry points at
+    # all, and its bytecode description is a pointer and a length with nowhere
+    # to name one.
+    #
+    # A compute source already carries its stage in its own name, so stripping
+    # and re-appending leaves clouds.comp.spv exactly where it was.
     if(shader MATCHES "\\.comp\\.slang$")
-      set(entry_points -entry main)
+      string(REGEX REPLACE "\\.comp\\.slang$" "" base_path ${rel_path})
+      set(stage_entries main)
+      set(stage_suffixes .comp)
     else()
-      set(entry_points -entry vertMain -entry fragMain)
+      string(REGEX REPLACE "\\.slang$" "" base_path ${rel_path})
+      set(stage_entries vertMain fragMain)
+      set(stage_suffixes .vert .frag)
     endif()
 
-    # slangc reports exactly the files each shader pulled in — including the
-    # C++ headers shared with the engine, which a *.slangh glob would miss — so
-    # editing one header rebuilds only the shaders that include it.
-    add_custom_command(
-      OUTPUT ${output_file}
-      COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${rel_path}"
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${shaders_out_dir}
-      COMMAND ${CMAKE_COMMAND} -E make_directory
-        ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>
-      COMMAND
-        ${SLANGC_EXE} ${shader} -target spirv -profile spirv_1_4
-        -emit-spirv-directly -warnings-as-errors all -fvk-use-entrypoint-name ${entry_points} -o
-        ${output_file} -depfile ${depfile} $<IF:$<CONFIG:Debug>,-g1,-g0>
-        $<IF:$<CONFIG:Debug>,-O0,-O3>
-      # Same command as the compile, so validation runs exactly when a shader
-      # recompiles and a failure fails the build. The target environment is
-      # stated rather than left at spirv-val's universal default, which would
-      # miss the Vulkan-specific rules; it matches VulkanDevice's kApiVersion.
-      COMMAND ${SPIRV_VAL_EXE} --target-env vulkan1.4 ${output_file}
-      DEPENDS ${shader}
-      DEPFILE ${depfile}
-      COMMENT "Compiling shader ${rel_path}"
-      VERBATIM)
+    list(LENGTH stage_entries stage_count)
+    math(EXPR last_stage "${stage_count} - 1")
 
-    list(APPEND spv_outputs ${output_file})
+    foreach(stage_index RANGE ${last_stage})
+      list(GET stage_entries ${stage_index} entry_point)
+      list(GET stage_suffixes ${stage_index} stage_suffix)
+
+      set(output_rel ${base_path}${stage_suffix}.spv)
+      set(output_file ${shaders_out_dir}/${output_rel})
+
+      # Depfiles are build bookkeeping, so they stay in the build tree rather
+      # than in the directory that gets deployed next to the executable. Keyed
+      # by configuration for the same reason the SPIR-V is: the multi-config
+      # generators build every configuration out of one build directory. One per
+      # output, since the two stages of a surface shader are separate compiles.
+      set(depfile ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>/${output_rel}.d)
+
+      # -fvk-use-entrypoint-name is deliberately absent: it is what carries the
+      # source's name into the SPIR-V, and without it the entry point is named
+      # main. That is what lets the seam stop spelling a name that D3D12 could
+      # not read and Vulkan would only ever accept one value for.
+      #
+      # slangc reports exactly the files each shader pulled in — including the
+      # C++ headers shared with the engine, which a *.slangh glob would miss —
+      # so editing one header rebuilds only the shaders that include it.
+      add_custom_command(
+        OUTPUT ${output_file}
+        COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${output_rel}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${shaders_out_dir}
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+          ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${reflection_dir}
+        COMMAND
+          ${SLANGC_EXE} ${shader} -target spirv -profile spirv_1_4
+          -emit-spirv-directly -warnings-as-errors all -entry ${entry_point}
+          ${vulkan_register_shifts} -o
+          ${output_file} -reflection-json ${reflection_dir}/${output_rel}.json
+          -depfile ${depfile} $<IF:$<CONFIG:Debug>,-g1,-g0>
+          $<IF:$<CONFIG:Debug>,-O0,-O3>
+        # Same command as the compile, so validation runs exactly when a shader
+        # recompiles and a failure fails the build. The target environment is
+        # stated rather than left at spirv-val's universal default, which would
+        # miss the Vulkan-specific rules; it matches VulkanDevice's kApiVersion.
+        COMMAND ${SPIRV_VAL_EXE} --target-env vulkan1.4 ${output_file}
+        DEPENDS ${shader}
+        DEPFILE ${depfile}
+        COMMENT "Compiling shader ${output_rel}"
+        VERBATIM)
+
+      list(APPEND spv_outputs ${output_file})
+
+      # The same source and the same entry point, to the other target. The
+      # Vulkan register shifts are deliberately absent: the register annotations
+      # are already what D3D12 reads, and the shifts exist only to derive a
+      # Vulkan set and binding from them.
+      set(dxil_file ${shaders_out_dir}/${base_path}${stage_suffix}.dxil)
+      set(dxil_depfile
+          ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>/${base_path}${stage_suffix}.dxil.d)
+
+      add_custom_command(
+        OUTPUT ${dxil_file}
+        COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${base_path}${stage_suffix}.dxil"
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${shaders_out_dir}
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+          ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${reflection_dir}
+        COMMAND
+          ${SLANGC_EXE} ${shader} -target dxil -profile ${dxil_profile}
+          -warnings-as-errors all -entry ${entry_point} -o ${dxil_file}
+          -reflection-json ${reflection_dir}/${base_path}${stage_suffix}.dxil.json
+          -depfile ${dxil_depfile} $<IF:$<CONFIG:Debug>,-g1,-g0>
+          $<IF:$<CONFIG:Debug>,-O0,-O3>
+        # Same placement as spirv-val, and the same argument: a check that
+        # runs on its own schedule is one that can silently stop covering
+        # something. DXC validates and signs every compile, so this proves the
+        # validation happened rather than repeating it.
+        COMMAND ${CMAKE_COMMAND} -DDXIL_FILE=${dxil_file} -P
+          ${CMAKE_SOURCE_DIR}/cmake/CheckDxilSignature.cmake
+        DEPENDS ${shader} ${CMAKE_SOURCE_DIR}/cmake/CheckDxilSignature.cmake
+        DEPFILE ${dxil_depfile}
+        COMMENT "Compiling shader ${base_path}${stage_suffix}.dxil"
+        VERBATIM)
+
+      list(APPEND spv_outputs ${dxil_file})
+    endforeach()
   endforeach()
 
   add_custom_target(${target} ALL DEPENDS ${spv_outputs})
