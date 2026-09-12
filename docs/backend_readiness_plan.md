@@ -9,8 +9,9 @@
 **Created:** 5 September 2026 · **Rewritten:** 6 September 2026, after the `/grill-me`
 interview §0 demanded · **Supersedes:** `rhi_extraction_plan.md` D7 and D8;
 `architecture_plan.md` Part IV steps 48–56 in part, and §20's bindless row ·
-**Status:** Stage 7.5 complete. Stage 7.6 grilled in part on 6 September 2026 — D27–D32 are its
-output, and §4.1 is the frontier that interview had not reached when it stopped.
+**Status:** Stage 7.5 complete. Stage 7.6 grilled on 6 and 11 September 2026 — D27–D33 and
+§4.1–§4.3 are its output, and §4.4 is the frontier the second session had not reached when it
+stopped.
 
 ---
 
@@ -114,7 +115,9 @@ backlog, and what kept step 58 in Stage 9.
 D1. Both documents govern the same seam, and two live decisions numbered D7 in different files
 would be a trap for exactly the reader who most needs to find one.
 
-D14–D18 come from the original draft. D19–D26 come from the grill.
+D14–D18 come from the original draft. D19–D26 come from the 6 September grill of Stage 7.5.
+D27–D33 come from Stage 7.6's own interview on 11 September, and D34–D35 from its conclusion on
+12 September — the two of that session's decisions that govern the seam rather than the stage.
 
 ### D14 — Bindless is deferred until after the D3D12 backend; the binding model is narrow and neutral
 
@@ -677,6 +680,16 @@ this decision exists to remove, reintroduced somewhere smaller. *Rejected: insid
 the bind group it accompanies*, which reads naturally and makes a pipeline-layout property share
 a namespace with a separately-managed object whose own `b0` would then collide.
 
+**The number is 7, and the reason is a portability floor rather than taste.** Vulkan's Required
+Limits table gives `maxBoundDescriptorSets` a minimum of 4 in core and **7 for a 1.4
+implementation**, so sets 0–6 are the most any conformant 1.4 device is obliged to expose, and the
+engine's four bind groups — global, depth, composite, material — fit inside even the core floor of
+4. Space 7 is therefore the first number no portable bind group can occupy. It costs nothing on
+either side: on Vulkan `[[vk::push_constant]]` is what the SPIR-V path reads, so the space never
+becomes a descriptor set, and on D3D12 register spaces are an arbitrary `uint32` rather than a
+budget, so reserving one caps nothing. That reasoning belongs in the comment beside the macro in
+`Common.h`, not only here — it is what stops the next reader treating 7 as arbitrary and moving it.
+
 ### D30 — Layout agreement is a unit test over reflection, not a `static_assert`
 
 Part IV's step 48 asserts `sizeof` and `offsetof` in C++, which is C++ asserting things about
@@ -741,6 +754,123 @@ image samplers, and found the same way. Three candidate answers, all of which wa
 front of them: a semantic field on `VertexAttribute`; a convention synthesising a name from the
 location; or the backend reading semantics from reflection at pipeline creation. **Recorded here,
 decided in 7.7.**
+
+### D33 — One entry point per blob, named `main`, and the seam stops carrying entry names
+
+D24 emits one blob per stage for both targets, and Stage 7.6 step 8 is where that lands. After it,
+a module holds exactly one entry point, and `ShaderStageDesc`'s `EntryPoint` string can only
+restate what the blob already contains.
+
+**Every blob's entry point is named `main`, and `ShaderStageDesc` loses `EntryPoint`**, leaving the
+module handle alone. `cmake/Shaders.cmake` drops `-fvk-use-entrypoint-name`, which is the flag that
+makes Slang carry the source name into SPIR-V; without it the entry is named `main` — measured, not
+assumed. Graphics then matches compute, which passes `main` today.
+
+The field is not merely redundant: it is a state space with one valid point. Vulkan requires `pName`
+to name an `OpEntryPoint` whose execution model matches the stage
+(VUID-VkPipelineShaderStageCreateInfo-pName-00707), so every other value fails at pipeline creation;
+D3D12's `D3D12_SHADER_BYTECODE` is a pointer and a length, so it cannot read a name at all. A neutral
+description that one backend can only fail on and the other ignores should not ask the question.
+`IPlatform.h`'s `WindowMode` rejects "windowed, but exclusive" for the same reason.
+
+**What is lost, and what covers it.** A debugger or a validation message no longer says `vertMain`.
+`ShaderModuleDesc::DebugName` already carries the file name — `opaque.vert.spv` after the split —
+and `VulkanDevice::CreateShaderModule` attaches it to the module, so the stage is still named.
+
+**Rejected: keeping `vertMain`/`fragMain`.** It changes no interface, and it keeps SPIR-V entry names
+matching the source. It also leaves the neutral seam carrying a string that one backend requires and
+the other ignores, spelled at every call site, which can only ever be right one way.
+
+A module holding several entry points would need the field back. D24's per-stage packaging for both
+targets means none is planned.
+
+### D34 — Backend selection is a seam, and the RHI spells it
+
+D25 decided *that* the backend is chosen at run time and that Vulkan is permanently the default.
+It left the seam itself undescribed, and every part of that seam is a public-API widening.
+
+**`rhi/Backend.h` holds the enum, the availability query and both string conversions.** Not
+`RhiTypes.h`: that header states an invariant about itself — every enum in it is paired with a
+conversion table in `src/vulkan/VulkanConversions.h`, and the `ToVk` switches carry no `default:`
+label so the build breaks until the mapping exists. `Backend` can have no such mapping, because it
+selects which backend runs rather than being vocabulary a backend translates. Not `IDevice.h`
+either, which pulls fourteen headers and would drag the whole API surface into the option parser.
+
+**`AvailableBackends()` answers the *build* question, not the machine's**, returning a
+`std::span<const Backend>` over a `constexpr` array with no allocation and no side effects. Its
+contents are decided by what CMake actually linked rather than by `_WIN32`, so a Windows build
+configured without D3D12 reports the truth. Membership is derived from the list; there is no
+second predicate function, because every caller wants either the list or membership in it, and
+deriving a list from a predicate needs enum iteration while the reverse is one line.
+
+*Rejected: probing.* Answering "can this backend create a device here?" means building an instance
+and enumerating physical devices, per backend, at startup, before the window exists — turning a
+fact into a measurement and a pure query into one with driver-loading side effects. It also makes
+one word cover two unrelated failures, so "available: vulkan" would print on a machine where
+Vulkan is installed and its loader is broken. Runtime failure stays `CreateDevice`'s to report,
+with whatever detail the backend can give.
+
+**The backend is a `DeviceDesc` field defaulting to `Backend::Vulkan`, not a `CreateDevice`
+parameter.** The struct already carries fields only one backend can interpret —
+`DisabledOptionalExtensions` and `bForceSingleQueue` — so one object describes the whole request
+and no reader has to hold two arguments together to know what a desc means. D25's permanent
+default becomes a struct default, which is the hardest kind to get wrong. *Rejected: a parameter*,
+which reads more honestly about dispatch, and pays for it by moving the default away from every
+other default and churning each call site.
+
+**An unavailable backend is refused twice, deliberately, with different messages for different
+audiences.** `ParseEngineOptions` refuses at parse time with `CommandLineError` — D25's message,
+naming what was asked for and listing what this build has — before the platform, the job system or
+the content root exist, and in the same shape as every other bad flag. `CreateDevice` refuses as a
+precondition, tersely, because it is a public entry point that the GPU test fixture and future
+callers reach without the parser, and dispatching on an enumerator with no implementation behind
+it is not something to leave to chance. *Rejected: `CreateDevice` alone*, which surfaces after a
+window is already on screen and skips the usage block.
+
+**The RHI owns the spelling of enums that cross the process boundary** — those appearing as
+command-line input or run-report output, and nothing else. `ToString` and `FromString` sit over
+one table, so a new backend is named in exactly one place and `--backend d3d12` cannot drift from
+`"backend": "d3d12"`. That matters more here than for any other enum, because the comparison tool
+matches the report's `backend` as text to pick its tolerance, and `--backend` has to accept the
+word a report contains. `PresentModeJson` in `RunApp.cpp` is the engine-side precedent, and it
+survives only because `--present-mode` does not exist yet; when `backlog.md`'s row for it lands,
+`PresentMode` becomes the second member of this rule. `Format` and `QueueType` never cross the
+boundary and get nothing.
+
+### D35 — Device identity is separate from device capability
+
+`DeviceCaps` carries an instruction about how it is meant to be used: read it rather than testing
+the backend or the platform. Every field in it is something the renderer branches on. Device
+identity — which GPU, which driver, which API level, which backend — is the opposite: nothing
+branches on it, and it exists to be printed into a run report.
+
+**They get separate accessors: `DeviceInfo` and `IDevice::GetInfo()`,** and the rule goes into
+both comments so it survives — **caps are branched on; info is reported and never branched on.**
+Putting a GPU name into `DeviceCaps` would hand every caller the string needed to write exactly
+the driver branch that caps exist to prevent, three lines below a comment telling it not to.
+`ShaderExtension` is the exception that proves the rule rather than the precedent that dissolves
+it: it exists so that callers need *not* know the backend, which is the opposite of what a GPU
+name gets used for.
+
+**`DeviceInfo` carries the device's half only** — `Backend`, `Gpu`, `Driver`, `ApiVersion`. OS and
+architecture are properties of the process, not the device, and arrive as compile definitions
+beside `HIKARI_BUILD_CONFIG`; `IDevice` has no business reporting them.
+
+**`ApiVersion` is one opaque string that nothing parses, and it records what the device supports
+rather than what the run requested.** Vulkan writes `"1.4.321"` from
+`VkPhysicalDeviceProperties::apiVersion`; D3D12 writes `"feature level 12_2"` from the
+`MaxSupportedFeatureLevel` that `CheckFeatureSupport` reports for `D3D12_FEATURE_FEATURE_LEVELS`.
+Both APIs carry a requested number too — our `VkApplicationInfo::apiVersion` and the minimum
+feature level handed to `D3D12CreateDevice` — and both are source constants identical on every
+machine, so they say nothing about the machine a report describes. The value rather than the field
+name carries the disambiguation, so a feature level never masquerades as a version number.
+`Driver` is opaque for the same reason.
+
+*Rejected: two precise nullable fields*, `apiVersion` and `featureLevel`, each null on the other
+backend. It never says anything untrue, and it makes the report's shape backend-dependent — which
+matters because absence already means something specific to the comparison tool, where a missing
+field triggers a provisional comparison. Making absence normal for two fields weakens that signal
+for every other field.
 
 ---
 
@@ -1032,23 +1162,34 @@ steps 6 and 7 each had shrunk to binding geometry and issuing a draw.
 
 ## 4. Stage 7.6 — backend prerequisites
 
-Four things the backend needs that are not the RHI's — the shader pipeline it loads from, the
-instrument that will compare it against Vulkan, the switch that makes a release run assert, and
-the one struct-layout hazard a second target introduces. They are a separate stage rather than
-extra steps of 7.5 for one reason: **verification independence.** If they lived inside 7.5, that stage's own steps would be checked by machinery
-being built in the same stage, and a bug in the new comparison tooling and a bug in step 10
-would look identical. Keeping them apart means every step above is verified by the harness that
-already works, and 7.6 is verified against a codebase that is not moving.
+Six things a second backend needs that Stage 7.5's frame API does not provide: the shader pipeline
+it loads from, the instrument that will compare it against Vulkan, the switch that makes a release
+run assert, the one struct-layout hazard a second target introduces, the flag that chooses a
+backend at all, and the device identity that says whether two reports describe the same machine.
+
+**Two of the six are seam work, which is a deliberate reversal.** The first draft called this stage
+"the backend's non-seam prerequisites" and listed four items; backend selection (D25) and device
+info both widen `IDevice`. They are here because D25 and D26 already fixed what each has to do, so
+a second backend has nothing left to teach about their shape, and because 7.7 is a learning
+exercise whose steps should be about D3D12 rather than about command-line plumbing.
+
+They are a separate stage rather than extra steps of 7.5 for one reason: **verification
+independence.** If they lived inside 7.5, that stage's own steps would be checked by machinery
+being built in the same stage, and a bug in the new comparison tooling and a bug in step 10 would
+look identical. Keeping them apart means every step above is verified by the harness that already
+works, and 7.6 is verified against a codebase that is not moving.
 
 There is a sequencing bonus: DXIL emission can be validated before a single line of D3D12
 exists.
 
-| # | What | Why it is here | Size |
+| # | What | Why it is here | Steps |
 |---|---|---|---|
-| 1 | **DXIL emission.** A second `slangc` target with an `sm_6_x` profile, a second output set, and a validation gate equivalent to `spirv-val`. Carries D24's per-stage packaging, which step 6 deferred to here rather than restructuring `cmake/Shaders.cmake` twice — so `opaque.spv` becomes `opaque.vert.spv` and `opaque.frag.spv` in the same work | `cmake/Shaders.cmake` is SPIR-V only. The first draft put this in the backend stage; that is wrong, because it is build-system and content-pipeline work with its own failure modes, and doing it there means finding out whether Slang's DXIL path handles `pbr.slangh` halfway through writing a device | M–L |
-| 2 | **The comparison script**, with tolerance built in from the start (D26) | Already `backlog.md`'s P1 row — decode both PNGs, report the diff bounding box, diff the `counters`. Today `CLAUDE.md` walks a human through PIL by hand | S–M |
-| 3 | **Runtime-selectable validation** | `backlog.md` P2. The engine gates validation on `NDEBUG`, so a release run reports zero validation errors trivially. Two backends mean two validation surfaces, and 7.7's Windows release job is worth having assert rather than silently pass — which it cannot do unless this lands first | S |
-| 4 | **Step 48 — `ShaderTypes.h` shared with Slang, extended with per-target layout assertions** | See below | M |
+| 1 | **The comparison tool**, with D26's tolerance built in from the start | `backlog.md`'s P1 row — decode both captures, report the diff, diff the `counters`. Today `CLAUDE.md` walks a human through PIL by hand, and that recipe compared only the alpha channel until it was corrected. §4.1 | 1–4, 7 |
+| 2 | **The shader build** — per-stage blobs, D29's registers, DXIL emission and the gate that proves validation ran | `cmake/Shaders.cmake` is SPIR-V only. The first draft put this in the backend stage; that is wrong, because it is build-system and content-pipeline work with its own failure modes, and doing it there means finding out whether Slang's DXIL path handles `pbr.slangh` halfway through writing a device. §4.2 | 8–10 |
+| 3 | **Step 48 — `ShaderTypes.h` shared with Slang, extended with per-target layout assertions** | See below | 11 |
+| 4 | **Runtime-selectable validation** | `backlog.md` P2. The engine gates validation on `NDEBUG`, so a release run reports zero validation errors trivially. Two backends mean two validation surfaces, and 7.7's Windows release job is worth having assert rather than silently pass — which it cannot do unless this lands first | 12 |
+| 5 | **Backend selection** — `--backend`, the neutral `Backend` enum and the availability query | D25 decided all three and no step ever scheduled them. Doing it here keeps 7.7's steps about D3D12, and the only behaviour a Linux build will ever have — refusing `--backend d3d12` and listing what it does have — is testable now | 5 |
+| 6 | **Device info in the run report** — GPU, driver, API version, OS, architecture, and which backend | `backlog.md` P2, which §6 places here. The comparison tool is its first consumer: without it, a run on another GPU differs from the committed baseline with nothing in either report to say why | 6 |
 
 **Step 48 needs extending, and the reason is the only silent-corruption path a second backend
 introduces.** Part IV's step 48 shares the declaration between C++ and Slang, which removes the
@@ -1058,36 +1199,300 @@ not agree in every case. So a C++ struct that matches the SPIR-V layout can sile
 the DXIL one and corrupt on exactly one backend. Sharing the declaration is necessary;
 asserting offsets *per target* is what actually closes it.
 
-**Definition of done for 7.6:** every shader compiles to DXIL and passes its validator, with its
-registers and spaces where D29 says they are; two images that are not bit-identical can be
-compared and the result reported with its measured delta; a release build can be asked for
-validation; and a struct whose C++ and shader layouts disagree fails a test rather than corrupting
-on one backend.
+**Definition of done for 7.6:** every shader compiles to DXIL and passes the gate that proves it was
+validated, with its registers and spaces where D29 says they are; two captures that are not
+bit-identical can be compared, and the result reported with its measured delta and a diff image; a
+`--validation on` makes a release build assert rather than report zero trivially, and the Linux
+release job runs the scene suite because of it; a struct whose C++ and shader layouts disagree fails
+a test rather than corrupting on one backend; `--backend` chooses a backend at run time and refuses
+one the build does not contain, naming what it does have; and a run report's `system` block names
+the device, driver, API level and backend that produced it.
 
 **The Windows GPU job is no longer here.** D28 moved it to 7.7, where WARP is reachable at all.
 That is the one item the first draft's definition of done named which this stage does not
 deliver.
 
-### 4.1 What the interview has not reached
+### 4.1 The comparison tool
 
-§4 was written during Stage 7.5's grill, as a sketch of the stage after it. The interview that
-turned it into a plan ran on 6 September 2026 and produced D27–D32; it stopped partway, so this
-is the frontier as it stood, rather than a list of things judged unimportant. **Nothing below is
-decided, and none of it should be settled by the first person to trip over it mid-implementation.**
+Decided on 11 September 2026. The tool comes **first**, before any shader work: it is the
+instrument the rest of the stage is verified with, and building it while nothing else moves is §4's
+own independence argument applied one level down. The alternative, DXIL first, was rejected once
+§9's toolchain unknowns were measured during the interview rather than during the step — that
+measurement was the only thing DXIL-first bought.
 
-| # | Open decision | Blocks |
-|---|---|---|
-| 1 | The shader model for the DXIL target — `sm_6_0` through `sm_6_6`. It sets the minimum hardware the D3D12 backend will ever run on | item 1 |
-| 2 | Entry-point naming once blobs are per-stage: keep `vertMain`/`fragMain`, or let each blob's entry become `main` | item 1 |
-| 3 | The comparison script's language and dependency — Python with Pillow, which nothing in CI installs today, against a C++ tool or a test case | item 2 |
-| 4 | What the tolerance constants are, given that no cross-backend data exists to set them from until 7.7 | item 2 |
-| 5 | Whether the script replaces the pixel comparison already inside `SceneLaunchTests.cpp`, or sits beside it | item 2 |
-| 6 | Runtime validation's flag shape, its default per build configuration, whether sync validation gets a switch of its own, and whether the Linux release job then gains `ctest -L scene` | item 3 |
-| 7 | How many shaders the reflection test covers — all six, or only those carrying shared blocks | item 4 |
-| 8 | Device info in the run report: §6 says it unblocks here, and §4 never listed it. In or out | the stage's scope |
-| 9 | Step order and sizing. 7.5 ran as twelve numbered steps for reasons §3 argues; 7.6 is four unordered items | all of it |
+**One implementation in C++, three callers.** A `TestSupport` library under `tests/support/`, where
+`architecture_plan.md` §16 already puts the harness and names an `ImageCompare`; a thin command-line
+tool, `HikariCompare`, at `tests/tools/compare/main.cpp`; the scene tests, which drop their own `==`
+for it; and 7.7's cross-backend comparison. D26's "one implementation, two settings" is the reason:
+*Rejected: Python with Pillow*, which cannot reach the scene tests' in-memory captures, would leave
+two implementations of the same comparison, and would be ported to C++ in 7.7 anyway. *Rejected: an
+engine module*, which ships verification code in the engine libraries for reuse nobody has asked
+for.
 
-Items 1 and 2 are the only ones that block starting.
+**Reading the report: nlohmann-json**, a test-only dependency as `catch2` already is. Its `at()`
+throws and names the missing key; rapidjson's `operator[]` asserts through `RAPIDJSON_ASSERT`, which
+is `assert` and therefore absent in release builds — the unsafe path is the default one, in exactly
+the configuration nothing would catch it. *Rejected: a hand-written parser*, which is a JSON parser
+to maintain for no gain.
+
+**Reading the capture: `Asset::ReadPng`**, beside `WritePng`, with stb_image's implementation moving
+out of `engine/engine/src/TextureLoader.cpp`. stb_image's functions are `extern` and may be
+implemented in exactly one file; `scene_tests` links the engine, so a second copy in `TestSupport`
+would collide. `ImageWriter.h` already claims the Asset module owns the image library, which this
+makes true. Comparisons cover all four channels: captures are opaque, so alpha costs nothing and a
+capture that stops being opaque is caught rather than hidden.
+
+**Each signal is compared only when the conditions it depends on match**, and a skip names the field
+that caused it. Refusing outright is not available: D26 requires counters compared *across*
+backends. The table has three kinds of cell.
+
+- **Shown dependency, so it gates.** A captured final frame reads one barrier higher
+  (`Engine.cpp:541-544`); `--validation-policy ignore` never counts an error
+  (`Diagnostics.cpp:16`); `NDEBUG` decides whether validation runs at all (`Engine.cpp:108`);
+  `noUi`, the extent, the scene, the camera and the input script all change pixels.
+- **Required independence, so it must never gate** — gating would excuse the defect the comparison
+  exists to find. Backend and device never gate counters (D26: "a bug in one of them, always");
+  `jobCount` never gates anything, since a difference there is a race
+  (`SceneLaunchTests.cpp:167-169`); `headless` never gates pixels, verified pixel-identical at step
+  46; `noUi` never gates counters, because the UI pass records either way.
+- **Unknown, which gates.** Most of the table. The planned comparisons never reach an unknown cell —
+  the baseline run, the scene tests and 7.7's cross-backend pair each differ only in fields that are
+  already classified — so caution costs nothing where it counts, and misattributing a flag
+  difference as a code regression is the expensive failure.
+
+**Pixel tolerance follows from the backends named in the two reports**, so there is no flag to
+nudge: the same backend means exact, and in 7.6 a cross-backend pair reads "not comparable", because
+D26's limits cannot be chosen until 7.7 has two backends to measure between.
+
+**A field a report lacks, or one the table does not classify, is a hard failure** — the second
+enforced by a unit test asserting that every field `WriteRunReport` emits is classified, which makes
+it fail in precommit rather than at comparison time. `WriteRunReport` becomes reachable from tests,
+which the round-trip test needs too. Only the failures that prove the *baseline* is stale suggest
+recapturing it; a signal that moved prints what moved and asks whether that was expected, because
+nothing in the tool can know.
+
+**A missing field still produces a provisional comparison**, treating the absent fields as matching,
+labelled as provisional, still exit 3. Without it every field-adding step — 5, 6 and 7 — would
+promote a new baseline with no evidence that nothing moved, at the exact moment it is touching the
+code the baseline protects. It is also what lets steps 5 and 6 land their fields and be verified on
+the way past, leaving step 7 to classify everything in one pass and recapture once.
+
+**The report gains eleven `run` fields** in step 7, each because something in the code shows it
+changes a signal: `scene`, `cameraPreset`, `inputScript` (`null` when none), `captureFrame` (`null`
+when none), `validationEnabled`, `validationPolicy`, `vkSyncValidation`, `vkDisabledExtensions`,
+`vkForceSingleQueue`, `framesInFlight` and `windowMode`. The two validation fields are recorded
+*before* step 12 makes either selectable, and deliberately: both are true properties of every run
+today — one derived from `NDEBUG`, the other hardcoded `VK_TRUE` — so recording them is honest
+immediately, it makes the gating table classify what it actually depends on rather than inferring
+it from `buildConfig`, and it leaves step 12 adding no report fields at all. Paths are recorded as given on the command line, and the gate compares the strings.
+`windowMode` records the mode in effect at the end of the run, asked of the window system rather
+than remembered from the request, since `SdlPlatform` falls back from exclusive to borderless
+(`SdlPlatform.cpp:334-349`) and `SetWindowMode` is a request the window system may refuse; it is
+`null` for headless runs, as `presentMode` is. `IPlatform` gains the getter that needs.
+*Left out:* the content root, which differs per machine while the scene path already identifies the
+scene; the editor's window *size*, already covered by the extent; `--strict-validation`, which only
+changes the exit code.
+
+**Exit codes**, strongest first: **3** no verdict (a field missing or unclassified, an unreadable
+input, bad arguments), **1** a compared signal moved, **2** nothing moved but a signal was skipped,
+**0** everything compared and matched. A difference in a signal that *was* compared is real whatever
+happened to the others, which is why 1 outranks 2. 7.7 needs "not comparable" and "moved" told
+apart, which a single failure code cannot do.
+
+**Failures write images** — actual, expected and an amplified diff — from the library, so both
+callers get them. Amplification scales each pixel's largest channel delta so that the active
+setting's limit is full brightness; within a backend the limit is zero, so any difference is fully
+bright. CI cannot retrieve them yet and that is a `backlog.md` row, not 7.6 work.
+
+**The workflow becomes one command.** `baseline_test.sh` captures and then compares against
+`tests/baseline/`, whose two files take fixed names, and exits with the tool's status.
+`--update` recaptures, prints the comparison and replaces both committed files together; it refuses
+when the run's conditions differ from the baseline's, apart from fields the baseline lacks, so it
+cannot quietly move the baseline to another machine or configuration; it does nothing when nothing
+moved, since PNG encoding is not reproducible and rewriting an identical image would still put a
+binary diff into git. Precommit does not run any of it: it needs a display and the baseline's GPU.
+
+### 4.2 The shader build
+
+Decided on 11 September 2026, and measured rather than assumed — see §9's second entry.
+
+**`sm_6_0`**, the lowest model every current shader compiles at. Raising it is one flag in
+`cmake/Shaders.cmake`, and each raise lifts the minimum hardware the D3D12 backend will run on, so
+it waits until a shader needs it.
+
+**Entry points become `main` and the seam stops carrying them** — D33.
+
+**D29's registers arrive through one macro.** Every resource declaration swaps `[[vk::binding(i, s)]]`
+for `: register(<class><i>, space<s>)`, and the SPIR-V compile gains `-fvk-b-shift 0 all` and the
+same for `t`, `s` and `u`, which is what makes Slang derive the Vulkan set and binding from the
+register. The push constants keep `[[vk::push_constant]]` *and* need a register, because the two
+APIs need different halves: Vulkan reads the attribute, D3D12 reads the register. Both live in one
+place instead of at every declaration:
+
+```slang
+// Common.h
+#define PUSH_CONSTANT(Type, name) [[vk::push_constant]] Type name : register(b0, space7)
+```
+
+so each shader writes `PUSH_CONSTANT(MaterialPushConstant, pcMatData);`. *Rejected: Slang's own
+`[push_constant]` alone*, which compiles but leaves the D3D12 side at an implicit `b1` in space 0,
+numbered by declaration order — the hazard D29 exists to remove. *Rejected: pasting the space from a
+number in `Common.h`*, because Slang's preprocessor will not expand a function-like macro inside
+another macro's body or as an argument to one; it fails at the `#define`. *Rejected: passing the
+space from the build with `-D`*, which does work and makes the number exist once for both languages,
+at the price of moving it out of the source and breaking any hand or editor invocation of `slangc`.
+The number is therefore written twice — `7` for C++, `space7` in the macro — and step 48's reflection
+test is what ties them, since reflection reports the space (`"space": 7`).
+
+**The DXIL gate is a signature check, not a second validator.** DXC validates and signs every
+compile, so the one silent failure is validation being switched off, which leaves the container hash
+all zeros. A `cmake -P` script reads the container's magic and 16-byte hash after each DXIL compile
+and fails the build on a wrong magic, an all-zero hash or the preview-bypass pattern — the same
+placement `spirv-val` has, and for the same reason its comment gives: a check that can silently
+disappear is worse than no check. *Rejected: trusting DXC's default*, which leaves the gate as a
+downstream tool's default that nothing in this repository asserts. *Rejected: `dxv`*, which vcpkg's
+port does not install and which passed the unsigned control anyway.
+
+### 4.3 The step sequence
+
+Twelve steps, flat-numbered now that the order is settled — the same count Stage 7.5 took.
+
+| Step | What | Verified by | Size |
+|---|---|---|---|
+| 1 | `Asset::ReadPng`; stb_image's implementation moves out of `TextureLoader.cpp` | a write-then-read unit test; scene tests; one last baseline check by the manual recipe | S |
+| 2 | `TestSupport` and the image comparison — limits, worst pixel, fraction, bounding box, diff images. Scene tests stop using `==` | unit tests with positive controls (a one-pixel change fails and names its coordinates); the scene tests | M |
+| 3 | Report reading, the gating table over today's fields, the four outcomes, missing and unclassified fields, the provisional comparison, the completeness and round-trip tests | unit tests | M |
+| 4 | `HikariCompare`; `baseline_test.sh` and its `.bat` capture then compare; `--update` and its guard; the baseline renamed to fixed names; `CLAUDE.md`'s regression section rewritten | a run against the still-unchanged baseline exits 0; an edited PNG exits 1 with a diff image; `--update` refused on a release build | M |
+| 5 | Backend selection (D34): `rhi/Backend.h`, `DeviceDesc::Backend`, parse-time refusal, `--backend` | `--backend d3d12` refused on Linux naming what the build has; the comparison exits 3, provisional, nothing moved | M |
+| 6 | Device info (D35): `DeviceInfo`, `GetInfo()`, the report's `system` block, `os` and `arch` as compile definitions | exit 3, provisional, nothing moved | M |
+| 7 | The eleven new `run` fields, `IPlatform`'s window-mode getter, the input-script path, every classification; the baseline recaptured once through `--update` | a provisional "nothing moved", then `--update` | M |
+| 8 | Per-stage blobs; entry points become `main`; `EntryPoint` leaves `ShaderStageDesc` (D33) | `baseline_test.sh` exits 0; gpu and scene tests | M |
+| 9 | D29's registers through the `PUSH_CONSTANT` macro; the four `-fvk-*-shift` flags | `baseline_test.sh` exits 0 | S–M |
+| 10 | `directx-dxc` as a host dependency; the DXIL target at `sm_6_0`; the signature check | all six CI configurations build, Windows included, which is what tests the library lookup; one deliberate `-Vd` compile fails the build, then is reverted | M |
+| 11 | Step 48: `ShaderTypes.h` beside the shaders, and the reflection test over both targets' JSON | unit tests comparing the reflection against `offsetof` and the attribute table | M |
+| 12 | Runtime validation: `--validation`, `--vk-sync-validation`, `RunScene` setting validation explicitly, the Linux release `ctest -L scene` | the release job runs the scene suite, whose `ValidationErrors == 0` checks can now fail | S–M |
+
+Step 1 precedes 4, which is where `ReadPng` is first needed; 2 precedes 3 precedes 4. **5 precedes
+6**, because `system.backend` is spelled in the enum `rhi/Backend.h` introduces. **5 and 6 sit
+between 4 and 7** so that step 4 is verified against a baseline nothing has touched yet, and so
+that every field the stage adds is classified in one pass and recaptured once — the recapture count
+is not the reason, the single classification pass is. 10 follows 9, since DXIL without explicit
+registers "satisfies a gate while being unusable" (D29), and follows 8 so the first DXIL blob is
+already per stage. 11 follows 10, because its reflection rides on the compiles that ship. 12 is
+free of all of it and sits last because it is the only step that changes CI.
+
+### 4.4 Runtime validation, and what the second interview settled
+
+The 11 September session stopped with six open decisions. They were taken on **12 September 2026**,
+and the two that govern the seam left this section for the D-series: **D34** for backend selection
+and **D35** for device identity. The reserved push-constant space became part of **D29** — it is 7,
+and the reason is written there. What follows is the rest.
+
+**Runtime validation is two flags, and neither decides what a message means.**
+
+`--validation on|off` decides whether the backend's validation layer is loaded at all — it feeds
+`DeviceDesc::bEnableValidation`, already a runtime field that the engine was deciding at compile
+time. It is tri-state in `RunSpec` (`std::optional<bool>`): **absent keeps today's behaviour
+exactly**, with `NDEBUG` deciding, so nothing changes for anyone who does not ask.
+
+It is deliberately *not* folded into `--validation-policy`, which decides what happens to a message
+once the layer is loaded. A level below `ignore` would put two different questions behind one word:
+`ignore` loads the layer and discards messages late, which `Diagnostics.h` argues for precisely so
+that the flag cannot change what the layer prints, and `ValidationPolicy` is an RHI enum owned by
+`Diagnostics`, which has no business knowing whether a layer was loaded. *Rejected: redefining
+`ignore` to mean off*, which contradicts reasoning already recorded in the header. The one
+meaningless combination — validation off with `--validation-policy failfast` — is refused at parse
+time, beside the existing `--strict-validation` check.
+
+`--vk-sync-validation on|off`, defaulting to on, exposes the `validate_sync` layer setting that
+`VulkanDevice::CreateInstance` hardcodes to `VK_TRUE`. **Prefixed rather than neutral**: D3D12 has
+no synchronization validator, so a neutral flag would be one that exactly one backend can honour —
+the shape of leak this stage exists to catch — and `--vk-disable-extension` and
+`--vk-force-single-queue` already mean "Vulkan-only testing lever" here. The want is manufactured by
+this stage: a release run that validates is the point of `--validation`, a release run is the only
+one whose `timings` mean anything, and sync validation is the expensive sub-mode. The objection
+that a switch is a way to silently weaken every run is answered by the tooling being built
+alongside it — `vkSyncValidation` is a `run` field, so a run with it off is visibly not comparable
+rather than quietly different.
+
+**Best practices gets nothing, and that is a decision rather than an omission.** It is commented
+out for a layer crash, and vcpkg still offers only 1.4.357.0 — the tag the upstream fix landed
+after — checked again on 12 September 2026. A flag whose only useful position segfaults is worse
+than no flag, and unlike sync validation this one would exist to turn *on* something that does not
+work. `backlog.md`'s row now records what re-enabling actually involves: best practices emits
+performance *warnings*, so `validationWarnings` moves off zero and the baseline has to be
+recaptured deliberately, nothing here has ever run with it on so a triage pass is needed, and the
+flag-versus-unconditional question is decided at that moment rather than now.
+
+**The scene tests set validation explicitly in `RunScene`**, rather than inheriting it from the
+build configuration. That makes the suite configuration-independent — the same eleven cases assert
+the same thing in all six CI jobs, and the four `ValidationErrors == 0` checks stop being trivially
+true in a release build — and it promotes the Linux release job by deleting one `if:` in `ci.yml`
+rather than threading a flag through CTest. Stage 7.7's Windows release job inherits it for free.
+*Rejected: an environment variable read by the fixture*, which gets release coverage at the price
+of a second way of deciding the same thing and a test whose meaning depends on its environment.
+
+**The report gains a fourth block, `system`.** `RunReport`'s three blocks exist because they are
+read differently, and identity is read differently again: it is neither an expectation, nor a
+measurement, nor a condition the run was asked for. So **`run` is what was asked for and `system`
+is what answered** — `backend`, `gpu`, `driver`, `apiVersion`, `os`, `arch`. `backend` lives there
+despite being chosen by a flag, following the principle §4.1 already set for `windowMode`: record
+what was in effect, not what was requested. A run with no `--backend` still ran on something. It
+also keeps D26's pairing intact, since "backend and device never gate counters" is one rule and
+reads better as one block. The cost, accepted: answering "are these two reports comparable?" now
+means reading two blocks, and a block-level never-gates classification is slightly weaker than
+per-field ones at forcing thought when a field is added — for identity the rule is genuinely
+uniform, which is what makes the trade worth it.
+
+`os` and `arch` are compile definitions beside `HIKARI_BUILD_CONFIG`, not runtime queries. The OS
+*version* would need an `IPlatform` getter with a real implementation per platform, and `gpu` and
+`driver` already distinguish the machines it would distinguish — the driver string being the thing
+that actually changes rendering behaviour. A `backlog.md` row covers it for whoever is first stuck
+comparing two reports and unable to tell why they differ. The block is deliberately mixed in case:
+`backend` is lowercase because `--backend` must accept exactly that text, `os` is capitalised as a
+proper noun (`"Windows"`, `"Linux"`), `arch` stays lowercase as an identifier (`"x86_64"`).
+
+**Step 48's reflection rides on the compiles that ship**, which is what places it after step 10.
+`cmake/Shaders.cmake` adds `-reflection-json` to the invocations already there, so the JSON
+describes exactly the blob produced, under exactly the flags it was produced with — step 9's four
+`-fvk-*-shift` options included, which means the same artefact carries the real register and space
+assignment. *Rejected: a `-target hlsl` pass of its own*, which would need no DXIL toolchain and
+would free the step to land anywhere, and would reflect an artefact nobody runs: one flag added to
+the real compile and not the reflection one produces a test that agrees with a parallel universe
+while staying green. §4.2 states the principle already — a check that can silently disappear is
+worse than no check.
+
+**`ShaderTypes.h` lives beside the shaders**, at `engine/engine/src/shaders/ShaderTypes.h`. `slangc`
+is invoked with no `-I` at all and resolves shader includes relative to the including file, so this
+costs no build change; putting it beside the C++ would mean adding `engine/engine/src` to the
+shader compiler's include path, opening the whole private source tree to `#include` from a shader
+for no gain. The recursive `engine/engine/src/*.h` glob means it is header-checked and formatted
+either way, so that is not a differentiator. C++ reaches it as `#include "shaders/ShaderTypes.h"`,
+which says at the point of use that editing it has consequences in two languages.
+
+**The test asserts only what C++ independently declares.** Every assertion compares two sources
+written separately that must agree; none compares the reflection against a literal table typed into
+the test. That gives field offsets, sizes and types against `offsetof`, and vertex input locations
+and formats against `GetAttributeDescriptions` — and it excludes the entry point name, because
+after D33 nothing in C++ names it, so asserting `main` would mean typing `main` into the test and
+checking that the reflection agrees with the test. That belongs with the build flag it guards,
+beside the DXIL signature gate.
+
+**It stays narrow, and the register comparison is a backlog row.** Comparing every resource's
+register, space and kind against the bind group layouts would catch D29's reordering hazard
+directly, and it was considered and dropped for this stage. Most of that hazard is already caught:
+a type mismatch or a missing binding fails pipeline creation under both backends' validation, and
+two same-type resources swapped shows up immediately in the baseline pixel comparison. So it buys a
+precise message rather than new coverage, at the price of hauling the layout arrays out of
+`Engine.cpp` — the file the working rules say not to touch outside its scheduled step. It becomes
+cheap once Stage 8 splits that file into passes that own their layouts, which is what the backlog
+row is blocked on.
+
+Three corrections this interview turned up in `architecture_plan.md` are **made**: §16.6 described
+`ImageCompare` as a "perceptual diff" and risk row 7 said "perceptual tolerance", both superseded by
+D26 and now stating its two limits; and the Stage 7.6 summary in its Part IV preamble listed
+"Windows GPU coverage on WARP", which D28 moved to 7.7. §15.4's own "perceptual metric and a
+tolerance" is left as it stands, because §15 already records that D26 supersedes it.
 
 ---
 
@@ -1125,8 +1530,8 @@ part of this.
 | **Steps 50–54** — recorders become `Pass` classes | Stage 8 | Follow this stage, not precede it (D18) |
 | **Step 58** — `Mesh*`/`Material*` become handles | Stage 9 | **Stays in Stage 9.** See below |
 | **Step 70** — bindless | Stage 10 | Explicitly after the backend (D14) |
-| Device info in the run report | `backlog.md` (P2) | Unblocks here: its blocker was "a neutral device-info accessor on `IDevice`, which is a seam decision", and this is where seam decisions are taken. Two backends make "which device produced this report" worth answering |
-| Runtime-selectable validation | `backlog.md` (P2) | Moved into Stage 7.6 — see §4 |
+| Device info in the run report | `backlog.md` (P2) | **Stage 7.6 step 6.** Its blocker was "a neutral device-info accessor on `IDevice`, which is a seam decision"; D35 takes it |
+| Runtime-selectable validation | `backlog.md` (P2) | **Stage 7.6 step 12** — see §4.4 |
 
 **Why step 58 stays in Stage 9**, against the first draft's recommendation to pull it forward.
 `Drawable::operator<` falls through to comparing `pMesh` and `pMat` pointers, so batch order
@@ -1240,27 +1645,28 @@ checked against its own failure — remove the hazard and the case fails — so 
 control rather than another assertion that cannot fail. Every "zero validation errors" claim in
 the gpu suite now rests on something.
 
-**2. What does Slang's DXIL path require?** Partly answered on 6 September 2026, and the
-remainder is Stage 7.6's to resolve before its first step rather than during it.
+**2. ~~What does Slang's DXIL path require?~~ Measured on 11 September 2026**, in a scratch tree
+pinned to the repository's own vcpkg baseline — shader-slang 2026.7.1, directx-dxc 2026-05-27,
+which is dxc 1.9.0.5191. Both ports install prebuilt binaries, so the whole probe took minutes.
 
-*Established:* vcpkg's `shader-slang` cannot emit DXIL at all as installed — `failed to load
-downstream compiler 'dxc'` — and `directx-dxc` is the port that supplies it, `libdxcompiler.so`
-plus `libdxil.so` on Linux and the DLLs on Windows. `-target hlsl` needs none of that, which is
-what made D29 and D30 verifiable before the dependency was added.
-
-*Still open, all of them facts to go and measure rather than decisions:*
-
-- Whether Slang finds `libdxcompiler.so` in vcpkg's install tree, or needs it on a specific path.
-- Whether `libdxil.so` signs and validates on Linux, and therefore **what plays `spirv-val`'s role
-  in the DXIL build step.** `cmake/Shaders.cmake`'s comment argues that gate must be fatal rather
-  than optional; the DXIL equivalent inherits that argument and needs a mechanism to carry it.
-- Whether `pbr.slangh` survives the DXIL path at all. It is the largest shared header and has only
-  ever been compiled for one target.
-- Whether any shader needs its register indices renumbered to satisfy D29's cross-class
-  uniqueness rule — a survey of six files, not a design question.
-- Whether the per-stage split and the register respelling leave the baseline pixel-identical.
-  Expected, since D29 changes no SPIR-V, and to be demonstrated by running it rather than
-  asserted.
+- **Slang finds vcpkg's DXC with no path option**, loading `libdxcompiler.so` and `libdxil.so`
+  from `tools/shader-slang/../../lib`. That relative layout only holds while `directx-dxc` is a
+  host dependency, as `shader-slang` is. Windows, where the DLLs land in `bin/`, is unverified;
+  CI's Windows jobs are what will say, since `CompileShadersTarget` is in `ALL`.
+- **`pbr.slangh` survives.** All eight stage entry points compile at `sm_6_0` under
+  `-warnings-as-errors all`.
+- **DXC validates and signs every compile.** Its release notes for 1.8.2505: "The compiler will now
+  always use the internal validator instead of searching for an external DXIL.dll." Every blob came
+  out signed, and `-Xdxc -Vd` produced an all-zero container hash — the control that makes a
+  signature mean something. `dxv` is not installed by the port, and run from the release archive it
+  reported "Validation succeeded" on that unsigned blob, so it cannot be the gate. §4.2 is what
+  replaces `spirv-val` here.
+- **No register renumbering is needed.** Every set's bindings are already unique across resource
+  classes — Vulkan requires that of a set layout — so D29's respelling is one-to-one.
+- **Shader model 6.9 is a full release** in the pinned DXC, not the preview its 1.8.2505 notes
+  describe, so the choice was wider than §4.1 assumed. §4.2 takes `sm_6_0` regardless.
+- *Still open:* whether the per-stage split and the respelling leave the baseline pixel-identical.
+  Steps F and G answer that by running it rather than asserting it.
 
 ---
 
@@ -1299,7 +1705,7 @@ what made D29 and D30 verifiable before the dependency was added.
 **This document is kept after the stage ends.** Stage 7's plan was deleted at its stage's close
 because it records how to build things that will by then be built. `rhi_extraction_plan.md` was
 kept past Stage 5 because its decisions still govern a seam that outlived it. This one is the
-second kind: D14–D32 say what the RHI's public API is allowed to express about recording,
+second kind: D14–D33 say what the RHI's public API is allowed to express about recording,
 binding, pipelines and submission, and a D3D12 backend — and everything written against the seam
 afterwards — has to respect them.
 
@@ -1315,7 +1721,7 @@ What that means in practice:
   architecture plan's Part III and outlives this document.
 - **Both plans retire together, into one permanent `docs/rhi.md`.** Decided at step 12, along
   with the decision not to do it yet. This document is not the host: it is a stage plan that
-  happens to carry decisions, and so is `rhi_extraction_plan.md`. The whole D-series — D0–D32,
+  happens to carry decisions, and so is `rhi_extraction_plan.md`. The whole D-series — D0–D33,
   less the two superseded — belongs in a file kept for the lifetime of the project, with both
   step lists dropped and `rhi_extraction_plan.md` §10's promotion list as the outline.
   The numbering continuity §2 was careful about is what makes that a merge rather than a
