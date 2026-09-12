@@ -75,12 +75,20 @@ typedef bool bool32;
 
 #include "../Common.h"
 
+/*
+ * Every Padding member carries a default, and that is not decoration. These
+ * blocks are memcpy'd to the GPU whole, so a member nobody assigns would send
+ * whatever was on the stack; and a caller filling the useful fields by name
+ * should not have to mention the padding, which two designated initialisers in
+ * Lights.h do not — without a default, that is a -Wmissing-field-initializers
+ * error under this project's warning flags.
+ */
 struct PointLightData
 {
     float3 Color;
     float Intensity;
     float3 Pos;
-    float Padding;
+    float Padding = 0.f;
 };
 
 struct DirLightData
@@ -88,14 +96,14 @@ struct DirLightData
     float3 Color;
     float Intensity;
     float3 Dir;
-    float Padding;
+    float Padding = 0.f;
 };
 
 struct LightData
 {
-    uint32_t PointLightCount;
-    uint32_t DirLightCount;
-    float2 Padding;
+    uint32_t PointLightCount = 0;
+    uint32_t DirLightCount = 0;
+    float2 Padding = float2(0.f);
     PointLightData PointLights[MAX_POINT_LIGHTS];
     DirLightData DirLights[MAX_DIR_LIGHTS];
 };
@@ -112,7 +120,7 @@ struct CameraData
     float4x4 InvViewProj;
     float3 Pos;
     float NearPlane;
-    float3 Padding;
+    float3 Padding = float3(0.f);
     float FarPlane;
 };
 
