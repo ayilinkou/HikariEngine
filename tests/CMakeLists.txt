@@ -15,7 +15,8 @@ engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
   unit/platform/InputScriptTests.cpp unit/platform/HeadlessPlatformTests.cpp
   LIBS Engine::Platform)
 
-engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp LIBS Engine::Asset)
+engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
+  unit/asset/ImageReaderTests.cpp LIBS Engine::Asset)
 
 engine_test(engine_tests SOURCES unit/engine/ParseEngineOptionTests.cpp
   unit/engine/BindGroupLayoutInventoryTests.cpp LIBS Engine::Engine)

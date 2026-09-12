@@ -2,7 +2,9 @@
 
 #include <span>
 
-#define STB_IMAGE_IMPLEMENTATION
+// Declarations only. stb_image's implementation lives in the Asset module,
+// beside the PNG encoder, because its functions are extern and a second
+// definition in the program is a link error.
 #include "stb_image.h"
 
 #include <core/Log.h>
