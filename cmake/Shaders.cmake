@@ -50,6 +50,15 @@ endif()
 function(add_slang_shader_target target)
   cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
 
+  # Emitted on every platform, not only on Windows (plan D27). Slang and DXC both
+  # come from vcpkg as host dependencies, so a Linux build compiles the DXIL a
+  # Windows build will run — which means a shader that cannot be expressed in
+  # both is caught by whichever CI job runs first, rather than by the person
+  # writing the D3D12 backend. The shader model is the lowest every current
+  # shader compiles at; raising it lifts the minimum hardware the D3D12 backend
+  # will run on, so it waits until a shader needs it.
+  set(dxil_profile sm_6_0)
+
   # What makes a single `: register(tN, spaceM)` annotation serve both APIs
   # (plan D29). slangc's own help: "For a resource attached with :register(bX,
   # <space>) but not [vk::binding(...)], sets its Vulkan descriptor set to
@@ -139,6 +148,38 @@ function(add_slang_shader_target target)
         VERBATIM)
 
       list(APPEND spv_outputs ${output_file})
+
+      # The same source and the same entry point, to the other target. The
+      # Vulkan register shifts are deliberately absent: the register annotations
+      # are already what D3D12 reads, and the shifts exist only to derive a
+      # Vulkan set and binding from them.
+      set(dxil_file ${shaders_out_dir}/${base_path}${stage_suffix}.dxil)
+      set(dxil_depfile
+          ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>/${base_path}${stage_suffix}.dxil.d)
+
+      add_custom_command(
+        OUTPUT ${dxil_file}
+        COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${base_path}${stage_suffix}.dxil"
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${shaders_out_dir}
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+          ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>
+        COMMAND
+          ${SLANGC_EXE} ${shader} -target dxil -profile ${dxil_profile}
+          -warnings-as-errors all -entry ${entry_point} -o ${dxil_file}
+          -depfile ${dxil_depfile} $<IF:$<CONFIG:Debug>,-g1,-g0>
+          $<IF:$<CONFIG:Debug>,-O0,-O3>
+        # Same placement as spirv-val, and the same argument: a check that
+        # runs on its own schedule is one that can silently stop covering
+        # something. DXC validates and signs every compile, so this proves the
+        # validation happened rather than repeating it.
+        COMMAND ${CMAKE_COMMAND} -DDXIL_FILE=${dxil_file} -P
+          ${CMAKE_SOURCE_DIR}/cmake/CheckDxilSignature.cmake
+        DEPENDS ${shader} ${CMAKE_SOURCE_DIR}/cmake/CheckDxilSignature.cmake
+        DEPFILE ${dxil_depfile}
+        COMMENT "Compiling shader ${base_path}${stage_suffix}.dxil"
+        VERBATIM)
+
+      list(APPEND spv_outputs ${dxil_file})
     endforeach()
   endforeach()
 

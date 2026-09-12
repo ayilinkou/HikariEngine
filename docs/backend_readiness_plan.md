@@ -1356,12 +1356,20 @@ test is what ties them, since reflection reports the space (`"space": 7`).
 
 **The DXIL gate is a signature check, not a second validator.** DXC validates and signs every
 compile, so the one silent failure is validation being switched off, which leaves the container hash
-all zeros. A `cmake -P` script reads the container's magic and 16-byte hash after each DXIL compile
-and fails the build on a wrong magic, an all-zero hash or the preview-bypass pattern — the same
-placement `spirv-val` has, and for the same reason its comment gives: a check that can silently
-disappear is worse than no check. *Rejected: trusting DXC's default*, which leaves the gate as a
-downstream tool's default that nothing in this repository asserts. *Rejected: `dxv`*, which vcpkg's
-port does not install and which passed the unsigned control anyway.
+all zeros. `cmake/CheckDxilSignature.cmake` reads the container's magic and 16-byte hash after each
+DXIL compile and fails the build on a wrong magic, an all-zero hash or the preview-bypass pattern —
+the same placement `spirv-val` has, and for the same reason its comment gives: a check that can
+silently disappear is worse than no check. *Rejected: trusting DXC's default*, which leaves the gate
+as a downstream tool's default that nothing in this repository asserts. *Rejected: `dxv`*, which
+vcpkg's port does not install and which passed the unsigned control anyway.
+
+Built at step 10, with every constant taken from DirectXShaderCompiler's own
+`include/dxc/DxilContainer/DxilContainer.h` rather than from memory: `DxilContainerHeader` is packed
+to 1, so the four-character code `DXBC` is at offset 0 and the sixteen hash bytes at offset 4, and
+`PreviewByPassHash` is sixteen bytes of `0x02`. All four branches were exercised against real
+containers — a signed one passes, `-Xdxc -Vd` fails on the zeroed hash, a hand-patched bypass hash
+fails, and a wrong magic fails. The `-Vd` control was also run through the build itself, which
+stopped on the first shader.
 
 ### 4.3 The step sequence
 
