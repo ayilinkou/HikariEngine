@@ -58,11 +58,24 @@ struct ShaderModuleDesc
     std::string DebugName;
 };
 
-/** Which shader in a module to use, since one module may hold several. */
+/**
+ * The shader for one stage of a pipeline.
+ *
+ * A module and nothing else: the build emits one blob per stage and names every
+ * entry point `main` (plan D33), so a name here could only restate what the blob
+ * already contains. It is not merely redundant — Vulkan requires the name to
+ * match an OpEntryPoint whose execution model matches the stage
+ * (VUID-VkPipelineShaderStageCreateInfo-pName-00707), so every other value fails
+ * at pipeline creation, while D3D12's bytecode description is a pointer and a
+ * length and cannot read a name at all. A neutral description that one backend
+ * can only fail on and the other ignores should not ask the question.
+ *
+ * A module holding several entry points would need the field back. D24's
+ * per-stage packaging for both targets means none is planned.
+ */
 struct ShaderStageDesc
 {
     ShaderModuleHandle Module{};
-    std::string EntryPoint;
 };
 
 /**

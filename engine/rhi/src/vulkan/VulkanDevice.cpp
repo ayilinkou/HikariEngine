@@ -31,6 +31,14 @@
 namespace Hikari::Rhi::Vulkan
 {
 constexpr Core::LogCategory LogRhi("RHI");
+
+/**
+ * Every blob holds exactly one entry point and the build names it main (plan
+ * D33), so this is the only value Vulkan would accept: pName must name an
+ * OpEntryPoint whose execution model matches the stage
+ * (VUID-VkPipelineShaderStageCreateInfo-pName-00707).
+ */
+constexpr const char* kEntryPointName = "main";
 namespace
 {
 
@@ -907,10 +915,10 @@ GraphicsPipelineHandle VulkanDevice::CreateGraphicsPipeline(const GraphicsPipeli
     const std::array stages{
         vk::PipelineShaderStageCreateInfo{.stage = vk::ShaderStageFlagBits::eVertex,
                                           .module = *pVertex->Module,
-                                          .pName = desc.VertexShader.EntryPoint.c_str()},
+                                          .pName = kEntryPointName},
         vk::PipelineShaderStageCreateInfo{.stage = vk::ShaderStageFlagBits::eFragment,
                                           .module = *pPixel->Module,
-                                          .pName = desc.PixelShader.EntryPoint.c_str()}};
+                                          .pName = kEntryPointName}};
 
     std::vector<vk::VertexInputBindingDescription> bindings;
     bindings.reserve(desc.VertexBuffers.size());
@@ -1050,7 +1058,7 @@ ComputePipelineHandle VulkanDevice::CreateComputePipeline(const ComputePipelineD
     const vk::ComputePipelineCreateInfo createInfo{
         .stage = vk::PipelineShaderStageCreateInfo{.stage = vk::ShaderStageFlagBits::eCompute,
                                                    .module = *pShader->Module,
-                                                   .pName = desc.Shader.EntryPoint.c_str()},
+                                                   .pName = kEntryPointName},
         .layout = GetPipelineLayout(desc.Layout)};
 
     VulkanComputePipeline pipeline{

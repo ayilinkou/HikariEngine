@@ -101,12 +101,11 @@ void CloudSystem::CreatePipeline(const Paths& paths, Rhi::IPipelineCache& pipeli
                                                  .DebugName = "Clouds Layout"}));
 
     m_Pipeline = Rhi::UniqueHandle<Rhi::ComputePipelineHandle>(
-        m_RhiDevice,
-        m_RhiDevice.CreateComputePipeline(
-            Rhi::ComputePipelineDesc{.Layout = m_PipelineLayout.Get(),
-                                     .Shader = {LoadShader(paths, "clouds.comp"), "main"},
-                                     .DebugName = "Clouds"},
-            pipelineCache));
+        m_RhiDevice, m_RhiDevice.CreateComputePipeline(
+                         Rhi::ComputePipelineDesc{.Layout = m_PipelineLayout.Get(),
+                                                  .Shader = {LoadShader(paths, "clouds.comp")},
+                                                  .DebugName = "Clouds"},
+                         pipelineCache));
 }
 
 void CloudSystem::CreateBakePipeline(const Paths& paths, Rhi::IPipelineCache& pipelineCache)
@@ -125,7 +124,7 @@ void CloudSystem::CreateBakePipeline(const Paths& paths, Rhi::IPipelineCache& pi
         m_RhiDevice,
         m_RhiDevice.CreateComputePipeline(
             Rhi::ComputePipelineDesc{.Layout = m_BakePipelineLayout.Get(),
-                                     .Shader = {LoadShader(paths, "bakePerlinWorley.comp"), "main"},
+                                     .Shader = {LoadShader(paths, "bakePerlinWorley.comp")},
                                      .DebugName = "Bake Perlin Worley"},
             pipelineCache));
 }

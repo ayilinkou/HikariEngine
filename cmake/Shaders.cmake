@@ -56,46 +56,74 @@ function(add_slang_shader_target target)
   set(spv_outputs "")
   foreach(shader ${SHADER_SOURCES})
     file(RELATIVE_PATH rel_path ${shaders_source_dir} ${shader})
-    set(output_file ${shaders_out_dir}/${rel_path})
-    string(REPLACE ".slang" ".spv" output_file ${output_file})
 
-    # Depfiles are build bookkeeping, so they stay in the build tree rather
-    # than in the directory that gets deployed next to the executable. Keyed by
-    # configuration for the same reason the SPIR-V is: the multi-config
-    # generators build every configuration out of one build directory.
-    set(depfile ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>/${rel_path}.d)
-
+    # One blob per stage, each holding exactly one entry point named main (plan
+    # D24 and D33). The stage is part of the output name rather than of the
+    # module's contents, so resolving a stage to a file is the same question on
+    # both backends — D3D12's DXIL container cannot hold two entry points at
+    # all, and its bytecode description is a pointer and a length with nowhere
+    # to name one.
+    #
+    # A compute source already carries its stage in its own name, so stripping
+    # and re-appending leaves clouds.comp.spv exactly where it was.
     if(shader MATCHES "\\.comp\\.slang$")
-      set(entry_points -entry main)
+      string(REGEX REPLACE "\\.comp\\.slang$" "" base_path ${rel_path})
+      set(stage_entries main)
+      set(stage_suffixes .comp)
     else()
-      set(entry_points -entry vertMain -entry fragMain)
+      string(REGEX REPLACE "\\.slang$" "" base_path ${rel_path})
+      set(stage_entries vertMain fragMain)
+      set(stage_suffixes .vert .frag)
     endif()
 
-    # slangc reports exactly the files each shader pulled in — including the
-    # C++ headers shared with the engine, which a *.slangh glob would miss — so
-    # editing one header rebuilds only the shaders that include it.
-    add_custom_command(
-      OUTPUT ${output_file}
-      COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${rel_path}"
-      COMMAND ${CMAKE_COMMAND} -E make_directory ${shaders_out_dir}
-      COMMAND ${CMAKE_COMMAND} -E make_directory
-        ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>
-      COMMAND
-        ${SLANGC_EXE} ${shader} -target spirv -profile spirv_1_4
-        -emit-spirv-directly -warnings-as-errors all -fvk-use-entrypoint-name ${entry_points} -o
-        ${output_file} -depfile ${depfile} $<IF:$<CONFIG:Debug>,-g1,-g0>
-        $<IF:$<CONFIG:Debug>,-O0,-O3>
-      # Same command as the compile, so validation runs exactly when a shader
-      # recompiles and a failure fails the build. The target environment is
-      # stated rather than left at spirv-val's universal default, which would
-      # miss the Vulkan-specific rules; it matches VulkanDevice's kApiVersion.
-      COMMAND ${SPIRV_VAL_EXE} --target-env vulkan1.4 ${output_file}
-      DEPENDS ${shader}
-      DEPFILE ${depfile}
-      COMMENT "Compiling shader ${rel_path}"
-      VERBATIM)
+    list(LENGTH stage_entries stage_count)
+    math(EXPR last_stage "${stage_count} - 1")
 
-    list(APPEND spv_outputs ${output_file})
+    foreach(stage_index RANGE ${last_stage})
+      list(GET stage_entries ${stage_index} entry_point)
+      list(GET stage_suffixes ${stage_index} stage_suffix)
+
+      set(output_rel ${base_path}${stage_suffix}.spv)
+      set(output_file ${shaders_out_dir}/${output_rel})
+
+      # Depfiles are build bookkeeping, so they stay in the build tree rather
+      # than in the directory that gets deployed next to the executable. Keyed
+      # by configuration for the same reason the SPIR-V is: the multi-config
+      # generators build every configuration out of one build directory. One per
+      # output, since the two stages of a surface shader are separate compiles.
+      set(depfile ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>/${output_rel}.d)
+
+      # -fvk-use-entrypoint-name is deliberately absent: it is what carries the
+      # source's name into the SPIR-V, and without it the entry point is named
+      # main. That is what lets the seam stop spelling a name that D3D12 could
+      # not read and Vulkan would only ever accept one value for.
+      #
+      # slangc reports exactly the files each shader pulled in — including the
+      # C++ headers shared with the engine, which a *.slangh glob would miss —
+      # so editing one header rebuilds only the shaders that include it.
+      add_custom_command(
+        OUTPUT ${output_file}
+        COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${output_rel}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${shaders_out_dir}
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+          ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>
+        COMMAND
+          ${SLANGC_EXE} ${shader} -target spirv -profile spirv_1_4
+          -emit-spirv-directly -warnings-as-errors all -entry ${entry_point} -o
+          ${output_file} -depfile ${depfile} $<IF:$<CONFIG:Debug>,-g1,-g0>
+          $<IF:$<CONFIG:Debug>,-O0,-O3>
+        # Same command as the compile, so validation runs exactly when a shader
+        # recompiles and a failure fails the build. The target environment is
+        # stated rather than left at spirv-val's universal default, which would
+        # miss the Vulkan-specific rules; it matches VulkanDevice's kApiVersion.
+        COMMAND ${SPIRV_VAL_EXE} --target-env vulkan1.4 ${output_file}
+        DEPENDS ${shader}
+        DEPFILE ${depfile}
+        COMMENT "Compiling shader ${output_rel}"
+        VERBATIM)
+
+      list(APPEND spv_outputs ${output_file})
+    endforeach()
   endforeach()
 
   add_custom_target(${target} ALL DEPENDS ${spv_outputs})

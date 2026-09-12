@@ -1076,6 +1076,12 @@ private:
     /**
      * The compiled shader named `name`, as a module the device owns.
      *
+     * `name` carries the stage — "opaque.vert", "clouds.comp" — because the
+     * build emits one blob per stage rather than one module holding several,
+     * which is what lets a pipeline description name a module and nothing else
+     * (plan D24 and D33). The two stages of a surface shader are two files and
+     * two modules.
+     *
      * The engine resolves the file and the device says which kind it can read
      * (plan D24): resolving a name to a path is a content question, and the RHI
      * has no business owning a filesystem. Modules are kept alive for the run
@@ -1130,8 +1136,8 @@ private:
             m_RhiDevice->CreateGraphicsPipeline(
                 Rhi::GraphicsPipelineDesc{
                     .Layout = m_OpaquePipelineLayout.Get(),
-                    .VertexShader = {LoadShader("opaque"), "vertMain"},
-                    .PixelShader = {m_ShaderModules.back().Get(), "fragMain"},
+                    .VertexShader = {LoadShader("opaque.vert")},
+                    .PixelShader = {LoadShader("opaque.frag")},
                     .VertexBuffers = kSurfaceVertexBuffers,
                     .VertexAttributes = kAttributes,
                     .RenderTargetFormats = formats,
@@ -1180,8 +1186,8 @@ private:
             m_RhiDevice->CreateGraphicsPipeline(
                 Rhi::GraphicsPipelineDesc{
                     .Layout = m_TransparentPipelineLayout.Get(),
-                    .VertexShader = {LoadShader("weightedBlendedOIT"), "vertMain"},
-                    .PixelShader = {m_ShaderModules.back().Get(), "fragMain"},
+                    .VertexShader = {LoadShader("weightedBlendedOIT.vert")},
+                    .PixelShader = {LoadShader("weightedBlendedOIT.frag")},
                     .VertexBuffers = kSurfaceVertexBuffers,
                     .VertexAttributes = kAttributes,
                     .RenderTargetFormats = formats,
@@ -1215,8 +1221,8 @@ private:
             *m_RhiDevice,
             m_RhiDevice->CreateGraphicsPipeline(
                 Rhi::GraphicsPipelineDesc{.Layout = m_CompositePipelineLayout.Get(),
-                                          .VertexShader = {LoadShader("composite"), "vertMain"},
-                                          .PixelShader = {m_ShaderModules.back().Get(), "fragMain"},
+                                          .VertexShader = {LoadShader("composite.vert")},
+                                          .PixelShader = {LoadShader("composite.frag")},
                                           .VertexBuffers = kQuadBuffers,
                                           .VertexAttributes = kQuadAttributes,
                                           .RenderTargetFormats = formats,

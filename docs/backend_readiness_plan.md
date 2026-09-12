@@ -1669,8 +1669,11 @@ which is dxc 1.9.0.5191. Both ports install prebuilt binaries, so the whole prob
   classes — Vulkan requires that of a set layout — so D29's respelling is one-to-one.
 - **Shader model 6.9 is a full release** in the pinned DXC, not the preview its 1.8.2505 notes
   describe, so the choice was wider than §4.1 assumed. §4.2 takes `sm_6_0` regardless.
-- *Still open:* whether the per-stage split and the respelling leave the baseline pixel-identical.
-  Steps F and G answer that by running it rather than asserting it.
+- **The per-stage split leaves the baseline pixel-identical.** Measured at step 8 on 12 September
+  2026, not asserted: `baseline_test.sh` exits 0 after it, and `spirv-dis` confirms every blob
+  carries exactly one `OpEntryPoint` named `"main"` once `-fvk-use-entrypoint-name` is dropped —
+  the SSA id keeps the source name, which is not what Vulkan matches `pName` against. *Still
+  open:* whether D29's respelling does the same. Step 9 answers that by running it.
 
 ---
 
