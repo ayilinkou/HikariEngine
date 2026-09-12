@@ -3,13 +3,18 @@
 # question, and two implementations of it would eventually answer differently —
 # which is D26's "one implementation, two settings". Catch2-free on purpose, so
 # that a plain command-line tool can be one of its callers.
-add_library(TestSupport STATIC support/ImageCompare.cpp)
+add_library(TestSupport STATIC support/ImageCompare.cpp support/ReportCompare.cpp)
 target_include_directories(TestSupport PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/support)
-target_link_libraries(TestSupport PUBLIC Engine::Core Engine::Asset)
+target_link_libraries(TestSupport PUBLIC Engine::Core Engine::Asset
+                      PRIVATE nlohmann_json::nlohmann_json)
 engine_set_warnings(TestSupport)
 
-engine_test(support_tests SOURCES unit/support/ImageCompareTests.cpp LIBS
-            TestSupport)
+# Engine::Engine is linked for one reason: the test that pins the gating table
+# asks ToJson what the report actually emits, rather than carrying a second list
+# of field names that would agree with the format only until the next field is
+# added. Nothing here creates a device.
+engine_test(support_tests SOURCES unit/support/ImageCompareTests.cpp
+  unit/support/ReportCompareTests.cpp LIBS TestSupport Engine::Engine)
 
 engine_test(core_tests SOURCES unit/core/SwapbackArrayTests.cpp
   unit/core/ClockTests.cpp

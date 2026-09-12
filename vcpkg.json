@@ -41,6 +41,7 @@
       ],
       "host": true
     },
-    "catch2"
+    "catch2",
+    "nlohmann-json"
   ]
 }

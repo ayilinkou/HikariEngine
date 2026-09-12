@@ -9,6 +9,7 @@ engine_module(
   src/Engine.cpp
   src/RunApp.cpp
   src/ParseEngineOptions.cpp
+  src/RunReportJson.cpp
   src/AssetRegistry.cpp
   src/Camera.cpp
   src/CloudSystem.cpp

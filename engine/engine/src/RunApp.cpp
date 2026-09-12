@@ -5,11 +5,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
-#include <format>
 #include <fstream>
 #include <iomanip>
 #include <memory>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -28,6 +26,7 @@
 #include <rhi/RhiTypes.h>
 
 #include <engine/IEngine.h>
+#include <engine/RunReportJson.h>
 #include <engine/RunResult.h>
 
 using namespace Hikari::Core;
@@ -92,41 +91,7 @@ std::string GenerateTimestamp()
 constexpr const char* kDefaultScreenshotPath = "tests/screenshots/screenshot_";
 constexpr const char* kDefaultReportPath = "tests/reports/report_";
 
-/**
- * The present mode as a JSON value: a quoted name, or null where the target
- * does not present at all, which is what an offscreen run reports.
- */
-std::string PresentModeJson(std::optional<Rhi::PresentMode> mode)
-{
-    if (!mode)
-        return "null";
-
-    switch (*mode)
-    {
-        case Rhi::PresentMode::Immediate:
-            return "\"immediate\"";
-        case Rhi::PresentMode::Mailbox:
-            return "\"mailbox\"";
-        case Rhi::PresentMode::Fifo:
-            return "\"fifo\"";
-        case Rhi::PresentMode::FifoRelaxed:
-            return "\"fifo-relaxed\"";
-    }
-
-    return "null";
-}
-
-/**
- * Serialises a run report to JSON.
- *
- * Three objects rather than one flat list, because they are read differently:
- * everything under "counters" is an expectation that must match exactly,
- * everything under "timings" is a measurement that varies with the machine. A
- * reader cannot tell those apart in a flat object, and a number that looks
- * authoritative and is not is worse than no number. "run" is what makes two
- * reports comparable at all — the same scene at a different resolution, present
- * mode or build configuration is not the same measurement.
- */
+/** Writes a run report out as JSON, through the serialiser that defines the format. */
 void WriteRunReport(const RunReport& report, const std::string& path)
 {
     EnsureParentDirectoryExists(kDefaultReportPath);
@@ -139,47 +104,7 @@ void WriteRunReport(const RunReport& report, const std::string& path)
         return;
     }
 
-    const auto stats = [](const TimingStats& s)
-    {
-        return std::format("{{ \"mean\": {:.4f}, \"p99\": {:.4f}, \"min\": {:.4f}, "
-                           "\"max\": {:.4f} }}",
-                           s.Mean, s.P99, s.Min, s.Max);
-    };
-
-    file << "{\n"
-         << "  \"frames\": " << report.Frames << ",\n"
-         << "  \"counters\": {\n"
-         << "    \"frame\": {\n"
-         << "      \"drawCalls\": " << report.Counters.Frame.DrawCalls << ",\n"
-         << "      \"batches\": " << report.Counters.Frame.Batches << ",\n"
-         << "      \"instances\": " << report.Counters.Frame.Instances << ",\n"
-         << "      \"barriers\": " << report.Counters.Frame.Barriers << ",\n"
-         << "      \"barrierCalls\": " << report.Counters.Frame.BarrierCalls << "\n"
-         << "    },\n"
-         << "    \"run\": {\n"
-         << "      \"validationErrors\": " << report.Counters.Run.ValidationErrors << ",\n"
-         << "      \"validationWarnings\": " << report.Counters.Run.ValidationWarnings << ",\n"
-         << "      \"uploadSubmissions\": " << report.Counters.Run.UploadSubmissions << "\n"
-         << "    }\n"
-         << "  },\n"
-         << "  \"timings\": {\n"
-         << std::format("    \"startupMs\": {:.4f},\n", report.Timings.StartupMs)
-         << std::format("    \"firstFrame\": {{ \"frameMs\": {:.4f}, \"cpuMs\": {:.4f} }},\n",
-                        report.Timings.FirstFrame.FrameMs, report.Timings.FirstFrame.CpuMs)
-         << "    \"frameMs\": " << stats(report.Timings.FrameMs) << ",\n"
-         << "    \"cpuMs\": " << stats(report.Timings.CpuMs) << "\n"
-         << "  },\n"
-         << "  \"run\": {\n"
-         << "    \"fixedDt\": " << (report.Run.bFixedDt ? "true" : "false") << ",\n"
-         << "    \"headless\": " << (report.Run.bHeadless ? "true" : "false") << ",\n"
-         << "    \"noUi\": " << (report.Run.bNoUi ? "true" : "false") << ",\n"
-         << "    \"width\": " << report.Run.Width << ",\n"
-         << "    \"height\": " << report.Run.Height << ",\n"
-         << "    \"jobCount\": " << report.Run.JobCount << ",\n"
-         << "    \"presentMode\": " << PresentModeJson(report.Run.PresentMode) << ",\n"
-         << "    \"buildConfig\": \"" << report.Run.BuildConfig << "\"\n"
-         << "  }\n"
-         << "}\n";
+    file << ToJson(report);
     file.close();
 
     LogMsg(LogSeverity::Info, LogApp, "Wrote report to {}", finalPath);
