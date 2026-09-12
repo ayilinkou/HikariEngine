@@ -1,3 +1,16 @@
+# The image comparison, shared rather than reimplemented: the scene tests, the
+# command-line baseline comparison and 7.7's cross-backend runs all ask the same
+# question, and two implementations of it would eventually answer differently —
+# which is D26's "one implementation, two settings". Catch2-free on purpose, so
+# that a plain command-line tool can be one of its callers.
+add_library(TestSupport STATIC support/ImageCompare.cpp)
+target_include_directories(TestSupport PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/support)
+target_link_libraries(TestSupport PUBLIC Engine::Core Engine::Asset)
+engine_set_warnings(TestSupport)
+
+engine_test(support_tests SOURCES unit/support/ImageCompareTests.cpp LIBS
+            TestSupport)
+
 engine_test(core_tests SOURCES unit/core/SwapbackArrayTests.cpp
   unit/core/ClockTests.cpp
   unit/core/LogTests.cpp unit/core/JobSystemTests.cpp
@@ -58,7 +71,7 @@ target_include_directories(
 # they return. Labelled "scene" rather than "gpu" so that ctest -L gpu keeps its
 # under-a-minute meaning and a red step says which kind of thing broke.
 engine_test(scene_tests SOURCES scene/SceneLaunchTests.cpp LIBS Engine::Engine
-            Engine::Editor LABEL scene)
+            Engine::Editor TestSupport LABEL scene)
 
 # Beside the shaders rather than in tests/: the engine loads them from its own
 # directory, so a test that runs the engine has to live where a binary does.

@@ -27,8 +27,8 @@ public:
     TempDir()
     {
         std::random_device rd;
-        m_Path = std::filesystem::temp_directory_path() /
-                 ("hikari_image_test_" + std::to_string(rd()));
+        m_Path =
+            std::filesystem::temp_directory_path() / ("hikari_image_test_" + std::to_string(rd()));
         std::filesystem::create_directories(m_Path);
     }
 
