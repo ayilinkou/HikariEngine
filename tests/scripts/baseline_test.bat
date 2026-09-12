@@ -1,11 +1,38 @@
 @echo off
 setlocal
 
-if not "%~1"=="" (
-    set "PRESET=%~1"
-) else (
-    set "PRESET=ninja-debug-windows"
+set "PRESET="
+set "UPDATE="
+
+REM One argument per pass, and each one read into ARG first: a substring test
+REM inside a parenthesised block is expanded when the block is parsed rather
+REM than when it runs, so the value has to already be in a variable by then.
+:parse
+if "%~1"=="" goto parsed
+set "ARG=%~1"
+if /i "%ARG%"=="--update" (
+    set "UPDATE=--update"
+    shift
+    goto parse
 )
+if "%ARG:~0,1%"=="-" (
+    echo Unknown option: %ARG% 1>&2
+    echo Usage: baseline_test.bat [preset] [--update] 1>&2
+    exit /b 3
+)
+set "PRESET=%ARG%"
+shift
+goto parse
+:parsed
+
+if "%PRESET%"=="" set "PRESET=ninja-debug-windows"
+
+REM Fixed names rather than the app's timestamped defaults, because the run and
+REM the comparison that follows it have to agree on where the files went. Both
+REM directories are gitignored, so each run overwrites the last; the committed
+REM pair under tests\baseline\ is the only copy worth keeping.
+set "REPORT=tests/reports/baseline.json"
+set "CAPTURE=tests/screenshots/baseline.png"
 
 REM --borderless is what fixes the screenshot's size, not --resolution. A window
 REM size is a request the window system may refuse, and a tiling compositor
@@ -28,8 +55,15 @@ REM cursor at startup, so the panel carries a hover highlight on whichever widge
 REM the mouse was last over. It has been stable in practice only because the mouse
 REM did not move between runs. ImGui still initialises and its pass still records,
 REM so the counters in the report are unaffected by the flag.
-build\%PRESET%\HikariEditor.exe --report --screenshot --frames --fixed-dt --scene --camera-preset 1 ^
+build\%PRESET%\HikariEditor.exe --report "%REPORT%" --screenshot "%CAPTURE%" ^
+    --frames --fixed-dt --scene --camera-preset 1 ^
     --resolution 1920x1080 --borderless --no-ui
 if errorlevel 1 exit /b %errorlevel%
 
-endlocal
+REM The comparison decides the exit status: 1, 2 and 3 all mean something
+REM different and the caller needs to see which.
+build\%PRESET%\HikariCompare.exe ^
+    --actual-report "%REPORT%" --expected-report tests/baseline/report.json ^
+    --actual-image "%CAPTURE%" --expected-image tests/baseline/screenshot.png ^
+    %UPDATE%
+exit /b %errorlevel%

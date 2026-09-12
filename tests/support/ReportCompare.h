@@ -111,8 +111,17 @@ struct ReportComparison
     bool bComparePixels = false;
     ImageTolerance PixelTolerance;
 
-    /** Why there is no verdict: a parse failure, a missing or unclassified field. */
+    /**
+     * Why there is no verdict, other than a missing field: a report that would
+     * not parse, or a field the table does not classify. Kept apart from
+     * MissingFields because the two mean opposite things to a caller promoting a
+     * baseline — a missing field is what promoting is *for*, and anything here
+     * says the comparison itself could not be trusted.
+     */
     std::vector<std::string> Problems;
+
+    /** Fields the table knows that a report does not carry. */
+    std::vector<std::string> MissingFields;
 
     /** Each compared field that differs, with both values. */
     std::vector<std::string> Differences;

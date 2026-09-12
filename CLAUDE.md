@@ -261,56 +261,84 @@ are used as given.
 
 ### Regression checking
 
-`tests/scripts/baseline_test.sh` runs the app with fixed timestep and a fixed camera, writing
-a PNG and a JSON report:
+`tests/scripts/baseline_test.sh` is the whole workflow in one command: it runs the app with a
+fixed timestep and a fixed camera, then compares what came out against the committed
+`tests/baseline/` and exits with the comparison's status.
 
 ```bash
-tests/scripts/baseline_test.sh   # --scene (default scenes/test_scene.map) --frames (default 1000)
-                                 # --fixed-dt --camera-preset 1 --screenshot --report
-                                 # --resolution 1920x1080 --borderless --no-ui
+tests/scripts/baseline_test.sh                       # capture, then compare
+tests/scripts/baseline_test.sh --update              # capture, compare, promote the baseline
+tests/scripts/baseline_test.sh ninja-release-linux   # any preset; default is the host's debug
 ```
 
-Output goes to `tests/screenshots/` and `tests/reports/` (both gitignored). Compare against
-the committed `tests/baseline/`. Two signals, and **both are usable**:
+The run writes `tests/reports/baseline.json` and `tests/screenshots/baseline.png`, both
+gitignored and both overwritten each time. **Exit codes, strongest first:**
 
-- **The report's `counters`**, split by scope. `counters.frame` — `drawCalls`, `batches`,
-  `instances`, `barriers`, `barrierCalls` — describes the last frame drawn, which is the frame
-  a capture shows. `counters.run` — `validationErrors`, `validationWarnings`,
-  `uploadSubmissions` — accumulates over the whole run. Both are expectations: they must match
-  the committed baseline exactly, and validation errors must stay at 0. `uploadSubmissions` is
-  what guards the asset layer's batching from a distance — one scene's textures loaded inside
-  one load scope is a handful of submissions, and a number that tracks the texture count means
-  the scoping broke.
-- **The report's `timings`** — `startupMs`, `firstFrame`, and `mean`/`p99`/`min`/`max` for
-  both `frameMs` (wall clock) and `cpuMs` (the same minus what the frame spent blocked).
-  These are measurements, not expectations: they vary with the machine, so read them for
-  drift rather than diffing them. `frameMs` is bounded below by the display refresh whenever
-  the present path throttles the CPU, which is what `cpuMs` exists to see past. Frame 0 is
-  reported separately as `firstFrame` and excluded from the series, since it pays for first
-  use of every pipeline. Two reports are comparable only when their `run` blocks agree —
-  `buildConfig` in particular, since a debug and a release run differ by an order of
-  magnitude and nothing else in the file would say so.
-- **A pixel diff of the screenshot**, which is the stronger check and is now reliable: the
-  script forces `--resolution 1920x1080 --borderless`, so captures come out at a fixed extent
-  instead of at whatever size the window manager chose. **Never byte-compare** — PNG encoding
-  is not reproducible, so `cmp`/`md5sum` on a pixel-identical pair still differs. Compare
-  decoded pixels, and **convert to RGB first**:
+| Code | Meaning |
+|---|---|
+| **3** | No verdict — a report would not read, or a field is missing from one of them or absent from the comparison's table |
+| **1** | A compared signal moved |
+| **2** | Nothing moved, but a signal could not be compared |
+| **0** | Everything was compared, and it matched |
 
-  ```python
-  a = Image.open(before).convert("RGB")   # not RGBA
-  b = Image.open(after).convert("RGB")
-  assert ImageChops.difference(a, b).getbbox() is None
-  ```
+1 outranks 2 because a difference in a signal that *was* compared is real whatever happened to
+the others. A no-verdict is not a pass: it means nothing was established.
 
-  The conversion is the load-bearing part. `Image.getbbox()` defaults to `alpha_only=True`, so
-  on an RGBA pair it inspects **only the alpha channel** — and every capture this engine writes
-  is fully opaque, which makes the check pass for two images of completely different scenes.
-  `.convert("RGB")` removes the channel it would look at; `getbbox(alpha_only=False)` is the
-  other way to say it. This was wrong here for a while and nobody noticed, because a check that
-  always passes looks exactly like a check that keeps passing.
+`HikariCompare` is the tool underneath, and it works on any two runs:
 
-`--borderless` rather than `--resolution` alone is what makes that work: a window size is a
-request the window system may refuse, and a tiling compositor always does. The rationale is
+```bash
+./build/<preset>/HikariCompare --actual-report a.json --expected-report b.json \
+                               --actual-image a.png  --expected-image b.png
+```
+
+**Each signal is compared only when the conditions it depends on match**, and a skip names the
+field that caused it — `run.buildConfig` differing skips the counters, because a release build
+reports zero validation errors trivially. Two classifications deliberately never gate anything:
+`run.jobCount`, since a difference across job counts is a race and gating would excuse it, and
+`run.headless` for pixels, which step 46 verified. The table lives in
+`tests/support/ReportCompare.cpp` with the evidence for each entry beside it, and a unit test
+fails the build if the report gains a field the table does not classify.
+
+**On a pixel failure the tool writes `comparison_actual.png`, `comparison_expected.png` and an
+amplified `comparison_diff.png`** beside the capture, so a reader can see *where* an image moved
+rather than only by how much. The diff is scaled so that the tolerance ceiling is full
+brightness; within one backend the tolerance is zero, so every differing pixel is fully bright.
+CI cannot retrieve those files yet — `ci.yml` has no artefact step — which is a `backlog.md` row.
+
+**`--update` promotes the run into `tests/baseline/`, and refuses more often than it accepts.**
+It replaces both committed files together or neither. It refuses outright when the run's
+conditions differ from the baseline's, so a baseline cannot quietly move to another machine or
+another build configuration — a release run is rejected against a debug baseline. And it does
+nothing at all when nothing moved, because PNG encoding is not reproducible and rewriting an
+identical capture would still put a binary diff into git. A field the baseline simply lacks is
+the one difference it is *for*, so that is not a refusal.
+
+Read the two report signals differently, which is why they sit in separate blocks:
+
+- **`counters`** are expectations that must match exactly. `counters.frame` — `drawCalls`,
+  `batches`, `instances`, `barriers`, `barrierCalls` — describes the last frame drawn, which is
+  the frame a capture shows. `counters.run` — `validationErrors`, `validationWarnings`,
+  `uploadSubmissions` — accumulates over the whole run. `uploadSubmissions` is what guards the
+  asset layer's batching from a distance: one scene's textures loaded inside one load scope is a
+  handful of submissions, and a number that tracks the texture count means the scoping broke.
+- **`timings`** — `startupMs`, `firstFrame`, and `mean`/`p99`/`min`/`max` for both `frameMs`
+  (wall clock) and `cpuMs` (the same minus what the frame spent blocked) — are measurements, not
+  expectations. The comparison never diffs them; read them for drift. `frameMs` is bounded below
+  by the display refresh whenever the present path throttles the CPU, which is what `cpuMs`
+  exists to see past. Frame 0 is reported separately as `firstFrame` and excluded from the
+  series, since it pays for first use of every pipeline.
+
+**Never byte-compare two captures.** PNG encoding is not reproducible, so `cmp` and `md5sum`
+differ on a pixel-identical pair. Comparing decoded pixels by hand is also a trap worth knowing
+about, because this project fell into it: PIL's `Image.getbbox()` defaults to `alpha_only=True`,
+so on an RGBA pair it inspects only the alpha channel — and every capture here is fully opaque,
+which made the check pass for two images of completely different scenes. That is why the
+comparison is a tested tool now rather than a recipe, and why its tests include a case asserting
+that a difference in colour alone, with alpha identical, is caught.
+
+`--borderless` rather than `--resolution` alone is what pins the capture's extent: a window size
+is a request the window system may refuse, and a tiling compositor always does. Without it the
+capture comes out at whatever size the layout chose, and no two machines agree. The rationale is
 in the script, next to the flags.
 
 `HikariHeadless` renders into an offscreen target with no window at all. It needs something
@@ -360,7 +388,10 @@ tests/scene/     # real headless runs of the engine asserting on the RunReport t
                  #   return, CTest label "scene" — run by CI on the two Linux debug jobs
 tests/data/      # a content root of its own: two hand-authored glTF cubes and the
                  #   scenes built from them, so expected counters are derivable
-tests/support/   # shared test helpers (TestPaths.h, CaptureStream.h, RhiTestFixture.h)
+tests/support/   # TestSupport — the shared image and report comparison, plus the
+                 #   header-only helpers (TestPaths.h, CaptureStream.h,
+                 #   RhiTestFixture.h). Catch2-free, so the tool can link it too
+tests/tools/     # HikariCompare — the command-line face of that comparison
 content/         # runtime content root — models/ scenes/ textures/ shaders/ (.spv is gitignored)
 ```
 

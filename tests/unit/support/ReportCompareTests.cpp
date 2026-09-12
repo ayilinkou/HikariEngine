@@ -241,7 +241,8 @@ TEST_CASE("A missing field is provisional and still compares the rest", "[suppor
 
     CHECK(result.Outcome == ReportOutcome::NoVerdict);
     CHECK(result.bProvisional);
-    CHECK(Mentions(result.Problems, "missing field: run.jobCount"));
+    CHECK(result.Problems.empty());
+    CHECK(Mentions(result.MissingFields, "run.jobCount"));
 
     // The evidence a field-adding step needs: everything else was still looked
     // at, so "nothing moved" is a claim about the rest rather than a shrug.

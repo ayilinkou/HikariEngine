@@ -220,8 +220,8 @@ ReportComparison CompareReports(std::string_view actualJson, std::string_view ex
             // else moved, at the exact moment it is touching the code the
             // baseline protects.
             result.bProvisional = true;
-            result.Problems.push_back(
-                std::format("missing field: {} (absent from the {} report)", path,
+            result.MissingFields.push_back(
+                std::format("{} (absent from the {} report)", path,
                             inActual == actual.end() ? "actual" : "expected"));
             continue;
         }
@@ -266,7 +266,7 @@ ReportComparison CompareReports(std::string_view actualJson, std::string_view ex
 
     result.bComparePixels = !bPixelsSkipped;
 
-    if (!result.Problems.empty())
+    if (!result.Problems.empty() || !result.MissingFields.empty())
         result.Outcome = ReportOutcome::NoVerdict;
     else if (!result.Differences.empty())
         result.Outcome = ReportOutcome::Moved;
@@ -305,6 +305,7 @@ std::string Describe(const ReportComparison& comparison)
     };
 
     append("!", comparison.Problems);
+    append("missing field:", comparison.MissingFields);
     append("moved:", comparison.Differences);
     append("skipped:", comparison.Skips);
 

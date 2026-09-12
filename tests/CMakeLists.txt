@@ -9,6 +9,18 @@ target_link_libraries(TestSupport PUBLIC Engine::Core Engine::Asset
                       PRIVATE nlohmann_json::nlohmann_json)
 engine_set_warnings(TestSupport)
 
+# The command-line face of the same comparison. Not a test: nothing registers it
+# with CTest, because it needs a display and the baseline's GPU to be worth
+# running. Engine::Platform is linked for CommandLine, so the tool's flags are
+# parsed by the one parser this project has rather than a second one.
+add_executable(HikariCompare tools/compare/main.cpp)
+target_link_libraries(HikariCompare PRIVATE TestSupport Engine::Platform
+                                            SanitizerShims)
+set_target_properties(HikariCompare PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                               ${HIKARI_EXE_DIR})
+engine_set_warnings(HikariCompare)
+hikari_apply_build_options(HikariCompare)
+
 # Engine::Engine is linked for one reason: the test that pins the gating table
 # asks ToJson what the report actually emits, rather than carrying a second list
 # of field names that would agree with the format only until the next field is
