@@ -7,6 +7,8 @@
 
 #include <engine/RunReport.h>
 #include <engine/RunReportJson.h>
+#include <platform/IPlatform.h>
+
 #include <rhi/Backend.h>
 #include <rhi/RhiTypes.h>
 
@@ -14,6 +16,7 @@
 
 using namespace Hikari;
 using TestSupport::ReportOutcome;
+namespace Platform = Hikari::Platform;
 
 namespace
 {
@@ -47,6 +50,17 @@ Engine::RunReport MakeReport()
     report.Run.JobCount = 15u;
     report.Run.PresentMode = Rhi::PresentMode::Mailbox;
     report.Run.BuildConfig = "debug";
+    report.Run.ScenePath = "scenes/test_scene.map";
+    report.Run.CameraPreset = 1;
+    report.Run.InputScriptPath = "";
+    report.Run.CaptureFrame = 999u;
+    report.Run.bValidationEnabled = true;
+    report.Run.ValidationPolicy = Rhi::ValidationPolicy::Count;
+    report.Run.bSyncValidation = true;
+    report.Run.DisabledVulkanExtensions = {};
+    report.Run.bForceSingleQueue = false;
+    report.Run.FramesInFlight = 2u;
+    report.Run.WindowMode = Platform::WindowMode::BorderlessFullscreen;
 
     report.System.Backend = Rhi::Backend::Vulkan;
     report.System.Gpu = "Test GPU 9000";
@@ -382,4 +396,49 @@ TEST_CASE("Two runs at different times still match", "[support][report]")
     CHECK(result.Differences.empty());
     CHECK(result.Skips.empty());
     CHECK(result.bComparePixels);
+}
+
+TEST_CASE("A different scene skips everything and says which field did it", "[support][report]")
+{
+    Engine::RunReport other = MakeReport();
+    other.Run.ScenePath = "scenes/other.map";
+
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(other), Json(MakeReport()));
+
+    CHECK(result.Outcome == ReportOutcome::Skipped);
+    CHECK(Mentions(result.Skips, "counters: run.scene differs"));
+    CHECK(Mentions(result.Skips, "pixels: run.scene differs"));
+}
+
+TEST_CASE("A run with no scene and no script records null rather than empty", "[support][report]")
+{
+    // Absent has to be distinguishable from a scene literally named "": a report
+    // that says "" would compare equal to one that ran nothing.
+    Engine::RunReport bare = MakeReport();
+    bare.Run.ScenePath.clear();
+    bare.Run.CaptureFrame.reset();
+    bare.Run.WindowMode.reset();
+
+    const std::string json = Json(bare);
+    CHECK(json.find("\"scene\": null") != std::string::npos);
+    CHECK(json.find("\"inputScript\": null") != std::string::npos);
+    CHECK(json.find("\"captureFrame\": null") != std::string::npos);
+    CHECK(json.find("\"windowMode\": null") != std::string::npos);
+
+    // And it still parses and classifies: null is a value, not a missing field.
+    const TestSupport::ReportComparison result = TestSupport::CompareReports(json, json);
+    CHECK(result.Outcome == ReportOutcome::Matched);
+}
+
+TEST_CASE("A disabled extension list survives the round trip", "[support][report]")
+{
+    Engine::RunReport other = MakeReport();
+    other.Run.DisabledVulkanExtensions = {"VK_KHR_maintenance9", "VK_EXT_descriptor_indexing"};
+
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(other), Json(MakeReport()));
+
+    CHECK(result.Outcome == ReportOutcome::Skipped);
+    CHECK(Mentions(result.Skips, "run.vkDisabledExtensions differs"));
 }

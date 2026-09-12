@@ -3,6 +3,8 @@
 #include <span>
 
 #include <core/Extent2D.h>
+#include <optional>
+
 #include <platform/IPlatform.h>
 #include <platform/InputScript.h>
 #include <platform/ScriptedInputSource.h>
@@ -68,6 +70,9 @@ public:
 
     void Show() override {}
     void SetWindowMode(WindowMode mode) override;
+
+    /** Nothing: there is no window to be in a mode. */
+    std::optional<WindowMode> GetWindowMode() const override { return std::nullopt; }
     void SetRelativeMouseMode(bool bEnabled) override;
     void WarpMouse(float x, float y) override;
 

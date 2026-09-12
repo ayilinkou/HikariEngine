@@ -148,7 +148,13 @@ EditorOptions ParseArgs(int argc, char** argv)
             else if (flag == "--resolution")
                 options.WindowSize = option.RequireExtent2D();
             else if (flag == "--input")
+            {
                 options.InputScriptPath = option.RequireValue();
+
+                // Recorded in the run report: a scripted run is not the same run
+                // as an unscripted one, and the report has to say which.
+                options.Run.Spec.InputScriptPath = options.InputScriptPath;
+            }
             else if (flag == "--borderless")
             {
                 option.RequireNoValue();

@@ -3,8 +3,12 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
+
+#include <platform/IPlatform.h>
 
 #include <rhi/Backend.h>
+#include <rhi/Diagnostics.h>
 #include <rhi/RhiTypes.h>
 
 namespace Hikari::Engine
@@ -119,7 +123,17 @@ struct RunReport
         std::string Arch;
     };
 
-    /** The conditions the numbers above were measured under. */
+    /**
+     * The conditions the numbers above were measured under — what was *asked
+     * for*, as against the `System` block's what answered.
+     *
+     * Every field here is one a comparison of two runs consults before deciding
+     * whether a signal is worth comparing at all. Three things are deliberately
+     * absent: the content root, which differs per machine while ScenePath
+     * already identifies the scene; the editor's window size, already covered by
+     * the extent; and --strict-validation, which changes the exit code and
+     * nothing that is measured.
+     */
     struct RunInfo
     {
         bool bFixedDt = false;
@@ -132,6 +146,45 @@ struct RunReport
         /** Absent where the target does not present at all, as offscreen ones do not. */
         std::optional<Rhi::PresentMode> PresentMode;
         std::string BuildConfig;
+
+        /** As given on the command line: a comparison matches the strings. */
+        std::string ScenePath;
+
+        /** Index into the presets; -1 is a free camera. */
+        int CameraPreset = -1;
+
+        /** Empty when the run was not scripted. */
+        std::string InputScriptPath;
+
+        /** Which frame the capture shows, or nothing where none was taken. */
+        std::optional<uint64_t> CaptureFrame;
+
+        /**
+         * Whether the backend's validation layer was loaded at all, which
+         * decides whether the validation counters mean anything. Derived from
+         * the build configuration until it becomes selectable.
+         */
+        bool bValidationEnabled = false;
+
+        Rhi::ValidationPolicy ValidationPolicy = Rhi::ValidationPolicy::Count;
+
+        /**
+         * Whether synchronization validation was on. Vulkan-only, and on
+         * whenever validation is, until it gains a switch of its own.
+         */
+        bool bSyncValidation = false;
+
+        std::vector<std::string> DisabledVulkanExtensions;
+        bool bForceSingleQueue = false;
+
+        uint32_t FramesInFlight = 0;
+
+        /**
+         * The mode the window ended the run in, asked of the window system
+         * rather than remembered from the request. Absent for a headless run,
+         * which has no window, as PresentMode is absent for an offscreen target.
+         */
+        std::optional<Platform::WindowMode> WindowMode;
     };
 
     /**

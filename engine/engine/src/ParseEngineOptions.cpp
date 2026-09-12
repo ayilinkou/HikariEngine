@@ -90,15 +90,14 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
     else if (flag == "--validation-policy")
     {
         const std::string value = option.RequireValue();
-        if (value == "ignore")
-            spec.ValidationPolicy = Rhi::ValidationPolicy::Ignore;
-        else if (value == "count")
-            spec.ValidationPolicy = Rhi::ValidationPolicy::Count;
-        else if (value == "failfast")
-            spec.ValidationPolicy = Rhi::ValidationPolicy::FailFast;
-        else
+        const std::optional<Rhi::ValidationPolicy> policy = Rhi::ValidationPolicyFromString(value);
+        if (!policy)
+        {
             throw Platform::CommandLineError(
                 "--validation-policy expects ignore, count or failfast, got: " + value);
+        }
+
+        spec.ValidationPolicy = *policy;
     }
     else if (flag == "--frames-in-flight")
     {

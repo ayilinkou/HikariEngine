@@ -60,6 +60,8 @@ build\%PRESET%\HikariEditor.exe --report "%REPORT%" --screenshot "%CAPTURE%" ^
     --resolution 1920x1080 --borderless --no-ui
 if errorlevel 1 exit /b %errorlevel%
 
+echo.
+
 REM The comparison decides the exit status: 1, 2 and 3 all mean something
 REM different and the caller needs to see which.
 build\%PRESET%\HikariCompare.exe ^

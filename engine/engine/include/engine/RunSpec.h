@@ -32,6 +32,14 @@ struct RunSpec
     /** --content; empty resolves the content root the usual way. Read by the app. */
     std::string ContentRoot;
 
+    /**
+     * The input script replayed during this run, as given on the command line,
+     * or empty for none. Read by the app, which loads it and hands it to the
+     * platform; the engine only records it, because a run driven by a script is
+     * not the same run as one driven by nothing and a report has to say which.
+     */
+    std::string InputScriptPath;
+
     /** 0 runs until something asks the run to stop. */
     uint64_t Frames = 0;
 

@@ -114,21 +114,6 @@ Core::Extent2D DefaultWindowSize(SDL_DisplayID display)
     return {static_cast<uint32_t>(static_cast<float>(bounds.w) * kDefaultDisplayFraction),
             static_cast<uint32_t>(static_cast<float>(bounds.h) * kDefaultDisplayFraction)};
 }
-
-const char* WindowModeName(WindowMode mode)
-{
-    switch (mode)
-    {
-        case WindowMode::Windowed:
-            return "windowed";
-        case WindowMode::BorderlessFullscreen:
-            return "borderless fullscreen";
-        case WindowMode::ExclusiveFullscreen:
-            return "exclusive fullscreen";
-    }
-
-    return "unknown";
-}
 } // namespace
 
 SDLException::SDLException(const std::string& message)
@@ -367,8 +352,23 @@ void SdlPlatform::SetWindowMode(WindowMode mode)
         return;
     }
 
-    Core::LogMsg(Core::LogSeverity::Info, LogSDL, "Requested window mode: {}",
-                 WindowModeName(mode));
+    Core::LogMsg(Core::LogSeverity::Info, LogSDL, "Requested window mode: {}", ToString(mode));
+}
+
+std::optional<WindowMode> SdlPlatform::GetWindowMode() const
+{
+    // Asked of SDL rather than remembered: SetWindowMode falls back to
+    // borderless where no exclusive mode is available, and the transition is
+    // asynchronous, so the request and the result are different facts.
+    if ((SDL_GetWindowFlags(m_pWindow) & SDL_WINDOW_FULLSCREEN) == 0u)
+        return WindowMode::Windowed;
+
+    // SDL_GetWindowFullscreenMode returns "a pointer to the exclusive
+    // fullscreen mode to use or NULL for borderless fullscreen desktop mode"
+    // (SDL_video.h), and SetWindowMode clears it whenever the mode is not
+    // exclusive, so a fallback reads back as the borderless it became.
+    return SDL_GetWindowFullscreenMode(m_pWindow) != nullptr ? WindowMode::ExclusiveFullscreen
+                                                             : WindowMode::BorderlessFullscreen;
 }
 
 void SdlPlatform::SetRelativeMouseMode(bool bEnabled)

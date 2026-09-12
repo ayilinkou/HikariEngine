@@ -59,6 +59,8 @@ CAPTURE="tests/screenshots/baseline.png"
     --frames --fixed-dt --scene --camera-preset 1 \
     --resolution 1920x1080 --borderless --no-ui
 
+echo
+
 # The comparison decides the exit status, so set -e must not swallow it: 1, 2
 # and 3 all mean something different and the caller needs to see which.
 set +e

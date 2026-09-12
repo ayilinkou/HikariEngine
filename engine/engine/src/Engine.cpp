@@ -597,7 +597,22 @@ private:
                       .Height = SwapchainExtent().Height,
                       .JobCount = static_cast<uint32_t>(m_JobSystem.WorkerCount()),
                       .PresentMode = m_PresentTarget->GetPresentMode(),
-                      .BuildConfig = HIKARI_BUILD_CONFIG};
+                      .BuildConfig = HIKARI_BUILD_CONFIG,
+                      .ScenePath = m_Spec.ScenePath,
+                      .CameraPreset = m_Spec.CameraPreset,
+                      .InputScriptPath = m_Spec.InputScriptPath,
+                      .CaptureFrame = m_CaptureFrame,
+                      // Sync validation is on exactly when validation is: the
+                      // backend sets validate_sync unconditionally inside the
+                      // layer settings chain, which is only attached when the
+                      // layer is loaded at all.
+                      .bValidationEnabled = bEnableValidationLayers,
+                      .ValidationPolicy = m_Spec.ValidationPolicy,
+                      .bSyncValidation = bEnableValidationLayers,
+                      .DisabledVulkanExtensions = m_Spec.DisabledVulkanExtensions,
+                      .bForceSingleQueue = m_Spec.bForceSingleQueue,
+                      .FramesInFlight = m_Config.FramesInFlight,
+                      .WindowMode = m_Platform.GetWindowMode()};
 
         const Rhi::DeviceInfo& device = m_RhiDevice->GetInfo();
         report.System = {.Backend = device.Backend,
@@ -877,6 +892,11 @@ private:
                                                           .Access = Rhi::MemoryAccess::GpuToCpu,
                                                           .DebugName = "Screenshot Staging"}));
             m_bScreenshotBufferReady = true;
+
+            // Which frame the capture shows. Recorded here rather than at
+            // readback because this is the frame whose pixels are staged, and
+            // the guard above means the first request wins.
+            m_CaptureFrame = m_FrameCounter;
         }
 
         {
@@ -2114,6 +2134,9 @@ private:
      * point, which measures elapsed time and cannot be turned back into a date.
      */
     std::string m_StartedAt;
+
+    /** The frame a capture was staged from, or nothing where none was. */
+    std::optional<uint64_t> m_CaptureFrame;
 
     /**
      * The simulation's clock, chosen by --fixed-dt. Owned rather than injected:

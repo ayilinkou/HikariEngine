@@ -98,6 +98,39 @@ constexpr std::array kFields = {
     // gates those too.
     FieldClassification{"run.buildConfig", FieldRole::Condition, true, true},
 
+    // A different scene, camera or script is a different run in every respect.
+    FieldClassification{"run.scene", FieldRole::Condition, true, true},
+    FieldClassification{"run.cameraPreset", FieldRole::Condition, true, true},
+    FieldClassification{"run.inputScript", FieldRole::Condition, true, true},
+
+    // Shown for the counters rather than assumed: copying the captured frame
+    // costs one extra barrier and one extra barrier call, so a captured run
+    // legitimately reads one higher than an uncaptured one — and which frame was
+    // captured is which picture the comparison is looking at.
+    FieldClassification{"run.captureFrame", FieldRole::Condition, true, true},
+
+    // Shown for the counters: without the layer loaded a run reports zero
+    // validation errors trivially, and Ignore never counts one. Whether either
+    // changes a pixel is unknown, so they gate those too.
+    FieldClassification{"run.validationEnabled", FieldRole::Condition, true, true},
+    FieldClassification{"run.validationPolicy", FieldRole::Condition, true, true},
+    FieldClassification{"run.vkSyncValidation", FieldRole::Condition, true, true},
+
+    // Both testing levers change which code path runs — a disabled extension
+    // takes the fallback, and one queue family means no ownership transfers and
+    // a different set of barriers.
+    FieldClassification{"run.vkDisabledExtensions", FieldRole::Condition, true, true},
+    FieldClassification{"run.vkForceSingleQueue", FieldRole::Condition, true, true},
+
+    // Sizes every per-frame resource, and decides how many frames are in flight
+    // when the capture is taken.
+    FieldClassification{"run.framesInFlight", FieldRole::Condition, true, true},
+
+    // Gates pixels plainly — a borderless window covers the display and a
+    // windowed one does not, so the capture is of a different extent. Unknown
+    // for counters, and therefore gating.
+    FieldClassification{"run.windowMode", FieldRole::Condition, true, true},
+
     // What answered, rather than what was asked. **None of these may ever gate
     // the counters**, and that is a requirement rather than an observation:
     // counters are statements about what the renderer decided, so two backends
@@ -118,23 +151,28 @@ constexpr std::array kFields = {
     FieldClassification{"system.arch", FieldRole::Condition, false, true},
 };
 
-/** Reduces a JSON document to leaf paths, "counters.frame.drawCalls" style. */
+/**
+ * Reduces a JSON document to leaf paths, "counters.frame.drawCalls" style.
+ *
+ * An array is one leaf rather than one per element, and deliberately: a list
+ * field is read as a whole — two runs with different disabled extensions differ
+ * in *that*, not at index 3 — and flattening per element would give an empty
+ * list no path at all, which the comparison would then read as a missing field.
+ */
 void Flatten(const Json& node, const std::string& prefix, std::map<std::string, Json>& out)
 {
-    if (node.is_object())
-    {
-        for (const auto& [key, value] : node.items())
-            Flatten(value, prefix.empty() ? key : prefix + "." + key, out);
-    }
-    else if (node.is_array())
-    {
-        for (size_t i = 0u; i < node.size(); ++i)
-            Flatten(node[i], std::format("{}[{}]", prefix, i), out);
-    }
-    else
+    if (!node.is_object())
     {
         out.emplace(prefix, node);
+        return;
     }
+
+    // An empty object contributes no paths, which is the right answer for the
+    // case that produces one: a report predating a whole block carries it as
+    // "{}", and its fields are missing rather than the block being an unknown
+    // field of its own.
+    for (const auto& [key, value] : node.items())
+        Flatten(value, prefix.empty() ? key : prefix + "." + key, out);
 }
 
 const FieldClassification* Classify(const std::string& path)

@@ -3,6 +3,10 @@
 #include <format>
 #include <optional>
 #include <sstream>
+#include <string>
+#include <vector>
+
+#include <platform/IPlatform.h>
 
 #include <rhi/Backend.h>
 #include <rhi/RhiTypes.h>
@@ -34,6 +38,22 @@ std::string PresentModeJson(std::optional<Rhi::PresentMode> mode)
     }
 
     return "null";
+}
+
+/** A string as a JSON value, or null where there is none to name. */
+std::string OptionalStringJson(const std::string& value)
+{
+    return value.empty() ? "null" : "\"" + value + "\"";
+}
+
+/** An array of strings, which is what an empty list stays rather than null. */
+std::string StringArrayJson(const std::vector<std::string>& values)
+{
+    std::string out = "[";
+    for (size_t i = 0u; i < values.size(); ++i)
+        out += (i == 0u ? "\"" : ", \"") + values[i] + "\"";
+
+    return out + "]";
 }
 } // namespace
 
@@ -79,7 +99,26 @@ std::string ToJson(const RunReport& report)
         << "    \"height\": " << report.Run.Height << ",\n"
         << "    \"jobCount\": " << report.Run.JobCount << ",\n"
         << "    \"presentMode\": " << PresentModeJson(report.Run.PresentMode) << ",\n"
-        << "    \"buildConfig\": \"" << report.Run.BuildConfig << "\"\n"
+        << "    \"buildConfig\": \"" << report.Run.BuildConfig << "\",\n"
+        << "    \"scene\": " << OptionalStringJson(report.Run.ScenePath) << ",\n"
+        << "    \"cameraPreset\": " << report.Run.CameraPreset << ",\n"
+        << "    \"inputScript\": " << OptionalStringJson(report.Run.InputScriptPath) << ",\n"
+        << "    \"captureFrame\": "
+        << (report.Run.CaptureFrame ? std::to_string(*report.Run.CaptureFrame) : "null") << ",\n"
+        << "    \"validationEnabled\": " << (report.Run.bValidationEnabled ? "true" : "false")
+        << ",\n"
+        << "    \"validationPolicy\": \"" << Rhi::ToString(report.Run.ValidationPolicy) << "\",\n"
+        << "    \"vkSyncValidation\": " << (report.Run.bSyncValidation ? "true" : "false") << ",\n"
+        << "    \"vkDisabledExtensions\": " << StringArrayJson(report.Run.DisabledVulkanExtensions)
+        << ",\n"
+        << "    \"vkForceSingleQueue\": " << (report.Run.bForceSingleQueue ? "true" : "false")
+        << ",\n"
+        << "    \"framesInFlight\": " << report.Run.FramesInFlight << ",\n"
+        << "    \"windowMode\": "
+        << (report.Run.WindowMode
+                ? "\"" + std::string(Platform::ToString(*report.Run.WindowMode)) + "\""
+                : "null")
+        << "\n"
         << "  },\n"
         << "  \"system\": {\n"
         << "    \"backend\": \"" << Rhi::ToString(report.System.Backend) << "\",\n"
