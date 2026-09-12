@@ -562,7 +562,7 @@ HikariEngine/
 │   │   ├── LayoutTracker.h          # asserts image layout/barrier legality
 │   │   ├── RecordingSink.h          # ICommandSink capturing the command stream
 │   │   ├── SnapshotBuilder.h        # build FrameSnapshots without a World
-│   │   └── ImageCompare.h           # perceptual diff + PNG write on failure
+│   │   └── ImageCompare.h           # per-channel diff (D26) + PNG write on failure
 │   ├── unit/                        # label: unit — no GPU, no files
 │   │   ├── core/{handles,arena,jobs,radixsort,math,frustum,containers}_test.cpp
 │   │   ├── scene/{transform_hierarchy,world,queries,serialization}_test.cpp
@@ -1430,9 +1430,13 @@ auto snap = SnapshotBuilder(arena)
 This is what makes renderer unit tests possible at all.
 
 ### 16.6 `ImageCompare`
-Perceptual diff, per-channel statistics, and on failure: writes `actual.png`,
-`expected.png` and an amplified `diff.png` into the CTest output directory so CI can upload
-them as artefacts.
+Per-channel comparison against D26's two limits — no pixel differing by more than N per channel,
+and at most M% of pixels differing at all — reporting the measured delta whether it passes or
+fails. On failure it writes `actual.png`, `expected.png` and an amplified `diff.png`, so a reader
+can see *where* an image moved rather than only by how much. Stage 7.6 builds it in
+`tests/support/`, shared by the scene tests, the command-line baseline comparison and 7.7's
+cross-backend runs; `backend_readiness_plan.md` §4.1 has the details. CI cannot upload those images
+yet — `ci.yml` has no artefact step at all — which is a `backlog.md` row.
 
 ### 16.7 `TestPaths`
 Locates `tests/data` via a compile-time-injected absolute path
@@ -1668,7 +1672,7 @@ prefixes, `p` for raw pointers). Codify rather than change it:
 | 4 | **Frame graph complexity.** Easy to over-engineer into 3k lines. | Constrain: no async compute in v1, no aliasing in v1, no multi-queue in v1. Add only when a pass needs it. Target < 900 lines. |
 | 5 | **Bindless portability.** Older and mobile-class drivers have weaker descriptor-indexing support. | **Resolved by deferral** — see D14 in `backend_readiness_plan.md`. This row and D7 pointed in opposite directions: D7 deferred the binding model *because* bindless would replace it, while this row's mitigation ("keep a non-bindless fallback behind a device-capability flag; the `gpu` suite runs both") required building that model regardless. Bindless now waits until after the D3D12 backend and the binding model is neutralised in Stage 7.5, so there is no bindless path to fall back from and no flag to carry. Revisit this row when step 70 is scheduled. Note also that the assurance below it was overstated: only `descriptorBindingPartiallyBound` is enabled (`VulkanDevice.cpp:980`), and it serves partially-bound material sets, not bindless — which additionally needs `runtimeDescriptorArray` and `shaderSampledImageArrayNonUniformIndexing` at minimum. |
 | 6 | **Build time** with 9 targets and no PCH sharing. | Per-module PCHs, `ccache` (already wired), unity builds for the leaf modules if needed. Note that splitting *reduces* rebuild cost: touching a pass no longer rebuilds a 2,453-line TU. |
-| 7 | **Golden-image flakiness eroding trust.** | Non-blocking until stable; perceptual tolerance; determinism fixes (esp. the pointer-value sort order) land first. |
+| 7 | **Golden-image flakiness eroding trust.** | Non-blocking until stable; D26's per-channel tolerance — two limits, always reported as a measured delta; determinism fixes (esp. the pointer-value sort order) land first. |
 | 8 | **Catch2 vs GoogleTest.** | Recommendation: Catch2 v3. Decide once, in Phase 0. |
 | 9 | **`SceneGraph`/`.map` format.** Currently no versioning. | Add a `version` attribute in Phase 3 (cheap now, painful later). |
 | 10 | **Editor coupling.** ImGui currently draws directly from live scene objects. | `EditorLayer` mutates the `World` through commands; it must not be on the render data path. Keeps headless free of ImGui entirely. |
@@ -1746,9 +1750,12 @@ Stages **7.5**, **7.6** and **7.7** are inserted between 7 and 8 and are not in 
 because they are not part of Part IV: `docs/backend_readiness_plan.md` carries all three. 7.5
 neutralises the RHI's frame API — submission, rendering scope, binding, pipelines, draw and
 dispatch — which Stage 5 left undone and which a D3D12 backend needs before it can be written,
-as twelve steps. 7.6 builds the backend's non-seam prerequisites: DXIL emission, a
-tolerance-capable comparison script, Windows GPU coverage on WARP, runtime-selectable
-validation, and step 48 extended with per-target layout assertions. 7.7 is the backend itself.
+as twelve steps. 7.6 builds what the backend needs around that seam: the comparison tool, the
+shader build (per-stage blobs, D29's registers, DXIL emission), step 48 extended with per-target
+layout assertions, runtime-selectable validation, backend selection and device info in the run
+report. Windows GPU coverage on WARP is **not** among them — D28 moved it to 7.7, because WARP is a
+D3D12 adapter and there is nothing for such a job to run until the backend exists. 7.7 is the
+backend itself.
 
 They reorder this table's Stage 8, take step 48 out of it into 7.6, and defer its step 70 until
 after the backend.

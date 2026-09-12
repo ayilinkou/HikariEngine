@@ -28,13 +28,16 @@ architecture, and prefer them over inventing a design:
 - `docs/backend_readiness_plan.md` — **retained, like the RHI plan and for the same reason.**
   Stage 7.5: the four seams a second backend needs and Stage 5 did not build — submission and
   command-list ownership, rendering scope, bind groups, pipelines, and draw/dispatch recording
-  — as twelve steps, plus the decisions (D14–D32) behind them. It **supersedes D7 and D8**,
+  — as twelve steps, plus the decisions (D14–D35) behind them. It **supersedes D7 and D8**,
   deferring bindless until after D3D12 and neutralising the binding model instead, and it
   reorders Part IV's Stage 8. Its D-numbers continue the RHI plan's series deliberately: both
-  govern the same seam. It also defines **Stage 7.6** (the backend's non-seam prerequisites)
-  and the constraints on **Stage 7.7** (the D3D12 backend itself). Grilled on 6 September 2026;
-  its §0 records what that changed, which was substantial. Retires together with the RHI
-  extraction plan into a single `docs/rhi.md` — see that document's §10.
+  govern the same seam. It also defines **Stage 7.6** (what the backend needs around the seam —
+  two of its six items widen `IDevice` deliberately) and the constraints on **Stage 7.7** (the
+  D3D12 backend itself). Grilled on 6 September 2026; its §0 records what that changed, which was
+  substantial. **Stage 7.6's own interview ran on 11 and 12 September 2026 and is finished**: §4.1–§4.4
+  are its output — the comparison tool, the shader build, the twelve-step sequence and the decisions
+  behind them — with nothing left open. Retires together with the RHI extraction plan into a single
+  `docs/rhi.md` — see that document's §10.
 
 ---
 
@@ -45,7 +48,7 @@ running application. Do not start work outside the current stage, and do not com
 without asking first. Stage 5 is complete, so Part IV is the work order again — but where
 the **D-series** and Part IV disagree about the RHI's public seam, **the D-series wins**. It
 spans two documents: `docs/rhi_extraction_plan.md` holds D0–D13 and
-`docs/backend_readiness_plan.md` holds D14–D32, which supersede D7 and D8. Part IV was
+`docs/backend_readiness_plan.md` holds D14–D35, which supersede D7 and D8. Part IV was
 written before the seam was neutralised, so its later stages still spell interfaces in raw
 Vulkan; §10.2 is one such place. Re-express rather than copy, and amend Part IV as you go.
 
@@ -142,7 +145,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | Cleanup between 6 and 7 | — | ✅ done (`Hikari::` namespace + `namespace_check`, CI's `static-checks` job, the `counters`/`timings`/`run` report + `--no-ui`, `docs/backlog.md`) |
 | 7 — Engine shell + DI | 40b, 41–47 | ✅ done (`engine/engine` + `engine/asset` + `engine/editor`, `HikariEditor` + `HikariHeadless`, injected subsystems, the event seam, and headless scene tests in CI) |
 | 7.5 — Backend readiness | 1–12 | ✅ done (`ICommandAllocator`, submission and fences, rendering scope, bind groups, pipelines, draw and dispatch recording — the transitional area is 2 headers from 4 sites, down from 7 from 18) |
-| **7.6 — Backend prerequisites** | **—** | **next** — DXIL, the comparison script, runtime-selectable validation, step 48 extended. Grilled in part: D27–D32 decided, nine questions open in the plan's §4.1 |
+| **7.6 — Backend prerequisites** | **1–12** | **next** — the comparison tool (1–4, 7), backend selection (5), device info (6), the shader build (8–10), step 48 extended (11), runtime validation (12). Grilled 6, 11 and 12 September 2026: D27–D35 decided, the twelve steps sequenced, nothing open |
 | 7.7 — D3D12 backend | — | not started — stepped small, Vulkan stays the default, and it now owns the Windows GPU CI job (D28) |
 | 8+ — Frame graph, DOD, scalability | 48–76 | not started; 48–56 partly superseded by Stage 7.5, and 48 moves to 7.6 |
 
@@ -151,7 +154,8 @@ Update this table when a stage completes.
 Stages 7.5, 7.6 and 7.7 are inserted rather than renumbered: a whole stage at 8 would cascade
 through every cross-reference in three documents, and the fractions cost nothing. 7.5 closed the
 gap between the RHI's neutral *resource* API, which Stage 5 built, and its *frame* API, which
-nothing had. 7.6 builds the backend's non-seam prerequisites and 7.7 is the backend itself.
+nothing had. 7.6 builds what the backend needs around that seam — the comparison tool, the shader
+build, and two deliberate widenings of `IDevice` — and 7.7 is the backend itself.
 
 ---
 
