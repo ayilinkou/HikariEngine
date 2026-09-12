@@ -24,6 +24,11 @@ using Json = nlohmann::json;
  * costs nothing where it is actually used.
  */
 constexpr std::array kFields = {
+    // When the run happened. A measurement of the clock rather than a condition:
+    // every run differs in it, so gating on it would skip every signal of every
+    // comparison, and comparing it would fail every one.
+    FieldClassification{"startedAt", FieldRole::Measured},
+
     // The frame count is both a condition and a result: counters.frame
     // describes the last frame drawn and the capture shows it, so two runs of
     // different lengths describe different frames.
@@ -92,6 +97,25 @@ constexpr std::array kFields = {
     // never ran it reports zero errors trivially. Unknown for pixels, so it
     // gates those too.
     FieldClassification{"run.buildConfig", FieldRole::Condition, true, true},
+
+    // What answered, rather than what was asked. **None of these may ever gate
+    // the counters**, and that is a requirement rather than an observation:
+    // counters are statements about what the renderer decided, so two backends
+    // or two machines disagreeing about a draw call count is a bug in one of
+    // them, always (plan D26). Gating them here would excuse exactly the defect
+    // a cross-backend comparison exists to find.
+    //
+    // They do gate pixels, and for the opposite reason: two rasterizers differ
+    // in the low bits by design, and so do two GPUs on one API. Within Stage 7.6
+    // that makes a cross-machine or cross-backend pair simply not comparable on
+    // pixels; Stage 7.7 is where a differing backend selects D26's tolerance
+    // instead of skipping, once there are two backends to measure between.
+    FieldClassification{"system.backend", FieldRole::Condition, false, true},
+    FieldClassification{"system.gpu", FieldRole::Condition, false, true},
+    FieldClassification{"system.driver", FieldRole::Condition, false, true},
+    FieldClassification{"system.apiVersion", FieldRole::Condition, false, true},
+    FieldClassification{"system.os", FieldRole::Condition, false, true},
+    FieldClassification{"system.arch", FieldRole::Condition, false, true},
 };
 
 /** Reduces a JSON document to leaf paths, "counters.frame.drawCalls" style. */

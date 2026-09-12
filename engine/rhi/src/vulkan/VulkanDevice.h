@@ -44,6 +44,7 @@ public:
     ~VulkanDevice() override;
 
     const DeviceCaps& GetCaps() const override { return m_Caps; }
+    const DeviceInfo& GetInfo() const override { return m_Info; }
     Diagnostics& GetDiagnostics() override { return *m_pDiagnostics; }
     void WaitIdle() override;
 
@@ -227,6 +228,7 @@ private:
     void PickPhysicalDevice(const DeviceRequirements& requirements);
     void SelectOptionalExtensions(const DeviceDesc& desc);
     void FindQueueFamilies(const DeviceDesc& desc);
+    void FillDeviceInfo();
     void CreateLogicalDevice(const DeviceRequirements& requirements);
 
     bool IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& device,
@@ -351,5 +353,6 @@ private:
     std::vector<uint32_t> m_OptimalImageTransferToQueueFamilies;
 
     DeviceCaps m_Caps{};
+    DeviceInfo m_Info{};
 };
 } // namespace Hikari::Rhi::Vulkan

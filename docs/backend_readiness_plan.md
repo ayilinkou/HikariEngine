@@ -523,7 +523,7 @@ sixty lines short of being it, so promoting it later is a rename and a move.
 The project is cross-platform, and a Linux build cannot contain a D3D12 backend at all. So
 Windows links both backends and Linux links Vulkan only.
 
-**Selection is at run time, not compile time.** `--backend vulkan|d3d12` feeds `RunSpec`. A
+**Selection is at run time, not compile time.** `--backend Vulkan|D3D12` feeds `RunSpec`. A
 value the build does not contain is a **hard error** naming what was asked for and listing what
 is available — the same policy `backlog.md` argues for `--present-mode`, for the same reason: a
 run that quietly measured something else is worse than a run that refused.
@@ -631,7 +631,7 @@ only through the backend 7.7 builds, so in 7.6 the item could only have meant Vu
 and the runner has no Vulkan ICD at all. Supplying one means pinning a third-party Mesa build in
 CI, which is a supply-chain surface `vcpkg.json` has otherwise kept clear.
 
-**So the job moves to 7.7, and every Windows job there runs `--backend d3d12` explicitly.**
+**So the job moves to 7.7, and every Windows job there runs `--backend D3D12` explicitly.**
 D25 is unchanged: Vulkan is still the default everywhere, and asking for D3D12 by name in CI is
 what makes CI the backend's routine exercise. Vulkan on Windows keeps the coverage it has today,
 which is compilation and the unit tests.
@@ -829,8 +829,12 @@ window is already on screen and skips the usage block.
 
 **The RHI owns the spelling of enums that cross the process boundary** — those appearing as
 command-line input or run-report output, and nothing else. `ToString` and `FromString` sit over
-one table, so a new backend is named in exactly one place and `--backend d3d12` cannot drift from
-`"backend": "d3d12"`. That matters more here than for any other enum, because the comparison tool
+one table, so a new backend is named in exactly one place and `--backend D3D12` cannot drift from
+`"backend": "D3D12"`. The spellings are the project's own proper nouns, which keeps a run report
+internally consistent — its `os` is `"Linux"` and its `arch` is `"x86_64"`, because one is a name
+and the other an identifier — and the input half folds case, since it is typed by hand while the
+output half is written to a file. That matters more here than for any other enum, because the
+comparison tool
 matches the report's `backend` as text to pick its tolerance, and `--backend` has to accept the
 word a report contains. `PresentModeJson` in `RunApp.cpp` is the engine-side precedent, and it
 survives only because `--present-mode` does not exist yet; when `backlog.md`'s row for it lands,
@@ -1188,7 +1192,7 @@ exists.
 | 2 | **The shader build** — per-stage blobs, D29's registers, DXIL emission and the gate that proves validation ran | `cmake/Shaders.cmake` is SPIR-V only. The first draft put this in the backend stage; that is wrong, because it is build-system and content-pipeline work with its own failure modes, and doing it there means finding out whether Slang's DXIL path handles `pbr.slangh` halfway through writing a device. §4.2 | 8–10 |
 | 3 | **Step 48 — `ShaderTypes.h` shared with Slang, extended with per-target layout assertions** | See below | 11 |
 | 4 | **Runtime-selectable validation** | `backlog.md` P2. The engine gates validation on `NDEBUG`, so a release run reports zero validation errors trivially. Two backends mean two validation surfaces, and 7.7's Windows release job is worth having assert rather than silently pass — which it cannot do unless this lands first | 12 |
-| 5 | **Backend selection** — `--backend`, the neutral `Backend` enum and the availability query | D25 decided all three and no step ever scheduled them. Doing it here keeps 7.7's steps about D3D12, and the only behaviour a Linux build will ever have — refusing `--backend d3d12` and listing what it does have — is testable now | 5 |
+| 5 | **Backend selection** — `--backend`, the neutral `Backend` enum and the availability query | D25 decided all three and no step ever scheduled them. Doing it here keeps 7.7's steps about D3D12, and the only behaviour a Linux build will ever have — refusing `--backend D3D12` and listing what it does have — is testable now | 5 |
 | 6 | **Device info in the run report** — GPU, driver, API version, OS, architecture, and which backend | `backlog.md` P2, which §6 places here. The comparison tool is its first consumer: without it, a run on another GPU differs from the committed baseline with nothing in either report to say why | 6 |
 
 **Step 48 needs extending, and the reason is the only silent-corruption path a second backend
@@ -1363,7 +1367,7 @@ Twelve steps, flat-numbered now that the order is settled — the same count Sta
 | 2 | `TestSupport` and the image comparison — limits, worst pixel, fraction, bounding box, diff images. Scene tests stop using `==` | unit tests with positive controls (a one-pixel change fails and names its coordinates); the scene tests | M |
 | 3 | Report reading, the gating table over today's fields, the four outcomes, missing and unclassified fields, the provisional comparison, the completeness and round-trip tests | unit tests | M |
 | 4 | `HikariCompare`; `baseline_test.sh` and its `.bat` capture then compare; `--update` and its guard; the baseline renamed to fixed names; `CLAUDE.md`'s regression section rewritten | a run against the still-unchanged baseline exits 0; an edited PNG exits 1 with a diff image; `--update` refused on a release build | M |
-| 5 | Backend selection (D34): `rhi/Backend.h`, `DeviceDesc::Backend`, parse-time refusal, `--backend` | `--backend d3d12` refused on Linux naming what the build has; `baseline_test.sh` exits 0, since this step adds no report field | M |
+| 5 | Backend selection (D34): `rhi/Backend.h`, `DeviceDesc::Backend`, parse-time refusal, `--backend` | `--backend D3D12` refused on Linux naming what the build has; `baseline_test.sh` exits 0, since this step adds no report field | M |
 | 6 | Device info (D35): `DeviceInfo`, `GetInfo()`, the report's `system` block, `os` and `arch` as compile definitions | exit 3, provisional, nothing moved | M |
 | 7 | The eleven new `run` fields, `IPlatform`'s window-mode getter, the input-script path, every classification; the baseline recaptured once through `--update` | a provisional "nothing moved", then `--update` | M |
 | 8 | Per-stage blobs; entry points become `main`; `EntryPoint` leaves `ShaderStageDesc` (D33) | `baseline_test.sh` exits 0; gpu and scene tests | M |
@@ -1508,7 +1512,7 @@ Out of scope for this document beyond three constraints that are decided:
   semantics applies to the API that is not in the tree yet, and applies hardest there.
 - **Vulkan stays the default** (D25). The backend's routine exercise is CI, and that job lives
   here rather than in 7.6: **WARP is a D3D12 adapter**, so there was nothing for a Windows GPU job
-  to run until this stage exists (D28). Every Windows job asks for `--backend d3d12` by name.
+  to run until this stage exists (D28). Every Windows job asks for `--backend D3D12` by name.
   Until the job exists, a local Windows install is what the D3D12 work is built and tested on.
 - **Two things are already recorded as this stage's to decide.** The vertex-input seam — D32,
   where `VertexAttribute::Location` cannot fill in a `D3D12_INPUT_ELEMENT_DESC` — and the

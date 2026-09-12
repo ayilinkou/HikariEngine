@@ -8,7 +8,10 @@
 // by promoting whole passes out, not by cutting it in half here.
 
 #include <atomic>
+#include <ctime>
+#include <iomanip>
 #include <span>
+#include <sstream>
 
 #include "AssetRegistry.h"
 #include "BindGroupLayouts.h"
@@ -105,6 +108,28 @@ struct GlobalBuffer
     float Time;
 };
 
+/**
+ * The wall-clock time, ISO 8601 in UTC.
+ *
+ * Not the same as RunApp's GenerateTimestamp, deliberately: that one names a
+ * file and so avoids the colons a path cannot always carry, while this one is
+ * read by a person and by anything that sorts reports.
+ */
+std::string FormatUtcTimestamp()
+{
+    const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm utc{};
+#if defined(_WIN32)
+    gmtime_s(&utc, &now);
+#else
+    gmtime_r(&now, &utc);
+#endif
+
+    std::ostringstream out;
+    out << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+    return out.str();
+}
+
 #ifdef NDEBUG
 constexpr bool bEnableValidationLayers = false;
 #else
@@ -177,7 +202,8 @@ public:
            std::chrono::steady_clock::time_point processStart)
         : m_Platform(platform), m_Paths(paths), m_pUiBackend(pUiBackend), m_Spec(std::move(spec)),
           m_Config(config), m_JobSystem(jobSystem), m_Diagnostics(diagnostics),
-          m_RhiDevice(Rhi::CreateDevice(MakeDeviceDesc())), m_ProcessStart(processStart)
+          m_RhiDevice(Rhi::CreateDevice(MakeDeviceDesc())), m_ProcessStart(processStart),
+          m_StartedAt(FormatUtcTimestamp())
     {
         // Sized here rather than at first use: every per-frame resource below is
         // built by index into this, and a run with one frame in flight has to
@@ -548,6 +574,7 @@ private:
         RunReport report;
         report.Frames = m_FrameCounter;
 
+        report.StartedAt = m_StartedAt;
         report.Counters.Frame = {.DrawCalls = m_OpaqueDrawCallCount + m_TransparentDrawCallCount,
                                  .Batches = m_OpaqueBatchCount + m_TransparentBatchCount,
                                  .Instances = m_OpaqueInstanceCount + m_TransparentInstanceCount,
@@ -571,6 +598,14 @@ private:
                       .JobCount = static_cast<uint32_t>(m_JobSystem.WorkerCount()),
                       .PresentMode = m_PresentTarget->GetPresentMode(),
                       .BuildConfig = HIKARI_BUILD_CONFIG};
+
+        const Rhi::DeviceInfo& device = m_RhiDevice->GetInfo();
+        report.System = {.Backend = device.Backend,
+                         .Gpu = device.Gpu,
+                         .Driver = device.Driver,
+                         .ApiVersion = device.ApiVersion,
+                         .Os = HIKARI_OS,
+                         .Arch = HIKARI_ARCH};
 
         return report;
     }
@@ -2073,6 +2108,12 @@ private:
      * uploads — the two paths a windowed and a headless run differ on.
      */
     std::chrono::steady_clock::time_point m_ProcessStart;
+
+    /**
+     * Wall clock, taken once at construction. m_ProcessStart is a steady_clock
+     * point, which measures elapsed time and cannot be turned back into a date.
+     */
+    std::string m_StartedAt;
 
     /**
      * The simulation's clock, chosen by --fixed-dt. Owned rather than injected:

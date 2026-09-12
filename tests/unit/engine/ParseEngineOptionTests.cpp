@@ -171,7 +171,7 @@ TEST_CASE("The --backend flag refuses what the build does not contain", "[ParseE
         {
             const std::string message = e.what();
             CHECK(message.find("metal") != std::string::npos);
-            CHECK(message.find("vulkan") != std::string::npos);
+            CHECK(message.find("Vulkan") != std::string::npos);
         }
     }
 }

@@ -7,6 +7,7 @@
 
 #include <engine/RunReport.h>
 #include <engine/RunReportJson.h>
+#include <rhi/Backend.h>
 #include <rhi/RhiTypes.h>
 
 #include "ReportCompare.h"
@@ -20,6 +21,7 @@ namespace
 Engine::RunReport MakeReport()
 {
     Engine::RunReport report;
+    report.StartedAt = "2026-09-12T17:51:29Z";
     report.Frames = 1000u;
 
     report.Counters.Frame.DrawCalls = 22u;
@@ -45,6 +47,13 @@ Engine::RunReport MakeReport()
     report.Run.JobCount = 15u;
     report.Run.PresentMode = Rhi::PresentMode::Mailbox;
     report.Run.BuildConfig = "debug";
+
+    report.System.Backend = Rhi::Backend::Vulkan;
+    report.System.Gpu = "Test GPU 9000";
+    report.System.Driver = "testdrv 1.2.3";
+    report.System.ApiVersion = "1.4.354";
+    report.System.Os = "Linux";
+    report.System.Arch = "x86_64";
 
     return report;
 }
@@ -300,4 +309,77 @@ TEST_CASE("Describe names what the comparison established", "[support][report]")
 
     CHECK(text.find("a compared signal moved") != std::string::npos);
     CHECK(text.find("counters.run.uploadSubmissions: 40 vs 4") != std::string::npos);
+}
+
+TEST_CASE("What answered never gates the counters", "[support][report]")
+{
+    // The independence D26 requires: gating here would excuse the defect a
+    // cross-machine or cross-backend comparison exists to find, since a draw
+    // call count is a statement about what the renderer decided.
+    Engine::RunReport other = MakeReport();
+    other.System.Gpu = "Some Other GPU";
+    other.Counters.Frame.DrawCalls = 99u;
+
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(other), Json(MakeReport()));
+
+    CHECK(result.Outcome == ReportOutcome::Moved);
+    CHECK(Mentions(result.Differences, "counters.frame.drawCalls: 99 vs 22"));
+
+    // Pixels are a different matter: two GPUs differ in the low bits by design.
+    CHECK(Mentions(result.Skips, "pixels: system.gpu differs"));
+    CHECK_FALSE(result.bComparePixels);
+}
+
+TEST_CASE("A differing backend skips pixels and not counters", "[support][report]")
+{
+    Engine::RunReport other = MakeReport();
+    other.System.Backend = Rhi::Backend::D3D12;
+
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(other), Json(MakeReport()));
+
+    CHECK(result.Outcome == ReportOutcome::Skipped);
+    CHECK(Mentions(result.Skips, "pixels: system.backend differs"));
+    CHECK_FALSE(Mentions(result.Skips, "counters:"));
+}
+
+TEST_CASE("A baseline without the system block is provisional, not a failure", "[support][report]")
+{
+    // What step 6 itself produces: the committed baseline predates the block, so
+    // every field of it is missing. The comparison still looks at everything
+    // else, which is the evidence that promoting the baseline is safe.
+    std::string older = Json(MakeReport());
+    for (const char* field :
+         {"\"backend\"", "\"gpu\"", "\"driver\"", "\"apiVersion\"", "\"os\"", "\"arch\""})
+    {
+        older = WithoutLine(std::move(older), field);
+    }
+
+    // Removing every member leaves "system": {}, which is still valid JSON.
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(MakeReport()), older);
+
+    CHECK(result.Outcome == ReportOutcome::NoVerdict);
+    CHECK(result.bProvisional);
+    CHECK(result.Problems.empty());
+    CHECK(result.MissingFields.size() == 6u);
+    CHECK(result.Differences.empty());
+}
+
+TEST_CASE("Two runs at different times still match", "[support][report]")
+{
+    // startedAt is a measurement of the clock, not a condition: every run
+    // differs in it, so gating on it would skip every signal of every
+    // comparison and comparing it would fail every one.
+    Engine::RunReport later = MakeReport();
+    later.StartedAt = "2027-01-01T00:00:00Z";
+
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(later), Json(MakeReport()));
+
+    CHECK(result.Outcome == ReportOutcome::Matched);
+    CHECK(result.Differences.empty());
+    CHECK(result.Skips.empty());
+    CHECK(result.bComparePixels);
 }

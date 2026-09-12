@@ -9,6 +9,7 @@
 #include <ranges>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -152,6 +153,47 @@ VulkanDevice::VulkanDevice(const DeviceDesc& desc)
     m_Caps.bHasDedicatedComputeQueue = m_QueueFamilies.IsDedicated(QueueType::Compute);
     m_Caps.bHasDedicatedCopyQueue = m_QueueFamilies.IsDedicated(QueueType::Copy);
     m_Caps.ShaderExtension = "spv";
+
+    FillDeviceInfo();
+}
+
+/**
+ * The device's identity, for a run report. Read once here rather than on
+ * demand: nothing about it changes for the life of the device, and a report is
+ * written after the frame loop has stopped.
+ */
+void VulkanDevice::FillDeviceInfo()
+{
+    // VkPhysicalDeviceDriverProperties gives the driver a *name* — "radv",
+    // "NVIDIA" — where VkPhysicalDeviceProperties::driverVersion is a
+    // vendor-encoded integer that means something different per vendor. Core
+    // since Vulkan 1.2 (vk.xml: VK_KHR_driver_properties promotedto
+    // VK_VERSION_1_2), and this device was required to report 1.3 or higher, so
+    // the chain is always answerable.
+    const auto chain =
+        m_PhysicalDevice
+            .getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceDriverProperties>();
+
+    const vk::PhysicalDeviceProperties& properties =
+        chain.get<vk::PhysicalDeviceProperties2>().properties;
+    const vk::PhysicalDeviceDriverProperties& driver =
+        chain.get<vk::PhysicalDeviceDriverProperties>();
+
+    m_Info.Backend = Rhi::Backend::Vulkan;
+    m_Info.Gpu = static_cast<const char*>(properties.deviceName);
+
+    // Both halves: driverName is the implementation ("radv"), driverInfo its own
+    // version string ("Mesa 25.2.3"), and neither alone identifies a machine.
+    m_Info.Driver = std::string(static_cast<const char*>(driver.driverName));
+    const std::string_view driverInfo = static_cast<const char*>(driver.driverInfo);
+    if (!driverInfo.empty())
+        m_Info.Driver += " " + std::string(driverInfo);
+
+    // What the device supports, which is not what we requested: kApiVersion is
+    // a constant in this source and would be identical on every machine.
+    m_Info.ApiVersion = std::format("{}.{}.{}", vk::apiVersionMajor(properties.apiVersion),
+                                    vk::apiVersionMinor(properties.apiVersion),
+                                    vk::apiVersionPatch(properties.apiVersion));
 }
 
 VulkanDevice::~VulkanDevice()

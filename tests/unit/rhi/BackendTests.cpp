@@ -51,12 +51,27 @@ TEST_CASE("Every backend has a spelling, and it round-trips", "[rhi][backend]")
 
         CHECK(name != "unknown");
         CHECK(BackendFromString(name) == backend);
-
-        // Lower case, because the command line and the run report share these
-        // strings and --backend is typed by hand.
-        CHECK(name == std::string(name.begin(), name.end()));
-        CHECK(std::ranges::none_of(name, [](char c) { return c >= 'A' && c <= 'Z'; }));
+        CHECK_FALSE(name.empty());
     }
+}
+
+TEST_CASE("The spellings are the project's own proper nouns", "[rhi][backend]")
+{
+    // Written into a run report beside "os": "Linux", so a name is capitalised
+    // where an identifier like "arch": "x86_64" is not.
+    CHECK(ToString(Backend::Vulkan) == "Vulkan");
+    CHECK(ToString(Backend::D3D12) == "D3D12");
+}
+
+TEST_CASE("A backend can be named in any case on a command line", "[rhi][backend]")
+{
+    // The input half is typed by hand; the output half is written to a file and
+    // only ever takes the canonical spelling above.
+    CHECK(BackendFromString("vulkan") == Backend::Vulkan);
+    CHECK(BackendFromString("VULKAN") == Backend::Vulkan);
+    CHECK(BackendFromString("VuLkAn") == Backend::Vulkan);
+    CHECK(BackendFromString("d3d12") == Backend::D3D12);
+    CHECK(BackendFromString("D3d12") == Backend::D3D12);
 }
 
 TEST_CASE("No two backends share a spelling", "[rhi][backend]")
@@ -79,6 +94,6 @@ TEST_CASE("A word that names no backend is rejected", "[rhi][backend]")
 {
     CHECK_FALSE(BackendFromString("").has_value());
     CHECK_FALSE(BackendFromString("metal").has_value());
-    CHECK_FALSE(BackendFromString("Vulkan").has_value());
+    CHECK_FALSE(BackendFromString("vulkan2").has_value());
     CHECK_FALSE(BackendFromString("unknown").has_value());
 }

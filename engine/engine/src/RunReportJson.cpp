@@ -4,6 +4,7 @@
 #include <optional>
 #include <sstream>
 
+#include <rhi/Backend.h>
 #include <rhi/RhiTypes.h>
 
 namespace Hikari::Engine
@@ -47,6 +48,7 @@ std::string ToJson(const RunReport& report)
 
     std::ostringstream out;
     out << "{\n"
+        << "  \"startedAt\": \"" << report.StartedAt << "\",\n"
         << "  \"frames\": " << report.Frames << ",\n"
         << "  \"counters\": {\n"
         << "    \"frame\": {\n"
@@ -78,6 +80,14 @@ std::string ToJson(const RunReport& report)
         << "    \"jobCount\": " << report.Run.JobCount << ",\n"
         << "    \"presentMode\": " << PresentModeJson(report.Run.PresentMode) << ",\n"
         << "    \"buildConfig\": \"" << report.Run.BuildConfig << "\"\n"
+        << "  },\n"
+        << "  \"system\": {\n"
+        << "    \"backend\": \"" << Rhi::ToString(report.System.Backend) << "\",\n"
+        << "    \"gpu\": \"" << report.System.Gpu << "\",\n"
+        << "    \"driver\": \"" << report.System.Driver << "\",\n"
+        << "    \"apiVersion\": \"" << report.System.ApiVersion << "\",\n"
+        << "    \"os\": \"" << report.System.Os << "\",\n"
+        << "    \"arch\": \"" << report.System.Arch << "\"\n"
         << "  }\n"
         << "}\n";
 

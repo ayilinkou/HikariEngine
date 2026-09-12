@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <format>
 #include <stdexcept>
 
@@ -22,9 +23,20 @@ struct Spelling
 };
 
 constexpr std::array kSpellings = {
-    Spelling{Backend::Vulkan, "vulkan"},
-    Spelling{Backend::D3D12, "d3d12"},
+    Spelling{Backend::Vulkan, "Vulkan"},
+    Spelling{Backend::D3D12, "D3D12"},
 };
+
+/** Case-folded ASCII comparison, so --backend takes the word however it is typed. */
+bool EqualsIgnoringCase(std::string_view a, std::string_view b)
+{
+    return std::ranges::equal(a, b,
+                              [](char left, char right)
+                              {
+                                  return std::tolower(static_cast<unsigned char>(left)) ==
+                                         std::tolower(static_cast<unsigned char>(right));
+                              });
+}
 
 /**
  * What this build was compiled with.
@@ -63,7 +75,7 @@ std::optional<Backend> BackendFromString(std::string_view name)
 {
     for (const Spelling& spelling : kSpellings)
     {
-        if (spelling.Name == name)
+        if (EqualsIgnoringCase(spelling.Name, name))
             return spelling.Value;
     }
 

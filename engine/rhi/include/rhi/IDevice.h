@@ -43,6 +43,12 @@ public:
     virtual const DeviceCaps& GetCaps() const = 0;
 
     /**
+     * Which device this is, for a run report to print. Never branch on it —
+     * DeviceCaps is what says what the device can do.
+     */
+    virtual const DeviceInfo& GetInfo() const = 0;
+
+    /**
      * The device's validation counters and policy. Always valid: a device given
      * no Diagnostics creates its own rather than returning null.
      */

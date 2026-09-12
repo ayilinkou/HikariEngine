@@ -44,13 +44,23 @@ enum class Backend : uint8_t
  *
  * The RHI owns the spelling of the enums that cross the process boundary —
  * those appearing as command-line input or run-report output — so `--backend
- * d3d12` and a report's `"backend": "d3d12"` cannot drift apart. A comparison
+ * D3D12` and a report's `"backend": "D3D12"` cannot drift apart. A comparison
  * of two runs matches that field as text and has to accept the word the other
  * side wrote.
+ *
+ * Proper nouns, as the project spells them everywhere else, which also keeps a
+ * run report internally consistent: its `os` is "Linux" and its `arch` is
+ * "x86_64", because one is a name and the other an identifier.
  */
 [[nodiscard]] std::string_view ToString(Backend backend);
 
-/** The inverse, returning nothing for a word that names no backend. */
+/**
+ * The inverse, returning nothing for a word that names no backend.
+ *
+ * Case-insensitive, because this half is typed by hand on a command line while
+ * ToString's half is written into a file. Every spelling of the word reaches the
+ * same backend, and only one of them is ever written back out.
+ */
 [[nodiscard]] std::optional<Backend> BackendFromString(std::string_view name);
 
 } // namespace Hikari::Rhi
