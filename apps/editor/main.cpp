@@ -182,15 +182,13 @@ EditorOptions ParseArgs(int argc, char** argv)
         ExitWithUsage(EXIT_FAILURE);
     }
 
-    // Ignore stops errors ever being counted, so --strict-validation would pass
-    // a run that had them. Rejected rather than silently preferred either way:
-    // in CI that combination reads as "validation is enforced" and is not.
-    if (options.Run.Spec.bStrictValidation &&
-        options.Run.Spec.ValidationPolicy == Rhi::ValidationPolicy::Ignore)
+    try
     {
-        LogMsg(LogSeverity::Error, LogEditor,
-               "--strict-validation cannot be combined with --validation-policy ignore: "
-               "no errors would be counted for it to act on");
+        Engine::RejectContradictoryOptions(options.Run.Spec);
+    }
+    catch (const CommandLineError& e)
+    {
+        LogMsg(LogSeverity::Error, LogEditor, "{}", e.what());
         ExitWithUsage(EXIT_FAILURE);
     }
 

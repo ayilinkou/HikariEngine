@@ -294,13 +294,14 @@ jobs:
         run: ctest --test-dir build/${{ matrix.preset }} -L gpu --output-on-failure
 
       # The scene matrix launches real frames and asserts on the report they
-      # produce. Debug and ASan only: the engine gates validation on NDEBUG, so a
-      # release run would report zero validation errors trivially and make the
-      # headline assertion theatre. Promoting it is a two-line change once
-      # validation is runtime-selectable (backlog.md).
+      # produce, in every Linux configuration including release. RunScene asks
+      # for validation explicitly rather than inheriting it from the build, so
+      # the same eleven cases assert the same thing in all of them — before that
+      # a release run reported zero validation errors trivially and the headline
+      # assertion was theatre.
       - name: Scene tests (lavapipe)
         id: scene-tests
-        if: matrix.preset == 'ninja-debug-linux' || matrix.preset == 'ninja-asan-linux'
+        if: matrix.os == 'ubuntu-latest'
         continue-on-error: true
         env:
           HIKARI_TESTS_REQUIRE_DEVICE: "1"

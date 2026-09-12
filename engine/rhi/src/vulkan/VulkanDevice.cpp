@@ -1364,7 +1364,9 @@ void VulkanDevice::CreateInstance(const DeviceDesc& desc)
         throw std::runtime_error("Required layer not supported: " +
                                  std::string(*unsupportedLayerIt));
 
-    const vk::Bool32 bSyncValEnabled = VK_TRUE;
+    // Off by Vulkan's own default, so this is a setting the project makes rather
+    // than one it inherits — and the only reason it is a knob at all is cost.
+    const vk::Bool32 bSyncValEnabled = desc.bSyncValidation ? VK_TRUE : VK_FALSE;
 
     // Best-practices validation is off because the layer crashes on it, not because
     // we stopped wanting it. vulkan-validationlayers 1.4.357.0 — the newest version

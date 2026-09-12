@@ -35,6 +35,19 @@ std::string AvailableBackendNames()
     return names;
 }
 
+/** on | off, for the flags that switch something rather than choosing it. */
+bool RequireOnOff(const Platform::CommandLineOption& option)
+{
+    const std::string value = option.RequireValue();
+    if (value == "on")
+        return true;
+
+    if (value == "off")
+        return false;
+
+    throw Platform::CommandLineError(option.Flag + " expects on or off, got: " + value);
+}
+
 } // namespace
 
 bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
@@ -87,6 +100,10 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
 
         spec.Backend = *backend;
     }
+    else if (flag == "--validation")
+        spec.bValidationEnabled = RequireOnOff(option);
+    else if (flag == "--vk-sync-validation")
+        spec.bVulkanSyncValidation = RequireOnOff(option);
     else if (flag == "--validation-policy")
     {
         const std::string value = option.RequireValue();
@@ -122,6 +139,36 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
     return true;
 }
 
+void RejectContradictoryOptions(const RunSpec& spec)
+{
+    // Ignore stops errors ever being counted, so --strict-validation would pass
+    // a run that had them. Rejected rather than silently preferred either way:
+    // in CI that combination reads as "validation is enforced" and is not.
+    if (spec.bStrictValidation && spec.ValidationPolicy == Rhi::ValidationPolicy::Ignore)
+    {
+        throw Platform::CommandLineError(
+            "--strict-validation cannot be combined with --validation-policy ignore: "
+            "no errors would be counted for it to act on");
+    }
+
+    // Same shape one level up: with no layer loaded there is nothing to fail
+    // fast on, so the combination reads as stricter than it is.
+    if (spec.bValidationEnabled == false && spec.ValidationPolicy != Rhi::ValidationPolicy::Count)
+    {
+        throw Platform::CommandLineError(
+            "--validation off cannot be combined with --validation-policy " +
+            std::string(Rhi::ToString(spec.ValidationPolicy)) +
+            ": with no validation layer loaded there are no messages for a policy to act on");
+    }
+
+    if (spec.bValidationEnabled == false && spec.bStrictValidation)
+    {
+        throw Platform::CommandLineError(
+            "--validation off cannot be combined with --strict-validation: with no validation "
+            "layer loaded, no error could ever be counted for it to act on");
+    }
+}
+
 void PrintEngineUsage()
 {
     std::cout << "  --scene <path>          Load a scene (.map) on startup\n"
@@ -143,6 +190,14 @@ void PrintEngineUsage()
                      "(default: 2)\n"
                      "  --strict-validation     Exit non-zero if any Vulkan "
                      "validation error occurred\n"
+                     "  --validation <on|off>   Load the backend's validation layer "
+                     "(default: on in a debug\n"
+                     "                          build, off in a release one)\n"
+                     "  --vk-sync-validation <on|off>\n"
+                     "                          Vulkan only. Synchronization validation, where "
+                     "validation runs at\n"
+                     "                          all. The expensive sub-mode; on by default "
+                     "(default: on)\n"
                      "  --backend <name>        Which backend to run on. Available in this "
                      "build: " +
                      AvailableBackendNames() +

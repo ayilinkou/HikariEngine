@@ -172,6 +172,13 @@ Engine::RunResult RunScene(const std::string& contentRoot, const std::string& sc
     Paths paths(contentRoot);
 
     Engine::RunSpec spec;
+
+    // Explicit rather than inherited from the build: these cases assert that a
+    // run produced no validation errors, and a release build with no layer
+    // loaded reports zero trivially. Setting it here makes the same eleven cases
+    // assert the same thing in every configuration, rather than being theatre in
+    // three of them.
+    spec.bValidationEnabled = true;
     spec.ScenePath = scenePath;
     spec.Frames = kFrames;
     spec.bFixedDt = true;

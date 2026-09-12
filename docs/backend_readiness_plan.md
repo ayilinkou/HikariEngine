@@ -1568,7 +1568,7 @@ part of this.
 | **Step 58** — `Mesh*`/`Material*` become handles | Stage 9 | **Stays in Stage 9.** See below |
 | **Step 70** — bindless | Stage 10 | Explicitly after the backend (D14) |
 | Device info in the run report | `backlog.md` (P2) | **Stage 7.6 step 6.** Its blocker was "a neutral device-info accessor on `IDevice`, which is a seam decision"; D35 takes it |
-| Runtime-selectable validation | `backlog.md` (P2) | **Stage 7.6 step 12** — see §4.4 |
+| Runtime-selectable validation | `backlog.md` (P2) | **Done**, at Stage 7.6 step 12. Its backlog row is retired |
 
 **Why step 58 stays in Stage 9**, against the first draft's recommendation to pull it forward.
 `Drawable::operator<` falls through to comparing `pMesh` and `pMat` pointers, so batch order

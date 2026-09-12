@@ -169,14 +169,13 @@ HeadlessOptions ParseArgs(int argc, char** argv)
         ExitWithUsage(EXIT_FAILURE);
     }
 
-    // Ignore stops errors ever being counted, so --strict-validation would pass
-    // a run that had them. Rejected rather than silently preferred either way:
-    // in CI that combination reads as "validation is enforced" and is not.
-    if (run.Spec.bStrictValidation && run.Spec.ValidationPolicy == Rhi::ValidationPolicy::Ignore)
+    try
     {
-        LogMsg(LogSeverity::Error, LogHeadless,
-               "--strict-validation cannot be combined with --validation-policy ignore: "
-               "no errors would be counted for it to act on");
+        Engine::RejectContradictoryOptions(run.Spec);
+    }
+    catch (const CommandLineError& e)
+    {
+        LogMsg(LogSeverity::Error, LogHeadless, "{}", e.what());
         ExitWithUsage(EXIT_FAILURE);
     }
 

@@ -116,11 +116,22 @@ on every platform whether or not an SDK is installed, and they match the version
 | Driver support | <https://vulkan.gpuinfo.org> | whether a feature/format/limit is realistically available |
 
 The validation layers are the empirical check, not a substitute for the spec — a clean
-validation run proves nothing was caught, not that the code is correct. Synchronization
-validation is off by *Vulkan's* default but on in this project: `VulkanDevice::CreateInstance`
-sets `validate_sync` unconditionally through the `VK_EXT_layer_settings` chain, so every Debug
-run and every GPU test has it. Best-practices validation is the one currently switched off, for
-a layer crash — see `backlog.md`.
+validation run proves nothing was caught, not that the code is correct.
+
+**Validation is chosen at run time, and the default is unchanged from what it always was.**
+`--validation on|off` decides whether the layer is loaded at all; leaving it off the command line
+means the build configuration decides, as it always did — on in Debug, off in Release. That is a
+different question from `--validation-policy ignore|count|failfast`, which decides what a message
+*means* once a layer is loaded, and the combinations that read as stricter than they are —
+`--validation off` with a policy or with `--strict-validation` — are refused at parse time.
+
+Synchronization validation is off by *Vulkan's* default and on in this project, through the
+`VK_EXT_layer_settings` chain in `VulkanDevice::CreateInstance`. It is the expensive sub-mode —
+measured on a release build of the test scene at 1.035 ms/frame against 0.802 with it off and 0.337
+with no validation at all — so `--vk-sync-validation on|off` exists for the one case that needs it:
+a release run that validates *and* whose timings still mean something. Vulkan-only, as the prefix
+says; D3D12 has no synchronization validator. Best-practices validation is the one currently
+switched off, for a layer crash — see `backlog.md`.
 `grep`ping this repo for prior art is also not a source. Known-wrong places to copy from
 today: `ModelData::Init` (`suggested_work.md` §1.6 — a live P0 that dereferences a null
 material), `WriteScreenshot`'s hardcoded BGRA swizzle, `ChooseSwapchainFormat`'s fallback
@@ -145,9 +156,9 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | Cleanup between 6 and 7 | — | ✅ done (`Hikari::` namespace + `namespace_check`, CI's `static-checks` job, the `counters`/`timings`/`run` report + `--no-ui`, `docs/backlog.md`) |
 | 7 — Engine shell + DI | 40b, 41–47 | ✅ done (`engine/engine` + `engine/asset` + `engine/editor`, `HikariEditor` + `HikariHeadless`, injected subsystems, the event seam, and headless scene tests in CI) |
 | 7.5 — Backend readiness | 1–12 | ✅ done (`ICommandAllocator`, submission and fences, rendering scope, bind groups, pipelines, draw and dispatch recording — the transitional area is 2 headers from 4 sites, down from 7 from 18) |
-| **7.6 — Backend prerequisites** | **1–12** | **next** — the comparison tool (1–4, 7), backend selection (5), device info (6), the shader build (8–10), step 48 extended (11), runtime validation (12). Grilled 6, 11 and 12 September 2026: D27–D35 decided, the twelve steps sequenced, nothing open |
-| 7.7 — D3D12 backend | — | not started — stepped small, Vulkan stays the default, and it now owns the Windows GPU CI job (D28) |
-| 8+ — Frame graph, DOD, scalability | 48–76 | not started; 48–56 partly superseded by Stage 7.5, and 48 moves to 7.6 |
+| 7.6 — Backend prerequisites | 1–12 | ✅ done (`HikariCompare` and the gating table, `--backend` and `rhi/Backend.h`, `DeviceInfo` and the report's `system` block, per-stage blobs with DXIL and its signature gate, `ShaderTypes.h` shared with the shaders and its layout pinned, `--validation` and `--vk-sync-validation`) |
+| **7.7 — D3D12 backend** | — | **next** — stepped small, Vulkan stays the default, and it owns the Windows GPU CI job (D28). Not yet grilled |
+| 8+ — Frame graph, DOD, scalability | 49–76 | not started; 49–56 partly superseded by Stage 7.5. Step 48 landed at 7.6 step 11 |
 
 Update this table when a stage completes.
 
@@ -223,10 +234,11 @@ longer mirrors CI's job layout.
 **The GPU and scene tests run on Linux against lavapipe**, pinned with `VK_DRIVER_FILES`
 rather than discovered — enumeration order is not a stable identifier. `ctest -L gpu` runs in
 all three Linux jobs including release, because `RhiTestFixture.h` enables validation
-unconditionally, so a release run asserts everything a debug one does. `ctest -L scene` runs
-in the debug and ASan jobs only: the engine gates validation on `NDEBUG`, so a release run
-would report zero validation errors trivially. Promoting it is a two-line change once
-validation is runtime-selectable (`backlog.md`).
+unconditionally, so a release run asserts everything a debug one does. **`ctest -L scene` runs
+in all three Linux jobs too**, because `RunScene` asks for validation explicitly rather than
+inheriting it from the build — the same eleven cases assert the same thing in every
+configuration. Before that a release run reported zero validation errors trivially, which made
+the headline assertion theatre.
 
 Everything that *verifies* the tree lives in `tests/scripts/`; `scripts/` holds the things
 that build or change it (`build.sh` at the root, `format.sh`, `precommit.sh`, and the

@@ -183,3 +183,95 @@ TEST_CASE("The --backend flag with no value is rejected", "[ParseEngineOption]")
 
     CHECK_THROWS_AS(ParseEngineOption(Option("--backend"), spec, config), CommandLineError);
 }
+
+TEST_CASE("The --validation flag is tri-state", "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+
+    // Absent is not the same as off: it means the build configuration decides,
+    // which is what every run did before the flag existed.
+    CHECK_FALSE(spec.bValidationEnabled.has_value());
+
+    SECTION("on")
+    {
+        REQUIRE(ParseEngineOption(Option("--validation", "on"), spec, config));
+        REQUIRE(spec.bValidationEnabled.has_value());
+        CHECK(*spec.bValidationEnabled);
+    }
+
+    SECTION("off")
+    {
+        REQUIRE(ParseEngineOption(Option("--validation", "off"), spec, config));
+        REQUIRE(spec.bValidationEnabled.has_value());
+        CHECK_FALSE(*spec.bValidationEnabled);
+    }
+
+    SECTION("anything else")
+    {
+        CHECK_THROWS_AS(ParseEngineOption(Option("--validation", "true"), spec, config),
+                        CommandLineError);
+        CHECK_THROWS_AS(ParseEngineOption(Option("--validation"), spec, config), CommandLineError);
+    }
+}
+
+TEST_CASE("Synchronization validation is on unless asked otherwise", "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+
+    // On by default because it catches what is hardest to find otherwise, and
+    // off by Vulkan's own default — so leaving it alone would give up the check.
+    CHECK(spec.bVulkanSyncValidation);
+
+    REQUIRE(ParseEngineOption(Option("--vk-sync-validation", "off"), spec, config));
+    CHECK_FALSE(spec.bVulkanSyncValidation);
+
+    REQUIRE(ParseEngineOption(Option("--vk-sync-validation", "on"), spec, config));
+    CHECK(spec.bVulkanSyncValidation);
+}
+
+TEST_CASE("Contradictory validation options are refused", "[ParseEngineOption]")
+{
+    // Each of these reads as stricter than it is, which is the whole reason to
+    // reject rather than silently prefer one side.
+    SECTION("strict validation with nothing counting errors")
+    {
+        RunSpec spec;
+        spec.bStrictValidation = true;
+        spec.ValidationPolicy = ValidationPolicy::Ignore;
+
+        CHECK_THROWS_AS(RejectContradictoryOptions(spec), CommandLineError);
+    }
+
+    SECTION("a policy with no layer to produce messages")
+    {
+        RunSpec spec;
+        spec.bValidationEnabled = false;
+        spec.ValidationPolicy = ValidationPolicy::FailFast;
+
+        CHECK_THROWS_AS(RejectContradictoryOptions(spec), CommandLineError);
+    }
+
+    SECTION("strict validation with no layer")
+    {
+        RunSpec spec;
+        spec.bValidationEnabled = false;
+        spec.bStrictValidation = true;
+
+        CHECK_THROWS_AS(RejectContradictoryOptions(spec), CommandLineError);
+    }
+
+    SECTION("validation off on its own is fine")
+    {
+        RunSpec spec;
+        spec.bValidationEnabled = false;
+
+        CHECK_NOTHROW(RejectContradictoryOptions(spec));
+    }
+
+    SECTION("the defaults are not contradictory")
+    {
+        CHECK_NOTHROW(RejectContradictoryOptions(RunSpec{}));
+    }
+}

@@ -102,6 +102,21 @@ struct DeviceDesc
      * queue. A backend that cannot honour it must say so rather than pretend.
      */
     bool bForceSingleQueue = false;
+
+    /**
+     * Whether the validation layer's synchronization checks run, where
+     * bEnableValidation turned validation on at all.
+     *
+     * On by default: it catches the class of defect that is hardest to find any
+     * other way, and it is off by *Vulkan's* default, so leaving it alone would
+     * quietly give up the check. It is also the expensive sub-mode, which is the
+     * only reason to expose it.
+     *
+     * A backend with no synchronization validator ignores this, as one with no
+     * optional extensions ignores the list above — the field describes what to
+     * ask for, and what a backend can honour is the backend's business.
+     */
+    bool bSyncValidation = true;
 };
 
 /**

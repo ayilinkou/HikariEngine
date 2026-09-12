@@ -351,7 +351,10 @@ private:
     {
         Rhi::DeviceDesc desc;
         desc.ApplicationName = "HikariEngine";
-        desc.bEnableValidation = bEnableValidationLayers;
+        // Nothing asked for means the build decides, which is what every run
+        // did before the flag existed.
+        desc.bEnableValidation = m_Spec.bValidationEnabled.value_or(bEnableValidationLayers);
+        desc.bSyncValidation = m_Spec.bVulkanSyncValidation;
         desc.pDiagnostics = &m_Diagnostics;
         // The line the whole headless path turns on: no present requirement
         // means the device creates no surface, and CreatePresentTarget hands
@@ -558,6 +561,8 @@ private:
                           .FrameMs = ComputeTimingStats(m_FrameMs),
                           .CpuMs = ComputeTimingStats(m_CpuMs)};
 
+        const bool bValidationOn = m_Spec.bValidationEnabled.value_or(bEnableValidationLayers);
+
         report.Run = {.bFixedDt = m_Spec.bFixedDt,
                       .bHeadless = m_Platform.IsHeadless(),
                       .bNoUi = m_Spec.bNoUi,
@@ -570,13 +575,13 @@ private:
                       .CameraPreset = m_Spec.CameraPreset,
                       .InputScriptPath = m_Spec.InputScriptPath,
                       .CaptureFrame = m_CaptureFrame,
-                      // Sync validation is on exactly when validation is: the
-                      // backend sets validate_sync unconditionally inside the
-                      // layer settings chain, which is only attached when the
-                      // layer is loaded at all.
-                      .bValidationEnabled = bEnableValidationLayers,
+                      // What the run actually did, not what was asked: the
+                      // layer settings chain is only attached when the layer is
+                      // loaded, so sync validation off is also what "no
+                      // validation at all" looks like.
+                      .bValidationEnabled = bValidationOn,
                       .ValidationPolicy = m_Spec.ValidationPolicy,
-                      .bSyncValidation = bEnableValidationLayers,
+                      .bSyncValidation = bValidationOn && m_Spec.bVulkanSyncValidation,
                       .DisabledVulkanExtensions = m_Spec.DisabledVulkanExtensions,
                       .bForceSingleQueue = m_Spec.bForceSingleQueue,
                       .FramesInFlight = m_Config.FramesInFlight,
