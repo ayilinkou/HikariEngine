@@ -30,6 +30,7 @@
 #include "Texture.h"
 #include "Vertex.h"
 #include "XmlParser.h"
+#include "shaders/ShaderTypes.h"
 
 #include <core/Clock.h>
 #include <core/IJobSystem.h>
@@ -74,39 +75,6 @@ using namespace Hikari::Platform;
 constexpr LogCategory LogWindow("Window");
 constexpr LogCategory LogEngine("Engine");
 constexpr LogCategory LogRenderer("Renderer");
-
-struct LightData
-{
-    uint32_t PointLightCount;
-    uint32_t DirLightCount;
-    glm::vec2 Padding;
-    PointLight::Data PointLights[MAX_POINT_LIGHTS];
-    DirectionalLight::Data DirLights[MAX_DIR_LIGHTS];
-};
-
-struct CameraData
-{
-    glm::mat4 View;
-    glm::mat4 Proj;
-    glm::mat4 InvViewProj;
-    glm::vec3 Pos;
-    float NearPlane;
-    glm::vec3 Padding;
-    float FarPlane;
-};
-
-/**
- * Each member must start at an offset that is a multiple of its base alignment.
- * Eg. a float can start on offset 0, 4, 8 or 12.
- * glm::vec3 is 12 bytes wide by default but is 16 byte aligned.
- */
-struct GlobalBuffer
-{
-    LightData Lights;
-    CameraData CamData;
-    glm::vec3 SkyColor;
-    float Time;
-};
 
 /**
  * The wall-clock time, ISO 8601 in UTC.
@@ -1768,9 +1736,9 @@ private:
     void UpdateGlobalBuffer(uint32_t frameIndex)
     {
         m_GlobalBuffer.Time = m_RunTime;
-        m_GlobalBuffer.CamData.Pos = m_Camera->GetPosition();
+        m_GlobalBuffer.Camera.Pos = m_Camera->GetPosition();
         glm::mat4 view = m_Camera->GetViewMatrix();
-        m_GlobalBuffer.CamData.View = glm::transpose(view);
+        m_GlobalBuffer.Camera.View = glm::transpose(view);
         glm::mat4 proj = m_Camera->GetProjMatrix();
         // GLM was designed for OpenGL, which has its Y coordinate in clip
         // space inverted. Compensate for this by scaling here.
@@ -1780,12 +1748,12 @@ private:
         // it, D3D12 does not. This is the only site permitted to apply it.
         if (m_RhiDevice->GetCaps().bFlipClipSpaceY)
             proj[1][1] *= -1.f;
-        m_GlobalBuffer.CamData.Proj = glm::transpose(proj);
-        m_GlobalBuffer.CamData.NearPlane = m_Camera->GetNearPlane();
-        m_GlobalBuffer.CamData.FarPlane = m_Camera->GetFarPlane();
+        m_GlobalBuffer.Camera.Proj = glm::transpose(proj);
+        m_GlobalBuffer.Camera.NearPlane = m_Camera->GetNearPlane();
+        m_GlobalBuffer.Camera.FarPlane = m_Camera->GetFarPlane();
 
-        m_GlobalBuffer.CamData.InvViewProj =
-            glm::inverse(glm::transpose(m_GlobalBuffer.CamData.Proj) * view);
+        m_GlobalBuffer.Camera.InvViewProj =
+            glm::inverse(glm::transpose(m_GlobalBuffer.Camera.Proj) * view);
 
         uint32_t& pointLightCount = m_GlobalBuffer.Lights.PointLightCount;
         for (pointLightCount = 0u;

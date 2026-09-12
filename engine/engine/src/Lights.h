@@ -5,6 +5,7 @@
 #include "glm/glm.hpp"
 
 #include "SceneComponent.h"
+#include "shaders/ShaderTypes.h"
 
 enum class LightType : uint8_t
 {
@@ -41,13 +42,11 @@ public:
 
     void SetPosition(glm::vec3 pos) { m_Transform.Position = pos; }
 
-    struct Data
-    {
-        glm::vec3 Color;
-        float Intensity;
-        glm::vec3 Pos;
-        float Padding{};
-    };
+    /**
+     * Shared with the shaders, so it is declared once in ShaderTypes.h and
+     * aliased here. The name stays Data because that is what callers spell.
+     */
+    using Data = PointLightData;
 
     Data GetData() const
     {
@@ -65,13 +64,8 @@ public:
 
     void SetDirection(glm::vec3 dir) { m_Dir = glm::normalize(dir); }
 
-    struct Data
-    {
-        glm::vec3 Color;
-        float Intensity;
-        glm::vec3 Dir;
-        float Padding{};
-    };
+    /** Shared with the shaders; declared once in ShaderTypes.h. */
+    using Data = DirLightData;
 
     Data GetData() const { return Data{.Color = m_Color, .Intensity = m_Intensity, .Dir = m_Dir}; }
 

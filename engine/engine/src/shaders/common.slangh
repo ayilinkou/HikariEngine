@@ -1,49 +1,5 @@
-#include "../Common.h"
+#include "ShaderTypes.h"
 #include "registers.slangh"
-
-struct PointLight
-{
-	float3 Color;
-	float Intensity;
-	float3 Pos;
-	float Padding;
-};
-
-struct DirLight
-{
-	float3 Color;
-	float Intensity;
-	float3 Dir;
-	float Padding;
-};
-
-struct LightData
-{
-	uint PointLightCount;
-	uint DirLightCount;
-	float2 Padding;
-	PointLight PointLights[MAX_POINT_LIGHTS];
-	DirLight DirLights[MAX_DIR_LIGHTS];
-};
-
-struct CameraData
-{
-	float4x4 View;
-    float4x4 Proj;
-	float4x4 InvViewProj;
-    float3 Pos;
-    float NearPlane;
-	float3 Padding;
-    float FarPlane;
-};
-
-struct GlobalBuffer
-{
-	LightData Lights;
-	CameraData Camera;
-	float3 SkyColor;
-	float Time;
-};
 
 // Bind group N is register space N, and the index is the binding. The four
 // -fvk-*-shift flags on the SPIR-V compile are what make Slang derive the

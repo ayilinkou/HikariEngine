@@ -1,3 +1,5 @@
+#pragma once
+
 /*
  * Where push constants live, spelled once for both APIs.
  *

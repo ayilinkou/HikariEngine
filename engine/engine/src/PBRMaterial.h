@@ -12,6 +12,7 @@
 
 #include "Material.h"
 #include "Texture.h"
+#include "shaders/ShaderTypes.h"
 
 struct aiMaterial;
 
@@ -34,18 +35,12 @@ private:
                          Hikari::Rhi::SamplerHandle sampler);
 
 public:
-    struct MaterialData
-    {
-        glm::vec4 Albedo{1.f, 0.f, 1.f, 1.f};
-        float Metallic = 0.f;
-        float Roughness = 1.f;
-        float AO = 1.f;
-        float Opacity = 1.f; // might be redundant, can pack into albedo
-        int bHasAlbedoTex = false;
-        int bHasNormalTex = false;
-        int bHasMetallicRoughnessTex = false;
-        int bTwoSided = false;
-    };
+    /**
+     * The block pushed to the surface shaders, declared once in ShaderTypes.h
+     * so that the two languages cannot drift. Opacity might be redundant and
+     * could pack into Albedo.
+     */
+    using MaterialData = MaterialPushConstant;
 
 private:
     std::shared_ptr<Texture> m_Albedo = nullptr;

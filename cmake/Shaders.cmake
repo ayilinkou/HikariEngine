@@ -59,6 +59,18 @@ function(add_slang_shader_target target)
   # will run on, so it waits until a shader needs it.
   set(dxil_profile sm_6_0)
 
+  # Reflection rides on the compiles that ship rather than on a pass of its own
+  # (plan §4.4), so the JSON describes exactly the blob that was produced, under
+  # exactly the flags it was produced with. A separate invocation would drift the
+  # first time a flag was added to one and not the other, and the test would go
+  # on agreeing with a compile nobody runs.
+  #
+  # Build bookkeeping, so it stays in the build tree rather than in the directory
+  # deployed beside the executable — the same argument the depfiles carry.
+  # Nothing at run time reads it; the layout test does.
+  set(reflection_dir ${CMAKE_CURRENT_BINARY_DIR}/shader_reflection/$<CONFIG>)
+  set(HIKARI_SHADER_REFLECTION_DIR ${reflection_dir} PARENT_SCOPE)
+
   # What makes a single `: register(tN, spaceM)` annotation serve both APIs
   # (plan D29). slangc's own help: "For a resource attached with :register(bX,
   # <space>) but not [vk::binding(...)], sets its Vulkan descriptor set to
@@ -131,11 +143,13 @@ function(add_slang_shader_target target)
         COMMAND ${CMAKE_COMMAND} -E make_directory ${shaders_out_dir}
         COMMAND ${CMAKE_COMMAND} -E make_directory
           ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${reflection_dir}
         COMMAND
           ${SLANGC_EXE} ${shader} -target spirv -profile spirv_1_4
           -emit-spirv-directly -warnings-as-errors all -entry ${entry_point}
           ${vulkan_register_shifts} -o
-          ${output_file} -depfile ${depfile} $<IF:$<CONFIG:Debug>,-g1,-g0>
+          ${output_file} -reflection-json ${reflection_dir}/${output_rel}.json
+          -depfile ${depfile} $<IF:$<CONFIG:Debug>,-g1,-g0>
           $<IF:$<CONFIG:Debug>,-O0,-O3>
         # Same command as the compile, so validation runs exactly when a shader
         # recompiles and a failure fails the build. The target environment is
@@ -163,9 +177,11 @@ function(add_slang_shader_target target)
         COMMAND ${CMAKE_COMMAND} -E make_directory ${shaders_out_dir}
         COMMAND ${CMAKE_COMMAND} -E make_directory
           ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${reflection_dir}
         COMMAND
           ${SLANGC_EXE} ${shader} -target dxil -profile ${dxil_profile}
           -warnings-as-errors all -entry ${entry_point} -o ${dxil_file}
+          -reflection-json ${reflection_dir}/${base_path}${stage_suffix}.dxil.json
           -depfile ${dxil_depfile} $<IF:$<CONFIG:Debug>,-g1,-g0>
           $<IF:$<CONFIG:Debug>,-O0,-O3>
         # Same placement as spirv-val, and the same argument: a check that

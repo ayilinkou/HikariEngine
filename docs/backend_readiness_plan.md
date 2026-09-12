@@ -728,11 +728,30 @@ the two light `Data` structs, and the three push-constant blocks. Eight declarat
 five, and the duplicate `MaterialPushConstant` that `opaque.slang` and `weightedBlendedOIT.slang`
 each carry disappears as a side effect.
 
-Two riders. **`bool` cannot appear in a shared block** — one byte in C++, four in both shader
-targets — so the Slang side's `bool` fields become `int`, which is what the C++ already declares.
-And matrices need a comment rather than a decision: `glm::mat4` and `float4x4` are both 64 bytes,
-so what keeps them interchangeable is the transposition convention, which belongs next to the
-shared declaration rather than in one shader's header comment.
+Two riders. **A shared block spells a boolean `bool32`, never `bool`** — a C++ `bool` is one byte
+and a shader's is four, so a block carrying one disagrees about every offset after it. Built at
+step 11 as an alias with a half in each language: `int32_t` under `__cplusplus`, and a `typedef bool
+bool32` for Slang. That keeps the shader side reading as a boolean — `if (pc.bTwoSided)`, no `!= 0`
+— while both sides lay it out the same, and it is honest in both directions, where a C++ type
+*named* `bool` that occupies four bytes would not be.
+
+*Rejected: `#define bool int32_t` around the declarations, `#undef` after.* It gives the shared
+block a literal `bool`, and the undef does contain the leak — but `bool` is a keyword, so defining
+it is ill-formed (`[macro.names]`), and that is not academic: **Clang rejects it by default** with
+`-Wkeyword-macro`, which this repository would hit through clangd whatever the build did. GCC
+accepts it silently, which is the worse half of the result.
+
+The four-byte shader side is measured rather than assumed, and re-measured on every build: the
+reflection reports these fields as `bool` of size 4, and the layout test compares that against
+`sizeof` on both targets. Two further cases read the header as *text*, which is the only way to
+catch what a compiler cannot object to — one refuses a plain `bool` anywhere but the alias itself,
+naming the line; the other pins the struct inventory, since a struct missing from the layout test's
+list would otherwise pass by never being looked at.
+
+And matrices need a comment rather than a decision: `glm::mat4` and `float4x4` are both 64 bytes, so
+what keeps them interchangeable is the transposition convention — the engine transposes on upload
+and the shaders multiply row-vector first — which belongs next to the shared declaration rather than
+in one shader's header comment.
 
 ### D32 — Vertex input is checked, not shared — and the seam cannot express it yet
 

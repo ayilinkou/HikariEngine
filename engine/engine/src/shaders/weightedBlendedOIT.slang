@@ -4,19 +4,6 @@
 #include "common.slangh"
 #include "pbr.slangh"
 
-struct MaterialPushConstant
-{
-	float4 Albedo;
-	float Metallic;
-	float Roughness;
-	float AO;
-	float Opacity;
-	bool bHasAlbedoTex;
-	bool bHasNormalTex;
-	bool bHasMetallicRoughnessTex;
-	bool bTwoSided;
-};
-
 struct VS_In
 {
 	// per vertex

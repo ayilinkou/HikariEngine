@@ -49,7 +49,21 @@ engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
   unit/asset/ImageReaderTests.cpp LIBS Engine::Asset)
 
 engine_test(engine_tests SOURCES unit/engine/ParseEngineOptionTests.cpp
-  unit/engine/BindGroupLayoutInventoryTests.cpp LIBS Engine::Engine)
+  unit/engine/BindGroupLayoutInventoryTests.cpp unit/engine/ShaderLayoutTests.cpp
+  LIBS Engine::Engine)
+
+# The layout test reads what Slang reflected out of the compiles that shipped,
+# so the shaders have to be built before it runs, and it needs to be told where
+# the JSON went. nlohmann-json is the same test-only dependency the comparison
+# uses.
+target_link_libraries(engine_tests PRIVATE nlohmann_json::nlohmann_json)
+add_dependencies(engine_tests CompileShadersTarget)
+target_compile_definitions(
+  engine_tests PRIVATE
+  HIKARI_SHADER_REFLECTION_DIR="${HIKARI_SHADER_REFLECTION_DIR}"
+  # Read as text, not compiled: two of the layout cases are about what the
+  # shared header may say, which a compiler cannot object to.
+  HIKARI_SHADER_TYPES_HEADER="${CMAKE_SOURCE_DIR}/engine/engine/src/shaders/ShaderTypes.h")
 
 # The bind group layout inventory lives in the module's private sources, because
 # it is the renderer's own declaration rather than something the RHI publishes.

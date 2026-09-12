@@ -15,6 +15,8 @@
 #include <rhi/PipelineCache.h>
 #include <rhi/UniqueHandle.h>
 
+#include "shaders/ShaderTypes.h"
+
 #include "Texture.h"
 
 struct CloudSystemCreateInfo
@@ -32,23 +34,8 @@ struct CloudSystemCreateInfo
 class CloudSystem
 {
 private:
-    struct CloudPushConstants
-    {
-        glm::vec3 WindVelocity = {0.05f, 0.f, 0.03f};
-        float MinHeight = 1500.f;
-        float MaxHeight = 4000.f;
-        float Coverage = 0.2f;
-        float Anisotropy = 0.3f;
-        float BoundaryDisplacement = 300.f;
-        uint32_t ViewStepCount = 64u;
-        uint32_t SunStepCount = 6u;
-    };
-
-    struct BakeConstants
-    {
-        uint32_t Resolution;
-        uint32_t WorleyPointsPerCell;
-    };
+    // Both blocks are shared with the compute shaders that read them, so they
+    // are declared once in ShaderTypes.h rather than here and there.
 
 public:
     CloudSystem(CloudSystemCreateInfo createInfo);
