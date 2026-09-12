@@ -1,7 +1,10 @@
 #include <engine/ParseEngineOptions.h>
 
+#include <algorithm>
 #include <iostream>
 #include <string>
+
+#include <rhi/Backend.h>
 
 #include <engine/CameraPresets.h>
 
@@ -16,6 +19,21 @@ constexpr const char* kDefaultScene = "scenes/test_scene.map";
 
 /** What --frames means when the flag is given with no value. */
 constexpr uint64_t kDefaultFrames = 1000u;
+
+/** The backends this build has, spelled the way --backend accepts them. */
+std::string AvailableBackendNames()
+{
+    std::string names;
+    for (const Rhi::Backend backend : Rhi::AvailableBackends())
+    {
+        if (!names.empty())
+            names += ", ";
+
+        names += Rhi::ToString(backend);
+    }
+
+    return names;
+}
 
 } // namespace
 
@@ -48,6 +66,26 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
     {
         option.RequireNoValue();
         spec.bStrictValidation = true;
+    }
+    else if (flag == "--backend")
+    {
+        const std::string value = option.RequireValue();
+        const std::optional<Rhi::Backend> backend = Rhi::BackendFromString(value);
+
+        // Refused here rather than at device creation, which also checks: this
+        // runs before the window, the job system and the content root exist, it
+        // comes out as the same kind of error as every other bad flag, and it is
+        // the only one of the two that can list what this build does have. A run
+        // that quietly measured another backend is worse than one that refused
+        // (plan D25).
+        const std::span<const Rhi::Backend> available = Rhi::AvailableBackends();
+        if (!backend || std::ranges::find(available, *backend) == available.end())
+        {
+            throw Platform::CommandLineError("--backend: this build does not contain '" + value +
+                                             "'. Available: " + AvailableBackendNames());
+        }
+
+        spec.Backend = *backend;
     }
     else if (flag == "--validation-policy")
     {
@@ -106,6 +144,10 @@ void PrintEngineUsage()
                      "(default: 2)\n"
                      "  --strict-validation     Exit non-zero if any Vulkan "
                      "validation error occurred\n"
+                     "  --backend <name>        Which backend to run on. Available in this "
+                     "build: " +
+                     AvailableBackendNames() +
+                     "\n"
                      "  --validation-policy <p> ignore | count | failfast "
                      "(default: count; failfast aborts on the first error)\n"
                      "  --vk-disable-extension <name>\n"

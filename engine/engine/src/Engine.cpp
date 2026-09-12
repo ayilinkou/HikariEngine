@@ -364,6 +364,7 @@ private:
         // back an OffscreenTarget instead of a SwapchainTarget.
         desc.Requirements.bPresent = !m_Platform.IsHeadless();
         desc.Requirements.NativeWindowHandle = m_Platform.GetNativeWindowHandle();
+        desc.Backend = m_Spec.Backend;
         desc.DisabledOptionalExtensions = m_Spec.DisabledVulkanExtensions;
         desc.bForceSingleQueue = m_Spec.bForceSingleQueue;
         return desc;

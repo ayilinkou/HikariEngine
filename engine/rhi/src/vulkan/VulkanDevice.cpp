@@ -1731,10 +1731,10 @@ void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
 
 } // namespace Hikari::Rhi::Vulkan
 
-namespace Hikari::Rhi
+namespace Hikari::Rhi::Vulkan
 {
-std::unique_ptr<IDevice> CreateDevice(const DeviceDesc& desc)
+std::unique_ptr<IDevice> CreateVulkanDevice(const DeviceDesc& desc)
 {
-    return std::make_unique<Vulkan::VulkanDevice>(desc);
+    return std::make_unique<VulkanDevice>(desc);
 }
-} // namespace Hikari::Rhi
+} // namespace Hikari::Rhi::Vulkan

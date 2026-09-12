@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include <rhi/Backend.h>
 #include <rhi/Diagnostics.h>
 
 namespace Hikari::Rhi
@@ -35,6 +36,17 @@ struct DeviceRequirements
 struct DeviceDesc
 {
     std::string ApplicationName = "HikariEngine";
+
+    /**
+     * Which implementation to build the device from. A field here rather than a
+     * parameter of CreateDevice because the fields around it — the validation
+     * switch, the disabled extensions, the single-queue lever — are all read
+     * differently depending on which backend reads them, so one object
+     * describes the whole request; and because Vulkan being permanently the
+     * default (plan D25) is then a struct default rather than a convention
+     * every call site has to observe.
+     */
+    Rhi::Backend Backend = Rhi::Backend::Vulkan;
 
     DeviceRequirements Requirements;
 

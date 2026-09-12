@@ -56,7 +56,8 @@ engine_test(engine_tests SOURCES unit/engine/ParseEngineOptionTests.cpp
 # Pinning it (plan D21) is the one reason a test reaches in.
 target_include_directories(engine_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/engine/src)
 
-engine_test(rhi_tests SOURCES unit/rhi/ConversionTests.cpp
+engine_test(rhi_tests SOURCES unit/rhi/BackendTests.cpp
+  unit/rhi/ConversionTests.cpp
   unit/rhi/DiagnosticsTests.cpp unit/rhi/FormatTests.cpp
   unit/rhi/OwnershipTransferTests.cpp unit/rhi/QueueFamilyTests.cpp
   unit/rhi/SwapchainUtilTests.cpp unit/rhi/UniqueHandleTests.cpp

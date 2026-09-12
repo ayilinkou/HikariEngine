@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include <rhi/Backend.h>
 #include <rhi/Diagnostics.h>
 
 namespace Hikari::Engine
@@ -70,6 +71,13 @@ struct RunSpec
 
     /** How the diagnostics sink treats validation messages. Read by the app. */
     Rhi::ValidationPolicy ValidationPolicy = Rhi::ValidationPolicy::Count;
+
+    /**
+     * Which backend to build the device from. Vulkan on every platform unless
+     * asked otherwise, permanently (plan D25): a bug report, a baseline capture
+     * and a run report then mean the same thing whoever produced them.
+     */
+    Rhi::Backend Backend = Rhi::Backend::Vulkan;
 
     /**
      * Optional extensions to behave as though the device did not support, so a
