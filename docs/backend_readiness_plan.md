@@ -1334,9 +1334,15 @@ APIs need different halves: Vulkan reads the attribute, D3D12 reads the register
 place instead of at every declaration:
 
 ```slang
-// Common.h
+// engine/engine/src/shaders/registers.slangh
 #define PUSH_CONSTANT(Type, name) [[vk::push_constant]] Type name : register(b0, space7)
 ```
+
+**A shader header rather than `Common.h`**, which this section first said. `Common.h` holds the
+values shared with C++ and is compiled as C++ too, and nothing in `engine/` outside the RHI module
+may name Vulkan — `rhi_boundary_check` catches `vk::` there on sight, and it was right to. The new
+header is what `bakePerlinWorley.comp.slang` includes, since it is the one shader that wants the
+convention and not the global buffer.
 
 so each shader writes `PUSH_CONSTANT(MaterialPushConstant, pcMatData);`. *Rejected: Slang's own
 `[push_constant]` alone*, which compiles but leaves the D3D12 side at an implicit `b1` in space 0,
@@ -1672,8 +1678,11 @@ which is dxc 1.9.0.5191. Both ports install prebuilt binaries, so the whole prob
 - **The per-stage split leaves the baseline pixel-identical.** Measured at step 8 on 12 September
   2026, not asserted: `baseline_test.sh` exits 0 after it, and `spirv-dis` confirms every blob
   carries exactly one `OpEntryPoint` named `"main"` once `-fvk-use-entrypoint-name` is dropped —
-  the SSA id keeps the source name, which is not what Vulkan matches `pName` against. *Still
-  open:* whether D29's respelling does the same. Step 9 answers that by running it.
+  the SSA id keeps the source name, which is not what Vulkan matches `pName` against.
+- **D29's respelling leaves the baseline pixel-identical too**, measured at step 9 on the same
+  day. Every emitted `DescriptorSet`/`Binding` pair was compared against what the attributes
+  produced and not one moved, so the respelling is the one-to-one spelling change this entry
+  predicted. Nothing in §9 is open any more.
 
 ---
 

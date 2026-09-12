@@ -50,6 +50,21 @@ endif()
 function(add_slang_shader_target target)
   cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
 
+  # What makes a single `: register(tN, spaceM)` annotation serve both APIs
+  # (plan D29). slangc's own help: "For a resource attached with :register(bX,
+  # <space>) but not [vk::binding(...)], sets its Vulkan descriptor set to
+  # <space> and binding number to X + N." A shift of zero therefore makes the
+  # Vulkan set the register space and the Vulkan binding the register index, so
+  # the SPIR-V comes out with exactly the sets and bindings the attributes used
+  # to spell — one annotation per declaration instead of two, in the vocabulary
+  # D13 already chose, and the only one of the two that can express a space at
+  # all. "all" applies the shift to every space rather than one.
+  set(vulkan_register_shifts
+      -fvk-b-shift 0 all
+      -fvk-t-shift 0 all
+      -fvk-s-shift 0 all
+      -fvk-u-shift 0 all)
+
   set(shaders_source_dir ${CMAKE_SOURCE_DIR}/engine/engine/src/shaders)
   set(shaders_out_dir ${HIKARI_EXE_DIR}/shaders)
 
@@ -109,7 +124,8 @@ function(add_slang_shader_target target)
           ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>
         COMMAND
           ${SLANGC_EXE} ${shader} -target spirv -profile spirv_1_4
-          -emit-spirv-directly -warnings-as-errors all -entry ${entry_point} -o
+          -emit-spirv-directly -warnings-as-errors all -entry ${entry_point}
+          ${vulkan_register_shifts} -o
           ${output_file} -depfile ${depfile} $<IF:$<CONFIG:Debug>,-g1,-g0>
           $<IF:$<CONFIG:Debug>,-O0,-O3>
         # Same command as the compile, so validation runs exactly when a shader

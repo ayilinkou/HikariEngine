@@ -1,11 +1,15 @@
-[[vk::binding(0, 0)]] RWTexture3D<float> outputNoise;
+// Only the push constant convention: this shader has no lighting and no global
+// buffer, so including common.slangh would bring a b0 declaration it never uses.
+#include "registers.slangh"
+
+RWTexture3D<float> outputNoise : register(u0, space0);
 
 struct BakeConstants
 {
     uint resolution;
     uint worleyPointsPerCell; // typically 1, controls Worley cell density
 };
-[[vk::push_constant]] BakeConstants pc;
+PUSH_CONSTANT(BakeConstants, pc);
 
 // ---- Tileable hash: wraps cell coordinates before hashing ----
 float3 hash33(int3 p, uint res)

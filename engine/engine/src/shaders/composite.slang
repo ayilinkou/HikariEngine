@@ -22,13 +22,16 @@ VS_Out vertMain(VS_In v)
 	return o;
 }
 
-[[vk::binding(0, 1)]] Texture2D<float4> opaqueTex;
-[[vk::binding(1, 1)]] Texture2D<float4> accumTex;
-[[vk::binding(2, 1)]] Texture2D<float> revealageTex;
-[[vk::binding(3, 1)]] Texture2D<float4> cloudsTex;
+// The sampler is s4 rather than s0: the index must be unique across register
+// classes within a space, because Vulkan has one binding namespace per
+// descriptor set where HLSL has four (plan D29).
+Texture2D<float4> opaqueTex : register(t0, space1);
+Texture2D<float4> accumTex : register(t1, space1);
+Texture2D<float> revealageTex : register(t2, space1);
+Texture2D<float4> cloudsTex : register(t3, space1);
 // Separate from the texture rather than a Sampler2D: D3D12 has no combined
 // image sampler, so the RHI's binding model has none either.
-[[vk::binding(4, 1)]] SamplerState cloudsSampler;
+SamplerState cloudsSampler : register(s4, space1);
 
 [shader("fragment")]
 float4 fragMain(VS_Out f) : SV_Target

@@ -1,4 +1,5 @@
 #include "../Common.h"
+#include "registers.slangh"
 
 struct PointLight
 {
@@ -44,8 +45,11 @@ struct GlobalBuffer
 	float Time;
 };
 
-[[vk::binding(0, 0)]]
-ConstantBuffer<GlobalBuffer> globalBuffer;
+// Bind group N is register space N, and the index is the binding. The four
+// -fvk-*-shift flags on the SPIR-V compile are what make Slang derive the
+// Vulkan set and binding from the register rather than needing a second
+// annotation (plan D29).
+ConstantBuffer<GlobalBuffer> globalBuffer : register(b0, space0);
 
 // Inverse-square law
 float CalcAttenuation(float3 FragPos, float3 LightPos)

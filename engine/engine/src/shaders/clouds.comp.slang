@@ -1,12 +1,13 @@
 #include "common.slangh"
 #include "pbr.slangh"
 
-[[vk::binding(0, 1)]] Texture2D<float> depthTexture;
-[[vk::binding(0, 2)]] RWTexture2D<float4> outputImage;
-[[vk::binding(1, 2)]] Texture3D<float> perlinWorley;
+Texture2D<float> depthTexture : register(t0, space1);
+// Unique across classes within space 2: u0, t1, s2 rather than u0, t0, s0.
+RWTexture2D<float4> outputImage : register(u0, space2);
+Texture3D<float> perlinWorley : register(t1, space2);
 // Separate from the texture: D3D12 keeps samplers in their own heap and has no
 // combined descriptor, so the RHI's binding model has none either.
-[[vk::binding(2, 2)]] SamplerState perlinWorleySampler;
+SamplerState perlinWorleySampler : register(s2, space2);
 
 struct PushConstants
 {
@@ -19,7 +20,7 @@ struct PushConstants
     uint viewStepCount;
 	uint sunStepCount;
 };
-[[vk::push_constant]] PushConstants pc;
+PUSH_CONSTANT(PushConstants, pc);
 
 static const float kSlabEpsilon = 1e-5f;
 
