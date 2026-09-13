@@ -28,22 +28,23 @@ architecture, and prefer them over inventing a design:
 - `docs/backend_readiness_plan.md` — **retained, like the RHI plan and for the same reason.**
   Stage 7.5: the four seams a second backend needs and Stage 5 did not build — submission and
   command-list ownership, rendering scope, bind groups, pipelines, and draw/dispatch recording
-  — as twelve steps, plus the decisions (D14–D35) behind them. It **supersedes D7 and D8**,
+  — as twelve steps, plus the decisions (D14–D46) behind them. It **supersedes D7 and D8**,
   deferring bindless until after D3D12 and neutralising the binding model instead, and it
   reorders Part IV's Stage 8. Its D-numbers continue the RHI plan's series deliberately: both
   govern the same seam. It also defines **Stage 7.6** (what the backend needs around the seam —
-  two of its six items widen `IDevice` deliberately) and the constraints on **Stage 7.7** (the
-  D3D12 backend itself). Grilled on 6 September 2026; its §0 records what that changed, which was
-  substantial. **Stage 7.6's own interview ran on 11 and 12 September 2026 and is finished**: §4.1–§4.4
-  are its output — the comparison tool, the shader build, the twelve-step sequence and the decisions
-  behind them — with nothing left open. **§5 carries Stage 7.7's interview, which is in progress.**
-  It began on Linux on 13 September 2026 and continues on this machine's Windows install, because
-  what is left needs measurements only that machine can take. **A session continuing it reads §5.7
-  first** — where the interview stands, the order to continue in, what is owed at its end, and the
-  working conventions the Linux session carried in memory — then §5.6, what it has settled. §5.1–§5.5
-  are the material it walks: what is already decided, the facts the survey settled, the seam gaps no
-  document recorded, the frontier, and the measurements. Retires together with the RHI extraction
-  plan into a single `docs/rhi.md` — see that document's §10.
+  two of its six items widen `IDevice` deliberately) and **Stage 7.7** (the D3D12 backend itself).
+  Grilled on 6 September 2026; its §0 records what that changed, which was substantial. **Stage
+  7.6's own interview ran on 11 and 12 September 2026 and is finished**: §4.1–§4.4 are its output —
+  the comparison tool, the shader build, the twelve-step sequence and the decisions behind them —
+  with nothing left open. **Stage 7.7's interview ran on 13 September 2026 and is finished**, on
+  Linux and then on this project's Windows install, where the measurements only that machine could
+  take were made. Its seam decisions are **D36–D46**, with amendments made in place to **D15, D26,
+  D32 and D35**; **§5 is the stage's plan** — §5.1 what the interview changed, §5.2 scope and the
+  obligations binding it, §5.3 the machine and every measurement, §5.4 the decisions about the stage
+  rather than the seam, and §5.5 the ten steps, the gate each passes, and the conditions and triggers
+  that come due along the way. The throwaway measurement programs live outside the repository, at
+  `C:\Dev\d3d12-probe`. Retires together with the RHI extraction plan into a single `docs/rhi.md` —
+  see that document's §10.
 
 ---
 
@@ -54,7 +55,7 @@ running application. Do not start work outside the current stage, and do not com
 without asking first. Stage 5 is complete, so Part IV is the work order again — but where
 the **D-series** and Part IV disagree about the RHI's public seam, **the D-series wins**. It
 spans two documents: `docs/rhi_extraction_plan.md` holds D0–D13 and
-`docs/backend_readiness_plan.md` holds D14–D35, which supersede D7 and D8. Part IV was
+`docs/backend_readiness_plan.md` holds D14–D46, which supersede D7 and D8. Part IV was
 written before the seam was neutralised, so its later stages still spell interfaces in raw
 Vulkan; §10.2 is one such place. Re-express rather than copy, and amend Part IV as you go.
 
@@ -163,7 +164,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 7 — Engine shell + DI | 40b, 41–47 | ✅ done (`engine/engine` + `engine/asset` + `engine/editor`, `HikariEditor` + `HikariHeadless`, injected subsystems, the event seam, and headless scene tests in CI) |
 | 7.5 — Backend readiness | 1–12 | ✅ done (`ICommandAllocator`, submission and fences, rendering scope, bind groups, pipelines, draw and dispatch recording — the transitional area is 2 headers from 4 sites, down from 7 from 18) |
 | 7.6 — Backend prerequisites | 1–12 | ✅ done (`HikariCompare` and the gating table, `--backend` and `rhi/Backend.h`, `DeviceInfo` and the report's `system` block, per-stage blobs with DXIL and its signature gate, `ShaderTypes.h` shared with the shaders and its layout pinned, `--validation` and `--vk-sync-validation`) |
-| **7.7 — D3D12 backend** | — | **next** — stepped small, Vulkan stays the default, and it owns the Windows GPU CI job (D28). Grill in progress — `backend_readiness_plan.md` §5.7 |
+| **7.7 — D3D12 backend** | 1–10 | **next** — grilled 13 September 2026 (D36–D46, `backend_readiness_plan.md` §5). Headless first, legacy barriers then enhanced, seam changes interleaved and gated on Vulkan within each step; Vulkan stays the default, and it owns the Windows GPU CI job (D28) |
 | 8+ — Frame graph, DOD, scalability | 49–76 | not started; 49–56 partly superseded by Stage 7.5. Step 48 landed at 7.6 step 11 |
 
 Update this table when a stage completes.

@@ -10,9 +10,9 @@
 interview §0 demanded · **Supersedes:** `rhi_extraction_plan.md` D7 and D8;
 `architecture_plan.md` Part IV steps 48–56 in part, and §20's bindless row ·
 **Status:** Stages 7.5 and 7.6 complete. 7.6's interview ran on 6, 11 and 12 September 2026 and
-finished — D27–D35 and §4.1–§4.4 are its output. **Stage 7.7's interview is in progress**: it
-began on Linux on 13 September 2026 and continues on this machine's Windows install. §5 is its
-material, §5.6 what it has settled so far, and §5.7 the handoff between the two sessions.
+finished — D27–D35 and §4.1–§4.4 are its output. **Stage 7.7 is planned and not started**: its
+interview ran on 13 September 2026, on Linux and then on this project's Windows install, and
+finished — D36–D46, amendments to D15, D26, D32 and D35, and §5 are its output.
 
 ---
 
@@ -119,6 +119,8 @@ would be a trap for exactly the reader who most needs to find one.
 D14–D18 come from the original draft. D19–D26 come from the 6 September grill of Stage 7.5.
 D27–D33 come from Stage 7.6's own interview on 11 September, and D34–D35 from its conclusion on
 12 September — the two of that session's decisions that govern the seam rather than the stage.
+D36–D46 come from Stage 7.7's interview on 13 September 2026, which also amended D15, D26, D32 and
+D35 in place; its decisions about the stage rather than the seam are in §5.
 
 ### D14 — Bindless is deferred until after the D3D12 backend; the binding model is narrow and neutral
 
@@ -222,6 +224,21 @@ what it is handed to changes.
 One consequence does follow, from D25: a single machine can now run both backends, so the
 cache's default path must be backend-distinguished or the two will overwrite each other's blob
 on every run.
+
+**Amended by Stage 7.7 (13 September 2026): the D3D12 backend builds no pipeline cache, and
+`IPipelineCache` does not move.** On D3D12, `Save()` writes nothing; the promise that a later run
+is faster is kept on real hardware by the driver, which on the RX 580 reports every
+`D3D12_SHADER_CACHE_SUPPORT` flag including the OS-managed automatic disk cache, documented as
+storing "compiled shaders on disk to accelerate future runs of the application". `PipelineCache.h`'s
+comment says so. The cache file's name gains the backend, as above. `ID3D12PipelineLibrary` would
+store pipelines under names, and a library keyed by a stable hash of each description was weighed:
+six pipelines, a driver that already caches them, CI runners that start with an empty disk, and a
+library that needs a cross-process hash, a lock — its reference page says loading one pipeline from
+several threads "should synchronize themselves" — and stale-file handling. It went to `backlog.md`,
+with its trigger: warm `startupMs` and `firstFrame` on both backends and on NuGet WARP, read from the
+first D3D12 scene reports. *Rejected: a caller-chosen cache name on the pipeline description*, which
+would break the promise D8 and D17 made. **The cost, accepted:** in-box and NuGet WARP have no
+automatic cache, so every WARP run recompiles every pipeline.
 
 ### D16 — Submission and command-list allocation move behind `IDevice`
 
@@ -602,6 +619,47 @@ whether it fell or walked there over six months.
 exactly as strict as it is today; across backends it is the configured limits. There is no
 second tool to keep in step.
 
+**Amended by Stage 7.7 (13 September 2026), in three parts.**
+
+**Validation counters are held at zero, not at equality.** Two validators check different things at
+different granularity — one mistake can be one D3D12 message and three Vulkan ones — so equality
+between them means something only at zero; read literally, the rule above would pass `1 == 1` for two
+unrelated warnings. **When `system.backend` differs, `validationErrors` and `validationWarnings` must
+both be zero in both reports**, and `ReportCompare` gains that as a rule beside `Compared`, `Measured`
+and `Condition`. Within a backend they stay exact. The escape hatch is a message-ID suppression argued
+beside its entry, on either backend — Vulkan already has one, D3D12's counterpart is a deny list on
+`ID3D12InfoQueue`. *Rejected: warnings skipped across backends*, where a D3D12-only warning present from
+the first run would be agreed with by every same-backend comparison and asserted by nothing. *The cost:*
+a D3D12 warning with no Vulkan counterpart is fixed or argued away before a cross-backend comparison
+passes.
+
+**The two pixel constants are measured on one machine, from two fresh runs.** The pair is this
+project's RX 580 under Vulkan and under D3D12, taken back to back — one GPU, one driver, so the
+difference isolates the backend and nothing else. Two alternatives crossed more than the backend: WARP
+against a software Vulkan driver fetched onto a Windows runner, whose tolerance would absorb two
+rasterizers and then excuse any D3D12 bug smaller than their gap; and Linux lavapipe against Windows
+WARP, which crosses backend, rasterizer, OS and compiler at once. No per-backend reference image is
+committed: during the stage D3D12's image converges on Vulkan's and a promotion on every step would
+prove little. *The cost:* until the post-stage checks in `backlog.md` land, a D3D12 bug that renders the
+same wrong image every run passes CI, and after parity a D3D12-only regression smaller than the tolerance
+goes unnoticed.
+
+**Every differing region is explained before the constants are committed, and they carry no
+headroom.** Each area of the first full-parity diff is accounted for by a named mechanism — coverage at
+geometry edges, float accumulation in the cloud raymarch, filtering — and anything unexplained is a bug,
+fixed before re-measuring; the explanations are written beside the constants in `ImageCompare.h`. About
+half of the test scene is sky from the cloud compute pass, so low-bit drift across the whole sky is
+expected, the fraction cap will be set mostly by it, and the channel-delta cap does the work for
+geometry. The constants are then **exactly the measured values**: the pair is deterministic, so the
+difference moves only when something changes, and headroom would decide which changes pass unexplained
+rather than absorb noise. That replaces the "headroom" framing above — the measured delta is still
+always reported, and approaching the limit now means something changed. Measuring needs the diff image
+scaled by the measured worst delta rather than by the tolerance, which is zero until then.
+*Rejected:* a multiple, meaningless on a large fraction; a fixed margin, a guess; a limit derived from
+legitimate variation across presets, scenes or drivers — the one with an argument behind it, and the one
+to reach for if this is revisited. *The cost:* every driver update and every rendering change that moves
+the gap needs a re-measure, a re-explanation and approval. Cross-backend identity is D35's, as amended.
+
 ### D27 — DXIL is emitted on every platform, not only on Windows
 
 vcpkg's `shader-slang` carries no DXC, so `-target dxil` fails outright with it: `failed to load
@@ -775,6 +833,18 @@ front of them: a semantic field on `VertexAttribute`; a convention synthesising 
 location; or the backend reading semantics from reflection at pipeline creation. **Recorded here,
 decided in 7.7.**
 
+**Decided by Stage 7.7 (13 September 2026): `VertexAttribute` carries `SemanticName` and
+`SemanticIndex`**, filled in by the C++ attribute tables and ignored by the Vulkan backend. The mapping
+is already known at build time — Slang's DXIL-target reflection lists each vertex input's semantic
+name, semantic index and location together (`TModelCol0` is `POSITION`/1 at location 4; an index of 0
+is omitted) — so the test compares semantics exactly as it compares locations, and the exclusion above
+ends because there is now a C++ side. D13's rule covers the spelling: where only one API has a concept,
+its term stands. *Rejected: a semantic derived from the location*, which rewrites every `VS_In` to names
+that mean nothing to a reader or to D3D12's tools; *rejected: reading the DXIL signature at pipeline
+creation*, a hand-written container parser or a runtime `dxcompiler.dll`, with a mismatch found only
+when a pipeline fails. **The cost, accepted:** a D3D12-only concept on the seam, and each attribute
+declared twice, held together by the test — the arrangement already accepted for locations.
+
 ### D33 — One entry point per blob, named `main`, and the seam stops carrying entry names
 
 D24 emits one blob per stage for both targets, and Stage 7.6 step 8 is where that lands. After it,
@@ -895,6 +965,330 @@ backend. It never says anything untrue, and it makes the report's shape backend-
 matters because absence already means something specific to the comparison tool, where a missing
 field triggers a provisional comparison. Making absence normal for two fields weakens that signal
 for every other field.
+
+**Amended by Stage 7.7 (13 September 2026): `DeviceInfo` also carries the adapter's PCI vendor and
+device IDs.** `VkPhysicalDeviceProperties::vendorID`/`deviceID` and `DXGI_ADAPTER_DESC1::VendorId`/
+`DeviceId` are the same PCI identifiers by definition — measured on the RX 580 through DXGI as
+`0x1002`/`0x67DF`, matching the identity Windows lists for the device — so they are the one piece of
+identity the two APIs spell alike. They let the comparison decide whether two reports from
+*different backends* describe the same adapter. **When `system.backend` differs,
+`system.apiVersion`, `system.driver` and `system.gpu` stop gating pixels** — the first differs by
+construction, the other two are free text each API spells its own way — **while the two IDs,
+`system.os` and `system.arch` must match**, and D26's cross-backend tolerance applies. Like every
+`system.*` field, the IDs never gate counters. Software rasterizers carry vendor IDs of their own —
+WARP `0x1414`, lavapipe `VK_VENDOR_ID_MESA` (`0x10005`) — so a pair of software runs is refused by
+identity rather than by policy. *Rejected:* **a `--cross-backend` flag the caller passes**, which takes
+comparability away from the reports, so two reports from two machines plus the flag would pass;
+**matching on names**, which nothing guarantees agree across APIs; **a LUID**, which Vulkan reports
+only where LUIDs exist and which is unique only until restart, so it could never appear in a committed
+reference. *What PCI IDs do not prove, accepted:* they name the chip, not the card — identical cards
+and board partners' variants share them, as does one card listed twice under two Vulkan drivers
+(within a backend, `system.driver` still gates) — and the driver cannot be proven the same across
+backends, since the two APIs encode driver versions differently; acceptable for two runs taken back to
+back.
+
+### D36 — The D3D12 backend carries the Agility SDK, for the debug layer
+
+The D3D12 runtime normally comes with Windows. The Agility SDK lets an application carry its own —
+`D3D12Core.dll` in a subdirectory, opted into by two symbols the executable exports — so the runtime
+is the same on every machine the application runs on. The driver underneath is still the machine's.
+
+**What decides it is the debug layer, not enhanced barriers.** On the Windows 10 machine this stage
+must run on, `D3D12GetDebugInterface` fails with `DXGI_ERROR_SDK_COMPONENT_MISSING` (`0x887A002D`)
+unless the SDK's `d3d12SDKLayers.dll` sits beside `D3D12Core.dll`; with it the layer loads and
+`ID3D12Debug1` is available. D26 holds `validationErrors` equal across backends and the scene suite
+asserts it zero, so without the SDK that number would come from a validator that never loaded. The
+second reason is the pinned runtime itself: the same D3D12 runtime here and on the CI runner, the
+counterpart of pinning lavapipe with `VK_DRIVER_FILES`. Enhanced barriers were the reason first
+proposed, and they turned out not to be available on this machine's driver at all (D37).
+
+**`directx-headers`, `directx12-agility` and `d3d12-memory-allocator` join `vcpkg.json` as
+Windows-only dependencies**, the last because D25 already chose D3D12MA as VMA's counterpart. The
+exports `D3D12SDKVersion` and `D3D12SDKPath` must be in each executable that can create a device — the
+two apps, `scene_tests` and `rhi_gpu_tests` — and they are an OBJECT library linked directly, like
+`SanitizerShims`, because a static library member that nothing references is never extracted. The
+exported version is generated by CMake from the port's version, and the backend checks the version the
+*loaded* `D3D12Core.dll` exports at startup rather than trusting the two to agree. A malformed
+`D3D12SDKPath` fails the first D3D12 call with `D3D12_ERROR_INVALID_REDIST` rather than falling back
+to the in-box runtime (measured).
+
+*Rejected: the OS runtime*, which would make the debug layer depend on the Graphics Tools optional
+feature on this machine and every runner — an environment requirement no version can pin — and let
+the runtime differ between a Windows 10 desktop and a Windows Server runner, the kind of difference
+D26's exact counters are least forgiving of. *Rejected: `ID3D12SDKConfiguration::SetSDKVersion`*, the
+nearest thing to `VK_ADD_LAYER_PATH`, which the redistributable specification restricts to Developer
+Mode.
+
+**The cost, accepted:** a `D3D12\` folder beside each output directory — `build/<preset>/` and
+`build/<preset>/tests/` — and, because the port ships `d3d12SDKLayers.dll` only in its debug tree, a
+Release build copies it from there, which D40 makes mandatory rather than convenient.
+
+### D37 — D3D12 builds two barrier paths behind one seam
+
+`Barrier.h` is the shape of D3D12's *enhanced* barriers: sync, access and layout as independent
+halves, the same shape as Vulkan's synchronization2. D3D12 also has the older model, legacy
+`ResourceBarrier`, where each subresource is in one `D3D12_RESOURCE_STATES` value and a transition names
+before and after. Enhanced barriers are optional per driver — "not currently a hardware or driver
+requirement", in `D3D12_FEATURE_DATA_D3D12_OPTIONS12`'s words — and the runtime translates in one
+direction only: every `ResourceBarrier` call becomes enhanced barriers at the driver interface, and
+nothing runs enhanced barriers on a driver without them.
+
+**The RX 580 reports `EnhancedBarriersSupported` false**, on AMD's Polaris and Vega branch at 25.8.1 and
+again at 26.5.2, with the Agility SDK proven loaded. The stage must run on that machine, so **a legacy
+path is mandatory**. **An enhanced path is built beside it** and chosen on the capability bit.
+
+Both, because the enhanced path is the cheaper of the two — it maps nearly one-to-one onto a seam
+designed on its shape — and it has three places to run: NuGet WARP, which reports enhanced barriers and
+is deployed beside every executable, on this machine at every step; the same in CI; and a second
+machine with a modern GPU, weekly. And because with an enhanced path present,
+**`TextureLayout::Undefined` stays in the seam**: enhanced barriers honour it natively, so resolving it
+is private to the legacy path rather than a seam change, and the oldest of the three barrier models does
+not get to dictate the neutral API. Beyond that one value the legacy path needs no general state
+tracker, since every `TextureBarrier` already carries its old layout, and the debug layer checks the
+result: a wrong before-state is reported at `ExecuteCommandLists` (measured).
+
+What the legacy path gives up, and must be written knowing: legacy barriers carry **no sync scope**, so
+`PipelineStage` is discarded — safe, but D3D12 will never catch a Vulkan synchronization bug — and **no
+subresource range**, so a partial-range barrier becomes several. Today every barrier covers a whole
+resource and `ALL_SUBRESOURCES` keeps `counters.frame.barriers` one-to-one with Vulkan; the first
+partial range breaks that unless the legacy path counts what the caller asked for rather than what it
+issued.
+
+*Rejected: legacy only, enhanced deferred* — recommended at the time on the premise that the enhanced
+path would run nowhere anyone could see it, which the measurement of NuGet WARP beside the executable
+disproved. *Rejected: enhanced only*, which refuses the stage's own machine.
+
+**The cost, accepted:** two implementations that must produce identical counters and pixels, so D26's
+exact counters span three configurations — Vulkan, D3D12-legacy, D3D12-enhanced — and every
+barrier-touching step is verified twice on the D3D12 side; and NuGet WARP becomes a pinned dependency,
+arriving through a repository overlay port because vcpkg has none.
+
+### D38 — `--d3d12-barriers` chooses the path, and an impossible request is refused
+
+`--d3d12-barriers legacy|enhanced|auto`, defaulting to `auto`, beside `--vk-sync-validation`, with a run
+report field recording the path taken.
+
+**An override exists so the two paths can be compared on one adapter.** Without it a modern GPU only
+ever runs enhanced and the RX 580 only legacy, so every difference between them is confounded with
+hardware; with it, one session on one GPU runs both at zero tolerance, which is the evidence that makes
+owning two paths safe.
+
+**`enhanced` on an adapter without support fails `CreateDevice`**, naming the adapter and the missing
+capability. An explicit `legacy` or `enhanced` on a Vulkan run is refused at parse time with the other
+contradictory options. Both follow the rule `RejectContradictoryOptions` already applies: an option
+that reads stricter than it is gets refused, not quietly weakened. A tri-state defaulting to `auto` can
+tell "asked for" from "left alone", which a boolean defaulting to on cannot — the only reason
+`--vk-sync-validation` goes unchecked under D3D12. `legacy` is always accepted. The report field must
+**not** gate the counters, since D37 requires them to match across the two paths.
+
+*Rejected: falling back to legacy with a warning*, which turns a legacy-against-enhanced comparison into
+legacy against legacy, passing at zero tolerance, caught only if someone reads the report field.
+*Rejected: no override*, for the confound above.
+
+### D39 — The D3D12 device's floor: feature level 12_0 and unrestricted copy pitch
+
+**`CreateDevice` refuses a D3D12 adapter below feature level 12_0.** 12_0 is the RX 580's highest level,
+and it guarantees resource binding tier 2 and shader model 6.0 (*Hardware Feature Levels*). Tier 2's
+one rule this engine could break — no unpopulated CBV or UAV entries in a descriptor table — it does
+not: every constant-buffer and UAV binding in `BindGroupLayouts.h` is mandatory. The shader-model floor
+is 6_0, what the blobs are compiled to; nothing consumes a higher model until bindless, which D14
+defers. *Rejected: 11_0*, whose tier 1 forbids unpopulated entries in every heap (*Hardware Tiers*), so
+the material's optional textures would need a null-descriptor path no adapter in the test matrix could
+exercise — the RX 580, both WARPs and the weekly machine are all tier 3, a hardware property no lower
+feature-level request switches on. *Rejected: requiring tier 3*, which refuses tier-2 hardware over
+restrictions the code does not hit.
+
+**`CreateDevice` also refuses a D3D12 adapter without `UnrestrictedBufferTextureCopyPitchSupported`,
+and `BufferTextureCopyRegion`'s tight packing stands.** Without the relaxation D3D12 requires 256-byte
+row pitch and 512-byte offsets, so a tightly packed readback buffer is the wrong size at any width not a
+multiple of 64. With it, in the words of Microsoft's *VulkanOn12* specification — where the relaxation
+was introduced for exactly this contract — "both offset and row-pitch MUST be aligned only to the whole
+unit size of the texture's format". The RX 580 and NuGet WARP support it; in-box WARP does not and is
+not used. `BufferTextureCopyRegion`'s comment stops calling alignment "the backend's problem" and names
+the requirement. Uploads were never affected: `UploadContext.h` keeps staging offsets from the caller.
+*Rejected: the seam carrying the alignment*, which would edit every readback, add vocabulary Vulkan
+answers trivially, and repack rows on the CPU wherever the width is unaligned.
+
+**The cost, accepted:** D3D12 hardware below 12_0, and drivers without the relaxation, are refused
+outright — the latter in unknown numbers. **A condition:** the second test machine, a Windows 11 PC
+with a modern GPU, is probed before its first weekly session relies on this; if its driver lacks the
+relaxation, the seam carries the alignment after all.
+
+### D40 — Validation on D3D12: required, polled at every call, and GPU-based by default
+
+**The debug layer is a hard requirement wherever validation is on** — by default in Debug, or through
+`--validation on` — exactly as Vulkan's layer already is. A layer that does not load fails
+`CreateDevice`; on the machine this stage runs on, the layer is absent unless deployed (D36), so a
+degradable layer would let every D3D12 scene test pass while checking nothing.
+
+**Messages are polled, and every backend method checks.** `ID3D12InfoQueue1`, the callback interface,
+is unavailable on both adapters of the Windows 10 machine even with the SDK's layers (measured), so when
+validation is on each D3D12 backend method ends by comparing `ID3D12InfoQueue::GetNumStoredMessages`
+with its last value and drains into `Diagnostics` if it grew. `failfast` therefore aborts inside the RHI
+method, with the engine's calling line on the stack — the frame `Diagnostics` promises. Counts are
+current at every call boundary, so reading them needs no separate drain, except that a run's final drain
+follows a wait for the GPU (below). Errors the layer only detects at `ExecuteCommandLists` abort at the
+submit. *Rejected: break and catch* — `SetBreakOnSeverity` does raise inside the offending call with no
+debugger attached, as exception `0x87A`, which a vectored handler can catch and read (measured), but that
+is process-wide exception handling installed by the RHI, and `0x87A` is numerically `FACILITY_DXGI` and
+documented nowhere as the mechanism. *Rejected: draining at submit*, whose dump lands at the submit
+rather than the recorder. *The cost:* a check in each of roughly eighty backend virtuals, a forgotten one
+pointing an abort at the wrong line, and an unmeasured per-call cost in validated runs.
+
+**GPU-based validation is on wherever validation is on, behind `--d3d12-gpu-based-validation on|off`** —
+the API's own term (`ID3D12Debug1::SetEnableGPUBasedValidation`). It is a mode of the debug layer, not a
+second layer: it patches every shader to check, at the point of use, what the CPU cannot see —
+"uninitialized or incompatible descriptors in a shader", descriptors referencing deleted resources, heap
+overruns, and "shader accesses of resources in incompatible state". A D3D12 descriptor names no state,
+so the CPU layer knows what is bound but not what a shader reads; Vulkan checks the equivalent on the
+CPU routinely, because a Vulkan descriptor write names the layout (`VUID-vkCmdDraw-None-09600`). With it
+off, D3D12 would check strictly less, exactly where a mistake in D37's private `Undefined` handling would
+show. Microsoft's guidance fits the stage: enable it "with smaller data sets (for example, engine demos …
+with fewer PSO's and resources) or during early application bring-up". Its output arrives after the GPU
+executes, "asynchronous with other CPU-timeline validation", so under `failfast` it aborts at the next
+checking call after that, and a run's final drain must follow a wait for the GPU. *Rejected: off by
+default*, leaving the one check D3D12 needs to match Vulkan unrun. **A condition:** its cost is measured
+at the first step that renders a scene under D3D12, and if it makes the WARP scene suite prohibitive the
+default is revisited with the numbers.
+
+The validation *counters* across backends are D26's, as amended.
+
+### D41 — Cull mode is a pipeline property, not command-list state
+
+**`ICommandList::SetCullMode` and `GraphicsPipelineDesc::bDynamicCull` leave the seam.** The engine
+creates one opaque pipeline per cull mode it uses — two, sharing one layout — and the recorder picks per
+batch with `SetPipeline`. D3D12 bakes cull mode into the pipeline state object, and no version of
+`ID3D12GraphicsCommandList` sets it.
+
+This is D22's move again: where one API cannot express something, the seam stops claiming it rather than
+one backend faking it. It also deletes the rule the engine already tripped on — a Vulkan command buffer
+starts with no dynamic cull mode at all (`VUID-vkCmdDrawIndexed-None-07840`) — instead of giving it a
+D3D12 twin. The seam's existing promise that a bound group survives `SetPipeline` when the layout is the
+same becomes load-bearing, on a path no test exercised: every scene today is all single-sided or all
+two-sided, so a scene mixing both joins the tests.
+
+*Rejected: variants hidden behind one handle*, a D3D12 pipeline secretly three PSOs with `SetCullMode`
+quietly a PSO switch — and compiling a variant lazily was never possible, since the opaque pass records
+on a job-system thread. *Rejected: the description declaring its modes*, which makes the cost visible
+but keeps the hidden switch.
+
+**The cost, accepted:** Vulkan gives up dynamic state it has, for two pipelines and a pipeline bind per
+batch where materials alternate; and each future per-draw rasterizer variation multiplies pipelines at
+the call site — a problem handed, visibly, to Stage 8's material system.
+
+### D42 — A submit names the image it writes, and semaphores leave the seam
+
+**`SubmitDesc` gains an optional present image — the target and the acquired index — and
+`SemaphoreHandle`, both semaphore spans, `AcquiredImage::WaitSemaphores` and
+`IPresentTarget::GetRenderCompleteSemaphore` are removed.**
+
+A Vulkan frame's submit must wait on the semaphore the acquire signalled for the image it writes, and
+signal the one its present — or, headless, the next acquire of that image — waits on. The engine used to
+do that by copying both semaphores from the target into the submit without ever deciding anything about
+them. What it actually knows is which image the submit writes, and that is enough for the Vulkan
+backend to find both semaphores privately. D3D12 needs nothing: "Present operations occur on the 3D queue
+provided at swapchain creation" (*Swap Chains*), so a present is ordered behind the rendering already on
+that queue, and a D3D12 offscreen target's next write is queued behind its last. The back buffer must be
+in `D3D12_RESOURCE_STATE_PRESENT` at present, which `GetRequiredFinalLayout` already answers; and the
+same page's advice to "always use a frame-count fence to limit CPU frames in flight" is what the frame
+loop already does.
+
+*Rejected: semaphores kept, empty on D3D12* — a concept only Vulkan has, left in the neutral seam with a
+validity rule at every call site. *Rejected: a target attaching its semaphores to the next graphics
+submit after an acquire* — correctness by call order, since an upload or readback submitted in between
+would consume the wait. *Rejected: emulating semaphores on D3D12*, synchronisation objects that
+synchronise nothing.
+
+**The cost, accepted:** `Submit` is coupled to `IPresentTarget`, and the Vulkan backend must recognise its
+own targets and refuse another device's. The seam can no longer wait on a present semaphore for an
+unrelated submit, which nothing did; fences cover every other ordering (D5).
+
+### D43 — One persistent descriptor heap per kind, sized once
+
+**The D3D12 backend creates one shader-visible CBV/SRV/UAV heap and one sampler heap with the device, at
+a capacity `DeviceDesc` carries** — 65,536 resource descriptors by default, and the guaranteed 2,048
+samplers. Every command list binds the same two heaps, ImGui's included. A bind group receives its range
+at creation, identical samplers share a slot, `Destroy` recycles the range under the lifetime discipline
+the engine already keeps for Vulkan, and exhaustion refuses with a message naming the capacity and the
+field. The Vulkan backend ignores the capacity and keeps growing its pools.
+
+The rules this answers, from *Descriptor Heaps Overview*: "At most one CBV/SRV/UAV combined heap and one
+Sampler heap can be bound at any one time"; switching "within the same command list or in different
+ones" is acceptable but can cost "a GPU stall" on some hardware; and "descriptors cannot be changed while
+a command list submitted for execution might reference that location". The page's "pre-fill" strategy is
+this design, and its "one huge array" is where bindless later takes the same heap. Measured on the RX
+580, a shader-visible resource heap costs about 60 bytes of video memory per descriptor — 3.9 MiB at the
+default — against a scene that uses tens.
+
+*Rejected: a heap that grows*, which needs `CreateBindGroup` never to run while a list records — two
+recorders run on job threads — risks a stall at the switch, and cannot move under ImGui, whose DX12
+backend stores the raw GPU descriptor handle as its texture ID; ImGui would need a heap of its own, and
+every frame would switch heaps between lists. *Rejected: staging heaps and a per-frame scratch heap* —
+never exhausted by scene size, but a descriptor copy on every bind of every frame, and a design bindless
+would replace.
+
+**The cost, accepted:** asymmetry with Vulkan. A scene that loads there can be refused on D3D12 until the
+capacity is raised — the kind of ceiling Vulkan's allocator was changed to remove. *What would reopen
+it:* scenes outgrowing any sensible capacity before bindless arrives.
+
+### D44 — Testing levers: disabling extensions is Vulkan's, and single-queue is neutral
+
+**`DisabledOptionalExtensions` is Vulkan's, and refused on a D3D12 run.** `--vk-disable-extension` with
+`--backend D3D12` is rejected at parse time. D3D12 has capability bits rather than extensions, and each
+D3D12 branch worth forcing gets a dedicated lever when it arises, as D38 gave enhanced barriers; the only
+other branch today is tearing, which only decides whether Immediate is offered. *Rejected: D3D12 reading
+the list as capability names*, a second way to force legacy barriers beside D38, where the list's rule
+that unknown names are "reported and ignored" would let a typo run the path nobody asked for.
+
+**Single-queue is one neutral lever.** `--vk-force-single-queue` becomes `--force-single-queue` and the
+report's `run.vkForceSingleQueue` becomes `run.forceSingleQueue`. `DeviceDesc` and `RunSpec` already
+named it neutrally; only the flag and the key carried a prefix written when there was one backend. On
+D3D12 the upload context uses a copy queue by default and the lever moves uploads to the direct queue —
+the seam's `QueueType` already has `Copy`, so D3D12 honours copy-queue submissions regardless. D3D12 has
+no ownership transfer (a resource reaches a copy queue by being in `COMMON`), so the GPU fixture's two
+ownership-transfer arrangements are Vulkan's alone. **The user approved renaming the key in the committed
+baseline**, value unchanged. *Rejected: one single-queue lever per backend*, two flags and two fields for
+one concept, one always false.
+
+### D45 — The boundary check covers both backends, and keeps them apart
+
+`rhi_boundary_check`'s patterns were Vulkan's alone, so nothing stopped `ID3D12`, `DXGI_` or `D3D12_`
+appearing in a neutral header or in engine code.
+
+**Its first check gains D3D12's patterns** — `ID3D12…`, `IDXGI…`, `D3D12_…`, `DXGI_…`, `D3D12MA…`, and
+includes of `d3d12`, `dxgi` and `directx/` — while the bare word `D3D12` stays legal, since
+`Backend::D3D12` is neutral vocabulary. **D9 governs the D3D12 ImGui glue as it governs Vulkan's**: one
+listed escape hatch, `include/rhi/d3d12/D3D12Native.h`, reachable only from allowlisted sites, because
+ImGui's DX12 backend takes a raw device, queue and heap. **The naming check gains a D3D12 list with one
+permanent entry**, the sibling `engine/editor/src/D3D12UiBackend.cpp` that D9 already promised; tests
+stay exempt, as for Vulkan.
+
+**And a fifth check keeps the backends out of each other inside `engine/rhi/`**, which the other four
+exempt: `src/vulkan/` names no D3D12, `src/d3d12/` names no Vulkan or VMA, and the module's shared
+sources name neither. A D3D12 name in Vulkan or shared code already breaks the Linux build; the direction
+nothing caught is D3D12 code depending on Vulkan, which compiles everywhere D3D12 exists because D25 keeps
+Vulkan in every build. *Rejected: leaving the module exempt*, so that a port written with the other
+backend open beside it could quietly borrow its internals. **The cost, accepted:** a check that guards an
+architectural rule rather than any build a supported configuration compiles; a genuinely shared helper is
+neutral or duplicated.
+
+### D46 — Adapters are selected by name
+
+**`--gpu <name-substring>`, a neutral `DeviceDesc` field**, matched against each backend's adapter name —
+Vulkan's `deviceName`, DXGI's `Description`. No match refuses and lists what was found. With nothing
+given, each backend keeps its rule, first in enumeration order, which on the stage's machine picks the RX
+580 under both.
+
+It is the real case the standing decision to defer device selection was waiting for: D37 makes running
+D3D12 on WARP, on a machine with a GPU, a per-step need, and `--gpu "Basic Render"` does it — measured
+to load NuGet WARP when that copy is deployed beside the executable. The shape was already designed in
+`backlog.md` — a name, because "enumeration order is not a stable identifier". *Rejected: a two-valued
+`--adapter default|software`*, which a later `--gpu` would overlap; *rejected: an environment variable
+read by the D3D12 backend*, a hidden global input — `VK_DRIVER_FILES` is read by the Vulkan loader, this
+would be read by the engine's own RHI.
+
+**The cost, accepted:** a substring means something only within one backend, since each API spells names
+its own way; and a name cannot tell in-box WARP from NuGet WARP — deployment decides which runs.
 
 ---
 
@@ -1536,577 +1930,289 @@ tolerance" is left as it stands, because §15 already records that D26 supersede
 
 ## 5. Stage 7.7 — the D3D12 backend
 
-**The interview is in progress.** It opened on Linux on 13 September 2026 and settled roots 1 and
-2 there; it continues on Windows, because root 3 onwards needs measurements only that machine can
-take. **A session picking it up should read §5.7 first, then §5.6**, then walk what is left of
-§5.4 in the order §5.7 gives.
+**Status: planned, not started.** Grilled on 13 September 2026 — on Linux, then in two sittings on
+this project's Windows install, where the measurements only that machine could take were made. The
+decisions that govern the RHI's seam are **D36–D46** in §2, together with amendments to **D15, D26,
+D32 and D35**. This section is the stage: what bounds it (§5.2), the facts it rests on (§5.3), the
+decisions about the stage rather than the seam (§5.4), and the ten steps (§5.5). Before step 1, the
+re-grill's four mechanical checks in `CLAUDE.md` apply as for any grilled plan.
 
-What follows was gathered from the tree on 12 September 2026, the day Stage 7.6 closed, and
-checked again on 13 September before the first question: every file and line reference in §5.2
-and §5.3 still resolved, and every count still matched. It is deliberately not a plan. §5.1 is
-what earlier stages already decided and the interview reopens only with cause; §5.2 is the facts
-the survey settled, so that no question is spent on them; §5.3 is what the survey found that no
-document records; §5.4 is the frontier the interview walks; §5.5 is the handful of facts only a
-Windows machine can answer. Where the interview found one of those sections wrong, the correction
-is made in place and marked.
+### 5.1 What the interview changed
 
-**The split between §5.2 and §5.4 is a claim, not a ruling.** A fact filed as a decision costs one
-question; a decision filed as a fact costs the whole point of the interview. Both columns are here
-so that a misfiling is visible and correctable.
+The interview started from a survey written the day Stage 7.6 closed. It found seven places where the
+seam said something only Vulkan could honour — the kind of finding D22 was — and it found that several
+of the survey's premises were wrong or missing.
 
-### 5.1 What is already decided
+**Premises that moved.**
 
-Four constraints, from Stage 7.5 and 7.6:
+- **The Linux translation layer was misnamed.** DXVK translates D3D8–11; the one that translates D3D12
+  is vkd3d-proton. `backlog.md`'s row is corrected.
+- **WARP is not only the copy Windows ships.** Microsoft publishes newer builds as the
+  `Microsoft.Direct3D.WARP` NuGet package. In-box WARP on the Windows 10 machine offers shader model 6_2
+  and no enhanced barriers; NuGet WARP 1.0.20 offers 6_9 and enhanced barriers — and it loads only from
+  beside the executable, silently losing to `System32` when placed anywhere else.
+- **The RX 580 has no enhanced barriers**, on AMD's legacy Polaris and Vega driver branch before and after
+  an update, so the survey's question stopped being "is the Agility SDK in" and became "is a legacy
+  barrier path built".
+  The SDK then earned its place through something the survey did not mention: the debug layer, which does
+  not load on that machine without it (D36).
+- **Debug-layer messages cannot reach a callback there**, so validation on D3D12 is polled (D40).
+- **The copy-pitch gap has a D3D12 answer made for it.** The unrestricted copy pitch relaxation, from
+  Microsoft's *VulkanOn12* specification, makes the seam's tight packing legal (D39).
+- **D3D12MA had already been chosen**, by D25, and needed no question.
+- **ImGui's DX12 backend stores raw GPU descriptor handles as texture IDs**, which is what ruled out a heap
+  that can move (D43).
 
-- **It is stepped small and explained as it goes.** This is a learning exercise as much as a
-  port, and the step sizing follows from that rather than from what a fluent implementer could
-  manage in one sitting.
-- **Neutral descriptions are checked against the D3D12 documentation as they are implemented**,
-  not inferred from the Vulkan side. `CLAUDE.md`'s rule about never guessing at graphics API
-  semantics applies to the API that is not in the tree yet, and applies hardest there.
-- **Vulkan stays the default** (D25). The backend's routine exercise is CI, and that job lives
-  here rather than in 7.6: **WARP is a D3D12 adapter**, so there was nothing for a Windows GPU job
-  to run until this stage exists (D28). Every Windows job asks for `--backend D3D12` by name.
-  Until the job exists, a local Windows install is what the D3D12 work is built and tested on.
-- **Two things are already recorded as this stage's to decide.** The vertex-input seam — D32,
-  where `VertexAttribute::Location` cannot fill in a `D3D12_INPUT_ELEMENT_DESC` — and the
-  cross-backend tolerance constants of D26, which cannot be chosen before there are two backends
-  to measure the difference between.
+**The seven gaps, and what answered each.**
 
-And a set of obligations the D-series already placed on this stage, gathered here so the interview
-starts from them rather than rediscovering them:
+| Gap the survey found | Answer |
+|---|---|
+| `SetCullMode` has no D3D12 equivalent | D41 — cull mode leaves the command list |
+| A tightly packed readback buffer is the wrong size on D3D12 | D39 — the unrestricted copy pitch is required |
+| Only one shader-visible heap of each kind can be bound | D43 — one persistent heap per kind, sized once |
+| `SubmitDesc`'s semaphores are a Vulkan-only concept | D42 — the submit names the image it writes |
+| `NativeWindowHandle` is an `SDL_Window*`, not a native handle | §5.4 — the D3D12 backend asks SDL for the HWND |
+| The UI backend is chosen by name at three call sites | §5.4 — a factory in `engine/editor` |
+| The boundary check has no D3D12 half; the GPU fixture no backend axis | D45, and §5.4's per-process registration |
+
+Two more gaps were already booked for this stage and are answered too: vertex input semantics (D32,
+amended) and D26's two constants (D26, amended).
+
+### 5.2 Scope, and what binds it
+
+**The requirement: the stage must work on this project's Windows install**, an AMD Radeon RX 580. It is
+the machine the D3D12 work is built and judged on, so its adapter's answers in §5.3 are constraints, not
+data points. A second Windows 11 PC with a modern GPU is available roughly weekly, as a real-hardware
+check rather than a safety net.
+
+**Done means full parity.** Both apps run under `--backend D3D12`, windowed and headless, with the UI
+drawn; the GPU and scene suites pass locally and on WARP in CI; and D26's two constants are committed.
+*Rejected: headless parity*, with the editor refusing D3D12 and windowed work carried to a later stage,
+which would end the stage with nothing on screen and design the swapchain later, on its own — while §7
+puts the frame graph after this stage precisely so it is written with two whole backends in front of it.
+*Rejected: the device alone*, which contradicts D26's obligation to commit pixel tolerances from scene
+runs. **The cost, accepted:** the longest stage so far. The mitigation is §5.4's ordering, which lands the
+scene suite and CI mid-stage.
+
+**Obligations earlier stages already placed on it.**
 
 | Source | What it obliges |
 |---|---|
-| **D25** | Vulkan is the default on every platform, permanently. A Windows build links both backends and ships both blob sets; a Linux build refuses `--backend D3D12` at parse time, which it already does |
-| **D26** | Counters must match **exactly** across backends — a disagreement is a bug in one of them. Pixels get two tolerance caps, and **this stage measures and commits those two constants**. They are expected test results from the moment they land |
-| **D28** | The Windows GPU job is this stage's. Every Windows CI job asks for `--backend D3D12` explicitly |
-| **D15** | Both backends now run on one machine, so the pipeline cache's default path **must** be backend-distinguished. Predicted at Stage 7.5 and still unbuilt: `Engine.cpp:498` writes `pipeline_cache.bin` with no backend in the name |
-| **D24, D33** | The engine loads shader bytes and asks `DeviceCaps::ShaderExtension` for the extension; every blob is one stage with one entry point named `main`. The D3D12 side needs no new loading code — `Engine.cpp:1063` and `CloudSystem.cpp:140` already build the filename from the cap |
-| **D13** | Naming already follows D3D12 wherever the two APIs disagree, so the backend should find its own vocabulary waiting for it rather than translating on arrival |
-| **D10, D11, D12** | Clip-space handedness has one site behind `DeviceCaps::bFlipClipSpaceY`; the curated `Rhi::Format` list is a portability promise with `default:`-free switches; the Slang shaders are portable as written. Listed so nobody re-does them |
+| **D25** | Vulkan is the default on every platform, permanently. A Windows build links both backends; a Linux build refuses `--backend D3D12` at parse time, which it already does |
+| **D26**, amended | Counters match exactly across backends, validation counters at zero; two pixel caps, measured and committed by this stage |
+| **D28** | The Windows GPU job is this stage's, and every Windows CI job asks for D3D12 by name |
+| **D15**, amended | The pipeline cache's path is backend-distinguished; D3D12 builds no cache |
+| **D24, D33** | The engine loads shader bytes by `DeviceCaps::ShaderExtension`, one stage per blob, entry point `main`; the D3D12 side needs no new loading code |
+| **D13** | Naming already follows D3D12 wherever the APIs disagree |
+| **D10, D11, D12** | Clip-space handedness has one site, `Rhi::Format` is curated with `default:`-free switches, the Slang shaders are portable. Already done |
 
-Running the D3D12 path over Vulkan on Linux is a stretch goal in `backlog.md`, not part of this.
-**Corrected 13 September:** that row, and this paragraph until now, call the translation layer
-DXVK. DXVK translates D3D8–11; the one that translates D3D12 is **vkd3d-proton**. The backlog row
-is corrected when the interview ends (§5.7).
+**The seam as surveyed, for scale.** On 12 September `engine/rhi/include/rhi/` was 22 headers, and a
+D3D12 backend implements six interfaces — `IDevice` (42 virtuals), `ICommandAllocator` (2),
+`ICommandList` (21), `IPresentTarget` (9), `IUploadContext` and `IPipelineCache`. The Vulkan backend was
+6,385 lines across 37 files. The inventory: six bind group layouts, pinned by
+`BindGroupLayoutInventoryTests`; three graphics pipelines, four after D41; two compute pipelines; seven
+command allocators per frame in flight, two recorded on job-system threads; one submit per frame carrying
+seven lists. D41 and D42 remove one virtual each from `ICommandList` and `IPresentTarget`. The root
+signature budget is not a constraint: `D3D12_MAX_ROOT_COST` is 64 DWORDs and no layout comes close.
 
-### 5.2 What the survey established
+**Out of the stage**, each a `backlog.md` row: the post-stage checks — committed per-backend references,
+D3D12 pixels in CI, revisiting D26's no-headroom rule, per-region caps as a candidate; an
+`ID3D12PipelineLibrary` (D15, amended); on/off flags accepting `true`/`false` and `1`/`0`; and running the
+D3D12 backend over vkd3d-proton on Linux.
 
-**Facts. Do not spend an interview question on any of these.**
+### 5.3 The machine, and what was measured
 
-**The seam the backend implements.** `engine/rhi/include/rhi/` is 22 headers, all free of Vulkan
-and VMA, checked by `rhi_boundary_check`. A D3D12 backend implements six interfaces —
-`IDevice` (42 virtuals), `ICommandAllocator` (2), `ICommandList` (21), `IPresentTarget` (9),
-`IUploadContext`, `IPipelineCache` — and the conversion tables behind them. The Vulkan backend is
-**6,385 lines across 37 files** in `engine/rhi/src/vulkan/`, of which `VulkanDevice.cpp` is 1,792
-and `VulkanConversions.cpp` is 735. That is the honest order of magnitude for the port, less
-whatever D3D12 gets for free.
+**The machine.** AMD Radeon RX 580, Windows 10 Pro 19045, AMD Adrenalin 26.5.2 for Polaris and Vega
+(`31.0.21925.1001`) since 13 September 2026. AMD's in-app update check does not offer that branch's
+releases — it reported 25.8.1 as current while 26.5.2 existed — so a newer driver is found on AMD's
+support page for the card, and the installed version is `RadeonSoftwareVersion` under
+`HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0001`. D26's
+constants are measured against a driver, so confirm it is current before step 10.
 
-**The dispatcher is already built and already names the gap.** `src/Backend.cpp` refuses a backend
-not in `AvailableBackends()`, switches on `Backend`, and carries a `case Backend::D3D12` whose
-comment says a build with it "replaces this with the call (Stage 7.7)". `kAvailable` is already
-keyed on `HIKARI_RHI_D3D12`, a definition nothing yet sets. `--backend`, `DeviceDesc::Backend`,
-`DeviceInfo::Backend`, `ToString`/`BackendFromString` and the report's `system` block all exist.
+**Capabilities**, under Agility SDK 1.619.5 proven loaded:
 
-**The toolchain is in the tree and measured.** `vcpkg.json` already carries `directx-dxc` as a
-host dependency and `cmake/Shaders.cmake` already emits `.dxil` beside every `.spv`, at `sm_6_0`,
-with D29's registers and `cmake/CheckDxilSignature.cmake` proving each container was signed. Every
-shader already compiles for both targets on Linux. What is **not** in `vcpkg.json`: the three
-Windows-only ports that exist and are current — `directx-headers` and `directx12-agility` at
-**1.619.5**, and `d3d12-memory-allocator` at **3.2.0**. There is no WARP port — **but WARP is not
-limited to the runner's in-box copy** (corrected 13 September): Microsoft publishes it on NuGet as
-`Microsoft.Direct3D.WARP`, at **1.0.20** (28 May 2026), "a copy of D3D10Warp.dll with the latest
-features and fixes for testing and development purposes". Pinning it makes a local WARP run stand
-in for CI's. Nor can vcpkg supply a Vulkan driver for a Windows runner: its `mesa` port builds
-llvmpipe for OpenGL and no Vulkan driver at all.
+| | RX 580 | WARP in-box (6.2.19041.5794) | WARP NuGet 1.0.20 |
+|---|---|---|---|
+| Feature level | **12_0** | 12_1 | 12_2 |
+| Shader model | **6_7** | **6_2** | 6_9 |
+| `EnhancedBarriersSupported` | **false** | **false** | true |
+| `ResourceBindingTier` / `ResourceHeapTier` | 3 / 2 | 3 / 2 | 3 / 2 |
+| `UnrestrictedBufferTextureCopyPitchSupported` | true | false | true |
+| `InvertedViewportHeightFlipsYSupported` | true | false | true |
+| `MaxViewDescriptorHeapSize` / `MaxSamplerDescriptorHeapSize` | 33,554,432 / 4,096 | 1,000,000 / 2,048 | 2,097,152 / 2,097,152 |
+| `D3D12_SHADER_CACHE_SUPPORT` flags | `0x1F`, automatic disk cache included | `0x3` | `0x3` |
+| PCI vendor / device | `0x1002` / `0x67DF` | `0x1414` / `0x008C` | `0x1414` / `0x008C` |
 
-**The root signature budget is not a constraint here.** `D3D12_MAX_ROOT_COST` is 64 DWORDs. The
-three push-constant blocks are `MaterialPushConstant` 48 bytes (12 DWORDs), `CloudPushConstants`
-40 (10) and `BakeConstants` 8 (2), and no pipeline layout carries more than one range plus at most
-three descriptor tables. Nothing is close.
+The RX 580's values were identical on Adrenalin 25.8.1 and 26.5.2.
 
-**The inventory the backend has to satisfy.** Six bind group layouts, pinned by
-`BindGroupLayoutInventoryTests`; three graphics pipelines (opaque, transparent, composite) and two
-compute (cloud dispatch, noise bake); seven command allocators per frame in flight, two of which
-are recorded on job-system threads while the main thread records the other five; one submit per
-frame carrying seven lists.
+**Validation, on both adapters.** Without the SDK's `d3d12SDKLayers.dll`, `D3D12GetDebugInterface` fails
+with `DXGI_ERROR_SDK_COMPONENT_MISSING`. `ID3D12InfoQueue` is available, `ID3D12InfoQueue1` is not. A
+zero-width texture and a wrong legacy before-state are both reported as errors, the latter at
+`ExecuteCommandLists`; GPU-based validation adds a second, GPU-side report of the barrier error on the RX
+580. `SetBreakOnSeverity` raises exception `0x87A` inside the offending call with no debugger attached.
+DXGI's own debug layer is in-box (`System32\DXGIDebug.dll`), and DXGI reports tearing support.
 
-**The comparison instrument is built and already knows the shape of this stage.**
-`tests/support/ReportCompare.cpp` classifies `system.backend`, `system.gpu`, `system.driver`,
-`system.apiVersion`, `system.os` and `system.arch` as conditions that **never gate the counters**
-and **always gate the pixels**, with a comment saying that 7.7 is where a differing backend selects
-a tolerance instead of skipping. `ImageTolerance`'s two caps default to zero and are documented as
-constants this stage chooses. Exit code 2 already means "nothing moved, but a signal could not be
-compared", which is exactly what a cross-backend pair produces today.
+**How it was measured.** Four throwaway programs live outside the repository at `C:\Dev\d3d12-probe`, with
+a README: `d3d12probe` (capabilities and shader-cache support), `d3d12validation` (the debug layer and
+deliberate errors), `d3d12break` (break-on-severity) and `d3d12heapcost` (descriptor heap memory). Its
+`build.bat` pins the project's vcpkg baseline. Two traps it records. **Which runtime loaded has to be
+proven** before a false is believed — `GetModuleHandle("D3D12Core.dll")`, its path, and the
+`D3D12SDKVersion` that loaded core exports — because a tool running on the in-box runtime reports false
+for everything new. And **this machine's `%VCPKG_ROOT%` is a classic checkout older than the project's
+baseline**, so anything installed in classic mode resolves older ports; the first probe got Agility
+1.619.4 that way, and everything was re-measured on the pinned 1.619.5.
 
-**What CI is today.** Six build jobs (three Linux, three Windows) plus one bare `static-checks`
-job. `ctest -L unit` runs in all six. `ctest -L gpu` and `ctest -L scene` run in the three Linux
-jobs only, against lavapipe pinned with `VK_DRIVER_FILES`. **The Windows runners have no Vulkan
-ICD at all**, so nothing on Windows renders anything today. `HeaderSelfContainment` runs in the
-debug job of each OS.
+**Facts filed for the steps that need them.**
 
-**CI compares no stored image anywhere.** `tests/baseline/` is a local instrument — captured on
-this machine's Linux install (RX 580, RADV), never run by CI, and `baseline_test.sh` refuses any
-OS but Linux. The scene suite compares each run against a second run of itself at zero tolerance,
-and checks counters against values derived by hand from each scene — but only **`drawCalls`,
-`batches` and `instances`** (plus `validationErrors == 0`). `barriers` is checked only to be
-non-zero and self-consistent, `barrierCalls` only self-consistent, and `uploadSubmissions` not at
-all. So once the scene suite runs under D3D12, those three counters are held equal across backends
-by construction; the rest are held equal only by a comparison of two reports.
+- Descriptor sizes are queried per device, never assumed: the RX 580 reports CBV/SRV/UAV 32, sampler 16,
+  RTV 32 and DSV 216 — and 152 for all four with the debug layer on.
+- A shader-visible resource heap costs about 60 bytes of video memory per descriptor on the RX 580: 3.9
+  MiB at D43's default.
+- `EnumAdapters1` lists the RX 580 at 0 and WARP (the Microsoft Basic Render Driver) at 1, and ordinary
+  enumeration loads NuGet WARP when it is deployed beside the executable. Both WARPs share PCI IDs.
+- `InvertedViewportHeightFlipsYSupported` is optional, so D10's `bFlipClipSpaceY` stays the mechanism.
+- `uploadSubmissions` is exact across backends (D26), so the D3D12 upload context must batch as
+  Vulkan's does — one scene's textures in one load scope producing the same handful of submissions.
+- Mixing legacy and enhanced barriers on one subresource is allowed, with rules — a non-simultaneous-access
+  texture in `D3D12_RESOURCE_STATE_COMMON` before an enhanced barrier references it, in
+  `D3D12_BARRIER_LAYOUT_COMMON` before a legacy one does (the Enhanced Barriers specification). D37 runs
+  one path per process, so nothing mixes; it matters only if that changes.
+- Slang finds vcpkg's DXC on Windows: CI run 34715242114 compiled all eight `.dxil` blobs on
+  `ninja-debug-windows`, each passing `CheckDxilSignature`.
 
-**The engine cannot run without a UI backend.** `EngineDesc::pUiBackend` is documented as
-required (`IEngine.h:31–35`), and the scene tests pass one even with `bNoUi` set — `--no-ui` skips
-drawing the panel, not initialising the backend. No engine run under D3D12 exists without either a
-D3D12 ImGui backend or a null `IUiBackend`.
+### 5.4 Decisions about the stage
 
-**Slang's matrix layout is uniform across the two targets.** `slangc`'s default is column-major
-for both, so the transpose-on-upload convention `ShaderTypes.h` documents holds on DXIL as it does
-on SPIR-V, and the reflection reports the layout per target. Not a divergence — but the layout test
-compares offsets and sizes, and a matrix is 64 bytes either way, so it would not *catch* one.
+Each gives the decision, what it rules out and why, and the cost accepted. The seam's decisions are §2's.
 
-### 5.3 What the survey found, and no document records
+**Module layout and deployment.** D3D12 sources live in `engine/rhi/src/d3d12/`, appended to the RHI's
+source list under `if(WIN32)` together with `HIKARI_RHI_D3D12`, as `Backend.cpp` says they land. The three
+Windows presets carry both backends (D25). One CMake function per executable — `HikariEditor`,
+`HikariHeadless`, `scene_tests`, `rhi_gpu_tests` — copies `D3D12Core.dll` and `d3d12SDKLayers.dll` into
+`D3D12\` (the layers always from the port's debug tree, per D40) and `d3d10warp.dll` beside the
+executable; vcpkg's automatic DLL copying cannot, since none of the three is an import. **NuGet WARP
+arrives through a repository overlay port**, `directx-warp`, downloading the package by SHA-512 nearly line
+for line as `directx12-agility`'s own portfile does, so every binary dependency comes through one channel
+and CI's existing vcpkg cache. *Rejected: a CMake download at configure time*, a second channel outside
+that cache; *rejected: committing the DLL*, a 15 MB binary per version under a licence describing it as
+"for testing and development purposes". *The cost:* the repository's first overlay port.
 
-These are the D22-shaped findings: places where the neutral seam says something one API can honour
-and the other cannot. Stage 7.5's grill found one before a line was written; this survey found
-seven. Each is a decision in §5.4, and is listed here with its evidence so the interview argues
-from the code rather than from memory.
+**The present-mode mapping, a fact.** Vulkan defines Mailbox as waiting for the vertical blank,
+"Tearing cannot be observed", with a single-entry queue whose new request "replaces the existing entry";
+DXGI's flip model at sync interval 0 will "discard this frame if a newer frame is queued". So the D3D12
+swapchain maps Mailbox to sync interval 0, Immediate to sync interval 0 with `ALLOW_TEARING`, and Fifo to
+sync interval 1, and never offers FifoRelaxed, which DXGI has no counterpart for and the engine's
+preference order never picks. Reports name the same mode for the same behaviour on both backends, which
+`run.presentMode`, a comparison condition, needs.
 
-**1. `SetCullMode` has no D3D12 equivalent.** `ICommandList::SetCullMode` and
-`GraphicsPipelineDesc::bDynamicCull` exist because a two-sided material is a per-batch property:
-`Engine.cpp:1339` flips cull per batch, and `VulkanDevice.cpp:994` adds
-`vk::DynamicState::eCullMode` to the opaque pipeline. **D3D12 has no dynamic cull state.** Cull
-mode is `D3D12_RASTERIZER_DESC::CullMode`, baked into the PSO, and `ID3D12GraphicsCommandList`'s
-only rasterizer-stage methods are `RSSetViewports` and `RSSetScissorRects`. The rest of what D3D12
-lets a command list vary without a new PSO is blend factor, stencil reference and primitive
-topology, plus depth bounds and shading rate on later versions of the interface — no version of it
-sets a cull mode. This is the same class of thing as D22's combined image samplers and D32's vertex
-semantics, and it is the one of the three that reaches the *command list* rather than a
-description.
+**The UI backend is chosen by a factory.** `Editor::CreateUiBackend(Rhi::Backend)` is one switch returning
+an owning pointer, shaped like `Rhi::CreateDevice`'s dispatcher down to its `#ifdef HIKARI_RHI_D3D12` case.
+Both apps and `SceneLaunchTests.cpp` pass the parsed backend and include no concrete UI backend.
+`UiBackendDesc` gains nothing: a D3D12 UI backend reaches the queue and D43's heap callbacks through
+`D3D12Native.h`, and ImGui's platform half takes the SDL window whatever the API. `imgui` gains
+`dx12-binding` as a Windows-only feature. The engine cannot choose, since `Editor` sits above `Engine`.
+*Rejected: a switch at each call site*, the same choice written at four construction sites. *The cost:* a
+new public function, and a `main.cpp` that no longer shows which class runs.
 
-**2. A neutral buffer/texture copy assumes tight packing, which D3D12 forbids.**
-`BufferTextureCopyRegion`'s comment says the buffer side is tightly packed and that "D3D12
-requires row pitch to be aligned, which is the backend's problem rather than the caller's". It is
-not only the backend's problem, because the caller sizes the buffer: `Engine.cpp:858` allocates
-`Width * Height * BytesPerTexel(format)` for a screenshot and `tests/support/GpuReadback.h:177`
-does the same per layer. `D3D12_TEXTURE_DATA_PITCH_ALIGNMENT` is **256** and
-`D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT` is **512**, so a readback's rows are 256-byte aligned and
-a tightly-packed buffer is the wrong size whenever the row is not already a multiple of 256. At
-BGRA8 that means any width not a multiple of 64. The baseline's 1920, the scene tests' 320 and the
-headless default 1280 all happen to be multiples of 64; **an editor window of arbitrary width is
-not**, and neither is a resize.
+**The D3D12 backend asks SDL for the HWND** — `SDL_GetPointerProperty` on the window's properties with
+`SDL_PROP_WINDOW_WIN32_HWND_POINTER` — just as the Vulkan backend asks SDL for its surface, and both its
+window-system extensions and surface creation already come from SDL. The seam is unchanged;
+`DeviceDesc.h`'s comment stops claiming the backends want "a native window pointer versus an HWND".
+*Rejected: the platform answering real native handles, with SDL removed from the RHI*, which would mean
+reimplementing Vulkan surface creation for Win32, X11 and Wayland, the latter two testable only on Linux;
+*rejected: the platform answering only the HWND*, two kinds of handle for two backends. *The cost:* the RHI
+stays coupled to SDL in both backends, and `NativeWindowHandle` keeps a name that overstates it.
 
-**3. Only one shader-visible descriptor heap of each kind may be bound at a time**, and switching
-one can cost a GPU stall. `DescriptorAllocator` grows by adding a pool and allocating from the
-newest — correct for Vulkan, where pools are independent, and not expressible on D3D12, where every
-bind group a command list uses has to live in the one bound heap. Growth therefore means a bigger
-heap and copying descriptors into it, which moves every existing bind group's GPU handle. D20 makes
-bind groups immutable and `IDevice::Destroy` is immediate with no retirement queue, so *when* that
-copy is allowed to happen is a real question rather than an implementation detail. The header
-already says the allocator is "Vulkan-shaped on purpose" and expects replacing it to be contained;
-the replacement is not symmetrical with it.
+**The GPU and scene suites choose their backend per process, and CMake registers each twice.** A test
+environment variable tells the fixture's `MakeDesc`, `RunScene` and the launched `HikariHeadless` which
+backend to use; `tests/CMakeLists.txt` registers `rhi_gpu_tests` and `scene_tests` once per backend the
+build contains, with the variable and a label set on the registration, so `ctest` supplies the choice and
+CI selects D3D12 by label. Backend-specific cases are tagged and skipped on the other backend. A variable
+naming a backend the build lacks fails rather than skips. D3D12's fixture arrangements are `Default` and
+`SingleQueue`, crossed with D38's barrier path. *Rejected: a backend axis inside one binary*, every
+`RequireDevice` site edited to loop and the Windows job still needing a variable to say Vulkan is not
+expected there. *The cost:* a test binary run by hand gives Vulkan unless the variable is set.
 
-**4. `SubmitDesc`'s semaphores are a Vulkan-only concept, and the headless target leans on them.**
-`SemaphoreHandle` exists only for present targets, and `Submit.h` says outright that "D3D12's swap
-chain has no equivalent object at all". A D3D12 swapchain target can plausibly hand back empty
-spans. The **offscreen** target cannot be dismissed as easily: `OffscreenTarget` gives the render-
-complete semaphore back through the next `Acquire()` of the same image, which is both the real
-"this image is free again" dependency and the wait that leaves a binary semaphore unsignalled.
-That mechanism has no D3D12 counterpart, and headless is not optional — `ctest -L scene` is the
-instrument every step is verified with.
+**Sequencing — six decisions.**
 
-**5. `NativeWindowHandle` is an `SDL_Window*`, not a native handle.** `DeviceDesc.h:33` documents
-it as opaque "because the two backends want unrelated things from it (a native window pointer
-versus an HWND)", and `VulkanDevice.cpp:1471` casts it to `SDL_Window*` and calls
-`SDL_Vulkan_CreateSurface`. So the RHI already depends on SDL through `Engine::Platform`, and a
-D3D12 backend either does the same (`SDL_GetPointerProperty` for the HWND) or the platform layer
-grows a getter that answers with the real handle.
+- **Interleaved.** Each seam change lands in the step whose D3D12 code first needs it. Seam first, as D18
+  did, was judged the more correct order and set aside so that the backend is not kept waiting. *The
+  cost:* steps carry a Vulkan-side seam change beside new D3D12 code, and a rendering change can land beside
+  a D3D12 backend that cannot yet render the scene it would be checked against.
+- **Gated within a step, one commit.** When a step carries a seam change, it is made first on Vulkan alone,
+  and the D3D12 half begins only when §5.5's gate passes; the step ends as a single commit. That recovers
+  seam-first's one-suspect property for Vulkan regressions without delaying the backend. *The cost:* the
+  seam's shape is settled before the D3D12 code that might reshape it exists, and history cannot bisect
+  between a step's halves.
+- **Headless first.** Device, resources, pipelines, the offscreen target and the scene suite come before
+  the swapchain and the editor, because the gate needs a D3D12 run to check against and the scene suite
+  is headless. Headless still initialises the UI backend, so a minimal `D3D12UiBackend` arrives with the
+  first scene. *Rejected: windowed first*, with D3D12 correctness judged by eye for most of the build-out.
+  *The cost:* nothing in a window until past the middle, and the present path comes late.
+- **Legacy first, enhanced in the very next step.** The RX 580 runs only legacy, so enhanced first would
+  leave every early gate on a software rasterizer. Enhanced follows immediately because every barrier goes
+  through one method, so the path is contained, and a second independent check on every barrier sequence
+  is worth most under every step that follows. *Rejected: late*, divergences surfacing together at the
+  end; *rejected: the backlog*, which would reopen D37. *The cost:* the harder mapping first, and every
+  later gate longer by a WARP scene run.
+- **Counters compared across backends from the first scene step.** Counters are counted by the engine —
+  draws and batches by engine code, barriers from what `ICommandList::Barrier` returns for the engine's own
+  calls — so they should equal Vulkan's as soon as a frame runs, while D3D12's pixels are still wrong.
+  *Rejected: at parity only*, with every divergence surfacing together. *The cost:* two headless runs per
+  gate.
+- **CI runs D3D12 from the first step with D3D12 tests.** The runner is the second machine that proves the
+  deployment — a Windows Server image with no GPU, no Graphics Tools and its own in-box D3D12 — so
+  proving it there early keeps a deployment failure from being confused with a rendering one. *The cost:*
+  CI debugging from the start over a slow loop, and longer Windows CI runs.
 
-**6. The UI backend is chosen by name at three call sites, before the device exists.**
-`apps/editor/main.cpp`, `apps/headless/main.cpp` and `tests/scene/SceneLaunchTests.cpp` each
-construct `Editor::VulkanUiBackend` directly. `IUiBackend` was built so a second backend is "a
-sibling file rather than an edit", and D9 makes `VulkanUiBackend.cpp` the one permanent entry in
-`rhi_boundary_check`'s naming allowlist — but nothing decides *which* sibling at run time, and
-`UiBackendDesc` carries only a device, a pipeline cache, a window handle, a format and a ring size.
-ImGui's D3D12 backend additionally wants a command queue and descriptors out of the renderer's own
-shader-visible heap. vcpkg's `imgui` port has the `dx12-binding` feature; `engine/editor` links
-`Vulkan::Vulkan` unconditionally.
+### 5.5 The step sequence
 
-**7. `rhi_boundary_check` has no D3D12 half, and the GPU fixture has no backend axis.** The check's
-banned patterns are `vk::`, `Vk[A-Z]`, `Vma[A-Z]`, `VMA_` and the two include forms; nothing stops
-`ID3D12`, `DXGI_` or `D3D12_` appearing in a neutral header or in engine code. Its
-`transitional_headers` list is `VulkanNative.h` and `SwapchainUtil.h`, and its three allowlisted
-sites are all Vulkan. Separately, `RhiTestFixture`'s `DeviceConfig` axis is four Vulkan
-arrangements — `Default`, two `maintenance8`/`maintenance9` ownership-transfer variants and
-`SingleQueue` — and `MakeDesc` never sets `DeviceDesc::Backend`, so `rhi_gpu_tests` is a
-Vulkan-only binary by construction. Its own comment anticipates this: "a second backend's fixture
-would name its own."
+**Ten steps.** Each ends in a compiling, running application, per Part IV's rule, and each is one commit
+(§5.4).
 
-**Where the D3D12 half of the above was read**, since none of it is in the tree and `CLAUDE.md`
-requires the source rather than the recollection: `D3D12_RASTERIZER_DESC` and
-`ID3D12GraphicsCommandList`'s method list from their reference pages; the descriptor-heap binding
-rule from *Descriptor Heaps Overview*, which states that "at most one CBV/SRV/UAV combined heap and
-one Sampler heap can be bound at any one time" and that switching can require a GPU stall; and
-`D3D12_TEXTURE_DATA_PITCH_ALIGNMENT`, `D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT` and
-`D3D12_MAX_ROOT_COST` from the *Constants (D3D12.h)* table. All on `learn.microsoft.com`, read on
-12 September 2026. The Enhanced Barriers requirement — the `EnhancedBarriersSupported` field of
-`D3D12_FEATURE_DATA_D3D12_OPTIONS12` reading FALSE below Agility SDK 1.6 — comes from that field's
-own reference page and is the one item below that still wants confirming against a real adapter.
+**The gate.** Every step's verification is `scripts/precommit` green with the GPU and scene suites
+confirmed to have run rather than skipped. A step that changes the seam passes that on Vulkan before its
+D3D12 half is written, and a seam change that could alter rendering also passes a before-and-after Vulkan
+capture pair compared with `HikariCompare` at zero tolerance — on this machine, or against the committed
+baseline on the Linux boot. The committed baseline is Linux's: on Windows a run compared against it still
+checks counters, which no `system.*` field gates, but skips pixels, and `--update` refuses another OS.
+From step 7 the gate also runs `HikariHeadless` on a scene under each backend on the RX 580 and compares
+the reports without images; a moved counter fails, and exit 2 — pixels not compared — passes until step
+10.
 
-### 5.4 The frontier
+| Step | What | Seam | Verified by | Size |
+|---|---|---|---|---|
+| 1 | **Deployment and device.** `directx-headers`, `directx12-agility`, `d3d12-memory-allocator` and the `directx-warp` overlay port; `src/d3d12/`, the exports OBJECT library, per-executable deployment; the device — adapter order and `--gpu`, the 12_0 and copy-pitch refusals, the SDK version check, the debug layer as a hard requirement with GPU-based validation and polling; `DeviceInfo` with PCI IDs, filled on both backends | D35 am., D36, D39, D40, D46 | `HikariHeadless --backend D3D12` creates a device on the RX 580 and, with `--gpu "Basic Render"`, on NuGet WARP, its report's `system` block naming each; the loaded `D3D12Core.dll` proven to be the SDK's; the Vulkan report provisional, nothing moved | M |
+| 2 | **Tests, registration, guards and CI.** Per-backend registration of both suites; `DeviceTests` under D3D12, and a D3D12 validation positive control — the wrong before-state; `rhi_boundary_check`'s D3D12 half and the isolation check; `--vk-disable-extension` refused on D3D12; the Windows CI job running the D3D12 GPU suite on WARP. The ASan preset's compatibility with the debug layer and WARP is found out here, and decided here if it fails | D44 (first half), D45 | `ctest -L gpu` under both registrations, on the RX 580 and WARP; the positive control failing when its deliberate error is removed; a planted violation tripping each boundary check, then reverted; Windows CI green | M |
+| 3 | **Resources and uploads.** Buffers, textures, views and samplers through D3D12MA; the upload context on a copy queue; `--force-single-queue`, with the report key renamed | D44 (second half) | Vulkan gate for the rename; `UploadRoundTripTests` under D3D12 in both arrangements, on both adapters | M |
+| 4 | **Command lists, submission and legacy barriers.** Allocators, lists, fences, rendering scope; legacy transitions with the private resolution of `TextureLayout::Undefined` | D37 (legacy) | The submission and barrier GPU tests under D3D12; the debug layer silent, and its before-state check live | L |
+| 5 | **Bind groups and heaps.** The two persistent heaps and `DeviceDesc`'s capacity; root signatures from pipeline layouts; sampler deduplication | D43 | Bind group GPU tests under D3D12; `BindGroupLayoutInventoryTests` unchanged; exhaustion refused with the capacity named | M |
+| 6 | **Pipelines.** Graphics and compute PSOs; cull mode leaves the command list, with a scene mixing single- and two-sided materials; vertex semantics and `ShaderLayoutTests` comparing them; the cache file named by backend, and no D3D12 cache | D15 am., D32 am., D41 | Vulkan gate, the mixed scene included, with a before-and-after capture pair; all four graphics and two compute pipelines created under D3D12, debug layer silent | L |
+| 7 | **Offscreen target and first headless scene.** The submit names its image; the D3D12 offscreen target; a minimal `D3D12UiBackend` and the factory; the scene suite on the RX 580 and WARP; the counters-comparison script and the validation zero-on-both rule; CI's scene label. **Measured here:** GPU-based validation's cost, warm `startupMs` and `firstFrame` on both backends and WARP, and WARP's scene-run time | D26 am., D42 | Vulkan gate with a before-and-after capture pair; `ctest -L scene` under D3D12 on both adapters; the counters comparison exiting 2 with nothing moved; Windows CI green | L |
+| 8 | **Enhanced barriers.** The enhanced path; `--d3d12-barriers`, its refusals, and its report field classified so it does not gate counters; registrations run enhanced on WARP | D37 (enhanced), D38 | Both suites on WARP under enhanced; legacy and enhanced reports' counters equal on WARP; `enhanced` refused on the RX 580 | S–M |
+| 9 | **Swapchain and editor.** The DXGI flip-model swapchain target, the HWND from SDL, the present-mode mapping and tearing; the D3D12 UI backend completed; the editor under D3D12 | — | `HikariEditor --backend D3D12` windowed on the RX 580, the report naming its present mode; the input scripts' resize and capture cases under D3D12 | L |
+| 10 | **Parity.** The diff image scaled by the measured worst delta; every differing region explained beside the constants; D26's two constants measured and committed with approval; the cross-backend pixel rule; the Linux baseline refreshed | D26 am., D35 am. | `HikariCompare` on a Vulkan and a D3D12 run of the test scene exiting 0 under the committed tolerance; the refreshed baseline exiting 0 on Linux | M |
 
-The decisions the interview walks, ordered so that settling a root deletes the subtree under it.
-The order is the claim; the interview may reorder it, and each row says what it constrains so the
-cost of reordering is visible.
+**Why this order.** Step 1 needs no seam change, so the deployment — the part most likely to differ between
+machines — is proven before anything is built on it, and step 2 then proves it on the CI runner. Steps 3–6
+build what a frame needs in dependency order: resources before command lists that use them, command lists
+before the bind groups and pipelines they bind. Step 7 is the first point at which the engine runs a whole
+frame under D3D12, so it carries the first scene, the first counters comparison and the measurements with
+triggers. Step 8 follows at once (§5.4). Step 9 is the window, isolated after everything headless is known
+good. Step 10 is last because D26's constants cannot be measured before parity.
 
-**Roots — settle these first, because nearly everything else reads differently afterwards.**
+**Conditions and triggers, and when each comes due.**
 
-1. **Settled: full parity** — see §5.6.
-   **What "done" means for this stage.** Full parity — every pass, both apps, headless, screenshots,
-   the whole scene suite green under `--backend D3D12` — or a named subset with the rest carried
-   into a later stage? *Constrains:* the step list, the CI job's assertions, whether items 4 and 6
-   of §5.3 are in scope at all, and how long the stage is. This is the inclusion test of §1
-   applied to a stage that is itself the goal, so §1 does not answer it.
-2. **Settled: one machine, two fresh runs** — see §5.6, which also records four sub-decisions.
-   **Which two runs the cross-backend comparison actually compares**, and therefore what D26's
-   two constants are measured against. Three candidates, and they are not equivalent: one machine
-   running both backends on one GPU isolates the backend and nothing else; CI's Linux-lavapipe-Vulkan
-   against Windows-WARP-D3D12 crosses backend, rasterizer *and* machine at once; Windows Vulkan
-   against Windows D3D12 isolates the backend but has no CI home, because the Windows runners carry
-   no Vulkan ICD. *Constrains:* D26's constants, what the Windows job asserts, whether a second
-   baseline is committed, and whether `system.gpu`'s never-gate-counters rule is enough on its own.
-3. **Reframed by the interview, and waiting on §5.5's measurements.** Enhanced barriers need the
-   Agility SDK *and* optional driver support, so the SDK is necessary but not sufficient, and the
-   real question is **whether a legacy `D3D12_RESOURCE_STATES` path is ever built** — which this
-   machine's driver may decide outright. §5.6 has the evidence. The original framing follows.
-
-   **The Agility SDK: in, or out.** `Barrier.h` is built on the Enhanced Barriers shape — sync,
-   access and layout as three independent halves — and `EnhancedBarriersSupported` in
-   `D3D12_FEATURE_DATA_D3D12_OPTIONS12` reads FALSE without Agility SDK 1.6 or later. Taking it
-   means a Windows-only vcpkg port, a redistributable `D3D12Core.dll` in a `D3D12/` subdirectory
-   beside **both** executables, and exported `D3D12SDKVersion`/`D3D12SDKPath` symbols in each app.
-   Leaving it out means the OS's runtime decides, and where enhanced barriers are unavailable the
-   whole barrier model has to be lowered to legacy `D3D12_RESOURCE_STATES` — which is tracked,
-   per-subresource, and a genuinely different design rather than a translation. The version
-   question is already answered: vcpkg's `directx12-agility` is at **1.619.5**, far past the 1.6
-   the feature bit needs, and `supports` reads `windows & !uwp & !xbox & !arm32`. *Constrains:* the
-   barrier implementation, whether there is one barrier path or two, the minimum OS, the deployment
-   story, and `vcpkg.json`.
-4. **The floor: feature level, shader model, and whether enhanced barriers are required or
-   fallible.** `sm_6_0` is what the build emits today and raising it is one flag. *Constrains:* what
-   `DeviceInfo::ApiVersion` prints, what `CreateDevice` refuses, and whether WARP on the CI runner
-   qualifies at all.
-
-4a. **What validation means on D3D12.** *Added by the interview; no earlier row covered it.* D26
-    holds `counters.run.validationErrors` equal across backends and the scene suite asserts zero,
-    but a zero from a validator that never loaded is the theatre `CLAUDE.md` already warns about.
-    Unrecorded: how the debug layer is loaded and whether a Debug run requires it as Vulkan's does;
-    how its messages reach the counters; what `--validation` and `--validation-policy` mean on it;
-    and whether it gets a positive control like `ValidationCoverageTests`. *Depends on* root 3,
-    since the SDK layers ship with the Agility SDK. *Constrains:* the scene suite's headline
-    assertion under D3D12, and whether D26's exact counter rule is honest for this counter.
-
-**Seam decisions — each changes the RHI's public API, so each is a D-number.**
-
-5. **Dynamic cull mode** (§5.3 item 1). Candidates: the backend builds PSO variants behind one
-   handle; `GraphicsPipelineDesc` declares the cull modes it will be asked for; the engine creates
-   two pipelines and the recorder picks; or `SetCullMode` leaves the seam and two-sidedness becomes
-   a pipeline property. *Constrains:* `ICommandList`, `GraphicsPipelineDesc`, the opaque and
-   transparent recorders, and the pipeline inventory.
-6. **Vertex input semantics** (D32, already booked here). A semantic field on `VertexAttribute`; a
-   convention synthesising a name from the location; or the backend reading semantics from
-   reflection at pipeline creation. *Constrains:* `Pipeline.h`, `GetAttributeDescriptions`, and
-   `ShaderLayoutTests`.
-7. **The copy contract's packing rule** (§5.3 item 2). Either the neutral region gains a row-pitch
-   the caller must honour and a device query that answers it, or the backend re-stages internally
-   and the caller keeps sizing tightly. The first makes the cost visible and edits every call site;
-   the second hides an allocation inside a command-list method, which is where it cannot live.
-   *Constrains:* `BufferTextureCopyRegion`, the screenshot path, `GpuReadback.h`, and whether the
-   editor can capture at an arbitrary width.
-8. **Present targets without semaphores** (§5.3 item 4). What a D3D12 swapchain target returns, and
-   what the D3D12 offscreen target uses in place of the give-back trick. *Constrains:*
-   `IPresentTarget`, `SubmitDesc`, and whether headless D3D12 exists at all — which item 1 may have
-   already decided.
-9. **Descriptor heap ownership and growth** (§5.3 item 3). *Constrains:* `CreateBindGroup`'s
-   guarantees, whether a growth needs a stall, and what ImGui's D3D12 backend is handed.
-10. **The pipeline cache** (D15's unbuilt half). The backend-distinguished path is settled in
-    principle; what is not is whether `IPipelineCache` survives unchanged, given that D3D12's
-    counterpart is `ID3D12PipelineLibrary`, which stores pipelines *by name* rather than as one
-    opaque blob. *Constrains:* `PipelineCache.h` — which D8 and D17 both promised would not move.
-11. **What `DisabledOptionalExtensions` and `bForceSingleQueue` mean on D3D12.** Both are documented
-    as neutral testing levers with a backend-specific interpretation, and `bForceSingleQueue` even
-    names what D3D12 should do. `DisabledOptionalExtensions` has no obvious D3D12 content.
-    *Constrains:* `RhiTestFixture`'s configuration axis, and the report fields `vkDisabledExtensions`
-    and `vkForceSingleQueue`, whose `vk` prefixes now say something.
-
-**Structural decisions — these decide where code lives and what enforces the boundary.**
-
-12. **Module layout and conditional compilation.** `engine/rhi/src/d3d12/`, the `HIKARI_RHI_D3D12`
-    definition, how CMake selects the source list, and whether the Windows presets grow a variant or
-    the existing three carry both backends. *Constrains:* every file added in this stage.
-13. **What `rhi_boundary_check` becomes** (§5.3 item 7). Symmetric patterns for D3D12; a transitional
-    area under `include/rhi/d3d12/` or none; whether the permanent ImGui allowlist entry gains a
-    sibling. The check is currently a ratchet with one permanent entry and a stated rule that a
-    second entry is a question about a missing neutral call — which the D3D12 UI backend will make
-    someone answer.
-14. **Who chooses the UI backend, and what its description carries** (§5.3 item 6). *Constrains:*
-    three call sites, `UiBackendDesc`, `engine/editor`'s link list, and the `imgui` feature set in
-    `vcpkg.json`.
-15. **How the native window handle reaches the backend** (§5.3 item 5). *Constrains:* `IPlatform`,
-    `DeviceRequirements`, and whether `Engine::RHI` keeps its SDL dependency.
-16. **How the GPU and scene suites run against two backends.** One binary with a backend axis beside
-    `DeviceConfig`, a second CTest label, or an environment variable the fixture reads. *Constrains:*
-    `tests/CMakeLists.txt`, `RhiTestFixture`, `SceneLaunchTests`, and the shape of the Windows CI job.
-16a. **How the D3D12 backend chooses its adapter.** *Added by the interview.* The Vulkan backend
-    takes the first suitable physical device in enumeration order, and device selection is a
-    standing decision to be raised before anything is built: CI pins lavapipe with
-    `VK_DRIVER_FILES`, a `--gpu` flag waits for a real case, and no selection mechanism is to be
-    built as a side effect of another step. D3D12 reaches the same question from two directions —
-    CI must get WARP rather than whatever `EnumAdapters` lists first (the counterpart of pinning an
-    ICD), and root 2's comparison needs both backends on the same adapter, which the PCI IDs of
-    §5.6 check but cannot arrange. *Constrains:* `DeviceDesc`, the Windows CI job, and whether
-    `--gpu` stops waiting.
-17. **The step sequence itself.** 7.5 and 7.6 each took twelve steps. What is step 1, what is the
-    first thing that appears on screen, and where the baseline comparison sits between steps.
-    *Constrains:* everything, but only after the rest is settled — which is why it is last.
-
-### 5.5 Measurements only a Windows machine can take
-
-Facts, not decisions, and none of them is answerable from this tree. **§5.6's requirement makes the
-first two decisive**: whatever this stage builds has to run on this machine's Windows install, so
-its adapter's answers are constraints rather than data points.
-
-1. **What does this machine's GPU report under the Agility SDK?** The adapter is the AMD Radeon
-   RX 580 that `tests/baseline/report.json` names, under AMD's Windows driver rather than RADV. Four
-   values, plus the driver version: the highest feature level (`D3D12_FEATURE_FEATURE_LEVELS`), the
-   highest shader model (`D3D12_FEATURE_SHADER_MODEL`), `EnhancedBarriersSupported`
-   (`D3D12_FEATURE_D3D12_OPTIONS12`), and `ResourceBindingTier` (`D3D12_FEATURE_D3D12_OPTIONS`),
-   which row 9 needs. **Why this one matters most:** the RX 580 is a Polaris card, and AMD moved
-   Polaris and Vega onto a separate legacy driver branch in late 2023 — maintenance releases for
-   stability, compatibility and security, shipped as their own packages (the newest is Adrenalin
-   26.5.2 for Polaris and Vega). Whether that branch reports enhanced barriers is unknown. If it
-   does not, root 3 is decided: a legacy-states path becomes mandatory.
-2. **What does WARP report** for the same four values — both the in-box copy and NuGet's
-   `Microsoft.Direct3D.WARP` 1.0.20. The NuGet copy stands in for CI if CI pins it; the in-box
-   copy is what CI gets if it does not. Only a workflow run can read the runner's own in-box WARP.
-3. ~~Does Slang find vcpkg's DXC on Windows?~~ **Answered on 13 September, by CI.** The merge run
-   of #60 (run 34715242114) compiled all eight `.dxil` blobs on `ninja-debug-windows`,
-   `CheckDxilSignature` passed on each, and all three Windows jobs succeeded.
-4. **What two runs of the same scene on one machine actually differ by**, Vulkan against D3D12.
-   That number is D26's tolerance, and nothing in this repository can guess it. §5.6 settles how it
-   is taken and accepted; it cannot be taken before full parity.
-
-**How items 1 and 2 are measured.** Not with `dxcapsviewer` or any tool that does not load the
-Agility SDK: `EnhancedBarriersSupported`'s reference page says it "Requires the DirectX 12 Agility
-SDK 1.6 or later; otherwise, the value is always `FALSE`", so a FALSE from such a tool means
-nothing. (The same page's requirements table reads "Windows 11, version 22H2; or DirectX 12 Agility
-SDK 1.6 or later", which contradicts the member text. Loading the SDK sidesteps the question.) The
-measurement is a small throwaway program kept outside the repository: it exports `D3D12SDKVersion`
-and `D3D12SDKPath`, carries `D3D12Core.dll` from `directx12-agility` 1.619.5 in a `D3D12\`
-subdirectory beside itself, and prints the four values for each adapter. It must also establish
-that the SDK's runtime loaded rather than the OS's before any FALSE is believed — how to check that
-is to be read from Microsoft's Agility SDK documentation when the program is written, not assumed.
-
-**What the reference pages already say about enhanced barriers**, read on 13 September 2026:
-
-- **Support is optional per driver, on top of the SDK.** `D3D12_FEATURE_DATA_D3D12_OPTIONS12`:
-  "Enhanced Barriers is not currently a hardware or driver requirement. So before using command
-  list Barrier APIs, or resource creation APIs using the *InitialLayout* parameter, you must check
-  for optional driver support via *EnhancedBarriersSupported*."
-- **The runtime translates in one direction only.** The Enhanced Barriers specification
-  (`microsoft/DirectX-Specs`, `d3d/D3D12EnhancedBarriers.md`): "The D3D12 runtime internally
-  translates all `ResourceBarrier` calls to equivalent Enhanced Barriers at the driver interface.
-  Legacy barrier DDI's are never invoked on a driver supporting enhanced barriers." Legacy code runs
-  on a new driver; nothing runs enhanced barriers on a driver without them.
-- **Mixing is allowed, with rules and a cost.** The same specification: "Interop between enhanced
-  Barrier API's and legacy `D3D12_RESOURCE_STATES` is supported", but "mixing legacy and enhanced
-  barriers on the same subresource can introduce extra performance overhead". A non-simultaneous-
-  access texture must be in `D3D12_RESOURCE_STATE_COMMON` before an enhanced barrier references it,
-  and in `D3D12_BARRIER_LAYOUT_COMMON` before a legacy one does.
-
-### 5.6 What the interview has settled
-
-Settled on Linux on 13 September 2026, one question at a time. Each entry gives the decision, what
-it rules out and why, and the cost as accepted, so that neither the Windows session nor the eventual
-write-up has to reconstruct the argument. None is a D-number yet; 2b changes the seam and becomes
-one — an amendment to D35 — in the write-up.
-
-**Requirement: Stage 7.7 must work on this machine's Windows install.** Stated by the user when
-root 3 came up: the RX 580 dual-boot is the main point of testing on Windows. It rules out requiring
-anything that adapter's driver lacks, which is what makes §5.5 item 1 a constraint.
-
-**Root 1 — full parity.** Both apps run under `--backend D3D12`, windowed and headless, with the UI
-drawn; the gpu and scene suites pass locally and on WARP in CI; D26's two constants are committed.
-
-- *Rejected:* **headless parity** — `HikariHeadless` and both suites under D3D12, the editor
-  refusing D3D12 as Linux does, windowed D3D12 carried to a later stage. It would end the stage with
-  nothing on screen and design the swapchain target later, on its own. **Device only** — just the
-  gpu suite — contradicts D26, which obliges this stage to commit pixel tolerances from scene runs.
-- *Why:* §7 puts the frame graph after this stage so it is written with two backends in front of
-  it, and a backend with no present path provides half of one; that path is where the two APIs
-  differ most at the frame level (§5.3 item 4, and DXGI has no acquire at all). And the hard seam
-  gaps — cull, vertex input, copy pitch, heaps, the offscreen give-back — bite headless anyway, so
-  the windowed increment is the window handle, a DXGI swapchain and ImGui's DX12 backend.
-- *Consequences:* rows 14 and 15 and the swapchain half of row 8 stay in scope. A null `IUiBackend`
-  is not the way through row 14. Row 9's heap design has to accommodate ImGui's DX12 backend, which
-  wants descriptors from the renderer's own shader-visible heap.
-- *Cost accepted:* the longest stage so far, likely well past twelve steps. Ordering headless first,
-  so that CI and a first capture land mid-stage, was suggested as the mitigation; that is row 17's.
-
-**Root 2 — one machine, both backends; cross-backend pixels stay local for the whole stage.** D26's
-two constants measure this machine's Windows install — one GPU, one driver — Vulkan against D3D12.
-
-- *Rejected:* **one Windows runner**, WARP D3D12 against a software Vulkan driver fetched onto it.
-  The tolerance would absorb two different rasterizers as well as the backend, and once committed
-  it would excuse any real D3D12 bug smaller than that gap; it also needs CI plumbing outside vcpkg.
-  **The Linux lavapipe job against the Windows WARP job** crosses backend, rasterizer, OS and
-  compiler at once, and `ci.yml` cannot pass artefacts between jobs.
-- *Consequences:* during 7.7 the Windows CI job checks D3D12 only against itself, at zero tolerance,
-  and against the scene suite's hand-derived counters — which holds `drawCalls`, `batches` and
-  `instances` equal across backends and leaves the other counters to the local comparison (§5.2).
-- *Cost accepted, stated at the time:* until the stage ends, a D3D12 bug that renders the same wrong
-  image every time passes CI, and only a local run catches it.
-- *Deferred by the user* to "more sophisticated checks once the stage is over" — a backlog row owed
-  when the interview ends (§5.7).
-
-**2a — two fresh runs.** The local check runs Vulkan, then D3D12, back to back on this machine and
-compares them with D26's tolerance. The only new committed values are the two constants.
-
-- *Rejected:* **committed Windows references for each backend**, D3D12 compared against its own
-  previous image at zero tolerance. It would catch D3D12 regressions below the tolerance, but costs
-  PNGs in git, a backend axis in `--update`'s refusals, staleness on every driver update — and,
-  during this stage, a promotion to approve on nearly every step while D3D12's image converges on
-  Vulkan's, each proving very little.
-- *Cost accepted:* after parity, a D3D12-only regression smaller than the tolerance goes unnoticed.
-- *Deferred:* committed per-backend references, into the same post-stage backlog row.
-
-**2b — adapter identity: PCI vendor and device ID added to `DeviceInfo`.** A seam change, amending
-D35. `VkPhysicalDeviceProperties::vendorID`/`deviceID` and `DXGI_ADAPTER_DESC1::VendorId`/`DeviceId`
-are the same PCI IDs by definition.
-
-- *The comparison's new rule:* when `system.backend` differs, `system.apiVersion`, `system.driver`
-  and `system.gpu` stop gating pixels — `apiVersion` differs by construction (`DeviceDesc.h`
-  documents a version against a feature level), and the other two are free text each API spells its
-  own way. The two IDs, `system.os` and `system.arch` must match, and D26's tolerance applies. Like
-  every `system.*` field, the IDs never gate the counters. `ReportCompare`'s unit test already fails
-  the build until new report fields are classified.
-- *Rejected:* **a `--cross-backend` flag the caller passes** — the reports would stop deciding
-  comparability, and two reports from different machines plus the flag would pass. **Matching on
-  names** — nothing guarantees Vulkan's `deviceName` and DXGI's `Description` agree, so it might
-  never compare on this machine. **A LUID** — `VkPhysicalDeviceIDProperties::deviceLUID` is valid
-  only where LUIDs exist (`deviceLUIDValid`, so not on Linux), and a LUID is unique only until
-  restart, so it could never appear in a committed reference.
-- *What PCI IDs do not prove, accepted:* they name the chip, not the physical card — identical cards
-  and board partners' variants of one chip share them. One card listed twice under two Vulkan
-  drivers shares them too; within a backend `system.driver` still gates. And the driver cannot be
-  proven the same across backends, because the two APIs report driver versions in unrelated
-  encodings — acceptable for two runs taken back to back.
-- *Side effect:* software rasterizers carry vendor IDs of their own — WARP Microsoft's `0x1414`,
-  lavapipe `VK_VENDOR_ID_MESA` (`0x10005`, `vulkan_core.h`) — so a software-rasterizer pair is
-  refused by identity rather than by policy. Confirm both from real reports when 2b lands.
-- *What an adapter is*, since the user asked: DXGI's `IDXGIAdapter` "represents a display subsystem
-  (including one or more GPUs, DACs and video memory)", often a card but sometimes on the
-  motherboard; Vulkan calls it a physical device. It need not be hardware (WARP, lavapipe), linked
-  multi-GPU shows as one adapter with several nodes, and Vulkan lists one card once per installed
-  driver.
-
-**2c — every differing region explained before the constants are committed.** Each area of the
-first full-parity diff is accounted for by a named mechanism — rasterization coverage at geometry
-edges, float accumulation in the cloud raymarch, filtering in texture sampling — and anything left
-unexplained is a bug, fixed before re-measuring. The explanations are written beside the constants
-in `tests/support/ImageCompare.h`.
-
-- *Why it matters for this scene:* about half of `test_scene.map` at camera preset 1 is sky from
-  the cloud compute pass, which sums many float steps per pixel through two independently generated
-  shaders, so low-bit drift across the whole sky is expected rather than only at edges. The
-  differing-fraction cap will be set mostly by the sky and constrains the geometry very little; the
-  channel-delta cap does that work.
-- *Tool change owed:* `WriteComparisonImages` scales the diff so the tolerance ceiling is full
-  brightness, which at zero tolerance turns every differing pixel white. Measuring needs the diff
-  scaled by the measured worst delta instead.
-- *Rejected:* **commit what is measured, unexplained** — a D3D12 bug present that day becomes part
-  of the definition of correct. **Per-pass isolation** (clouds off, geometry off) — kept as the
-  fallback if the sky's drift hides the geometry in the diff, not built by default, because it needs
-  pass toggles nothing else in the stage wants.
-
-**2d — no headroom.** The constants are exactly the measured values. The pair is deterministic —
-one machine, a fixed timestep, each backend already equal to itself at zero tolerance — so the
-difference moves only when something changes, and headroom would decide which changes pass
-unexplained rather than absorb noise. `CompareImages` measures, per pixel, the largest absolute
-difference over its four 8-bit channels; the worst such delta and the fraction of pixels with any
-delta at all are the two values, and a run passes when both are within their caps.
-
-- *Rejected:* **a multiple** — meaningless on a large fraction, where doubling 41% allows 82%.
-  **A fixed margin** — a guess. **A limit derived from legitimate variation** across camera presets,
-  scenes or driver versions — the only headroom with an argument behind it, and the one to reach for
-  if this is revisited.
-- *Illustration used at the time*, with invented numbers: against a measured 6 and 41%, limits of 8
-  and 43% would pass about 41,000 pixels — both boxes in the capture, at roughly 0.5% of the frame
-  each — wrong by up to about 3% brightness.
-- *Cost accepted:* every driver update on this machine, and every rendering change that moves the
-  gap between backends, needs a re-measure and a re-explanation; raising a constant changes an
-  expected test result, so each needs the user's approval.
-- *The user may change their mind after the stage*; revisiting it joins the post-stage backlog row.
-
-### 5.7 Handoff to the Windows session
-
-**Temporary — delete this section when the interview ends.** It exists because the interview moves
-from a Linux session to a Windows one, and the second starts knowing only what is written here.
-
-**Where it stands.** Roots 1 and 2 are settled, with 2a–2d under root 2 (§5.6). Nothing else on
-§5.4's frontier has been asked.
-
-**Order to continue in.**
-
-1. Write and run §5.5's measurement program, items 1 and 2. It is a tool for taking a measurement,
-   not stage work, and lives outside the repository.
-2. Root 3 (whether a legacy barrier path is built), root 4 (the floor), 4a (validation on D3D12).
-3. Seam rows 5–11. Row 9 needs `ResourceBindingTier` from the measurement.
-4. Structural rows 12–16a. Row 14 after row 9; row 12 after root 3, because the Agility SDK adds
-   files that have to be deployed beside both executables.
-5. Row 17, the step sequence, last.
-
-**Owed when the interview ends, and not before:**
-
-- A `backlog.md` row for the checks the user put after the stage: committed per-backend reference
-  images, D3D12 pixel checks in CI, and revisiting 2d's no-headroom rule. Per-region caps — sky and
-  geometry limited separately, which would fix the fraction cap's weakness — were raised but not
-  decided; name them in the row as a candidate.
-- Correct `backlog.md`'s P3 row from DXVK to vkd3d-proton.
-- §6's closing paragraph says the platform seam needs nothing because `NativeWindowHandle` is an
-  opaque `void*`; §5.3 item 5 shows the Vulkan backend casts it to `SDL_Window*`. Resolve it with
-  row 15's answer.
-- §9 item 2 still calls Slang finding DXC on Windows unverified; §5.5 item 3 answers it.
-- Turn §5.6 into D-numbers wherever it governs the seam (2b at least), rewrite §5 from interview
-  material into the stage's plan, and delete this section. `CLAUDE.md`'s description of §5 and its
-  roadmap row for 7.7 change with it.
-
-**Working conventions carried over.** On Linux these live in the session's auto-memory and the
-user's global instructions, neither of which exists on the Windows machine.
-
-- The interview runs through `/grill-me`: one question per turn, facts looked up rather than asked,
-  decisions never taken alone.
-- Trade-offs are written as prose with a recommendation — including the real cost of the
-  recommended option, not only of the rejected ones, and what would change the recommendation.
-- This stage is a learning exercise. Explain concepts as they come up — the user asked what an
-  adapter is, and how headroom would be measured, before choosing — and treat a question in the
-  middle of a decision as normal rather than as a sign the explanation failed.
-- A design question parked in a document still has to be put to the user in conversation.
-- Plain vocabulary: never "sentinel" (say what the value means, or "special value"), and never
-  "ctor" or "dtor".
-- Device selection is raised with the user before anything is built (row 16a).
-- At the end of each implemented step, recommend a commit name without being asked: past tense,
-  sentence case, no trailing period, no scope prefix, no PR number. Propose a split when the tree
-  holds more than one logical change. Never run git commands that change state.
-- Scratch and intermediate files go in a temporary directory, never the working tree.
-- A change to comments or documentation only needs at most a format check, not `precommit.bat`.
-- When the user runs a shell command with the `!` prefix, respond with nothing at all until they
-  send a follow-up.
-- On Linux a session-start hook checks whether vcpkg's `vulkan-validationlayers` has moved past
-  1.4.357.0, whose best-practices check crashes with `VK_KHR_maintenance9` enabled
-  (`validate_best_practices` is commented out in `VulkanDevice.cpp` for it; the upstream fix is
-  commit `18a5b72834f1eac6d28554592018b8752f539287`, and only a `vulkan-sdk-*` tag can reach
-  vcpkg). The hook does not run on Windows.
+- **Step 2:** whether the ASan preset tolerates the D3D12 debug layer and WARP; if not, a decision then.
+- **Step 7:** GPU-based validation's cost, which reopens D40's default if it makes the WARP scene suite
+  prohibitive; warm startup and first-frame times, the pipeline library's trigger (D15, amended); and
+  WARP's scene-run time, which reopens running enhanced under every gate if it is too slow.
+- **Before the Windows 11 machine's first weekly session:** run `C:\Dev\d3d12-probe` there. If it reports
+  no unrestricted copy pitch, D39's requirement is reopened.
+- **After steps 1, 3 and 8**, which change the report, and no later than step 10: refresh the committed
+  baseline on the Linux boot, carrying `DeviceInfo`'s PCI IDs, the renamed `run.forceSingleQueue` key —
+  whose rename the user approved — and the barrier-path field. The Windows gate does not depend on it.
+- **Before step 10:** confirm the RX 580's driver is current (§5.3).
+- **When step 1 lands:** delete `backlog.md`'s P3 `--gpu` row, as the backlog's own rule requires.
 
 ---
 
@@ -2143,8 +2249,11 @@ where transparency genuinely does introduce comparison noise, which is a differe
 Already done, and listed so nobody re-does them: **D10** gives clip-space handedness one site
 behind `DeviceCaps::bFlipClipSpaceY`; **D11**'s curated `Rhi::Format` with `default:`-free
 switches already fails the build on an unmapped format; **D12**'s Slang shaders are portable as
-written; and `DeviceRequirements::NativeWindowHandle` is already an opaque `void*` documented
-as "a native window pointer versus an HWND", so the platform seam needs nothing.
+written; and the platform seam needs nothing, though not for the reason this paragraph first
+gave. `DeviceRequirements::NativeWindowHandle` is an opaque `void*`, but what it carries is the
+platform's SDL window, which the Vulkan backend casts back to create its surface — not "a native
+window pointer versus an HWND", as its comment claimed. Stage 7.7 keeps it that way: the D3D12
+backend asks SDL for the HWND, and the comment is corrected (§5.4).
 
 ---
 
@@ -2241,8 +2350,10 @@ which is dxc 1.9.0.5191. Both ports install prebuilt binaries, so the whole prob
 
 - **Slang finds vcpkg's DXC with no path option**, loading `libdxcompiler.so` and `libdxil.so`
   from `tools/shader-slang/../../lib`. That relative layout only holds while `directx-dxc` is a
-  host dependency, as `shader-slang` is. Windows, where the DLLs land in `bin/`, is unverified;
-  CI's Windows jobs are what will say, since `CompileShadersTarget` is in `ALL`.
+  host dependency, as `shader-slang` is. **Windows, where the DLLs land in `bin/`, is verified
+  too**, as this entry predicted it would be — by CI, since `CompileShadersTarget` is in `ALL`: the
+  merge run of #60 (run 34715242114) compiled all eight `.dxil` blobs on `ninja-debug-windows`,
+  each passing `CheckDxilSignature`, on 13 September 2026.
 - **`pbr.slangh` survives.** All eight stage entry points compile at `sm_6_0` under
   `-warnings-as-errors all`.
 - **DXC validates and signs every compile.** Its release notes for 1.8.2505: "The compiler will now
@@ -2301,14 +2412,15 @@ which is dxc 1.9.0.5191. Both ports install prebuilt binaries, so the whole prob
 **This document is kept after the stage ends.** Stage 7's plan was deleted at its stage's close
 because it records how to build things that will by then be built. `rhi_extraction_plan.md` was
 kept past Stage 5 because its decisions still govern a seam that outlived it. This one is the
-second kind: D14–D33 say what the RHI's public API is allowed to express about recording,
-binding, pipelines and submission, and a D3D12 backend — and everything written against the seam
-afterwards — has to respect them.
+second kind: D14–D46 say what the RHI's public API is allowed to express about recording,
+binding, pipelines, submission, presentation and validation, and the D3D12 backend — and everything
+written against the seam afterwards — has to respect them.
 
 What that means in practice:
 
 - The step sequence in §3 becomes history once the stage completes, exactly as R1–R17 did.
-  Leave it; it is short, and it explains why the seam has the shape it has.
+  Leave it; it is short, and it explains why the seam has the shape it has. §4.3's and §5.5's step
+  lists follow it into history when Stages 7.6 and 7.7 complete — 7.6's already has.
 - §2's decisions stay live and are the reason to open this file.
 - §8's definition of done becomes the standing description of what the transitional area is
   *for*, and `cmake/RhiBoundaryCheck.cmake` stays its enforcement.
@@ -2317,8 +2429,9 @@ What that means in practice:
   architecture plan's Part III and outlives this document.
 - **Both plans retire together, into one permanent `docs/rhi.md`.** Decided at step 12, along
   with the decision not to do it yet. This document is not the host: it is a stage plan that
-  happens to carry decisions, and so is `rhi_extraction_plan.md`. The whole D-series — D0–D33,
-  less the two superseded — belongs in a file kept for the lifetime of the project, with both
-  step lists dropped and `rhi_extraction_plan.md` §10's promotion list as the outline.
+  happens to carry decisions, and so is `rhi_extraction_plan.md`. The whole D-series — D0–D46,
+  less the two superseded, with their amendments — belongs in a file kept for the lifetime of the
+  project, with the step lists dropped and `rhi_extraction_plan.md` §10's promotion list as the
+  outline.
   The numbering continuity §2 was careful about is what makes that a merge rather than a
   rewrite.
