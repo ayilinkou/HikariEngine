@@ -1930,7 +1930,7 @@ tolerance" is left as it stands, because §15 already records that D26 supersede
 
 ## 5. Stage 7.7 — the D3D12 backend
 
-**Status: in progress — step 1 done.** Grilled on 13 September 2026 — on Linux, then in two sittings on
+**Status: in progress — steps 1–2 done.** Grilled on 13 September 2026 — on Linux, then in two sittings on
 this project's Windows install, where the measurements only that machine could take were made. The
 decisions that govern the RHI's seam are **D36–D46** in §2, together with amendments to **D15, D26,
 D32 and D35**. This section is the stage: what bounds it (§5.2), the facts it rests on (§5.3), the
@@ -2208,6 +2208,19 @@ NuGet copy moved aside, refused for its copy pitch; and `D3D12\` moved aside fai
 `Shutdown` dereferenced the pipeline cache and shut down the UI backend even when `Init` had thrown before
 creating either, so any start that failed early crashed in teardown and lost its buffered log. The two steps
 are guarded now.
+
+**Amended at step 2: the scene suite's D3D12 registration moves to step 7, and D3D12's test spec grows.**
+`engine_test` gained `BACKEND_SPECS`, one registration per backend with a Catch2 test spec and
+`HIKARI_TEST_BACKEND`; labels are `gpu` for Vulkan and `gpu-d3d12`, so `ctest -L gpu` runs both. D3D12's spec
+names what its backend implements rather than excluding what it does not — `[device]~[vulkan]~[queues]`
+and `[d3d12]` at step 2 — so each later step widens it as its gate lists (`[upload]` and `[queues]` at step
+3, and so on), and a neutral case never fails merely for arriving early. Registering the scene suite for
+D3D12 now would add eleven cases that cannot pass before step 7, so it stays Vulkan-only until then, together
+with `RunScene` and the launched `HikariHeadless` reading the variable. `HIKARI_TEST_GPU` names the adapter,
+which is what runs the suite on WARP on the RX 580. D45's permanent D3D12 naming entry,
+`D3D12UiBackend.cpp`, lands with that file, since an entry matching no file fails the check. **The ASan
+preset is compatible**: the D3D12 cases pass under ASan with the debug layer on both adapters, so every
+Windows CI job runs them.
 
 **Why this order.** Step 1 needs no seam change, so the deployment — the part most likely to differ between
 machines — is proven before anything is built on it, and step 2 then proves it on the CI runner. Steps 3–6

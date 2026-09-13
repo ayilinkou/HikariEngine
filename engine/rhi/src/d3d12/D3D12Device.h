@@ -85,14 +85,20 @@ public:
 
     std::unique_ptr<IPresentTarget> CreatePresentTarget(const PresentTargetDesc& desc) override;
 
+    /** The device itself, for the backend's own objects and for tests of it. */
+    ID3D12Device& GetNativeDevice() { return *m_Device.Get(); }
+
+    /**
+     * Reports whatever the debug layer stored since the last call; nothing when it
+     * is off. Every backend method that can produce a message ends with this.
+     */
+    void DrainDebugMessages();
+
 private:
     void EnableDebugLayer(const DeviceDesc& desc);
     void CreateFactory();
     void SelectAdapter(const DeviceDesc& desc);
     void FillDeviceInfo();
-
-    /** Reports whatever the debug layer stored since the last call; nothing when it is off. */
-    void DrainDebugMessages();
 
     [[noreturn]] static void ThrowNotImplemented(std::string_view method);
 

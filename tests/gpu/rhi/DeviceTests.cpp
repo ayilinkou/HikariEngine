@@ -26,7 +26,7 @@
  */
 using namespace Hikari::Rhi;
 
-TEST_CASE("A headless device is created and reports no presentation", "[rhi][gpu][device]")
+TEST_CASE("A headless device is created and reports no presentation", "[rhi][gpu][device][vulkan]")
 {
     IDevice& device = RhiTest::RequireDevice();
     const RhiTest::ValidationGuard guard(device);
@@ -50,7 +50,7 @@ TEST_CASE("A headless device is created and reports no presentation", "[rhi][gpu
  * on — and loosening the suitability check would otherwise surface as a driver
  * crash somewhere unrelated.
  */
-TEST_CASE("The device supports the features the renderer requires", "[rhi][gpu][device]")
+TEST_CASE("The device supports the features the renderer requires", "[rhi][gpu][device][vulkan]")
 {
     IDevice& device = RhiTest::RequireDevice();
     const RhiTest::ValidationGuard guard(device);
@@ -87,7 +87,7 @@ TEST_CASE("The device supports the features the renderer requires", "[rhi][gpu][
  * to a C API that cannot check them, so a null one is a crash inside somebody
  * else's library.
  */
-TEST_CASE("The native handles the ImGui hatch exposes are all real", "[rhi][gpu][device]")
+TEST_CASE("The native handles the ImGui hatch exposes are all real", "[rhi][gpu][device][vulkan]")
 {
     IDevice& device = RhiTest::RequireDevice();
     const RhiTest::ValidationGuard guard(device);
@@ -108,7 +108,7 @@ TEST_CASE("The native handles the ImGui hatch exposes are all real", "[rhi][gpu]
  * roles, those tests would keep passing while silently covering one fewer path
  * — so the lever gets its own check rather than being trusted.
  */
-TEST_CASE("Forcing a single queue removes the dedicated copy queue", "[rhi][gpu][device]")
+TEST_CASE("Forcing a single queue removes the dedicated copy queue", "[rhi][gpu][device][queues]")
 {
     IDevice& forced = RhiTest::RequireDevice(RhiTest::DeviceConfig::SingleQueue);
     const RhiTest::ValidationGuard guard(forced);
@@ -171,7 +171,7 @@ TEST_CASE("Asking for an adapter no one has is refused, naming the adapters foun
  */
 TEST_CASE("A new device owns no resources", "[rhi][gpu][device]")
 {
-    for (const RhiTest::DeviceConfig config : RhiTest::kAllDeviceConfigs)
+    for (const RhiTest::DeviceConfig config : RhiTest::AllDeviceConfigs())
     {
         INFO("device configuration: " << RhiTest::Describe(config));
 

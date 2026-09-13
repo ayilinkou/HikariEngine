@@ -264,6 +264,26 @@ TEST_CASE("The --gpu flag names an adapter, and needs a name to do it", "[ParseE
     CHECK_THROWS_AS(ParseEngineOption(Option("--gpu"), spec, config), CommandLineError);
 }
 
+TEST_CASE("Disabling a Vulkan extension is refused on D3D12, and only there",
+          "[ParseEngineOption]")
+{
+    // Checked on the spec rather than through --backend, so the case holds on a
+    // build without D3D12, where the flag itself would refuse the backend first.
+    RunSpec spec;
+    spec.DisabledVulkanExtensions = {"VK_KHR_maintenance9"};
+
+    spec.Backend = Backend::D3D12;
+    CHECK_THROWS_AS(RejectContradictoryOptions(spec), CommandLineError);
+
+    spec.Backend = Backend::Vulkan;
+    CHECK_NOTHROW(RejectContradictoryOptions(spec));
+
+    // D3D12 on its own is not a contradiction.
+    RunSpec d3d12;
+    d3d12.Backend = Backend::D3D12;
+    CHECK_NOTHROW(RejectContradictoryOptions(d3d12));
+}
+
 TEST_CASE("Contradictory validation options are refused", "[ParseEngineOption]")
 {
     // Each of these reads as stricter than it is, which is the whole reason to

@@ -72,7 +72,7 @@ LiveCounts Live(IDevice& device)
 
 TEST_CASE("A buffer upload round-trips byte for byte", "[rhi][gpu][upload]")
 {
-    for (const RhiTest::DeviceConfig config : RhiTest::kAllDeviceConfigs)
+    for (const RhiTest::DeviceConfig config : RhiTest::AllDeviceConfigs())
     {
         INFO("device configuration: " << RhiTest::Describe(config));
 
@@ -116,7 +116,7 @@ TEST_CASE("A buffer upload round-trips byte for byte", "[rhi][gpu][upload]")
  */
 TEST_CASE("Several uploads batch into one flush and keep their own offsets", "[rhi][gpu][upload]")
 {
-    for (const RhiTest::DeviceConfig config : RhiTest::kAllDeviceConfigs)
+    for (const RhiTest::DeviceConfig config : RhiTest::AllDeviceConfigs())
     {
         INFO("device configuration: " << RhiTest::Describe(config));
 
@@ -175,7 +175,7 @@ TEST_CASE("Several uploads batch into one flush and keep their own offsets", "[r
 
 TEST_CASE("A texture upload round-trips byte for byte", "[rhi][gpu][upload]")
 {
-    for (const RhiTest::DeviceConfig config : RhiTest::kAllDeviceConfigs)
+    for (const RhiTest::DeviceConfig config : RhiTest::AllDeviceConfigs())
     {
         INFO("device configuration: " << RhiTest::Describe(config));
 
@@ -225,7 +225,7 @@ TEST_CASE("A texture upload round-trips byte for byte", "[rhi][gpu][upload]")
  */
 TEST_CASE("Every cubemap face lands on its own layer", "[rhi][gpu][upload]")
 {
-    for (const RhiTest::DeviceConfig config : RhiTest::kAllDeviceConfigs)
+    for (const RhiTest::DeviceConfig config : RhiTest::AllDeviceConfigs())
     {
         INFO("device configuration: " << RhiTest::Describe(config));
 

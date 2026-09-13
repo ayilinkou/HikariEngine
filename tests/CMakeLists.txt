@@ -88,9 +88,21 @@ target_include_directories(rhi_tests
 # CI performs: on a machine with no Vulkan ICD every case here skips, and a run
 # of nothing but skips looks identical to a run of tests that were passing
 # vacuously. tests/scripts/run_gpu_tests.sh is what executes them.
-engine_test(rhi_gpu_tests SOURCES gpu/rhi/DeviceTests.cpp
-  gpu/rhi/PresentTargetTests.cpp gpu/rhi/UploadRoundTripTests.cpp
-  gpu/rhi/ValidationCoverageTests.cpp support/RhiDeviceListener.cpp LIBS Engine::RHI LABEL gpu)
+#
+# Registered once per backend. A case tagged [vulkan] or [d3d12] is about that
+# backend alone; everything else is neutral and runs under both — except that
+# D3D12's spec names what its backend implements so far rather than excluding
+# what it does not, so a neutral case joins D3D12's run in the step that makes
+# it passable there rather than failing until then. [queues] is left out until
+# D3D12 has queues to collapse.
+engine_test(
+  rhi_gpu_tests
+  SOURCES gpu/rhi/DeviceTests.cpp gpu/rhi/PresentTargetTests.cpp
+          gpu/rhi/UploadRoundTripTests.cpp gpu/rhi/ValidationCoverageTests.cpp
+          support/RhiDeviceListener.cpp
+  LIBS Engine::RHI
+  LABEL gpu
+  BACKEND_SPECS Vulkan "~[d3d12]" D3D12 "[device]~[vulkan]~[queues],[d3d12]")
 
 # The same reach into the module's own sources that rhi_tests makes, plus the
 # shared fixture: submitting a command list needs a queue, and the RHI hands out
@@ -99,6 +111,16 @@ target_include_directories(
   rhi_gpu_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support
                         ${CMAKE_SOURCE_DIR}/engine/rhi/src)
 hikari_deploy_d3d12(rhi_gpu_tests)
+
+# The D3D12 backend's own cases, which reach its device through the module's
+# private headers as the Vulkan cases reach theirs through VulkanNative.h.
+if(WIN32)
+  target_sources(rhi_gpu_tests PRIVATE gpu/rhi/D3D12DeviceTests.cpp)
+  set_source_files_properties(gpu/rhi/D3D12DeviceTests.cpp
+                              PROPERTIES COMPILE_DEFINITIONS "WIN32_LEAN_AND_MEAN;NOMINMAX")
+  target_link_libraries(rhi_gpu_tests PRIVATE Microsoft::DirectX-Headers
+                                              Microsoft::DirectX-Guids d3d12.lib dxgi.lib)
+endif()
 
 # The scene matrix: real runs of the engine, headless, asserting on the RunReport
 # they return. Labelled "scene" rather than "gpu" so that ctest -L gpu keeps its

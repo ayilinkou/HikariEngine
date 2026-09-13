@@ -307,18 +307,37 @@ jobs:
           HIKARI_TESTS_REQUIRE_DEVICE: "1"
         run: ctest --test-dir build/${{ matrix.preset }} -L scene --output-on-failure
 
+      # D3D12 on WARP, in every Windows configuration. A Windows runner has no GPU
+      # and no Vulkan ICD, so Windows GPU coverage is D3D12's registration asked
+      # for by its label (plan D28); Vulkan stays the default everywhere else.
+      #
+      # WARP is the runner's only adapter, so no adapter is named. The build
+      # deploys NuGet WARP beside the test binary, and the backend refuses the
+      # in-box copy for its copy pitch, so a pass here is a pass on the WARP this
+      # repository pins — and on the runner's own D3D12, a second machine proving
+      # the Agility SDK deployment. A case that cannot create a device fails
+      # rather than skips, for the reason the Linux step gives.
+      - name: GPU tests (D3D12, WARP)
+        id: d3d12-gpu-tests
+        if: matrix.os == 'windows-latest'
+        continue-on-error: true
+        env:
+          HIKARI_TESTS_REQUIRE_DEVICE: "1"
+        run: ctest --test-dir build/${{ matrix.preset }} -L gpu-d3d12 --output-on-failure
+
       # header-check reports "skipped" in the four non-debug jobs, which is not a
       # failure and so passes this gate.
       - name: Fail if any check failed
         if: steps.header-check.outcome == 'failure' || steps.catch2-tests.outcome ==
           'failure' || steps.gpu-tests.outcome == 'failure' || steps.scene-tests.outcome ==
-          'failure'
+          'failure' || steps.d3d12-gpu-tests.outcome == 'failure'
         run: |
           echo "One or more checks failed:"
           echo "  Header self-containment: ${{ steps.header-check.outcome }}"
           echo "  Catch2 tests: ${{ steps.catch2-tests.outcome }}"
           echo "  GPU tests: ${{ steps.gpu-tests.outcome }}"
           echo "  Scene tests: ${{ steps.scene-tests.outcome }}"
+          echo "  D3D12 GPU tests: ${{ steps.d3d12-gpu-tests.outcome }}"
           exit 1
 
       # Unconditional, because this run's key is its own and cannot collide with

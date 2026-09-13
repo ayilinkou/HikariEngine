@@ -165,6 +165,17 @@ void RejectContradictoryOptions(const RunSpec& spec)
             ": with no validation layer loaded there are no messages for a policy to act on");
     }
 
+    // D3D12 has capability bits rather than extensions, and a branch worth forcing
+    // there gets a lever of its own. Refused rather than ignored: the device would
+    // report and skip names it does not know, so the run would quietly take the
+    // path nobody asked for.
+    if (spec.Backend == Rhi::Backend::D3D12 && !spec.DisabledVulkanExtensions.empty())
+    {
+        throw Platform::CommandLineError(
+            "--vk-disable-extension cannot be combined with --backend D3D12: D3D12 has no "
+            "extensions to disable");
+    }
+
     if (spec.bValidationEnabled == false && spec.bStrictValidation)
     {
         throw Platform::CommandLineError(

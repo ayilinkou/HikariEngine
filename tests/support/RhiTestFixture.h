@@ -2,15 +2,19 @@
 
 #include "TestEnvironment.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <exception>
 #include <map>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <rhi/Backend.h>
 #include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/IDevice.h>
@@ -26,10 +30,14 @@
  * creates, and ValidationGuard resets the counters it reads, so a case still
  * starts from a known state.
  *
- * A machine with no Vulkan ICD is not a failure. Nothing here can run there, so
- * the cases skip with the reason attached rather than failing, which is why
+ * A machine with no usable device is not a failure. Nothing here can run there,
+ * so the cases skip with the reason attached rather than failing, which is why
  * these are labelled "gpu" and kept out of the run CI performs — see
  * cmake/Testing.cmake.
+ *
+ * Which backend the device comes from is the process's to say, through
+ * HIKARI_TEST_BACKEND, which CTest sets on each registration of the binary. A
+ * binary run by hand without it runs on Vulkan, the default everywhere else too.
  *
  * The devices are torn down by a Catch2 listener (RhiDeviceListener.cpp) rather
  * than by the static that holds them. Leaving it to static destruction aborts
@@ -44,9 +52,10 @@ namespace RhiTest
  *
  * The last three are unreachable on any one machine without a lever, and that
  * is the point: whichever of them this GPU is, the other two are the ones most
- * hardware in the field takes. The extension names are Vulkan's because
- * DeviceDesc::DisabledOptionalExtensions is neutral in type and backend-specific
- * in content; a second backend's fixture would name its own.
+ * hardware in the field takes. The two ownership-transfer arrangements are
+ * Vulkan's alone — D3D12 has no ownership transfer, since a resource reaches a
+ * copy queue by being in its common state — so a backend's own list is
+ * AllDeviceConfigs(), not every enumerator.
  */
 enum class DeviceConfig : uint8_t
 {
@@ -88,12 +97,40 @@ struct DeviceInstance
     std::unique_ptr<Hikari::Rhi::IDevice> pDevice;
 };
 
+/**
+ * The backend this process's tests run on: HIKARI_TEST_BACKEND, or Vulkan when it
+ * is unset.
+ *
+ * A name the build does not contain fails rather than skips. A registration
+ * asking for a backend and getting skips would read as that backend passing —
+ * the green run of nothing that HIKARI_TESTS_REQUIRE_DEVICE exists to prevent,
+ * reached from a different direction.
+ */
+inline Hikari::Rhi::Backend TestBackend()
+{
+    const std::string requested = TestEnvironment::Value("HIKARI_TEST_BACKEND");
+    if (requested.empty())
+        return Hikari::Rhi::Backend::Vulkan;
+
+    const std::optional<Hikari::Rhi::Backend> backend = Hikari::Rhi::BackendFromString(requested);
+    const std::span<const Hikari::Rhi::Backend> available = Hikari::Rhi::AvailableBackends();
+    if (!backend || std::ranges::find(available, *backend) == available.end())
+        FAIL("HIKARI_TEST_BACKEND names a backend this build does not contain: " + requested);
+
+    return *backend;
+}
+
 namespace Detail
 {
 inline Hikari::Rhi::DeviceDesc MakeDesc(DeviceConfig config, Hikari::Rhi::Diagnostics& diagnostics)
 {
     Hikari::Rhi::DeviceDesc desc;
     desc.ApplicationName = "HikariEngine RHI GPU tests";
+    desc.Backend = TestBackend();
+
+    // The adapter, as --gpu names one for the apps. What runs D3D12's suite on
+    // WARP on a machine that also has a GPU, which would otherwise always win.
+    desc.Gpu = TestEnvironment::Value("HIKARI_TEST_GPU");
 
     // The whole reason these tests exist is to be the place a validation error
     // is noticed, so they pay for the layer. Count rather than FailFast: a
@@ -185,7 +222,8 @@ inline Hikari::Rhi::IDevice& RequireDevice(DeviceConfig config = DeviceConfig::D
     DeviceInstance* pInstance = TryGetDevice(config);
     if (pInstance == nullptr)
     {
-        const std::string reason = "No usable Vulkan device: " + Detail::Slots()[config].FailureReason;
+        const std::string reason = "No usable " + std::string(Hikari::Rhi::ToString(TestBackend())) +
+                                   " device: " + Detail::Slots()[config].FailureReason;
         if (TestEnvironment::DeviceRequired())
             FAIL(reason);
 
@@ -215,13 +253,33 @@ inline void ShutDownDevices()
     Detail::Slots().clear();
 }
 
-/** Every configuration, for the cases that have to pass under all of them. */
-inline constexpr std::array kAllDeviceConfigs{
+/** Every configuration Vulkan has. */
+inline constexpr std::array kVulkanDeviceConfigs{
     DeviceConfig::Default,
     DeviceConfig::OwnershipTransfer,
     DeviceConfig::OwnershipTransferAllStages,
     DeviceConfig::SingleQueue,
 };
+
+/** Every configuration D3D12 has: no ownership transfer to force. */
+inline constexpr std::array kD3D12DeviceConfigs{
+    DeviceConfig::Default,
+    DeviceConfig::SingleQueue,
+};
+
+/** Every configuration this process's backend has, for the cases that have to pass under all of them. */
+inline std::span<const DeviceConfig> AllDeviceConfigs()
+{
+    switch (TestBackend())
+    {
+        case Hikari::Rhi::Backend::Vulkan:
+            return kVulkanDeviceConfigs;
+        case Hikari::Rhi::Backend::D3D12:
+            return kD3D12DeviceConfigs;
+    }
+
+    return {};
+}
 
 inline const char* Describe(DeviceConfig config)
 {

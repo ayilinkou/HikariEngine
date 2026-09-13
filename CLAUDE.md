@@ -165,7 +165,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 7 — Engine shell + DI | 40b, 41–47 | ✅ done (`engine/engine` + `engine/asset` + `engine/editor`, `HikariEditor` + `HikariHeadless`, injected subsystems, the event seam, and headless scene tests in CI) |
 | 7.5 — Backend readiness | 1–12 | ✅ done (`ICommandAllocator`, submission and fences, rendering scope, bind groups, pipelines, draw and dispatch recording — the transitional area is 2 headers from 4 sites, down from 7 from 18) |
 | 7.6 — Backend prerequisites | 1–12 | ✅ done (`HikariCompare` and the gating table, `--backend` and `rhi/Backend.h`, `DeviceInfo` and the report's `system` block, per-stage blobs with DXIL and its signature gate, `ShaderTypes.h` shared with the shaders and its layout pinned, `--validation` and `--vk-sync-validation`) |
-| **7.7 — D3D12 backend** | 1–10 | **in progress** — step 1 done (the Agility SDK and WARP deployed beside each executable, the D3D12 device, `--gpu`, `--d3d12-gpu-based-validation`). Grilled 13 September 2026 (D36–D46, `backend_readiness_plan.md` §5). Headless first, legacy barriers then enhanced, seam changes interleaved and gated on Vulkan within each step; Vulkan stays the default, and it owns the Windows GPU CI job (D28) |
+| **7.7 — D3D12 backend** | 1–10 | **in progress** — steps 1–2 done (per-backend GPU test registration and the D3D12 half of the boundary check; before that, the Agility SDK and WARP deployed beside each executable, the D3D12 device, `--gpu`, `--d3d12-gpu-based-validation`). Grilled 13 September 2026 (D36–D46, `backend_readiness_plan.md` §5). Headless first, legacy barriers then enhanced, seam changes interleaved and gated on Vulkan within each step; Vulkan stays the default, and it owns the Windows GPU CI job (D28) |
 | 8+ — Frame graph, DOD, scalability | 49–76 | not started; 49–56 partly superseded by Stage 7.5. Step 48 landed at 7.6 step 11 |
 
 Update this table when a stage completes.
@@ -218,7 +218,7 @@ cmake --workflow --preset ninja-debug-linux   # what build.sh wraps
 
 tests/scripts/build_tests.sh        # build every test target
 tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
-tests/scripts/run_gpu_tests.sh      # ctest -L gpu --output-on-failure (needs a Vulkan ICD)
+tests/scripts/run_gpu_tests.sh      # ctest -L gpu --output-on-failure (every backend; a device, or skips)
 tests/scripts/header_check.sh       # compile every header standalone, no PCH
 tests/scripts/rhi_boundary_check.sh # the RHI seam: neutral headers, and who may bypass them
 tests/scripts/namespace_check.sh    # every engine header opens its module's namespace
@@ -247,6 +247,15 @@ in all three Linux jobs too**, because `RunScene` asks for validation explicitly
 inheriting it from the build — the same eleven cases assert the same thing in every
 configuration. Before that a release run reported zero validation errors trivially, which made
 the headline assertion theatre.
+
+**The GPU suite is registered once per backend the build contains.** `engine_test`'s
+`BACKEND_SPECS` gives each backend a Catch2 test spec and sets `HIKARI_TEST_BACKEND` on its
+registration; Vulkan keeps the label `gpu` and D3D12's is `gpu-d3d12`, so `ctest -L gpu` runs
+both and `-L gpu-d3d12` runs D3D12 alone. A case tagged `[vulkan]` or `[d3d12]` belongs to that
+backend; D3D12's spec names what its backend implements so far, and grows step by step through
+Stage 7.7. `HIKARI_TEST_GPU` names the adapter, as `--gpu` does for the apps — `"Basic Render"`
+runs D3D12's suite on WARP on a machine with a GPU. **Windows CI runs `-L gpu-d3d12` on WARP in all
+three jobs**, ASan included, since a runner has no GPU and no Vulkan ICD.
 
 Everything that *verifies* the tree lives in `tests/scripts/`; `scripts/` holds the things
 that build or change it (`build.sh` at the root, `format.sh`, `precommit.sh`, and the
@@ -430,7 +439,8 @@ Source lists are explicit, not globbed — a new `.cpp` will silently not build 
   `tests/CMakeLists.txt` — `core_tests` for `unit/core/`, `platform_tests` for
   `unit/platform/`, `rhi_tests` for `unit/rhi/`.
 - `tests/gpu/**/*.cpp` → append to `rhi_gpu_tests` in the same file. `engine_test` takes a
-  `LABEL` naming the CTest label its cases get; it defaults to `unit`, and these pass `gpu`.
+  `LABEL` naming the CTest label its cases get; it defaults to `unit`, and these pass `gpu`
+  with `BACKEND_SPECS`. A D3D12-only source goes in the `if(WIN32)` block below it.
 
 Headers *are* globbed (into the header checks and the format targets), so a new header is
 checked automatically.
@@ -467,9 +477,10 @@ Two non-obvious rules that the whole test strategy rests on:
   build inputs by hand.
 
 **The RHI's public API is backend-neutral, and that is checked rather than trusted.** Nothing
-under `engine/rhi/include/rhi/` may name a Vulkan or VMA type; the backend lives in
-`engine/rhi/src/vulkan/`, where nothing outside the module can reach it. **And nothing in
-`engine/` or `apps/` outside that module may name Vulkan at all** — checked on names rather
+under `engine/rhi/include/rhi/` may name a Vulkan, VMA, D3D12 or D3D12MA type; the backends live
+in `engine/rhi/src/vulkan/` and `src/d3d12/`, where nothing outside the module can reach them,
+and inside it each names only its own API. **And nothing in `engine/` or `apps/` outside that
+module may name either API at all** — checked on names rather
 than includes, because a precompiled header once put the whole API in scope for a module with
 no include and no allowlist entry to show for it. One file is exempt and it is listed: the ImGui
 backend, permanently. A second entry would be a question about which neutral call is missing —
