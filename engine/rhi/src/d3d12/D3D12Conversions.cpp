@@ -196,6 +196,52 @@ D3D12_COMPARISON_FUNC ToComparison(CompareOp op)
 }
 } // namespace
 
+D3D12_BLEND ToBlend(BlendFactor factor, bool bAlpha)
+{
+    switch (factor)
+    {
+        case BlendFactor::Zero:
+            return D3D12_BLEND_ZERO;
+        case BlendFactor::One:
+            return D3D12_BLEND_ONE;
+        case BlendFactor::OneMinusSrcColor:
+            return bAlpha ? D3D12_BLEND_INV_SRC_ALPHA : D3D12_BLEND_INV_SRC_COLOR;
+    }
+
+    return D3D12_BLEND_ONE;
+}
+
+D3D12_BLEND_OP ToBlendOp(BlendOp op)
+{
+    switch (op)
+    {
+        case BlendOp::Add:
+            return D3D12_BLEND_OP_ADD;
+    }
+
+    return D3D12_BLEND_OP_ADD;
+}
+
+D3D12_CULL_MODE ToCullMode(CullMode mode)
+{
+    switch (mode)
+    {
+        case CullMode::None:
+            return D3D12_CULL_MODE_NONE;
+        case CullMode::Front:
+            return D3D12_CULL_MODE_FRONT;
+        case CullMode::Back:
+            return D3D12_CULL_MODE_BACK;
+    }
+
+    return D3D12_CULL_MODE_NONE;
+}
+
+D3D12_COMPARISON_FUNC ToComparisonFunc(CompareOp op)
+{
+    return ToComparison(op);
+}
+
 D3D12_SAMPLER_DESC ToD3D12Sampler(const SamplerDesc& desc)
 {
     // Comparison is a filter reduction on D3D12 rather than a separate enable, and

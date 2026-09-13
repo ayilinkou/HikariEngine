@@ -1495,32 +1495,238 @@ void D3D12Device::Destroy(PipelineLayoutHandle handle)
                             handle.Value));
 }
 
-ShaderModuleHandle D3D12Device::CreateShaderModule(const ShaderModuleDesc&)
+ShaderModuleHandle D3D12Device::CreateShaderModule(const ShaderModuleDesc& desc)
 {
-    ThrowNotImplemented("CreateShaderModule");
+    if (desc.Bytes.empty())
+    {
+        throw std::runtime_error(std::format(
+            "Rhi::IDevice::CreateShaderModule('{}'): no shader bytes.", desc.DebugName));
+    }
+
+    // DXIL goes into a pipeline state object as it is, so the module is the bytes.
+    return m_ShaderModules.Create(
+        D3D12ShaderModule{.Bytes = std::vector<std::byte>(desc.Bytes.begin(), desc.Bytes.end())});
 }
 
-void D3D12Device::Destroy(ShaderModuleHandle) {}
+void D3D12Device::Destroy(ShaderModuleHandle handle)
+{
+    if (m_ShaderModules.Release(handle))
+        return;
 
-GraphicsPipelineHandle D3D12Device::CreateGraphicsPipeline(const GraphicsPipelineDesc&,
+    ReportError(
+        std::format("Rhi::IDevice::Destroy(ShaderModuleHandle): handle {:#010x} is stale or "
+                    "was never valid; it may have been destroyed already.",
+                    handle.Value));
+}
+
+/**
+ * A pipeline state object built from the description, field for field with what the
+ * Vulkan backend builds, so the same description renders the same way:
+ *
+ * - counter-clockwise triangles are front-facing, as on Vulkan. Both decide winding on
+ *   the render target, and Vulkan's negated projection Y and D3D12's viewport put every
+ *   vertex in the same place there, so the same flag means the same faces;
+ * - depth is clipped rather than clamped, as Vulkan's depthClampEnable left off;
+ * - every render target blends independently, as Vulkan's independentBlend feature
+ *   (which the device requires) allows.
+ *
+ * Vertex inputs are matched to the shader by semantic, which VertexAttribute carries
+ * for this backend alone.
+ */
+GraphicsPipelineHandle D3D12Device::CreateGraphicsPipeline(const GraphicsPipelineDesc& desc,
                                                            IPipelineCache&)
 {
-    ThrowNotImplemented("CreateGraphicsPipeline");
+    const auto fail = [&desc](const std::string& why)
+    {
+        throw std::runtime_error(
+            std::format("Rhi::IDevice::CreateGraphicsPipeline('{}'): {}", desc.DebugName, why));
+    };
+
+    const D3D12PipelineLayout* pLayout = m_PipelineLayouts.Get(desc.Layout);
+    const D3D12ShaderModule* pVertex = m_ShaderModules.Get(desc.VertexShader.Module);
+    const D3D12ShaderModule* pPixel = m_ShaderModules.Get(desc.PixelShader.Module);
+    if (pLayout == nullptr || pVertex == nullptr)
+        fail("the layout or the vertex shader handle is stale.");
+
+    if (desc.RenderTargetFormats.size() > D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT ||
+        desc.RenderTargetBlends.size() != desc.RenderTargetFormats.size())
+        fail("each render target needs exactly one blend, and D3D12 allows at most eight.");
+
+    D3D12GraphicsPipeline pipeline;
+    pipeline.Layout = desc.Layout;
+
+    std::vector<D3D12_INPUT_ELEMENT_DESC> inputs;
+    inputs.reserve(desc.VertexAttributes.size());
+    for (const VertexAttribute& attribute : desc.VertexAttributes)
+    {
+        D3D12_INPUT_CLASSIFICATION classification = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+        UINT stepRate = 0u;
+        for (const VertexBufferLayout& buffer : desc.VertexBuffers)
+        {
+            if (buffer.Slot == attribute.Slot && buffer.Rate == VertexInputRate::Instance)
+            {
+                classification = D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA;
+                stepRate = 1u;
+            }
+        }
+
+        if (attribute.SemanticName == nullptr || attribute.SemanticName[0] == '\0')
+            fail(std::format("vertex attribute {} has no semantic, which D3D12 binds by.",
+                             attribute.Location));
+
+        inputs.push_back(D3D12_INPUT_ELEMENT_DESC{.SemanticName = attribute.SemanticName,
+                                                  .SemanticIndex = attribute.SemanticIndex,
+                                                  .Format = ToDxgi(attribute.AttributeFormat),
+                                                  .InputSlot = attribute.Slot,
+                                                  .AlignedByteOffset = attribute.Offset,
+                                                  .InputSlotClass = classification,
+                                                  .InstanceDataStepRate = stepRate});
+    }
+
+    for (const VertexBufferLayout& buffer : desc.VertexBuffers)
+    {
+        if (buffer.Slot >= pipeline.Strides.size())
+            fail(std::format("vertex buffer slot {} is past D3D12's slots.", buffer.Slot));
+        pipeline.Strides[buffer.Slot] = buffer.Stride;
+    }
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC state{};
+    state.pRootSignature = pLayout->RootSignature.Get();
+    state.VS = {pVertex->Bytes.data(), pVertex->Bytes.size()};
+    if (pPixel != nullptr)
+        state.PS = {pPixel->Bytes.data(), pPixel->Bytes.size()};
+
+    // Every field a disabled feature ignores still gets d3dx12's default rather than
+    // zero, which is not a valid blend, stencil operation or comparison.
+    state.BlendState.IndependentBlendEnable = TRUE;
+    for (D3D12_RENDER_TARGET_BLEND_DESC& target : state.BlendState.RenderTarget)
+    {
+        target =
+            D3D12_RENDER_TARGET_BLEND_DESC{.BlendEnable = FALSE,
+                                           .LogicOpEnable = FALSE,
+                                           .SrcBlend = D3D12_BLEND_ONE,
+                                           .DestBlend = D3D12_BLEND_ZERO,
+                                           .BlendOp = D3D12_BLEND_OP_ADD,
+                                           .SrcBlendAlpha = D3D12_BLEND_ONE,
+                                           .DestBlendAlpha = D3D12_BLEND_ZERO,
+                                           .BlendOpAlpha = D3D12_BLEND_OP_ADD,
+                                           .LogicOp = D3D12_LOGIC_OP_NOOP,
+                                           .RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL};
+    }
+
+    for (size_t i = 0; i < desc.RenderTargetBlends.size(); ++i)
+    {
+        const RenderTargetBlend& blend = desc.RenderTargetBlends[i];
+        D3D12_RENDER_TARGET_BLEND_DESC& target = state.BlendState.RenderTarget[i];
+        target.BlendEnable = blend.bEnable ? TRUE : FALSE;
+        target.SrcBlend = ToBlend(blend.SrcColor, false);
+        target.DestBlend = ToBlend(blend.DstColor, false);
+        target.BlendOp = ToBlendOp(blend.ColorOp);
+        target.SrcBlendAlpha = ToBlend(blend.SrcAlpha, true);
+        target.DestBlendAlpha = ToBlend(blend.DstAlpha, true);
+        target.BlendOpAlpha = ToBlendOp(blend.AlphaOp);
+        target.LogicOp = D3D12_LOGIC_OP_NOOP;
+        target.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        state.RTVFormats[i] = ToDxgi(desc.RenderTargetFormats[i]);
+    }
+
+    state.SampleMask = UINT_MAX;
+    state.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    state.RasterizerState.CullMode = ToCullMode(desc.Cull);
+    state.RasterizerState.FrontCounterClockwise = TRUE;
+    state.RasterizerState.DepthClipEnable = TRUE;
+
+    state.DepthStencilState.DepthEnable = desc.Depth.bTest ? TRUE : FALSE;
+    state.DepthStencilState.DepthWriteMask =
+        desc.Depth.bWrite ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+    state.DepthStencilState.DepthFunc = ToComparisonFunc(desc.Depth.Compare);
+    state.DepthStencilState.StencilEnable = FALSE;
+    state.DepthStencilState.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
+    state.DepthStencilState.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
+    const D3D12_DEPTH_STENCILOP_DESC keep{.StencilFailOp = D3D12_STENCIL_OP_KEEP,
+                                          .StencilDepthFailOp = D3D12_STENCIL_OP_KEEP,
+                                          .StencilPassOp = D3D12_STENCIL_OP_KEEP,
+                                          .StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS};
+    state.DepthStencilState.FrontFace = keep;
+    state.DepthStencilState.BackFace = keep;
+
+    state.InputLayout = {inputs.data(), static_cast<UINT>(inputs.size())};
+    state.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    state.NumRenderTargets = static_cast<UINT>(desc.RenderTargetFormats.size());
+    state.DSVFormat = ToDxgi(desc.DepthFormat);
+    state.SampleDesc.Count = 1;
+
+    const HRESULT hr = m_Device->CreateGraphicsPipelineState(&state, IID_PPV_ARGS(&pipeline.State));
+    DrainDebugMessages();
+    if (FAILED(hr))
+        fail(std::format("CreateGraphicsPipelineState failed ({}); the debug layer's messages say "
+                         "why.",
+                         HResultText(hr)));
+
+    if (!desc.DebugName.empty())
+        pipeline.State->SetName(WideFromUtf8(desc.DebugName).c_str());
+
+    return m_GraphicsPipelines.Create(std::move(pipeline));
 }
 
-void D3D12Device::Destroy(GraphicsPipelineHandle) {}
+void D3D12Device::Destroy(GraphicsPipelineHandle handle)
+{
+    if (m_GraphicsPipelines.Release(handle))
+        return;
 
-ComputePipelineHandle D3D12Device::CreateComputePipeline(const ComputePipelineDesc&,
+    ReportError(std::format("Rhi::IDevice::Destroy(GraphicsPipelineHandle): handle {:#010x} is "
+                            "stale or was never valid; it may have been destroyed already.",
+                            handle.Value));
+}
+
+ComputePipelineHandle D3D12Device::CreateComputePipeline(const ComputePipelineDesc& desc,
                                                          IPipelineCache&)
 {
-    ThrowNotImplemented("CreateComputePipeline");
+    const D3D12PipelineLayout* pLayout = m_PipelineLayouts.Get(desc.Layout);
+    const D3D12ShaderModule* pShader = m_ShaderModules.Get(desc.Shader.Module);
+    if (pLayout == nullptr || pShader == nullptr)
+    {
+        throw std::runtime_error(std::format(
+            "Rhi::IDevice::CreateComputePipeline('{}'): the layout or shader handle is stale.",
+            desc.DebugName));
+    }
+
+    D3D12ComputePipeline pipeline;
+    pipeline.Layout = desc.Layout;
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC state{};
+    state.pRootSignature = pLayout->RootSignature.Get();
+    state.CS = {pShader->Bytes.data(), pShader->Bytes.size()};
+
+    const HRESULT hr = m_Device->CreateComputePipelineState(&state, IID_PPV_ARGS(&pipeline.State));
+    DrainDebugMessages();
+    if (FAILED(hr))
+    {
+        throw std::runtime_error(std::format(
+            "Rhi::IDevice::CreateComputePipeline('{}'): CreateComputePipelineState failed ({}); "
+            "the debug layer's messages say why.",
+            desc.DebugName, HResultText(hr)));
+    }
+
+    if (!desc.DebugName.empty())
+        pipeline.State->SetName(WideFromUtf8(desc.DebugName).c_str());
+
+    return m_ComputePipelines.Create(std::move(pipeline));
 }
 
-void D3D12Device::Destroy(ComputePipelineHandle) {}
+void D3D12Device::Destroy(ComputePipelineHandle handle)
+{
+    if (m_ComputePipelines.Release(handle))
+        return;
+
+    ReportError(std::format("Rhi::IDevice::Destroy(ComputePipelineHandle): handle {:#010x} is "
+                            "stale or was never valid; it may have been destroyed already.",
+                            handle.Value));
+}
 
 std::unique_ptr<IPipelineCache> D3D12Device::CreatePipelineCache(const PipelineCacheDesc&)
 {
-    ThrowNotImplemented("CreatePipelineCache");
+    return std::make_unique<D3D12PipelineCache>();
 }
 
 std::unique_ptr<IPresentTarget> D3D12Device::CreatePresentTarget(const PresentTargetDesc&)

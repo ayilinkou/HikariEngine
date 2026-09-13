@@ -160,13 +160,6 @@ public:
     virtual void SetIndexBuffer(BufferHandle buffer, IndexFormat format, uint64_t offset = 0u) = 0;
 
     /**
-     * Overrides the pipeline's cull mode, which is legal only on a pipeline that
-     * declared bDynamicCull. A two-sided material is a per-batch property, so
-     * this varies within a pass rather than between pipelines.
-     */
-    virtual void SetCullMode(CullMode mode) = 0;
-
-    /**
      * `firstInstance` is why this takes five arguments rather than three: the
      * renderer draws instanced batches out of one buffer, so a draw names its
      * slice of it.

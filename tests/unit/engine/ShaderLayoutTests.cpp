@@ -262,6 +262,10 @@ struct ReflectedInput
 {
     std::string ScalarType;
     uint32_t ElementCount = 0u;
+
+    /** The declared semantic; an index of 0 is omitted from the reflection, so it defaults. */
+    std::string SemanticName;
+    uint32_t SemanticIndex = 0u;
 };
 
 /** Every varying input of every vertex entry point in a reflection, by location. */
@@ -287,7 +291,9 @@ void CollectVertexInputs(const Json& node, std::map<uint32_t, ReflectedInput>& o
         const Json& type = node.at("type");
         out[node.at("binding").at("index").get<uint32_t>()] =
             ReflectedInput{.ScalarType = type.at("elementType").at("scalarType").get<std::string>(),
-                           .ElementCount = type.at("elementCount").get<uint32_t>()};
+                           .ElementCount = type.at("elementCount").get<uint32_t>(),
+                           .SemanticName = node.value("semanticName", ""),
+                           .SemanticIndex = node.value("semanticIndex", 0u)};
     }
 
     for (const auto& [key, value] : node.items())
@@ -314,37 +320,15 @@ ReflectedInput Describe(Hikari::Rhi::Format format)
     FAIL("a vertex attribute uses a format this test cannot describe");
     return {};
 }
-} // namespace
 
-TEST_CASE("Vertex input locations and formats agree with the shader", "[shaders][layout]")
+/**
+ * Compares an attribute table against the vertex inputs of each named stage's
+ * reflection: location, scalar type, element count and semantic.
+ */
+void CheckVertexInputs(const std::vector<Hikari::Rhi::VertexAttribute>& expected,
+                       const std::vector<std::string>& stages)
 {
-    // VS_In carries semantics that C++ cannot express, so the two declarations
-    // stay separate and this compares them instead (plan D32). The live hazard is
-    // insertion: add a field to VS_In and every location after it shifts while
-    // the C++ table keeps the old numbers — which validation cannot object to,
-    // because the pipeline is still perfectly legal.
-    //
-    // Semantics are excluded deliberately: there is no C++ side to compare them
-    // against, so asserting POSITION0 would only agree with a constant typed
-    // beside it.
-    std::vector<Hikari::Rhi::VertexAttribute> expected;
-    for (const auto& attribute : Vertex::GetAttributeDescriptions())
-        expected.push_back(attribute);
-
-    for (const auto& attribute : InstanceData::GetAttributeDescriptions())
-        expected.push_back(attribute);
-
-    REQUIRE(expected.size() == 11u);
-
-    // Named rather than found by counting inputs: a filter that skips a shader
-    // whose input count is unexpected would excuse the very insertion this
-    // exists to catch, reporting "checked fewer shaders" instead of "location 3
-    // has the wrong format".
-    const std::vector<std::string> surfaceVertexStages{
-        "opaque.vert.spv.json", "opaque.vert.dxil.json", "weightedBlendedOIT.vert.spv.json",
-        "weightedBlendedOIT.vert.dxil.json"};
-
-    for (const std::string& stage : surfaceVertexStages)
+    for (const std::string& stage : stages)
     {
         INFO("reflection: " << stage);
 
@@ -364,8 +348,49 @@ TEST_CASE("Vertex input locations and formats agree with the shader", "[shaders]
             const ReflectedInput described = Describe(attribute.AttributeFormat);
             CHECK(found->second.ScalarType == described.ScalarType);
             CHECK(found->second.ElementCount == described.ElementCount);
+            CHECK(found->second.SemanticName == std::string(attribute.SemanticName));
+            CHECK(found->second.SemanticIndex == attribute.SemanticIndex);
         }
     }
+}
+} // namespace
+
+TEST_CASE("Vertex input locations, formats and semantics agree with the shader",
+          "[shaders][layout]")
+{
+    // VS_In carries semantics that C++ cannot express as a type, so the two
+    // declarations stay separate and this compares them instead (plan D32). The live
+    // hazard is insertion: add a field to VS_In and every location after it shifts
+    // while the C++ table keeps the old numbers — which validation cannot object to,
+    // because the pipeline is still perfectly legal.
+    //
+    // Semantics are compared too, because the attribute tables now carry them for
+    // D3D12, which matches an input layout to a shader by semantic: a table naming
+    // POSITION1 where the shader says NORMAL1 binds the wrong stream there.
+    std::vector<Hikari::Rhi::VertexAttribute> expected;
+    for (const auto& attribute : Vertex::GetAttributeDescriptions())
+        expected.push_back(attribute);
+
+    for (const auto& attribute : InstanceData::GetAttributeDescriptions())
+        expected.push_back(attribute);
+
+    REQUIRE(expected.size() == 11u);
+
+    // Named rather than found by counting inputs: a filter that skips a shader
+    // whose input count is unexpected would excuse the very insertion this
+    // exists to catch, reporting "checked fewer shaders" instead of "location 3
+    // has the wrong format".
+    CheckVertexInputs(expected,
+                      {"opaque.vert.spv.json", "opaque.vert.dxil.json",
+                       "weightedBlendedOIT.vert.spv.json", "weightedBlendedOIT.vert.dxil.json"});
+}
+
+TEST_CASE("The composite quad's vertex inputs agree with the shader", "[shaders][layout]")
+{
+    const auto attributes = QuadVertex::GetAttributeDescription();
+    const std::vector<Hikari::Rhi::VertexAttribute> expected(attributes.begin(), attributes.end());
+
+    CheckVertexInputs(expected, {"composite.vert.spv.json", "composite.vert.dxil.json"});
 }
 
 namespace

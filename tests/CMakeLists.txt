@@ -97,14 +97,15 @@ target_include_directories(rhi_tests
 # D3D12 has queues to collapse.
 engine_test(
   rhi_gpu_tests
-  SOURCES gpu/rhi/BindGroupTests.cpp gpu/rhi/DeviceTests.cpp gpu/rhi/PresentTargetTests.cpp
+  SOURCES gpu/rhi/BindGroupTests.cpp gpu/rhi/DeviceTests.cpp gpu/rhi/EnginePipelineTests.cpp
+          gpu/rhi/PresentTargetTests.cpp
           gpu/rhi/RenderingScopeTests.cpp gpu/rhi/ResourceTests.cpp
           gpu/rhi/UploadRoundTripTests.cpp
           gpu/rhi/ValidationCoverageTests.cpp
           support/RhiDeviceListener.cpp
   LIBS Engine::RHI
   LABEL gpu
-  BACKEND_SPECS Vulkan "~[d3d12]" D3D12 "[device]~[vulkan],[resources],[upload],[rendering],[bindgroups],[d3d12]")
+  BACKEND_SPECS Vulkan "~[d3d12]" D3D12 "[device]~[vulkan],[resources],[upload],[rendering],[bindgroups],[pipelines],[d3d12]")
 
 # The same reach into the module's own sources that rhi_tests makes, plus the
 # shared fixture: submitting a command list needs a queue, and the RHI hands out
@@ -113,6 +114,16 @@ target_include_directories(
   rhi_gpu_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support
                         ${CMAKE_SOURCE_DIR}/engine/rhi/src)
 hikari_deploy_d3d12(rhi_gpu_tests)
+
+# One case creates the renderer's pipelines from the shaders the build compiled,
+# which is the first place a backend meets the engine's layout table, vertex
+# tables and constant blocks together. Those are the module's private sources,
+# reached as engine_tests reaches them; Engine::Engine is linked for the
+# definitions those headers compile under, and nothing here calls into it.
+target_link_libraries(rhi_gpu_tests PRIVATE Engine::Engine)
+target_include_directories(rhi_gpu_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/engine/src)
+add_dependencies(rhi_gpu_tests CompileShadersTarget)
+target_compile_definitions(rhi_gpu_tests PRIVATE HIKARI_SHADER_DIR="${HIKARI_EXE_DIR}/shaders")
 
 # The D3D12 backend's own cases, which reach its device through the module's
 # private headers as the Vulkan cases reach theirs through VulkanNative.h.

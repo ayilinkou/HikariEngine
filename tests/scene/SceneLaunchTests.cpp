@@ -306,6 +306,18 @@ TEST_CASE("Two materials cannot merge into one batch", "[scene]")
         {.Scene = "scenes/two_materials.map", .DrawCalls = 2u, .Batches = 2u, .Instances = 2u});
 }
 
+TEST_CASE("Single- and two-sided materials draw in one pass, switching pipeline between them",
+          "[scene]")
+{
+    // Cull mode is a pipeline property, so the opaque pass binds one of two pipelines
+    // per batch; the groups bound before the switch have to survive it, since both
+    // pipelines share a layout. Any mistake there is a validation error on the draw.
+    CheckScene({.Scene = "scenes/mixed_sidedness.map",
+                .DrawCalls = 2u,
+                .Batches = 2u,
+                .Instances = 2u});
+}
+
 TEST_CASE("Two entities of one model merge into a single instanced batch", "[scene]")
 {
     CheckScene(

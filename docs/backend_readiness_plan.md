@@ -1930,7 +1930,7 @@ tolerance" is left as it stands, because §15 already records that D26 supersede
 
 ## 5. Stage 7.7 — the D3D12 backend
 
-**Status: in progress — steps 1–5 done.** Grilled on 13 September 2026 — on Linux, then in two sittings on
+**Status: in progress — steps 1–6 done.** Grilled on 13 September 2026 — on Linux, then in two sittings on
 this project's Windows install, where the measurements only that machine could take were made. The
 decisions that govern the RHI's seam are **D36–D46** in §2, together with amendments to **D15, D26,
 D32 and D35**. This section is the stage: what bounds it (§5.2), the facts it rests on (§5.3), the
@@ -2268,6 +2268,26 @@ creation, since a constant buffer view's size must be a multiple of 256 and cann
 bind group GPU tests existed, so step 5 adds them: a neutral `BindGroupTests` under both backends, and two
 D3D12 cases — sixteen groups with one sampler fitting a heap of four sampler descriptors, and a full heap refusing
 a group with `ResourceDescriptorCapacity` in the message and reusing a released range.
+
+**Amended at step 6: what the pipelines rest on, and the test the gate names.** D41 landed as written: the opaque
+pass creates a back-culling and a two-sided pipeline over one layout and binds whichever a batch needs, and the
+transparent pipeline names `CullMode::None` rather than inheriting it. `scenes/mixed_sidedness.map`, one
+single-sided and one two-sided cube, joins the scene suite at two draws, two batches and two instances with
+validation clean, and the headless before-and-after Vulkan pairs of it and of the test scene compared identical at
+zero tolerance. `VertexAttribute` gains `SemanticName` and `SemanticIndex` (D32 am.), which the D3D12 backend
+requires and Vulkan ignores; the tables name what `VS_In` declares — the instance streams are `POSITION1`–`4` and
+`NORMAL1`–`3` — and `ShaderLayoutTests` compares each against both reflections, the composite quad's included.
+The cache file is `pipeline_cache_<backend>.bin`, and D3D12's cache saves nothing: the driver already caches
+compiled shaders, and `ID3D12PipelineLibrary` needs a stable hash of every description, which six pipelines did
+not justify. A D3D12 pipeline state object matches Vulkan's pipeline field for field — counter-clockwise front
+faces, depth clipped rather than clamped, independent blend — with a colour blend factor on alpha mapped to its
+alpha twin, since D3D12 forbids the colour form there, and every field a disabled feature ignores set to d3dx12's
+default rather than zero. **No test created the engine's pipelines**, so step 6 adds one: the neutral
+`EnginePipelineTests` builds all four graphics pipelines — the composite into both formats a present target may
+have — and both compute pipelines from the compiled shaders, with the renderer's layout table, vertex tables and
+constant blocks, and asserts no errors and no warnings. It passes on Vulkan, the RX 580 and WARP; with the clouds
+pipeline's depth layout left out it fails on D3D12 with the debug layer's ID 882, "Root Signature doesn't match
+Compute Shader".
 
 **Why this order.** Step 1 needs no seam change, so the deployment — the part most likely to differ between
 machines — is proven before anything is built on it, and step 2 then proves it on the CI runner. Steps 3–6

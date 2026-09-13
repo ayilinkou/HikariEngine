@@ -961,13 +961,10 @@ GraphicsPipelineHandle VulkanDevice::CreateGraphicsPipeline(const GraphicsPipeli
     const vk::PipelineColorBlendStateCreateInfo colorBlending{
         .attachmentCount = static_cast<uint32_t>(blends.size()), .pAttachments = blends.data()};
 
-    // Viewport and scissor are always dynamic (see ICommandList); cull is dynamic
-    // only when the caller says so, because a pipeline that never needs it should
-    // not pay for a state token per draw.
-    std::vector<vk::DynamicState> dynamicStates{vk::DynamicState::eViewport,
-                                                vk::DynamicState::eScissor};
-    if (desc.bDynamicCull)
-        dynamicStates.push_back(vk::DynamicState::eCullMode);
+    // Viewport and scissor are always dynamic (see ICommandList). Cull mode is not:
+    // it is baked from desc.Cull, because D3D12 cannot set it per draw and the seam
+    // does not claim what one backend cannot do.
+    const std::array dynamicStates{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
 
     const vk::PipelineDynamicStateCreateInfo dynamicState{
         .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),

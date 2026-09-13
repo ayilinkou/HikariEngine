@@ -496,9 +496,13 @@ private:
         // Before any pipeline is built, and before ImGui, which is handed the
         // same one. Paths::UserData is empty when the platform gave us nowhere
         // to write, and an empty path is how the cache is told to stay in
-        // memory for the run.
+        // memory for the run. The file is named for the backend that wrote it, since
+        // one machine runs both and each would otherwise overwrite the other's blob
+        // on every run.
+        const std::string cacheFile =
+            std::format("pipeline_cache_{}.bin", Rhi::ToString(m_RhiDevice->GetInfo().Backend));
         m_PipelineCache = m_RhiDevice->CreatePipelineCache(Rhi::PipelineCacheDesc{
-            .Path = m_Paths.UserData("pipeline_cache.bin"), .DebugName = "Pipeline Cache"});
+            .Path = m_Paths.UserData(cacheFile), .DebugName = "Pipeline Cache"});
 
         // Before the registry, which hands it to the loader that builds
         // materials, and before the pipelines, which are laid out against its
@@ -1119,24 +1123,31 @@ private:
         const std::array formats{m_OpaqueImageFormat};
         const std::array blends{Rhi::RenderTargetBlend{}};
 
-        m_OpaquePipeline = Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle>(
-            *m_RhiDevice,
-            m_RhiDevice->CreateGraphicsPipeline(
-                Rhi::GraphicsPipelineDesc{
-                    .Layout = m_OpaquePipelineLayout.Get(),
-                    .VertexShader = {LoadShader("opaque.vert")},
-                    .PixelShader = {LoadShader("opaque.frag")},
-                    .VertexBuffers = kSurfaceVertexBuffers,
-                    .VertexAttributes = kAttributes,
-                    .RenderTargetFormats = formats,
-                    .RenderTargetBlends = blends,
-                    .DepthFormat = m_DepthFormat,
-                    .Depth = {.bTest = true, .bWrite = true, .Compare = Rhi::CompareOp::Less},
-                    // Two-sided materials are a per-batch property, so the mode is
-                    // set per draw rather than baked in.
-                    .bDynamicCull = true,
-                    .DebugName = "Opaque"},
-                *m_PipelineCache));
+        // One pipeline per cull mode the pass draws with, sharing the layout, since
+        // cull mode is baked into a pipeline: single-sided materials cull back faces
+        // and two-sided ones cull nothing. The recorder binds whichever a batch needs.
+        const auto create = [&](Rhi::CullMode cull, const char* name)
+        {
+            return Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle>(
+                *m_RhiDevice,
+                m_RhiDevice->CreateGraphicsPipeline(
+                    Rhi::GraphicsPipelineDesc{
+                        .Layout = m_OpaquePipelineLayout.Get(),
+                        .VertexShader = {LoadShader("opaque.vert")},
+                        .PixelShader = {LoadShader("opaque.frag")},
+                        .VertexBuffers = kSurfaceVertexBuffers,
+                        .VertexAttributes = kAttributes,
+                        .RenderTargetFormats = formats,
+                        .RenderTargetBlends = blends,
+                        .DepthFormat = m_DepthFormat,
+                        .Depth = {.bTest = true, .bWrite = true, .Compare = Rhi::CompareOp::Less},
+                        .Cull = cull,
+                        .DebugName = name},
+                    *m_PipelineCache));
+        };
+
+        m_OpaquePipeline = create(Rhi::CullMode::Back, "Opaque");
+        m_OpaqueTwoSidedPipeline = create(Rhi::CullMode::None, "Opaque Two-Sided");
     }
 
     void CreateTransparentPipeline()
@@ -1183,9 +1194,10 @@ private:
                     .DepthFormat = m_DepthFormat,
                     // Tested against the opaque depth, never written to it.
                     .Depth = {.bTest = true, .bWrite = false, .Compare = Rhi::CompareOp::Less},
-                    // Not dynamic, unlike the opaque pass: transparent surfaces
+                    // One pipeline, unlike the opaque pass: transparent surfaces
                     // are drawn from both sides regardless of what the material
                     // says, so there is nothing per batch to vary.
+                    .Cull = Rhi::CullMode::None,
                     .DebugName = "Transparent"},
                 *m_PipelineCache));
     }
@@ -1331,7 +1343,10 @@ private:
         list->BeginRendering(Rhi::RenderingDesc{.RenderArea = WholeTarget(),
                                                 .RenderTargets = renderTargets,
                                                 .pDepthStencil = &depthTarget});
-        list->SetPipeline(m_OpaquePipeline.Get());
+        // Bound before the groups, which then survive every pipeline switch below:
+        // both opaque pipelines share the layout they were bound against.
+        Rhi::GraphicsPipelineHandle boundPipeline = m_OpaquePipeline.Get();
+        list->SetPipeline(boundPipeline);
 
         list->SetViewport(FullViewport());
         list->SetScissor(WholeTarget());
@@ -1344,15 +1359,16 @@ private:
         uint32_t instanceCount = 0;
         for (const MeshBatch& batch : batches)
         {
-            // Set every batch rather than tracked and skipped when unchanged. A
-            // command buffer starts with no dynamic cull mode at all, so anything
-            // that skips the first set leaves the draw invalid
-            // (VUID-vkCmdDrawIndexed-None-07840) — which is what the previous
-            // version did for a single-sided material, and what every material
-            // shipped today being two-sided hid. Recording one more state token
-            // per batch is not worth a rule about when it may be skipped.
-            list->SetCullMode(batch.pMaterial->IsTwoSided() ? Rhi::CullMode::None
-                                                            : Rhi::CullMode::Back);
+            // Only switched when the batch needs the other cull mode, since a
+            // pipeline bind is not free and scenes are mostly one or the other.
+            const Rhi::GraphicsPipelineHandle pipeline = batch.pMaterial->IsTwoSided()
+                                                             ? m_OpaqueTwoSidedPipeline.Get()
+                                                             : m_OpaquePipeline.Get();
+            if (pipeline != boundPipeline)
+            {
+                list->SetPipeline(pipeline);
+                boundPipeline = pipeline;
+            }
 
             list->SetVertexBuffer(0u, batch.VertexBuffer);
             list->SetIndexBuffer(batch.IndexBuffer, Rhi::IndexFormat::Uint32);
@@ -2064,6 +2080,7 @@ private:
     Rhi::UniqueHandle<Rhi::PipelineLayoutHandle> m_TransparentPipelineLayout;
     Rhi::UniqueHandle<Rhi::PipelineLayoutHandle> m_CompositePipelineLayout;
     Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle> m_OpaquePipeline;
+    Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle> m_OpaqueTwoSidedPipeline;
     Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle> m_TransparentPipeline;
     Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle> m_CompositePipeline;
 

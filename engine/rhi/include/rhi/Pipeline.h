@@ -108,6 +108,17 @@ struct VertexAttribute
     uint32_t Slot = 0u;
     Rhi::Format AttributeFormat = Format::Undefined;
     uint32_t Offset = 0u;
+
+    /**
+     * The shader's semantic for this input, name and index — `POSITION` and 1 for
+     * `: POSITION1`. D3D12 matches an input layout to a shader by semantic rather than
+     * by location, so a backend that does needs it and one that binds by location —
+     * Vulkan — ignores it. D3D12's term, since only D3D12 has the concept. The shader
+     * declares the same semantics, and a unit test over the build's reflection holds
+     * the two together, as it does locations.
+     */
+    const char* SemanticName = "";
+    uint32_t SemanticIndex = 0u;
 };
 
 enum class CullMode : uint8_t
@@ -193,13 +204,14 @@ struct GraphicsPipelineDesc
     Format DepthFormat = Format::Undefined;
     DepthState Depth{};
 
-    CullMode Cull = CullMode::None;
-
     /**
-     * Cull mode is set per draw rather than baked in. Two-sided materials are a
-     * per-batch property, and rebuilding a pipeline to flip one is not.
+     * Baked into the pipeline, with no way to change it per draw: D3D12 fixes cull
+     * mode in the pipeline state object and no command list sets it. A pass that
+     * draws single- and two-sided materials creates a pipeline for each mode, sharing
+     * one layout, and binds the one a batch needs — its bind groups survive the switch
+     * because the layout is the same.
      */
-    bool bDynamicCull = false;
+    CullMode Cull = CullMode::None;
 
     std::string DebugName;
 };

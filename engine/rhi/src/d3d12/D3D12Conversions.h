@@ -4,6 +4,7 @@
 #include <directx/dxgiformat.h>
 
 #include <rhi/Barrier.h>
+#include <rhi/Pipeline.h>
 #include <rhi/RhiTypes.h>
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
@@ -45,6 +46,16 @@ D3D12_RESOURCE_FLAGS ToResourceFlags(TextureUsage usage);
  * because that layout is also what a shader samples depth through.
  */
 D3D12_RESOURCE_STATES ToLegacyState(TextureLayout layout);
+
+/**
+ * A blend factor for the colour channels, or — `bAlpha` — for the alpha channel. D3D12
+ * forbids a colour factor on alpha; Vulkan allows it and means the alpha component, so
+ * a colour factor on alpha becomes its alpha twin, the same factor.
+ */
+D3D12_BLEND ToBlend(BlendFactor factor, bool bAlpha);
+D3D12_BLEND_OP ToBlendOp(BlendOp op);
+D3D12_CULL_MODE ToCullMode(CullMode mode);
+D3D12_COMPARISON_FUNC ToComparisonFunc(CompareOp op);
 
 /** A sampler description as the descriptor D3D12 writes into its sampler heap. */
 D3D12_SAMPLER_DESC ToD3D12Sampler(const SamplerDesc& desc);

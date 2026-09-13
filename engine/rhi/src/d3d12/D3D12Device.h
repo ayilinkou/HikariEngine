@@ -26,6 +26,7 @@
 #include "d3d12/D3D12DebugMessages.h"
 #include "d3d12/D3D12Fence.h"
 #include "d3d12/D3D12GpuDescriptorHeap.h"
+#include "d3d12/D3D12Pipeline.h"
 #include "d3d12/D3D12Texture.h"
 
 namespace Hikari::Rhi::D3D12
@@ -218,6 +219,9 @@ private:
     Core::HandlePool<D3D12BindGroupLayout, BindGroupLayoutTag> m_BindGroupLayouts;
     Core::HandlePool<D3D12BindGroup, BindGroupTag> m_BindGroups;
     Core::HandlePool<D3D12PipelineLayout, PipelineLayoutTag> m_PipelineLayouts;
+    Core::HandlePool<D3D12ShaderModule, ShaderModuleTag> m_ShaderModules;
+    Core::HandlePool<D3D12GraphicsPipeline, GraphicsPipelineTag> m_GraphicsPipelines;
+    Core::HandlePool<D3D12ComputePipeline, ComputePipelineTag> m_ComputePipelines;
 
     /** Declared before every pool, so that the allocations go before their allocator. */
     Microsoft::WRL::ComPtr<D3D12MA::Allocator> m_Allocator;

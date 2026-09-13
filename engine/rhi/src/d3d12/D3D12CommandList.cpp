@@ -403,11 +403,6 @@ void D3D12CommandList::SetIndexBuffer(BufferHandle, IndexFormat, uint64_t)
     ThrowNotImplemented("SetIndexBuffer");
 }
 
-void D3D12CommandList::SetCullMode(CullMode)
-{
-    ThrowNotImplemented("SetCullMode");
-}
-
 void D3D12CommandList::DrawIndexed(uint32_t, uint32_t, uint32_t, int32_t, uint32_t)
 {
     ThrowNotImplemented("DrawIndexed");

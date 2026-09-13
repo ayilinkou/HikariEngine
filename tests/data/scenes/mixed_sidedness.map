@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!-- One single-sided opaque cube and one two-sided one: two materials, so two batches,
+     drawn by two opaque pipelines that differ only in cull mode and share one layout —
+     so the pass switches pipeline between batches with its bind groups still bound. -->
+<scene>
+	<entity name="DirLight">
+		<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		<light type="1" intensity="5" direction="0.5 -1 0.5" />
+	</entity>
+	<entity name="SingleSidedCube">
+		<transform position="-1 0 0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/cube.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+	<entity name="TwoSidedCube">
+		<transform position="1 0 0" rotation="0 0 0" scale="1 1 1" />
+		<model path="models/cube_two_sided.gltf">
+			<transform position="0 0 0" rotation="0 0 0" scale="1 1 1" />
+		</model>
+	</entity>
+</scene>
