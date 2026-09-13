@@ -36,8 +36,14 @@ architecture, and prefer them over inventing a design:
   D3D12 backend itself). Grilled on 6 September 2026; its §0 records what that changed, which was
   substantial. **Stage 7.6's own interview ran on 11 and 12 September 2026 and is finished**: §4.1–§4.4
   are its output — the comparison tool, the shader build, the twelve-step sequence and the decisions
-  behind them — with nothing left open. Retires together with the RHI extraction plan into a single
-  `docs/rhi.md` — see that document's §10.
+  behind them — with nothing left open. **§5 carries Stage 7.7's interview, which is in progress.**
+  It began on Linux on 13 September 2026 and continues on this machine's Windows install, because
+  what is left needs measurements only that machine can take. **A session continuing it reads §5.7
+  first** — where the interview stands, the order to continue in, what is owed at its end, and the
+  working conventions the Linux session carried in memory — then §5.6, what it has settled. §5.1–§5.5
+  are the material it walks: what is already decided, the facts the survey settled, the seam gaps no
+  document recorded, the frontier, and the measurements. Retires together with the RHI extraction
+  plan into a single `docs/rhi.md` — see that document's §10.
 
 ---
 
@@ -157,7 +163,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 7 — Engine shell + DI | 40b, 41–47 | ✅ done (`engine/engine` + `engine/asset` + `engine/editor`, `HikariEditor` + `HikariHeadless`, injected subsystems, the event seam, and headless scene tests in CI) |
 | 7.5 — Backend readiness | 1–12 | ✅ done (`ICommandAllocator`, submission and fences, rendering scope, bind groups, pipelines, draw and dispatch recording — the transitional area is 2 headers from 4 sites, down from 7 from 18) |
 | 7.6 — Backend prerequisites | 1–12 | ✅ done (`HikariCompare` and the gating table, `--backend` and `rhi/Backend.h`, `DeviceInfo` and the report's `system` block, per-stage blobs with DXIL and its signature gate, `ShaderTypes.h` shared with the shaders and its layout pinned, `--validation` and `--vk-sync-validation`) |
-| **7.7 — D3D12 backend** | — | **next** — stepped small, Vulkan stays the default, and it owns the Windows GPU CI job (D28). Not yet grilled |
+| **7.7 — D3D12 backend** | — | **next** — stepped small, Vulkan stays the default, and it owns the Windows GPU CI job (D28). Grill in progress — `backend_readiness_plan.md` §5.7 |
 | 8+ — Frame graph, DOD, scalability | 49–76 | not started; 49–56 partly superseded by Stage 7.5. Step 48 landed at 7.6 step 11 |
 
 Update this table when a stage completes.
