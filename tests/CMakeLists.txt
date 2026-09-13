@@ -70,7 +70,7 @@ target_compile_definitions(
 # Pinning it (plan D21) is the one reason a test reaches in.
 target_include_directories(engine_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/engine/src)
 
-engine_test(rhi_tests SOURCES unit/rhi/BackendTests.cpp
+engine_test(rhi_tests SOURCES unit/rhi/AdapterNameTests.cpp unit/rhi/BackendTests.cpp
   unit/rhi/ConversionTests.cpp
   unit/rhi/DiagnosticsTests.cpp unit/rhi/FormatTests.cpp
   unit/rhi/OwnershipTransferTests.cpp unit/rhi/QueueFamilyTests.cpp
@@ -98,6 +98,7 @@ engine_test(rhi_gpu_tests SOURCES gpu/rhi/DeviceTests.cpp
 target_include_directories(
   rhi_gpu_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support
                         ${CMAKE_SOURCE_DIR}/engine/rhi/src)
+hikari_deploy_d3d12(rhi_gpu_tests)
 
 # The scene matrix: real runs of the engine, headless, asserting on the RunReport
 # they return. Labelled "scene" rather than "gpu" so that ctest -L gpu keeps its
@@ -110,6 +111,7 @@ engine_test(scene_tests SOURCES scene/SceneLaunchTests.cpp LIBS Engine::Engine
 set_target_properties(scene_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                              ${HIKARI_EXE_DIR})
 add_dependencies(scene_tests CompileShadersTarget)
+hikari_deploy_d3d12(scene_tests)
 
 target_include_directories(scene_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 

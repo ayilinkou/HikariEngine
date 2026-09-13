@@ -116,6 +116,12 @@ constexpr std::array kFields = {
     FieldClassification{"run.validationPolicy", FieldRole::Condition, true, true},
     FieldClassification{"run.vkSyncValidation", FieldRole::Condition, true, true},
 
+    // The GPU-side half of D3D12's layer reports what a shader read, after the GPU
+    // ran, and none of it can arrive with the mode off — so the validation counters
+    // are only comparable between runs that agree on it. Unknown for pixels, like
+    // the Vulkan sub-mode above.
+    FieldClassification{"run.d3d12GpuBasedValidation", FieldRole::Condition, true, true},
+
     // Both testing levers change which code path runs — a disabled extension
     // takes the fallback, and one queue family means no ownership transfers and
     // a different set of barriers.
@@ -149,6 +155,8 @@ constexpr std::array kFields = {
     FieldClassification{"system.apiVersion", FieldRole::Condition, false, true},
     FieldClassification{"system.os", FieldRole::Condition, false, true},
     FieldClassification{"system.arch", FieldRole::Condition, false, true},
+    FieldClassification{"system.vendorId", FieldRole::Condition, false, true},
+    FieldClassification{"system.deviceId", FieldRole::Condition, false, true},
 };
 
 /**

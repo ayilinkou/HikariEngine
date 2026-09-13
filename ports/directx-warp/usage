@@ -1,0 +1,9 @@
+directx-warp provides a location to copy WARP from, not a library to link:
+
+    find_package(directx-warp CONFIG REQUIRED)
+    add_custom_command(TARGET main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:Microsoft::DirectX-WARP>" "$<TARGET_FILE_DIR:main>")
+
+DXGI loads d3d10warp.dll from beside the executable when a copy is there, and
+from System32 otherwise.

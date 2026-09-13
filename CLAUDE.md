@@ -137,7 +137,8 @@ Synchronization validation is off by *Vulkan's* default and on in this project, 
 measured on a release build of the test scene at 1.035 ms/frame against 0.802 with it off and 0.337
 with no validation at all — so `--vk-sync-validation on|off` exists for the one case that needs it:
 a release run that validates *and* whose timings still mean something. Vulkan-only, as the prefix
-says; D3D12 has no synchronization validator. Best-practices validation is the one currently
+says; D3D12 has no synchronization validator. Its counterpart is `--d3d12-gpu-based-validation on|off`,
+on by default: the debug layer's GPU-side checks, the only ones that see what a shader reads. Best-practices validation is the one currently
 switched off, for a layer crash — see `backlog.md`.
 `grep`ping this repo for prior art is also not a source. Known-wrong places to copy from
 today: `ModelData::Init` (`suggested_work.md` §1.6 — a live P0 that dereferences a null
@@ -164,7 +165,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 7 — Engine shell + DI | 40b, 41–47 | ✅ done (`engine/engine` + `engine/asset` + `engine/editor`, `HikariEditor` + `HikariHeadless`, injected subsystems, the event seam, and headless scene tests in CI) |
 | 7.5 — Backend readiness | 1–12 | ✅ done (`ICommandAllocator`, submission and fences, rendering scope, bind groups, pipelines, draw and dispatch recording — the transitional area is 2 headers from 4 sites, down from 7 from 18) |
 | 7.6 — Backend prerequisites | 1–12 | ✅ done (`HikariCompare` and the gating table, `--backend` and `rhi/Backend.h`, `DeviceInfo` and the report's `system` block, per-stage blobs with DXIL and its signature gate, `ShaderTypes.h` shared with the shaders and its layout pinned, `--validation` and `--vk-sync-validation`) |
-| **7.7 — D3D12 backend** | 1–10 | **next** — grilled 13 September 2026 (D36–D46, `backend_readiness_plan.md` §5). Headless first, legacy barriers then enhanced, seam changes interleaved and gated on Vulkan within each step; Vulkan stays the default, and it owns the Windows GPU CI job (D28) |
+| **7.7 — D3D12 backend** | 1–10 | **in progress** — step 1 done (the Agility SDK and WARP deployed beside each executable, the D3D12 device, `--gpu`, `--d3d12-gpu-based-validation`). Grilled 13 September 2026 (D36–D46, `backend_readiness_plan.md` §5). Headless first, legacy barriers then enhanced, seam changes interleaved and gated on Vulkan within each step; Vulkan stays the default, and it owns the Windows GPU CI job (D28) |
 | 8+ — Frame graph, DOD, scalability | 49–76 | not started; 49–56 partly superseded by Stage 7.5. Step 48 landed at 7.6 step 11 |
 
 Update this table when a stage completes.
@@ -399,7 +400,10 @@ engine/engine/   # Engine::Engine static lib — the engine, and everything not 
 engine/editor/   # Engine::Editor static lib — the UI stack. Above Engine: an app builds
                  #   VulkanUiBackend and hands it over as an IUiBackend
 cmake/           # EngineModule.cmake (engine_module), Testing.cmake (engine_test),
-                 #   HeaderSelfContainment.cmake, Warnings.cmake
+                 #   HeaderSelfContainment.cmake, Warnings.cmake, D3D12.cmake
+                 #   (hikari_deploy_d3d12 — every executable that can create a
+                 #   D3D12 device calls it, or it runs on the wrong runtime)
+ports/           # vcpkg overlay ports: directx-warp, NuGet WARP, which vcpkg lacks
 tests/unit/      # Catch2 tests, CTest label "unit" — no GPU, run by CI
 tests/gpu/       # Catch2 tests needing a real device, CTest label "gpu" — run by CI on
                  #   Linux against lavapipe

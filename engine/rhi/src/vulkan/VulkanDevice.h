@@ -225,7 +225,7 @@ private:
     void CreateInstance(const DeviceDesc& desc);
     void SetupDebugMessenger(const DeviceDesc& desc);
     void CreateSurface(const DeviceRequirements& requirements);
-    void PickPhysicalDevice(const DeviceRequirements& requirements);
+    void PickPhysicalDevice(const DeviceDesc& desc);
     void SelectOptionalExtensions(const DeviceDesc& desc);
     void FindQueueFamilies(const DeviceDesc& desc);
     void FillDeviceInfo();

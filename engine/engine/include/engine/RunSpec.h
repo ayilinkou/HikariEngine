@@ -109,11 +109,29 @@ struct RunSpec
     bool bVulkanSyncValidation = true;
 
     /**
+     * Whether the D3D12 debug layer also validates on the GPU, where validation
+     * runs at all.
+     *
+     * On by default: it is the one check that sees what a shader actually reads,
+     * which D3D12's CPU-side layer cannot. D3D12-only, as the flag's prefix says —
+     * the counterpart of the Vulkan flag above, and for the same reason it can be
+     * turned off: it is expensive.
+     */
+    bool bD3D12GpuBasedValidation = true;
+
+    /**
      * Which backend to build the device from. Vulkan on every platform unless
      * asked otherwise, permanently (plan D25): a bug report, a baseline capture
      * and a run report then mean the same thing whoever produced them.
      */
     Rhi::Backend Backend = Rhi::Backend::Vulkan;
+
+    /**
+     * Part of the name of the adapter to run on, or empty for the backend's first
+     * suitable one. Neutral, though a name means something only within one
+     * backend: each API spells adapter names its own way. See Rhi::DeviceDesc::Gpu.
+     */
+    std::string Gpu;
 
     /**
      * Optional extensions to behave as though the device did not support, so a

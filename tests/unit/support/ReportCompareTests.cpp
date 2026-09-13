@@ -68,6 +68,8 @@ Engine::RunReport MakeReport()
     report.System.ApiVersion = "1.4.354";
     report.System.Os = "Linux";
     report.System.Arch = "x86_64";
+    report.System.VendorId = 0x1002u;
+    report.System.DeviceId = 0x67DFu;
 
     return report;
 }
@@ -370,7 +372,8 @@ TEST_CASE("A baseline without the system block is provisional, not a failure", "
         older = WithoutLine(std::move(older), field);
     }
 
-    // Removing every member leaves "system": {}, which is still valid JSON.
+    // What remains is the PCI identifiers, which came later and close the block,
+    // so the JSON stays valid.
     const TestSupport::ReportComparison result =
         TestSupport::CompareReports(Json(MakeReport()), older);
 
@@ -378,6 +381,31 @@ TEST_CASE("A baseline without the system block is provisional, not a failure", "
     CHECK(result.bProvisional);
     CHECK(result.Problems.empty());
     CHECK(result.MissingFields.size() == 6u);
+    CHECK(result.Differences.empty());
+}
+
+TEST_CASE("A baseline predating the PCI identifiers and GPU-based validation is provisional",
+          "[support][report]")
+{
+    // What a report from before the D3D12 backend looks like, and so what the
+    // committed baseline is until it is refreshed: the fields are simply absent.
+    std::string older = WithoutLine(Json(MakeReport()), "\"d3d12GpuBasedValidation\"");
+
+    // The two identifiers close the system block, so they go with the comma that
+    // precedes them rather than line by line.
+    const size_t from = older.find(",\n    \"vendorId\"");
+    REQUIRE(from != std::string::npos);
+    const size_t to = older.find('\n', older.find("\"deviceId\""));
+    REQUIRE(to != std::string::npos);
+    older.erase(from, to - from);
+
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(MakeReport()), older);
+
+    CHECK(result.Outcome == ReportOutcome::NoVerdict);
+    CHECK(result.bProvisional);
+    CHECK(result.Problems.empty());
+    CHECK(result.MissingFields.size() == 3u);
     CHECK(result.Differences.empty());
 }
 

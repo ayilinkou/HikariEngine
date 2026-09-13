@@ -121,6 +121,14 @@ struct RunReport
          */
         std::string Os;
         std::string Arch;
+
+        /**
+         * The adapter's PCI vendor and device identifiers — the identity both
+         * backends spell alike, so two reports from different backends can be
+         * recognised as the same adapter. See Rhi::DeviceInfo.
+         */
+        uint32_t VendorId = 0;
+        uint32_t DeviceId = 0;
     };
 
     /**
@@ -173,6 +181,13 @@ struct RunReport
          * whenever validation is, until it gains a switch of its own.
          */
         bool bSyncValidation = false;
+
+        /**
+         * Whether the D3D12 debug layer also validated on the GPU. What ran rather
+         * than what was asked: false on Vulkan, and false wherever validation was
+         * off, since there was no layer to switch it in.
+         */
+        bool bD3D12GpuBasedValidation = false;
 
         std::vector<std::string> DisabledVulkanExtensions;
         bool bForceSingleQueue = false;

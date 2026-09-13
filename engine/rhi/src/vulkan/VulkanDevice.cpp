@@ -17,6 +17,7 @@
 
 #include <core/Log.h>
 
+#include "AdapterName.h"
 #include "vulkan/DebugNames.h"
 
 #include "vulkan/OffscreenTarget.h"
@@ -148,7 +149,7 @@ VulkanDevice::VulkanDevice(const DeviceDesc& desc)
     CreateInstance(desc);
     SetupDebugMessenger(desc);
     CreateSurface(desc.Requirements);
-    PickPhysicalDevice(desc.Requirements);
+    PickPhysicalDevice(desc);
     SelectOptionalExtensions(desc);
     FindQueueFamilies(desc);
     CreateLogicalDevice(desc.Requirements);
@@ -189,6 +190,14 @@ void VulkanDevice::FillDeviceInfo()
 
     m_Info.Backend = Rhi::Backend::Vulkan;
     m_Info.Gpu = static_cast<const char*>(properties.deviceName);
+
+    // The spec requires the PCI vendor ID when the vendor has one, and the PCI
+    // device ID when the implementation is driven by a PCI device — what DXGI
+    // reports too. A vendor without one reports a Khronos vendor ID, allocated
+    // from 0x10000 so it cannot collide with PCI's namespace; lavapipe's is
+    // VK_VENDOR_ID_MESA, so a software rasterizer never matches a GPU.
+    m_Info.VendorId = properties.vendorID;
+    m_Info.DeviceId = properties.deviceID;
 
     // Both halves: driverName is the implementation ("radv"), driverInfo its own
     // version string ("Mesa 25.2.3"), and neither alone identifies a machine.
@@ -1519,19 +1528,41 @@ bool VulkanDevice::IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& devi
     return false;
 }
 
-void VulkanDevice::PickPhysicalDevice(const DeviceRequirements& requirements)
+/**
+ * The first suitable device in the loader's enumeration order, among those whose
+ * name matches DeviceDesc::Gpu when it names one. Every device passed over is
+ * listed in the refusal, with why.
+ */
+void VulkanDevice::PickPhysicalDevice(const DeviceDesc& desc)
 {
     Core::LogMsg(Core::LogSeverity::Info, LogRhi, "PickPhysicalDevice()");
 
-    auto devices = m_Instance.enumeratePhysicalDevices();
-    const auto deviceIt =
-        std::ranges::find_if(devices, [&](const auto& device)
-                             { return IsPhysicalDeviceSuitable(device, requirements); });
+    std::vector<std::string> considered;
+    for (const vk::raii::PhysicalDevice& device : m_Instance.enumeratePhysicalDevices())
+    {
+        const std::string name = static_cast<const char*>(device.getProperties().deviceName);
 
-    if (deviceIt == devices.end())
-        throw std::runtime_error("Failed to find a suitable GPU!");
+        if (!AdapterNameMatches(name, desc.Gpu))
+        {
+            considered.push_back(std::format("{} — does not match the requested name", name));
+            continue;
+        }
 
-    m_PhysicalDevice = *deviceIt;
+        if (!IsPhysicalDeviceSuitable(device, desc.Requirements))
+        {
+            considered.push_back(std::format("{} — does not meet the requirements", name));
+            continue;
+        }
+
+        m_PhysicalDevice = device;
+        return;
+    }
+
+    if (desc.Gpu.empty())
+        throw std::runtime_error("Failed to find a suitable GPU:" + DescribeAdapters(considered));
+
+    throw std::runtime_error(
+        std::format("No suitable GPU matches \"{}\":{}", desc.Gpu, DescribeAdapters(considered)));
 }
 
 void VulkanDevice::SelectOptionalExtensions(const DeviceDesc& desc)

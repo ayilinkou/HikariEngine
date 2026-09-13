@@ -20,5 +20,6 @@ foreach(app_name IN ITEMS HikariEditor HikariHeadless)
 
   engine_set_warnings(${app_name})
   hikari_apply_build_options(${app_name})
+  hikari_deploy_d3d12(${app_name})
   add_dependencies(${app_name} CompileShadersTarget)
 endforeach()

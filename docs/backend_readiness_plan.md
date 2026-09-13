@@ -1930,7 +1930,7 @@ tolerance" is left as it stands, because §15 already records that D26 supersede
 
 ## 5. Stage 7.7 — the D3D12 backend
 
-**Status: planned, not started.** Grilled on 13 September 2026 — on Linux, then in two sittings on
+**Status: in progress — step 1 done.** Grilled on 13 September 2026 — on Linux, then in two sittings on
 this project's Windows install, where the measurements only that machine could take were made. The
 decisions that govern the RHI's seam are **D36–D46** in §2, together with amendments to **D15, D26,
 D32 and D35**. This section is the stage: what bounds it (§5.2), the facts it rests on (§5.3), the
@@ -2173,8 +2173,11 @@ expected there. *The cost:* a test binary run by hand gives Vulkan unless the va
 confirmed to have run rather than skipped. A step that changes the seam passes that on Vulkan before its
 D3D12 half is written, and a seam change that could alter rendering also passes a before-and-after Vulkan
 capture pair compared with `HikariCompare` at zero tolerance — on this machine, or against the committed
-baseline on the Linux boot. The committed baseline is Linux's: on Windows a run compared against it still
-checks counters, which no `system.*` field gates, but skips pixels, and `--update` refuses another OS.
+baseline on the Linux boot. The committed baseline is Linux's, and on this machine a run compared against
+it checks nothing: the editor runs there in `immediate` present mode against the baseline's `mailbox`, and
+`run.presentMode` gates counters as well as pixels (found at step 1). So on Windows the before-and-after
+pair is taken on this machine — headlessly, since an offscreen target has no present mode — and
+`--update` refuses another OS regardless.
 From step 7 the gate also runs `HikariHeadless` on a scene under each backend on the RX 580 and compares
 the reports without images; a moved counter fails, and exit 2 — pixels not compared — passes until step
 10.
@@ -2191,6 +2194,20 @@ the reports without images; a moved counter fails, and exit 2 — pixels not com
 | 8 | **Enhanced barriers.** The enhanced path; `--d3d12-barriers`, its refusals, and its report field classified so it does not gate counters; registrations run enhanced on WARP | D37 (enhanced), D38 | Both suites on WARP under enhanced; legacy and enhanced reports' counters equal on WARP; `enhanced` refused on the RX 580 | S–M |
 | 9 | **Swapchain and editor.** The DXGI flip-model swapchain target, the HWND from SDL, the present-mode mapping and tearing; the D3D12 UI backend completed; the editor under D3D12 | — | `HikariEditor --backend D3D12` windowed on the RX 580, the report naming its present mode; the input scripts' resize and capture cases under D3D12 | L |
 | 10 | **Parity.** The diff image scaled by the measured worst delta; every differing region explained beside the constants; D26's two constants measured and committed with approval; the cross-backend pixel rule; the Linux baseline refreshed | D26 am., D35 am. | `HikariCompare` on a Vulkan and a D3D12 run of the test scene exiting 0 under the committed tolerance; the refreshed baseline exiting 0 on Linux | M |
+
+**Amended at step 1: its gate is read from the log, not the report.** A run report is written only when a
+run completes, and a step-1 device can create itself and nothing else, so `HikariHeadless --backend D3D12`
+fails at its first missing call with no report. The device logs what the `system` block would hold — adapter,
+PCI IDs, driver, feature level — and the path and version of the `D3D12Core.dll` it loaded, and that log is
+the evidence. `DeviceInfo` under D3D12 is first asserted directly by the device tests at step 2 and first
+written to a report at step 7. What step 1 also measured: the RX 580 at `0x1002`/`0x67DF`, driver
+`31.0.21925.1001`, feature level 12_0; NuGet WARP at `0x1414`/`0x008C`, driver `1.0.20.0` — the package's
+version, which is what proves the copy beside the executable loaded — feature level 12_2; in-box WARP, with the
+NuGet copy moved aside, refused for its copy pitch; and `D3D12\` moved aside failing every D3D12 call with
+`D3D12_ERROR_INVALID_REDIST`, which the refusal now names. A defect in `Engine.cpp` surfaced with it:
+`Shutdown` dereferenced the pipeline cache and shut down the UI backend even when `Init` had thrown before
+creating either, so any start that failed early crashed in teardown and lost its buffered log. The two steps
+are guarded now.
 
 **Why this order.** Step 1 needs no seam change, so the deployment — the part most likely to differ between
 machines — is proven before anything is built on it, and step 2 then proves it on the CI runner. Steps 3–6

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -49,6 +50,25 @@ struct DeviceDesc
     Rhi::Backend Backend = Rhi::Backend::Vulkan;
 
     DeviceRequirements Requirements;
+
+    /**
+     * Part of the name of the adapter to run on, matched without regard to case
+     * against the backend's own name for each one. Empty keeps each backend's
+     * rule: the first suitable adapter in enumeration order.
+     *
+     * A name rather than an index because enumeration order is not a stable
+     * identifier — it differs between machines and can differ between boots.
+     * The cost is that a name means something only within one backend, since
+     * each API spells adapter names its own way; and it cannot tell two copies
+     * of one adapter apart, such as the WARP Windows ships from the WARP deployed
+     * beside the executable, where deployment decides which one answers.
+     *
+     * An adapter that matches but does not meet the backend's requirements is
+     * refused rather than skipped for the next one, and no match at all refuses
+     * with the adapters that were found: asking for a GPU and silently getting
+     * another would measure the wrong machine.
+     */
+    std::string Gpu;
 
     /**
      * Turns on the backend's validation/debug layer. Costs real performance, so
@@ -117,6 +137,23 @@ struct DeviceDesc
      * ask for, and what a backend can honour is the backend's business.
      */
     bool bSyncValidation = true;
+
+    /**
+     * Whether the debug layer also validates on the GPU, where bEnableValidation
+     * turned validation on at all.
+     *
+     * D3D12's term, because D3D12 is the backend that needs it: a D3D12
+     * descriptor names no resource state, so the layer on the CPU knows what is
+     * bound but not what a shader reads, and only the GPU-side pass checks that
+     * a shader's access matches the state its resource is in. Vulkan checks the
+     * equivalent on the CPU, because a descriptor write there names the layout.
+     *
+     * On by default for the same reason bSyncValidation is: it is the check that
+     * catches what nothing else does. Its output arrives after the GPU executes
+     * rather than inside the offending call. Ignored by a backend with nothing
+     * to switch.
+     */
+    bool bGpuBasedValidation = true;
 };
 
 /**
@@ -212,5 +249,18 @@ struct DeviceInfo
      * carries the disambiguation, so a feature level never reads as a version.
      */
     std::string ApiVersion;
+
+    /**
+     * The adapter's PCI vendor and device identifiers.
+     *
+     * The one piece of identity both APIs spell alike, because both report the
+     * PCI identifiers themselves — which is what lets two reports from different
+     * backends be recognised as the same adapter, where the names above cannot
+     * be matched across APIs. They name the chip rather than the card: two cards
+     * of one model share them. Software rasterizers carry vendor identifiers of
+     * their own.
+     */
+    uint32_t VendorId = 0;
+    uint32_t DeviceId = 0;
 };
 } // namespace Hikari::Rhi

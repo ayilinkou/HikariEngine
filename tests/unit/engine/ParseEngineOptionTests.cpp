@@ -231,6 +231,39 @@ TEST_CASE("Synchronization validation is on unless asked otherwise", "[ParseEngi
     CHECK(spec.bVulkanSyncValidation);
 }
 
+TEST_CASE("GPU-based validation is on unless asked otherwise", "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+
+    // On by default because it is D3D12's only check of what a shader reads.
+    CHECK(spec.bD3D12GpuBasedValidation);
+
+    REQUIRE(ParseEngineOption(Option("--d3d12-gpu-based-validation", "off"), spec, config));
+    CHECK_FALSE(spec.bD3D12GpuBasedValidation);
+
+    REQUIRE(ParseEngineOption(Option("--d3d12-gpu-based-validation", "on"), spec, config));
+    CHECK(spec.bD3D12GpuBasedValidation);
+
+    CHECK_THROWS_AS(
+        ParseEngineOption(Option("--d3d12-gpu-based-validation", "maybe"), spec, config),
+        CommandLineError);
+}
+
+TEST_CASE("The --gpu flag names an adapter, and needs a name to do it", "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+
+    // Empty means each backend's own rule, so that is what a spec starts with.
+    CHECK(spec.Gpu.empty());
+
+    REQUIRE(ParseEngineOption(Option("--gpu", "Basic Render"), spec, config));
+    CHECK(spec.Gpu == "Basic Render");
+
+    CHECK_THROWS_AS(ParseEngineOption(Option("--gpu"), spec, config), CommandLineError);
+}
+
 TEST_CASE("Contradictory validation options are refused", "[ParseEngineOption]")
 {
     // Each of these reads as stricter than it is, which is the whole reason to

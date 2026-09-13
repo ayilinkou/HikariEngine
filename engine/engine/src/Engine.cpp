@@ -355,6 +355,8 @@ private:
         // did before the flag existed.
         desc.bEnableValidation = m_Spec.bValidationEnabled.value_or(bEnableValidationLayers);
         desc.bSyncValidation = m_Spec.bVulkanSyncValidation;
+        desc.bGpuBasedValidation = m_Spec.bD3D12GpuBasedValidation;
+        desc.Gpu = m_Spec.Gpu;
         desc.pDiagnostics = &m_Diagnostics;
         // The line the whole headless path turns on: no present requirement
         // means the device creates no surface, and CreatePresentTarget hands
@@ -460,6 +462,7 @@ private:
                 m_Platform.IsHeadless() ? nullptr : m_Platform.GetNativeWindowHandle(),
             .TargetFormat = m_PresentTarget->GetFormat(),
             .RingSize = std::max(m_PresentTarget->GetImageCount(), m_Config.FramesInFlight)});
+        m_bUiInitialized = true;
     }
 
     /**
@@ -562,6 +565,7 @@ private:
                           .CpuMs = ComputeTimingStats(m_CpuMs)};
 
         const bool bValidationOn = m_Spec.bValidationEnabled.value_or(bEnableValidationLayers);
+        const Rhi::DeviceInfo& device = m_RhiDevice->GetInfo();
 
         report.Run = {.bFixedDt = m_Spec.bFixedDt,
                       .bHeadless = m_Platform.IsHeadless(),
@@ -582,18 +586,22 @@ private:
                       .bValidationEnabled = bValidationOn,
                       .ValidationPolicy = m_Spec.ValidationPolicy,
                       .bSyncValidation = bValidationOn && m_Spec.bVulkanSyncValidation,
+                      .bD3D12GpuBasedValidation = bValidationOn &&
+                                                  device.Backend == Rhi::Backend::D3D12 &&
+                                                  m_Spec.bD3D12GpuBasedValidation,
                       .DisabledVulkanExtensions = m_Spec.DisabledVulkanExtensions,
                       .bForceSingleQueue = m_Spec.bForceSingleQueue,
                       .FramesInFlight = m_Config.FramesInFlight,
                       .WindowMode = m_Platform.GetWindowMode()};
 
-        const Rhi::DeviceInfo& device = m_RhiDevice->GetInfo();
         report.System = {.Backend = device.Backend,
                          .Gpu = device.Gpu,
                          .Driver = device.Driver,
                          .ApiVersion = device.ApiVersion,
                          .Os = HIKARI_OS,
-                         .Arch = HIKARI_ARCH};
+                         .Arch = HIKARI_ARCH,
+                         .VendorId = device.VendorId,
+                         .DeviceId = device.DeviceId};
 
         return report;
     }
@@ -658,13 +666,20 @@ private:
     {
         LogMsg(LogSeverity::Info, LogEngine, "Shutdown()");
 
+        // Shutdown also runs after an Init that threw part-way, from the
+        // destructor, so each step checks that what it tears down was built: a
+        // start that fails at its first call must end in the error that says why,
+        // not a crash that loses it.
+
         // Before ImGui, which built pipelines into the same cache, and before
         // the device that owns it goes away.
-        m_PipelineCache->Save();
+        if (m_PipelineCache)
+            m_PipelineCache->Save();
 
         m_Skybox.reset();
         m_SceneGraph.reset();
-        ShutdownImGui();
+        if (m_bUiInitialized)
+            ShutdownImGui();
         // The registry's caches assert they are empty, which only holds once
         // everything above has dropped what it borrowed; and the factory owns
         // the descriptor sets those materials were allocated from, so it goes
@@ -2129,6 +2144,9 @@ private:
     float m_DisplayFrameTime = 0.f;
     float m_DisplayFPS = 0.f;
     bool m_bShutdown = false;
+
+    /** Whether the UI backend was initialised, and so has something to shut down. */
+    bool m_bUiInitialized = false;
 
     /**
      * Barriers recorded for the current frame, split by the thread that records

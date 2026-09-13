@@ -10,6 +10,10 @@
 
 #include "vulkan/VulkanDeviceFactory.h"
 
+#ifdef HIKARI_RHI_D3D12
+#include "d3d12/D3D12DeviceFactory.h"
+#endif
+
 namespace Hikari::Rhi
 {
 
@@ -44,8 +48,8 @@ bool EqualsIgnoringCase(std::string_view a, std::string_view b)
  * Driven by the source list rather than by the platform: a Windows build
  * configured without the D3D12 backend has to report that truthfully, or
  * --backend's error message becomes a lie in exactly the configuration someone
- * is debugging. Stage 7.7 adds the backend's sources and the definition of
- * HIKARI_RHI_D3D12 together.
+ * is debugging. The module's CMakeLists defines HIKARI_RHI_D3D12 together with
+ * the backend's sources, and nowhere else.
  */
 constexpr std::array kAvailable = {
     Backend::Vulkan,
@@ -102,9 +106,12 @@ std::unique_ptr<IDevice> CreateDevice(const DeviceDesc& desc)
             return Vulkan::CreateVulkanDevice(desc);
 
         case Backend::D3D12:
-            // Unreachable: a build without it does not list it as available, and
-            // a build with it replaces this with the call (Stage 7.7).
+#ifdef HIKARI_RHI_D3D12
+            return D3D12::CreateD3D12Device(desc);
+#else
+            // Unreachable: a build without it does not list it as available.
             break;
+#endif
     }
 
     throw std::runtime_error(std::format("No factory for backend: {}", ToString(desc.Backend)));

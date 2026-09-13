@@ -104,6 +104,10 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
         spec.bValidationEnabled = RequireOnOff(option);
     else if (flag == "--vk-sync-validation")
         spec.bVulkanSyncValidation = RequireOnOff(option);
+    else if (flag == "--d3d12-gpu-based-validation")
+        spec.bD3D12GpuBasedValidation = RequireOnOff(option);
+    else if (flag == "--gpu")
+        spec.Gpu = option.RequireValue();
     else if (flag == "--validation-policy")
     {
         const std::string value = option.RequireValue();
@@ -198,10 +202,18 @@ void PrintEngineUsage()
                      "validation runs at\n"
                      "                          all. The expensive sub-mode; on by default "
                      "(default: on)\n"
+                     "  --d3d12-gpu-based-validation <on|off>\n"
+                     "                          D3D12 only. The debug layer's GPU-side checks, "
+                     "where validation runs\n"
+                     "                          at all. Expensive; on by default (default: on)\n"
                      "  --backend <name>        Which backend to run on. Available in this "
                      "build: " +
                      AvailableBackendNames() +
                      "\n"
+                     "  --gpu <name>            Run on the first suitable adapter whose name "
+                     "contains <name>,\n"
+                     "                          ignoring case. Names are each backend's own "
+                     "spelling\n"
                      "  --validation-policy <p> ignore | count | failfast "
                      "(default: count; failfast aborts on the first error)\n"
                      "  --vk-disable-extension <name>\n"
