@@ -1,5 +1,6 @@
 #include "d3d12/D3D12Device.h"
 
+#include <algorithm>
 #include <array>
 #include <format>
 #include <optional>
@@ -13,8 +14,11 @@
 
 #include "AdapterName.h"
 #include "TextureValidation.h"
+#include "d3d12/D3D12CommandAllocator.h"
+#include "d3d12/D3D12CommandList.h"
 #include "d3d12/D3D12Conversions.h"
 #include "d3d12/D3D12DeviceFactory.h"
+#include "d3d12/D3D12UploadContext.h"
 
 namespace Hikari::Rhi::D3D12
 {
@@ -143,17 +147,23 @@ D3D12Device::D3D12Device(const DeviceDesc& desc)
 
     CreateAllocator();
 
+    m_bSingleQueue = desc.bForceSingleQueue;
+    CreateQueues();
+
     FillDeviceInfo();
 
     // D3D12's clip space already has Y up, as GLM's projection produces it.
     m_Caps.bFlipClipSpaceY = false;
     m_Caps.ShaderExtension = "dxil";
 
-    // Nothing this device creates can present, reach a queue or be recorded yet, so
-    // it claims none of the three rather than describing a device that could.
+    // Nothing this device creates can present yet.
     m_Caps.bPresentSupported = false;
-    m_Caps.bHasDedicatedComputeQueue = false;
-    m_Caps.bHasDedicatedCopyQueue = false;
+
+    // Every D3D12 device offers compute and copy queues beside the direct one, so the
+    // device has them unless it was asked to behave as though it had one queue for
+    // every role — which is what these describe, not where the RHI submits.
+    m_Caps.bHasDedicatedComputeQueue = !m_bSingleQueue;
+    m_Caps.bHasDedicatedCopyQueue = !m_bSingleQueue;
 
     Core::LogMsg(Core::LogSeverity::Info, LogRhi,
                  "D3D12 device: {} (vendor 0x{:04X}, device 0x{:04X}), driver {}, {}", m_Info.Gpu,
@@ -241,6 +251,209 @@ void D3D12Device::CreateAllocator()
 void D3D12Device::ReportError(const std::string& message)
 {
     m_pDiagnostics->Report(DiagnosticSeverity::Error, message);
+}
+
+/**
+ * A direct queue always, and a copy queue unless the device is to behave as though it
+ * had one queue: then copies are recorded as direct lists and go to the direct queue,
+ * the path an integrated GPU's single universal queue family takes on Vulkan. No
+ * compute queue: dispatches go to the direct queue, as they go to the graphics queue
+ * on Vulkan, until a pass needs them overlapped with rendering.
+ */
+void D3D12Device::CreateQueues()
+{
+    const auto create = [this](D3D12_COMMAND_LIST_TYPE type, const wchar_t* name)
+    {
+        D3D12_COMMAND_QUEUE_DESC queueDesc{};
+        queueDesc.Type = type;
+
+        Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
+        const HRESULT hr = m_Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue));
+        if (FAILED(hr))
+        {
+            throw std::runtime_error(
+                std::format("CreateCommandQueue failed ({})", HResultText(hr)));
+        }
+
+        queue->SetName(name);
+        return queue;
+    };
+
+    m_DirectQueue = create(D3D12_COMMAND_LIST_TYPE_DIRECT, L"Direct Queue");
+    if (!m_bSingleQueue)
+        m_CopyQueue = create(D3D12_COMMAND_LIST_TYPE_COPY, L"Copy Queue");
+
+    const HRESULT hr = m_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_IdleFence));
+    if (FAILED(hr))
+        throw std::runtime_error(std::format("CreateFence failed ({})", HResultText(hr)));
+
+    // Sized for every rendering target alive at once — a few per frame in flight — with
+    // room to spare. Exhaustion throws naming the heap rather than growing.
+    m_RenderTargetHeap = std::make_unique<D3D12CpuDescriptorHeap>(
+        *m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 256u, L"Render Target Views");
+    m_DepthStencilHeap = std::make_unique<D3D12CpuDescriptorHeap>(
+        *m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 64u, L"Depth Stencil Views");
+
+    DrainDebugMessages();
+}
+
+Format D3D12Device::TextureFormatOf(TextureViewHandle view) const
+{
+    const D3D12TextureView* pView = m_TextureViews.Get(view);
+    const D3D12Texture* pTexture = pView ? m_Textures.Get(pView->Desc.Texture) : nullptr;
+    return pTexture ? pTexture->Desc.Format : Format::Undefined;
+}
+
+bool D3D12Device::RenderAreaCoversView(TextureViewHandle view, const Rect2D& area) const
+{
+    const D3D12TextureView* pView = m_TextureViews.Get(view);
+    const D3D12Texture* pTexture = pView ? m_Textures.Get(pView->Desc.Texture) : nullptr;
+    if (pTexture == nullptr)
+        return false;
+
+    const uint32_t mip = pView->Desc.BaseMip;
+    const uint32_t width = std::max(pTexture->Desc.Extent.Width >> mip, 1u);
+    const uint32_t height = std::max(pTexture->Desc.Extent.Height >> mip, 1u);
+    return area.Offset.X <= 0 && area.Offset.Y <= 0 &&
+           static_cast<int64_t>(area.Offset.X) + area.Extent.Width >= width &&
+           static_cast<int64_t>(area.Offset.Y) + area.Extent.Height >= height;
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Device::RenderTargetViewFor(TextureViewHandle view)
+{
+    const std::lock_guard lock(m_ViewMutex);
+
+    D3D12TextureView* pView = m_TextureViews.Get(view);
+    const D3D12Texture* pTexture = pView ? m_Textures.Get(pView->Desc.Texture) : nullptr;
+    if (pTexture == nullptr)
+    {
+        throw std::runtime_error(std::format(
+            "Rhi::ICommandList::BeginRendering: view handle {:#010x} or its texture is stale.",
+            view.Value));
+    }
+
+    if (!pView->RenderTargetSlot)
+    {
+        const TextureViewDesc& desc = pView->Desc;
+        D3D12_RENDER_TARGET_VIEW_DESC viewDesc{};
+        viewDesc.Format = ToDxgi(desc.Format);
+
+        if (pTexture->Desc.Dimension == TextureDimension::Texture3D)
+        {
+            viewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE3D;
+            viewDesc.Texture3D.MipSlice = desc.BaseMip;
+            viewDesc.Texture3D.FirstWSlice = desc.BaseLayer;
+            viewDesc.Texture3D.WSize = desc.LayerCount;
+        }
+        else if (pTexture->Desc.ArrayLayers > 1u)
+        {
+            viewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+            viewDesc.Texture2DArray.MipSlice = desc.BaseMip;
+            viewDesc.Texture2DArray.FirstArraySlice = desc.BaseLayer;
+            viewDesc.Texture2DArray.ArraySize = desc.LayerCount;
+        }
+        else
+        {
+            viewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+            viewDesc.Texture2D.MipSlice = desc.BaseMip;
+        }
+
+        const uint32_t slot = m_RenderTargetHeap->Allocate("render-target");
+        m_Device->CreateRenderTargetView(pTexture->Resource.Get(), &viewDesc,
+                                         m_RenderTargetHeap->HandleAt(slot));
+        pView->RenderTargetSlot = slot;
+        DrainDebugMessages();
+    }
+
+    return m_RenderTargetHeap->HandleAt(*pView->RenderTargetSlot);
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Device::DepthStencilViewFor(TextureViewHandle view, bool bReadOnly)
+{
+    const std::lock_guard lock(m_ViewMutex);
+
+    D3D12TextureView* pView = m_TextureViews.Get(view);
+    const D3D12Texture* pTexture = pView ? m_Textures.Get(pView->Desc.Texture) : nullptr;
+    if (pTexture == nullptr)
+    {
+        throw std::runtime_error(std::format("Rhi::ICommandList::BeginRendering: depth view handle "
+                                             "{:#010x} or its texture is stale.",
+                                             view.Value));
+    }
+
+    std::optional<uint32_t>& slot =
+        bReadOnly ? pView->ReadOnlyDepthStencilSlot : pView->DepthStencilSlot;
+    if (!slot)
+    {
+        const TextureViewDesc& desc = pView->Desc;
+        D3D12_DEPTH_STENCIL_VIEW_DESC viewDesc{};
+        // The typed depth format, whatever the resource was created as: a sampled
+        // depth texture's resource is typeless, and its depth view names the depth.
+        viewDesc.Format = ToDxgi(pTexture->Desc.Format);
+
+        const bool bStencil = pTexture->Desc.Format == Format::D24UnormS8Uint ||
+                              pTexture->Desc.Format == Format::D32FloatS8Uint;
+        if (bReadOnly)
+        {
+            viewDesc.Flags = bStencil
+                                 ? D3D12_DSV_FLAG_READ_ONLY_DEPTH | D3D12_DSV_FLAG_READ_ONLY_STENCIL
+                                 : D3D12_DSV_FLAG_READ_ONLY_DEPTH;
+        }
+
+        if (pTexture->Desc.ArrayLayers > 1u)
+        {
+            viewDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
+            viewDesc.Texture2DArray.MipSlice = desc.BaseMip;
+            viewDesc.Texture2DArray.FirstArraySlice = desc.BaseLayer;
+            viewDesc.Texture2DArray.ArraySize = desc.LayerCount;
+        }
+        else
+        {
+            viewDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+            viewDesc.Texture2D.MipSlice = desc.BaseMip;
+        }
+
+        const uint32_t index = m_DepthStencilHeap->Allocate("depth-stencil");
+        m_Device->CreateDepthStencilView(pTexture->Resource.Get(), &viewDesc,
+                                         m_DepthStencilHeap->HandleAt(index));
+        slot = index;
+        DrainDebugMessages();
+    }
+
+    return m_DepthStencilHeap->HandleAt(*slot);
+}
+
+D3D12_COMMAND_LIST_TYPE D3D12Device::ListTypeFor(QueueType queue) const
+{
+    switch (queue)
+    {
+        case QueueType::Graphics:
+        case QueueType::Compute:
+            return D3D12_COMMAND_LIST_TYPE_DIRECT;
+        case QueueType::Copy:
+            return m_bSingleQueue ? D3D12_COMMAND_LIST_TYPE_DIRECT : D3D12_COMMAND_LIST_TYPE_COPY;
+    }
+
+    return D3D12_COMMAND_LIST_TYPE_DIRECT;
+}
+
+ID3D12CommandQueue& D3D12Device::QueueFor(QueueType queue) const
+{
+    return ListTypeFor(queue) == D3D12_COMMAND_LIST_TYPE_COPY ? *m_CopyQueue.Get()
+                                                              : *m_DirectQueue.Get();
+}
+
+ID3D12Resource* D3D12Device::FindBufferResource(BufferHandle handle) const
+{
+    const D3D12Buffer* pBuffer = m_Buffers.Get(handle);
+    return pBuffer ? pBuffer->Resource.Get() : nullptr;
+}
+
+D3D12_RESOURCE_STATES D3D12Device::SubmittedStateOf(TextureHandle handle) const
+{
+    const std::lock_guard lock(m_StateMutex);
+    const D3D12Texture* pTexture = m_Textures.Get(handle);
+    return pTexture ? pTexture->SubmittedState : D3D12_RESOURCE_STATE_COMMON;
 }
 
 void D3D12Device::CreateFactory()
@@ -370,8 +583,33 @@ void D3D12Device::ThrowNotImplemented(std::string_view method)
     throw std::logic_error(std::format("The D3D12 backend does not implement {} yet", method));
 }
 
-// Nothing has been submitted, so there is nothing to wait for.
-void D3D12Device::WaitIdle() {}
+/**
+ * Signals a fresh value on each queue and waits for both: a queue reaches its signal
+ * only after everything submitted to it before, so this returns once the device has
+ * finished all of it. Drains afterwards, because GPU-based validation reports what it
+ * saw only once the GPU has run.
+ */
+void D3D12Device::WaitIdle()
+{
+    for (ID3D12CommandQueue* pQueue : {m_DirectQueue.Get(), m_CopyQueue.Get()})
+    {
+        if (pQueue == nullptr)
+            continue;
+
+        const uint64_t value = ++m_IdleValue;
+        pQueue->Signal(m_IdleFence.Get(), value);
+
+        if (m_IdleFence->GetCompletedValue() < value)
+        {
+            const HANDLE completed = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+            m_IdleFence->SetEventOnCompletion(value, completed);
+            WaitForSingleObject(completed, INFINITE);
+            CloseHandle(completed);
+        }
+    }
+
+    DrainDebugMessages();
+}
 
 BufferHandle D3D12Device::CreateBuffer(const BufferDesc& desc)
 {
@@ -560,6 +798,19 @@ TextureViewHandle D3D12Device::CreateTextureView(const TextureViewDesc& desc)
 
 void D3D12Device::Destroy(TextureViewHandle handle)
 {
+    {
+        const std::lock_guard lock(m_ViewMutex);
+        if (const D3D12TextureView* pView = m_TextureViews.Get(handle))
+        {
+            if (pView->RenderTargetSlot)
+                m_RenderTargetHeap->Free(*pView->RenderTargetSlot);
+            if (pView->DepthStencilSlot)
+                m_DepthStencilHeap->Free(*pView->DepthStencilSlot);
+            if (pView->ReadOnlyDepthStencilSlot)
+                m_DepthStencilHeap->Free(*pView->ReadOnlyDepthStencilSlot);
+        }
+    }
+
     if (m_TextureViews.Release(handle))
         return;
 
@@ -589,14 +840,15 @@ const TextureDesc* D3D12Device::GetTextureDesc(TextureHandle handle) const
     return pTexture ? &pTexture->Desc : nullptr;
 }
 
-std::unique_ptr<IUploadContext> D3D12Device::CreateUploadContext(const UploadContextDesc&)
+std::unique_ptr<IUploadContext> D3D12Device::CreateUploadContext(const UploadContextDesc& desc)
 {
-    ThrowNotImplemented("CreateUploadContext");
+    return std::make_unique<D3D12UploadContext>(*this, desc);
 }
 
-std::unique_ptr<ICommandAllocator> D3D12Device::CreateCommandAllocator(const CommandAllocatorDesc&)
+std::unique_ptr<ICommandAllocator>
+D3D12Device::CreateCommandAllocator(const CommandAllocatorDesc& desc)
 {
-    ThrowNotImplemented("CreateCommandAllocator");
+    return std::make_unique<D3D12CommandAllocator>(*this, desc, ListTypeFor(desc.Queue));
 }
 
 /**
@@ -663,21 +915,146 @@ BindGroupHandle D3D12Device::CreateBindGroup(const BindGroupDesc&)
 
 void D3D12Device::Destroy(BindGroupHandle) {}
 
-FenceHandle D3D12Device::CreateFence(const FenceDesc&)
+FenceHandle D3D12Device::CreateFence(const FenceDesc& desc)
 {
-    ThrowNotImplemented("CreateFence");
+    D3D12Fence fence;
+    const HRESULT hr =
+        m_Device->CreateFence(desc.InitialValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence.Fence));
+    if (FAILED(hr))
+    {
+        DrainDebugMessages();
+        throw std::runtime_error(std::format("Rhi::IDevice::CreateFence('{}') failed ({})",
+                                             desc.DebugName, HResultText(hr)));
+    }
+
+    if (!desc.DebugName.empty())
+        fence.Fence->SetName(WideFromUtf8(desc.DebugName).c_str());
+
+    return m_Fences.Create(std::move(fence));
 }
 
-void D3D12Device::Destroy(FenceHandle) {}
-
-void D3D12Device::WaitForFence(FenceHandle, uint64_t)
+void D3D12Device::Destroy(FenceHandle handle)
 {
-    ThrowNotImplemented("WaitForFence");
+    if (m_Fences.Release(handle))
+        return;
+
+    ReportError(std::format("Rhi::IDevice::Destroy(FenceHandle): handle {:#010x} is stale or was "
+                            "never valid; it may have been destroyed already.",
+                            handle.Value));
 }
 
-void D3D12Device::Submit(const SubmitDesc&)
+void D3D12Device::WaitForFence(FenceHandle handle, uint64_t value)
 {
-    ThrowNotImplemented("Submit");
+    const D3D12Fence* pFence = m_Fences.Get(handle);
+    if (pFence == nullptr)
+    {
+        ReportError(
+            std::format("Rhi::IDevice::WaitForFence: handle {:#010x} is stale or was never valid.",
+                        handle.Value));
+        return;
+    }
+
+    if (pFence->Fence->GetCompletedValue() < value)
+    {
+        const HANDLE completed = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (completed == nullptr)
+            throw std::runtime_error("Rhi::IDevice::WaitForFence: CreateEvent failed.");
+
+        pFence->Fence->SetEventOnCompletion(value, completed);
+        WaitForSingleObject(completed, INFINITE);
+        CloseHandle(completed);
+    }
+
+    // The GPU has run what the fence waited on, so whatever GPU-based validation saw
+    // there is stored now.
+    DrainDebugMessages();
+}
+
+/**
+ * Wait fences become a queue's GPU-side waits, which hold the lists back without
+ * blocking the CPU; signal fences are raised after the lists, so they complete once
+ * the lists have run.
+ *
+ * Then the states the lists leave their textures in become the textures' submitted
+ * states, in submission order — the order the GPU will run them — so a later list's
+ * from-Undefined barrier names what these left. A copy queue's textures instead decay
+ * to COMMON once it has run them, whatever they were promoted to.
+ */
+void D3D12Device::Submit(const SubmitDesc& desc)
+{
+    if (!desc.WaitSemaphores.empty() || !desc.SignalSemaphores.empty())
+    {
+        throw std::runtime_error(
+            "Rhi::IDevice::Submit: semaphores are Vulkan's; D3D12 orders work with fences.");
+    }
+
+    ID3D12CommandQueue& queue = QueueFor(desc.Queue);
+
+    for (const FenceOperation& wait : desc.WaitFences)
+    {
+        if (const D3D12Fence* pFence = m_Fences.Get(wait.Fence))
+        {
+            queue.Wait(pFence->Fence.Get(), wait.Value);
+            continue;
+        }
+
+        ReportError(std::format("Rhi::IDevice::Submit: wait fence {:#010x} is stale or was never "
+                                "valid.",
+                                wait.Fence.Value));
+    }
+
+    std::vector<ID3D12CommandList*> lists;
+    lists.reserve(desc.CommandLists.size());
+    for (ICommandList* pList : desc.CommandLists)
+    {
+        const auto* pD3D12List = static_cast<const D3D12CommandList*>(pList);
+        if (pD3D12List->Queue() != desc.Queue)
+        {
+            throw std::runtime_error(
+                "Rhi::IDevice::Submit: a command list allocated for one queue type was submitted "
+                "to another. Its allocator's QueueType must match the submission's.");
+        }
+
+        lists.push_back(pD3D12List->Native());
+    }
+
+    if (!lists.empty())
+        queue.ExecuteCommandLists(static_cast<UINT>(lists.size()), lists.data());
+
+    for (const FenceOperation& signal : desc.SignalFences)
+    {
+        if (const D3D12Fence* pFence = m_Fences.Get(signal.Fence))
+        {
+            queue.Signal(pFence->Fence.Get(), signal.Value);
+            continue;
+        }
+
+        ReportError(std::format("Rhi::IDevice::Submit: signal fence {:#010x} is stale or was never "
+                                "valid.",
+                                signal.Fence.Value));
+    }
+
+    {
+        const std::lock_guard lock(m_StateMutex);
+        for (ICommandList* pList : desc.CommandLists)
+        {
+            const auto* pD3D12List = static_cast<const D3D12CommandList*>(pList);
+
+            for (const auto& [texture, state] : pD3D12List->Transitions())
+            {
+                if (D3D12Texture* pTexture = m_Textures.Get(texture))
+                    pTexture->SubmittedState = state;
+            }
+
+            for (const TextureHandle texture : pD3D12List->CopiedTextures())
+            {
+                if (D3D12Texture* pTexture = m_Textures.Get(texture))
+                    pTexture->SubmittedState = D3D12_RESOURCE_STATE_COMMON;
+            }
+        }
+    }
+
+    DrainDebugMessages();
 }
 
 PipelineLayoutHandle D3D12Device::CreatePipelineLayout(const PipelineLayoutDesc&)

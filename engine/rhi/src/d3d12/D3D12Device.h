@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 
@@ -15,23 +16,24 @@
 #include <rhi/Diagnostics.h>
 #include <rhi/Handles.h>
 #include <rhi/IDevice.h>
+#include <rhi/Rendering.h>
 
 #include "d3d12/AgilitySdk.h"
 #include "d3d12/D3D12Buffer.h"
+#include "d3d12/D3D12CpuDescriptorHeap.h"
 #include "d3d12/D3D12DebugMessages.h"
+#include "d3d12/D3D12Fence.h"
 #include "d3d12/D3D12Texture.h"
 
 namespace Hikari::Rhi::D3D12
 {
 /**
- * The D3D12 device: the adapter it runs on, the runtime it runs on, and the debug
- * layer that validates it.
+ * The D3D12 device: the adapter it runs on, the runtime it runs on, the debug layer
+ * that validates it, and the resources, queues and fences it owns.
  *
- * Today it can create itself and answer who it is, and every method that would
- * create or record something throws instead, naming itself — so a run that
- * reaches one fails at that call rather than rendering nothing. Destroy methods
- * and live counts are the exception: nothing can exist to destroy or count, and
- * a teardown after a failed start still has to get through them.
+ * What it does not implement yet throws, naming the method, so a run that reaches
+ * one fails at that call rather than rendering nothing. Destroy methods and live
+ * counts never throw: a teardown after a failed start still has to get through them.
  */
 class D3D12Device final : public IDevice
 {
@@ -74,7 +76,7 @@ public:
 
     FenceHandle CreateFence(const FenceDesc& desc) override;
     void Destroy(FenceHandle handle) override;
-    uint32_t GetLiveFenceCount() const override { return 0; }
+    uint32_t GetLiveFenceCount() const override { return m_Fences.Size(); }
     void WaitForFence(FenceHandle handle, uint64_t value) override;
     void Submit(const SubmitDesc& desc) override;
 
@@ -101,15 +103,49 @@ public:
      */
     void DrainDebugMessages();
 
+    /** Reports a misuse of the API through Diagnostics, where the backend's own messages go. */
+    void ReportError(const std::string& message);
+
+    /** The texture behind `handle`, or null when it is stale. */
+    const D3D12Texture* FindTexture(TextureHandle handle) const { return m_Textures.Get(handle); }
+
+    /** The buffer's resource, or null when `handle` is stale. */
+    ID3D12Resource* FindBufferResource(BufferHandle handle) const;
+
+    /** The whole-texture state earlier submissions left `handle` in; COMMON when stale. */
+    D3D12_RESOURCE_STATES SubmittedStateOf(TextureHandle handle) const;
+
+    /**
+     * The native list type a queue role records into. Compute resolves to the direct
+     * queue, as Vulkan resolves it to the graphics one; copy is the copy queue unless
+     * the device was asked to behave as a single queue.
+     */
+    D3D12_COMMAND_LIST_TYPE ListTypeFor(QueueType queue) const;
+
+    /**
+     * The view's render-target descriptor, written on first use. Throws for a stale
+     * view, since there is nothing a list could bind in its place.
+     */
+    D3D12_CPU_DESCRIPTOR_HANDLE RenderTargetViewFor(TextureViewHandle view);
+
+    /** The view's depth-stencil descriptor, read-only or writable, written on first use. */
+    D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilViewFor(TextureViewHandle view, bool bReadOnly);
+
+    /** The format of the texture a view was made from, or Undefined when either is stale. */
+    Format TextureFormatOf(TextureViewHandle view) const;
+
+    /** Whether `area` covers the whole of the view's mip level. False when either is stale. */
+    bool RenderAreaCoversView(TextureViewHandle view, const Rect2D& area) const;
+
 private:
     void EnableDebugLayer(const DeviceDesc& desc);
     void CreateFactory();
     void SelectAdapter(const DeviceDesc& desc);
     void CreateAllocator();
+    void CreateQueues();
     void FillDeviceInfo();
 
-    /** Reports a misuse of the API through Diagnostics, where the backend's own messages go. */
-    void ReportError(const std::string& message);
+    ID3D12CommandQueue& QueueFor(QueueType queue) const;
 
     [[noreturn]] static void ThrowNotImplemented(std::string_view method);
 
@@ -123,6 +159,28 @@ private:
 
     /** Null when validation is off. Declared after m_Device, which it queries. */
     std::unique_ptr<D3D12DebugMessages> m_pDebugMessages;
+
+    /** One of each queue this backend submits to. The copy queue is null when single-queue. */
+    Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_DirectQueue;
+    Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_CopyQueue;
+    bool m_bSingleQueue = false;
+
+    /** What WaitIdle signals and waits on, one value per call. */
+    Microsoft::WRL::ComPtr<ID3D12Fence> m_IdleFence;
+    uint64_t m_IdleValue = 0u;
+
+    Core::HandlePool<D3D12Fence, FenceTag> m_Fences;
+
+    /** Guards every texture's SubmittedState, read by recorders and written by Submit. */
+    mutable std::mutex m_StateMutex;
+
+    /**
+     * Render-target and depth-stencil descriptors, and the mutex that serializes
+     * writing them: recorders on job-system threads begin rendering concurrently.
+     */
+    std::unique_ptr<D3D12CpuDescriptorHeap> m_RenderTargetHeap;
+    std::unique_ptr<D3D12CpuDescriptorHeap> m_DepthStencilHeap;
+    std::mutex m_ViewMutex;
 
     /** Declared before every pool, so that the allocations go before their allocator. */
     Microsoft::WRL::ComPtr<D3D12MA::Allocator> m_Allocator;

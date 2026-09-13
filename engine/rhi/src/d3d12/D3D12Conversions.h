@@ -3,6 +3,7 @@
 #include <directx/d3d12.h>
 #include <directx/dxgiformat.h>
 
+#include <rhi/Barrier.h>
 #include <rhi/RhiTypes.h>
 #include <rhi/TextureDesc.h>
 
@@ -31,4 +32,15 @@ DXGI_FORMAT ToDxgiResourceFormat(Format format, TextureUsage usage);
 DXGI_FORMAT ToDxgiShaderViewFormat(Format format);
 
 D3D12_RESOURCE_FLAGS ToResourceFlags(TextureUsage usage);
+
+/**
+ * A layout as a legacy barrier's resource state. Undefined has no state of its own —
+ * it means any — so it maps to COMMON here and a barrier from it resolves the real
+ * state separately.
+ *
+ * ShaderResource is both shader-resource states, since the seam does not say which
+ * stages read it; both are read-only, so they combine. DepthStencilRead adds them too,
+ * because that layout is also what a shader samples depth through.
+ */
+D3D12_RESOURCE_STATES ToLegacyState(TextureLayout layout);
 } // namespace Hikari::Rhi::D3D12

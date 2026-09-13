@@ -1,6 +1,7 @@
 #include "d3d12/D3D12DebugMessages.h"
 
 #include <format>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -51,6 +52,19 @@ D3D12DebugMessages::D3D12DebugMessages(ID3D12Device& device, Diagnostics& diagno
     // past the ones already reported. A clean run stores nothing, so what this
     // costs is memory proportional to how wrong a run is.
     m_InfoQueue->SetMessageCountLimit(static_cast<UINT64>(-1));
+
+    // Never stored, so never counted. Both say a target was cleared without the
+    // optimized clear value D3D12 lets a resource declare at creation, which makes the
+    // clear "typically slower" and nothing else. The seam's TextureDesc carries no
+    // clear value, so every clear would warn and a D3D12 run's warning count could
+    // never match Vulkan's zero; the Vulkan backend mutes its one performance hint at
+    // the layer for the same reason.
+    D3D12_MESSAGE_ID muted[] = {D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
+                                D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE};
+    D3D12_INFO_QUEUE_FILTER filter{};
+    filter.DenyList.NumIDs = static_cast<UINT>(std::size(muted));
+    filter.DenyList.pIDList = muted;
+    m_InfoQueue->PushStorageFilter(&filter);
 }
 
 void D3D12DebugMessages::Drain()

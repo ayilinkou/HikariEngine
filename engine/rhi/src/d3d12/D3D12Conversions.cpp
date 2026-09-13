@@ -95,6 +95,34 @@ DXGI_FORMAT ToDxgiShaderViewFormat(Format format)
     return ToDxgi(format);
 }
 
+D3D12_RESOURCE_STATES ToLegacyState(TextureLayout layout)
+{
+    switch (layout)
+    {
+        case TextureLayout::Undefined:
+        case TextureLayout::Common:
+            return D3D12_RESOURCE_STATE_COMMON;
+        case TextureLayout::RenderTarget:
+            return D3D12_RESOURCE_STATE_RENDER_TARGET;
+        case TextureLayout::ShaderResource:
+            return D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+        case TextureLayout::UnorderedAccess:
+            return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        case TextureLayout::DepthStencilWrite:
+            return D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        case TextureLayout::DepthStencilRead:
+            return D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+        case TextureLayout::CopySrc:
+            return D3D12_RESOURCE_STATE_COPY_SOURCE;
+        case TextureLayout::CopyDst:
+            return D3D12_RESOURCE_STATE_COPY_DEST;
+        case TextureLayout::Present:
+            return D3D12_RESOURCE_STATE_PRESENT;
+    }
+
+    return D3D12_RESOURCE_STATE_COMMON;
+}
+
 D3D12_RESOURCE_FLAGS ToResourceFlags(TextureUsage usage)
 {
     D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;

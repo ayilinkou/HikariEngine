@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
+
 #include <D3D12MemAlloc.h>
 #include <directx/d3d12.h>
 #include <wrl/client.h>
@@ -16,6 +19,15 @@ struct D3D12Texture
     Microsoft::WRL::ComPtr<D3D12MA::Allocation> Allocation;
     Microsoft::WRL::ComPtr<ID3D12Resource> Resource;
     TextureDesc Desc;
+
+    /**
+     * The state the command lists submitted so far leave the whole texture in, which
+     * is what a legacy barrier from TextureLayout::Undefined resolves to. Advanced at
+     * submission rather than at recording, so a recorder on one thread reads what
+     * every earlier submission left rather than what another thread has recorded
+     * but not yet submitted. Guarded by the device's state mutex.
+     */
+    D3D12_RESOURCE_STATES SubmittedState = D3D12_RESOURCE_STATE_COMMON;
 };
 
 /**
@@ -27,6 +39,15 @@ struct D3D12Texture
 struct D3D12TextureView
 {
     TextureViewDesc Desc;
+
+    /**
+     * Slots in the device's render-target and depth-stencil heaps, written the first
+     * time the view is a rendering target and freed with the view. A read-only depth
+     * view is a different descriptor from a writable one, so it has its own slot.
+     */
+    std::optional<uint32_t> RenderTargetSlot;
+    std::optional<uint32_t> DepthStencilSlot;
+    std::optional<uint32_t> ReadOnlyDepthStencilSlot;
 };
 
 /** A sampler, held as its description for the same reason: it too is a descriptor. */

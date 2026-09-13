@@ -1930,7 +1930,7 @@ tolerance" is left as it stands, because §15 already records that D26 supersede
 
 ## 5. Stage 7.7 — the D3D12 backend
 
-**Status: in progress — steps 1–3 done.** Grilled on 13 September 2026 — on Linux, then in two sittings on
+**Status: in progress — steps 1–4 done.** Grilled on 13 September 2026 — on Linux, then in two sittings on
 this project's Windows install, where the measurements only that machine could take were made. The
 decisions that govern the RHI's seam are **D36–D46** in §2, together with amendments to **D15, D26,
 D32 and D35**. This section is the stage: what bounds it (§5.2), the facts it rests on (§5.3), the
@@ -2234,6 +2234,26 @@ with the debug layer silent. **Step 4's gate gains `UploadRoundTripTests` under 
 fully typed depth resource admits no shader view of another format; the resource and view formats are
 `D3D12Conversions.h`'s. `ValidateTextureDesc` moved from the Vulkan backend to a shared header, as D45 requires
 of a helper both backends need.
+
+**Amended at step 4: what the legacy path and the upload context rest on.** Legacy barriers follow D3D12's
+implicit state rules (*Using Resource Barriers*): a texture in `COMMON` is promoted to a copy or shader-read state
+on first use; a copy queue's resources, and read-only promotions, decay back to `COMMON` once executed; and a
+barrier on a resource in `COMMON` may name `COMMON` or any promotable state as its before-state. So the upload
+context copies on the copy queue with no barriers, leaving textures in `COMMON`, which a later transition from
+`ShaderResource` may name; in the single-queue arrangement a write promotion does not decay, so there it
+transitions explicitly, as Vulkan does. **`TextureLayout::Undefined` resolves to the state the texture's
+submitted lists left it in** — tracked per texture and advanced at `Submit` in list order, not at recording,
+because recorders on other threads may have recorded but not submitted — which is what the engine's per-frame
+from-Undefined barriers on its render targets need; D37's "no general tracker" holds for every other layout,
+which the barrier names. A barrier whose resolved states match records nothing, since D3D12 rejects it, but is
+still counted. Each list has its own native allocator, because D3D12 lets only one list per allocator record at
+a time and the seam does not. **The rendering scope** binds targets by CPU descriptor from two non-shader-visible
+heaps, written on a view's first use; a clear over the whole target passes no rectangle, because a rectangle does
+not count as initializing a target in memory D3D12MA did not zero (the debug layer's ID 1422, measured). **Two
+debug-layer IDs are muted**, `CLEARRENDERTARGETVIEW_` and `CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE`: the seam
+carries no optimized clear value, so every clear would warn and D3D12's warning count could never equal Vulkan's
+zero. The neutral `RenderingScopeTests` clears a colour and a depth target and reads the colour back, under both
+backends; with the upload round-trips it is step 4's gate, on the RX 580 and WARP.
 
 **Why this order.** Step 1 needs no seam change, so the deployment — the part most likely to differ between
 machines — is proven before anything is built on it, and step 2 then proves it on the CI runner. Steps 3–6
