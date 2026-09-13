@@ -1930,7 +1930,7 @@ tolerance" is left as it stands, because §15 already records that D26 supersede
 
 ## 5. Stage 7.7 — the D3D12 backend
 
-**Status: in progress — steps 1–2 done.** Grilled on 13 September 2026 — on Linux, then in two sittings on
+**Status: in progress — steps 1–3 done.** Grilled on 13 September 2026 — on Linux, then in two sittings on
 this project's Windows install, where the measurements only that machine could take were made. The
 decisions that govern the RHI's seam are **D36–D46** in §2, together with amendments to **D15, D26,
 D32 and D35**. This section is the stage: what bounds it (§5.2), the facts it rests on (§5.3), the
@@ -2221,6 +2221,19 @@ which is what runs the suite on WARP on the RX 580. D45's permanent D3D12 naming
 `D3D12UiBackend.cpp`, lands with that file, since an entry matching no file fails the check. **The ASan
 preset is compatible**: the D3D12 cases pass under ASan with the debug layer on both adapters, so every
 Windows CI job runs them.
+
+**Amended at step 3: the upload context and its round-trip tests move to step 4.** Both need what step 4
+builds — the D3D12 upload context records copies into a command list, submits them and signals a fence, and
+`GpuReadback.h` reads results back through a command allocator, barriers, a fence and `Submit` — so step 3's
+gate as written could not pass until step 4 existed. Step 3 is the resources alone: buffers and textures
+through D3D12MA, views and samplers held as their descriptions until step 5's persistent heaps give them
+descriptors, `IsFormatSupported`, and the single-queue rename. Its gate is the neutral `[resources]` cases —
+creation, mapping, live counts, description, and a stale destroy reported — on Vulkan, the RX 580 and WARP
+with the debug layer silent. **Step 4's gate gains `UploadRoundTripTests` under D3D12 in both arrangements and
+`uploadSubmissions` batching as Vulkan's does.** A sampled depth texture is created typeless on D3D12, since a
+fully typed depth resource admits no shader view of another format; the resource and view formats are
+`D3D12Conversions.h`'s. `ValidateTextureDesc` moved from the Vulkan backend to a shared header, as D45 requires
+of a helper both backends need.
 
 **Why this order.** Step 1 needs no seam change, so the deployment — the part most likely to differ between
 machines — is proven before anything is built on it, and step 2 then proves it on the CI runner. Steps 3–6

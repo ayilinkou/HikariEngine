@@ -98,11 +98,12 @@ target_include_directories(rhi_tests
 engine_test(
   rhi_gpu_tests
   SOURCES gpu/rhi/DeviceTests.cpp gpu/rhi/PresentTargetTests.cpp
-          gpu/rhi/UploadRoundTripTests.cpp gpu/rhi/ValidationCoverageTests.cpp
+          gpu/rhi/ResourceTests.cpp gpu/rhi/UploadRoundTripTests.cpp
+          gpu/rhi/ValidationCoverageTests.cpp
           support/RhiDeviceListener.cpp
   LIBS Engine::RHI
   LABEL gpu
-  BACKEND_SPECS Vulkan "~[d3d12]" D3D12 "[device]~[vulkan]~[queues],[d3d12]")
+  BACKEND_SPECS Vulkan "~[d3d12]" D3D12 "[device]~[vulkan]~[queues],[resources],[d3d12]")
 
 # The same reach into the module's own sources that rhi_tests makes, plus the
 # shared fixture: submitting a command list needs a queue, and the RHI hands out

@@ -78,6 +78,19 @@ AgilitySdkInfo VerifyLoadedAgilitySdk()
     return AgilitySdkInfo{.Version = *pLoaded, .CorePath = corePath};
 }
 
+std::wstring WideFromUtf8(const std::string& text)
+{
+    if (text.empty())
+        return {};
+
+    const int length =
+        MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    std::wstring wide(static_cast<size_t>(length), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(),
+                        length);
+    return wide;
+}
+
 std::string Utf8FromWide(const wchar_t* text)
 {
     const int length = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);

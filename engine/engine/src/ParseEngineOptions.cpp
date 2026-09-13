@@ -132,7 +132,7 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
     }
     else if (flag == "--vk-disable-extension")
         spec.DisabledVulkanExtensions.push_back(option.RequireValue());
-    else if (flag == "--vk-force-single-queue")
+    else if (flag == "--force-single-queue")
     {
         option.RequireNoValue();
         spec.bForceSingleQueue = true;
@@ -232,10 +232,9 @@ void PrintEngineUsage()
                      "support this\n"
                      "                          optional extension, to exercise the fallback path. "
                      "Repeatable.\n"
-                     "  --vk-force-single-queue Vulkan only. Behave as though the device exposed "
-                     "one queue\n"
-                     "                          family, to exercise the path an integrated GPU "
-                     "takes\n";
+                     "  --force-single-queue    Behave as though the device had one queue for "
+                     "every role, to\n"
+                     "                          exercise the path an integrated GPU takes\n";
 }
 
 } // namespace Hikari::Engine

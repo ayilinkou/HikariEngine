@@ -1,18 +1,25 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <string_view>
 
+#include <D3D12MemAlloc.h>
 #include <directx/d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+#include <core/HandlePool.h>
+
 #include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
+#include <rhi/Handles.h>
 #include <rhi/IDevice.h>
 
 #include "d3d12/AgilitySdk.h"
+#include "d3d12/D3D12Buffer.h"
 #include "d3d12/D3D12DebugMessages.h"
+#include "d3d12/D3D12Texture.h"
 
 namespace Hikari::Rhi::D3D12
 {
@@ -30,7 +37,7 @@ class D3D12Device final : public IDevice
 {
 public:
     explicit D3D12Device(const DeviceDesc& desc);
-    ~D3D12Device() override = default;
+    ~D3D12Device() override;
 
     const DeviceCaps& GetCaps() const override { return m_Caps; }
     const DeviceInfo& GetInfo() const override { return m_Info; }
@@ -40,7 +47,7 @@ public:
     BufferHandle CreateBuffer(const BufferDesc& desc) override;
     void Destroy(BufferHandle handle) override;
     void* GetMappedData(BufferHandle handle) override;
-    uint32_t GetLiveBufferCount() const override { return 0; }
+    uint32_t GetLiveBufferCount() const override { return m_Buffers.Size(); }
 
     TextureHandle CreateTexture(const TextureDesc& desc) override;
     void Destroy(TextureHandle handle) override;
@@ -49,9 +56,9 @@ public:
     SamplerHandle CreateSampler(const SamplerDesc& desc) override;
     void Destroy(SamplerHandle handle) override;
     const TextureDesc* GetTextureDesc(TextureHandle handle) const override;
-    uint32_t GetLiveTextureCount() const override { return 0; }
-    uint32_t GetLiveTextureViewCount() const override { return 0; }
-    uint32_t GetLiveSamplerCount() const override { return 0; }
+    uint32_t GetLiveTextureCount() const override { return m_Textures.Size(); }
+    uint32_t GetLiveTextureViewCount() const override { return m_TextureViews.Size(); }
+    uint32_t GetLiveSamplerCount() const override { return m_Samplers.Size(); }
 
     std::unique_ptr<IUploadContext> CreateUploadContext(const UploadContextDesc& desc) override;
     std::unique_ptr<ICommandAllocator>
@@ -98,7 +105,11 @@ private:
     void EnableDebugLayer(const DeviceDesc& desc);
     void CreateFactory();
     void SelectAdapter(const DeviceDesc& desc);
+    void CreateAllocator();
     void FillDeviceInfo();
+
+    /** Reports a misuse of the API through Diagnostics, where the backend's own messages go. */
+    void ReportError(const std::string& message);
 
     [[noreturn]] static void ThrowNotImplemented(std::string_view method);
 
@@ -112,6 +123,13 @@ private:
 
     /** Null when validation is off. Declared after m_Device, which it queries. */
     std::unique_ptr<D3D12DebugMessages> m_pDebugMessages;
+
+    /** Declared before every pool, so that the allocations go before their allocator. */
+    Microsoft::WRL::ComPtr<D3D12MA::Allocator> m_Allocator;
+    Core::HandlePool<D3D12Buffer, BufferTag> m_Buffers;
+    Core::HandlePool<D3D12Texture, TextureTag> m_Textures;
+    Core::HandlePool<D3D12TextureView, TextureViewTag> m_TextureViews;
+    Core::HandlePool<D3D12Sampler, SamplerTag> m_Samplers;
 
     AgilitySdkInfo m_AgilitySdk;
     DeviceCaps m_Caps{};

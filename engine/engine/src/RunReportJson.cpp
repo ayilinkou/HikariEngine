@@ -113,7 +113,7 @@ std::string ToJson(const RunReport& report)
         << (report.Run.bD3D12GpuBasedValidation ? "true" : "false") << ",\n"
         << "    \"vkDisabledExtensions\": " << StringArrayJson(report.Run.DisabledVulkanExtensions)
         << ",\n"
-        << "    \"vkForceSingleQueue\": " << (report.Run.bForceSingleQueue ? "true" : "false")
+        << "    \"forceSingleQueue\": " << (report.Run.bForceSingleQueue ? "true" : "false")
         << ",\n"
         << "    \"framesInFlight\": " << report.Run.FramesInFlight << ",\n"
         << "    \"windowMode\": "

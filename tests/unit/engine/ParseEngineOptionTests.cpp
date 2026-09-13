@@ -264,6 +264,22 @@ TEST_CASE("The --gpu flag names an adapter, and needs a name to do it", "[ParseE
     CHECK_THROWS_AS(ParseEngineOption(Option("--gpu"), spec, config), CommandLineError);
 }
 
+TEST_CASE("The single-queue lever is neutral, and its Vulkan spelling is gone", "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+
+    REQUIRE(ParseEngineOption(Option("--force-single-queue"), spec, config));
+    CHECK(spec.bForceSingleQueue);
+
+    // Both backends honour it, so the flag carries no backend prefix. The old
+    // spelling is declined rather than kept as an alias, so it reads as an unknown
+    // flag instead of quietly working.
+    RunSpec renamed;
+    CHECK_FALSE(ParseEngineOption(Option("--vk-force-single-queue"), renamed, config));
+    CHECK_FALSE(renamed.bForceSingleQueue);
+}
+
 TEST_CASE("Disabling a Vulkan extension is refused on D3D12, and only there",
           "[ParseEngineOption]")
 {

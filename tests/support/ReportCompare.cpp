@@ -126,7 +126,7 @@ constexpr std::array kFields = {
     // takes the fallback, and one queue family means no ownership transfers and
     // a different set of barriers.
     FieldClassification{"run.vkDisabledExtensions", FieldRole::Condition, true, true},
-    FieldClassification{"run.vkForceSingleQueue", FieldRole::Condition, true, true},
+    FieldClassification{"run.forceSingleQueue", FieldRole::Condition, true, true},
 
     // Sizes every per-frame resource, and decides how many frames are in flight
     // when the capture is taken.

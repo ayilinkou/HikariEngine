@@ -38,7 +38,7 @@
     "validationPolicy": "count",
     "vkSyncValidation": true,
     "vkDisabledExtensions": [],
-    "vkForceSingleQueue": false,
+    "forceSingleQueue": false,
     "framesInFlight": 2,
     "windowMode": "borderless fullscreen"
   },

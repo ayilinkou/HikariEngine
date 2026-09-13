@@ -37,7 +37,8 @@ target_include_directories(RHI PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # AvailableBackends() and the dispatcher on, so it is defined together with the
 # sources and nowhere else — a Windows build without them has to say so.
 if(WIN32)
-  set(d3d12_sources src/d3d12/AgilitySdk.cpp src/d3d12/D3D12DebugMessages.cpp
+  set(d3d12_sources src/d3d12/AgilitySdk.cpp src/d3d12/D3D12Conversions.cpp
+                    src/d3d12/D3D12DebugMessages.cpp
                     src/d3d12/D3D12Device.cpp)
   target_sources(RHI PRIVATE ${d3d12_sources})
 

@@ -6,11 +6,14 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <core/Log.h>
 
 #include "AdapterName.h"
+#include "TextureValidation.h"
+#include "d3d12/D3D12Conversions.h"
 #include "d3d12/D3D12DeviceFactory.h"
 
 namespace Hikari::Rhi::D3D12
@@ -138,6 +141,8 @@ D3D12Device::D3D12Device(const DeviceDesc& desc)
     if (desc.bEnableValidation)
         m_pDebugMessages = std::make_unique<D3D12DebugMessages>(*m_Device.Get(), *m_pDiagnostics);
 
+    CreateAllocator();
+
     FillDeviceInfo();
 
     // D3D12's clip space already has Y up, as GLM's projection produces it.
@@ -188,6 +193,54 @@ void D3D12Device::EnableDebugLayer(const DeviceDesc& desc)
     Core::LogMsg(Core::LogSeverity::Info, LogRhi,
                  "D3D12 debug layer enabled, GPU-based validation {}",
                  desc.bGpuBasedValidation ? "on" : "off");
+}
+
+D3D12Device::~D3D12Device()
+{
+    // A resource still alive here was never destroyed: not a crash, since the pools
+    // release their allocations before the allocator goes, but a leak for as long as
+    // the device ran. Reported rather than asserted, so that a shutdown already
+    // unwinding from an error is not made worse.
+    const std::array<std::pair<const char*, uint32_t>, 4> live{
+        std::pair{"buffer", m_Buffers.Size()},
+        std::pair{"texture", m_Textures.Size()},
+        std::pair{"texture view", m_TextureViews.Size()},
+        std::pair{"sampler", m_Samplers.Size()},
+    };
+    for (const auto& [kind, count] : live)
+    {
+        if (count == 0u)
+            continue;
+
+        Core::LogMsg(Core::LogSeverity::Warning, LogRhi,
+                     "Device destroyed with {} {}(s) still alive — each is a resource whose "
+                     "owner never released it.",
+                     count, kind);
+    }
+}
+
+/**
+ * D3D12MA, which D25 chose as VMA's counterpart. Recommended flags: default pools are
+ * not zeroed, since every buffer this engine creates is written before it is read,
+ * and MSAA textures are always committed.
+ */
+void D3D12Device::CreateAllocator()
+{
+    D3D12MA::ALLOCATOR_DESC allocatorDesc{};
+    allocatorDesc.Flags =
+        static_cast<D3D12MA::ALLOCATOR_FLAGS>(D3D12MA_RECOMMENDED_ALLOCATOR_FLAGS);
+    allocatorDesc.pDevice = m_Device.Get();
+    allocatorDesc.pAdapter = m_Adapter.Get();
+
+    const HRESULT hr = D3D12MA::CreateAllocator(&allocatorDesc, &m_Allocator);
+    if (FAILED(hr))
+        throw std::runtime_error(
+            std::format("D3D12MA::CreateAllocator failed ({})", HResultText(hr)));
+}
+
+void D3D12Device::ReportError(const std::string& message)
+{
+    m_pDiagnostics->Report(DiagnosticSeverity::Error, message);
 }
 
 void D3D12Device::CreateFactory()
@@ -320,42 +373,220 @@ void D3D12Device::ThrowNotImplemented(std::string_view method)
 // Nothing has been submitted, so there is nothing to wait for.
 void D3D12Device::WaitIdle() {}
 
-BufferHandle D3D12Device::CreateBuffer(const BufferDesc&)
+BufferHandle D3D12Device::CreateBuffer(const BufferDesc& desc)
 {
-    ThrowNotImplemented("CreateBuffer");
+    if (desc.Size == 0u)
+        throw std::runtime_error("Rhi::IDevice::CreateBuffer: a buffer must have a non-zero size.");
+
+    // An upload heap's resources must be created in GENERIC_READ and a readback
+    // heap's in COPY_DEST, and neither can ever leave that state (D3D12_HEAP_TYPE's
+    // reference page). A default heap's start in COMMON, which is what a legacy
+    // barrier's before-state assumes of a new buffer.
+    D3D12MA::ALLOCATION_DESC allocationDesc{};
+    D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON;
+    switch (desc.Access)
+    {
+        case MemoryAccess::GpuOnly:
+            allocationDesc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
+            break;
+        case MemoryAccess::CpuToGpu:
+            allocationDesc.HeapType = D3D12_HEAP_TYPE_UPLOAD;
+            initialState = D3D12_RESOURCE_STATE_GENERIC_READ;
+            break;
+        case MemoryAccess::GpuToCpu:
+            allocationDesc.HeapType = D3D12_HEAP_TYPE_READBACK;
+            initialState = D3D12_RESOURCE_STATE_COPY_DEST;
+            break;
+    }
+
+    D3D12_RESOURCE_DESC resourceDesc{};
+    resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resourceDesc.Width = desc.Size;
+    resourceDesc.Height = 1;
+    resourceDesc.DepthOrArraySize = 1;
+    resourceDesc.MipLevels = 1;
+    resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+    resourceDesc.SampleDesc.Count = 1;
+    resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    // Only a GPU-local buffer can be written by a shader. A storage buffer on an
+    // upload heap is one a shader only reads, which needs no flag.
+    if ((desc.Usage & BufferUsage::Storage) != BufferUsage::None &&
+        desc.Access == MemoryAccess::GpuOnly)
+    {
+        resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    }
+
+    D3D12Buffer buffer;
+    buffer.Desc = desc;
+
+    const HRESULT hr =
+        m_Allocator->CreateResource(&allocationDesc, &resourceDesc, initialState, nullptr,
+                                    &buffer.Allocation, IID_PPV_ARGS(&buffer.Resource));
+    if (FAILED(hr))
+    {
+        DrainDebugMessages();
+        throw std::runtime_error(std::format(
+            "Rhi::IDevice::CreateBuffer: D3D12MA failed to allocate '{}' ({} bytes): {}.",
+            desc.DebugName, desc.Size, HResultText(hr)));
+    }
+
+    if (desc.Access != MemoryAccess::GpuOnly)
+    {
+        // Nothing is read back through an upload heap's mapping, and saying so lets
+        // the runtime skip the read; a readback heap's mapping is read in full.
+        const D3D12_RANGE nothingRead{0, 0};
+        const HRESULT mapResult = buffer.Resource->Map(
+            0, desc.Access == MemoryAccess::CpuToGpu ? &nothingRead : nullptr, &buffer.pMapped);
+        if (FAILED(mapResult))
+        {
+            DrainDebugMessages();
+            throw std::runtime_error(
+                std::format("Rhi::IDevice::CreateBuffer: mapping '{}' failed: {}.", desc.DebugName,
+                            HResultText(mapResult)));
+        }
+    }
+
+    if (!desc.DebugName.empty())
+    {
+        const std::wstring name = WideFromUtf8(desc.DebugName);
+        buffer.Resource->SetName(name.c_str());
+        buffer.Allocation->SetName(name.c_str());
+    }
+
+    const BufferHandle handle = m_Buffers.Create(std::move(buffer));
+    DrainDebugMessages();
+    return handle;
 }
 
-void D3D12Device::Destroy(BufferHandle) {}
-
-void* D3D12Device::GetMappedData(BufferHandle)
+void D3D12Device::Destroy(BufferHandle handle)
 {
-    return nullptr;
+    if (m_Buffers.Release(handle))
+    {
+        DrainDebugMessages();
+        return;
+    }
+
+    // A double destroy or a handle outliving what it named: the bug the generation
+    // counter exists to catch, reported rather than ignored, and not fatal since the
+    // slot is already free.
+    ReportError(std::format("Rhi::IDevice::Destroy(BufferHandle): handle {:#010x} is stale or "
+                            "was never valid; it may have been destroyed already.",
+                            handle.Value));
 }
 
-TextureHandle D3D12Device::CreateTexture(const TextureDesc&)
+void* D3D12Device::GetMappedData(BufferHandle handle)
 {
-    ThrowNotImplemented("CreateTexture");
+    const D3D12Buffer* pBuffer = m_Buffers.Get(handle);
+    return pBuffer ? pBuffer->pMapped : nullptr;
 }
 
-void D3D12Device::Destroy(TextureHandle) {}
-
-TextureViewHandle D3D12Device::CreateTextureView(const TextureViewDesc&)
+TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc)
 {
-    ThrowNotImplemented("CreateTextureView");
+    ValidateTextureDesc(desc);
+
+    D3D12_RESOURCE_DESC resourceDesc{};
+    resourceDesc.Dimension = desc.Dimension == TextureDimension::Texture3D
+                                 ? D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                                 : D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resourceDesc.Width = desc.Extent.Width;
+    resourceDesc.Height = desc.Extent.Height;
+    // One field for two things: a 3D texture's depth, or a 2D texture's layers.
+    resourceDesc.DepthOrArraySize = static_cast<UINT16>(
+        desc.Dimension == TextureDimension::Texture3D ? desc.Extent.Depth : desc.ArrayLayers);
+    resourceDesc.MipLevels = static_cast<UINT16>(desc.MipLevels);
+    resourceDesc.Format = ToDxgiResourceFormat(desc.Format, desc.Usage);
+    resourceDesc.SampleDesc.Count = static_cast<UINT>(desc.Samples);
+    resourceDesc.Flags = ToResourceFlags(desc.Usage);
+
+    // Textures live only on the default heap: D3D12 refuses a texture on an upload
+    // or readback heap. They start in COMMON, the state a legacy barrier's
+    // before-state assumes of a texture nothing has used.
+    D3D12MA::ALLOCATION_DESC allocationDesc{};
+    allocationDesc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
+
+    D3D12Texture texture;
+    texture.Desc = desc;
+
+    const HRESULT hr =
+        m_Allocator->CreateResource(&allocationDesc, &resourceDesc, D3D12_RESOURCE_STATE_COMMON,
+                                    nullptr, &texture.Allocation, IID_PPV_ARGS(&texture.Resource));
+    if (FAILED(hr))
+    {
+        DrainDebugMessages();
+        throw std::runtime_error(std::format(
+            "Rhi::IDevice::CreateTexture: D3D12MA failed to allocate '{}' ({}x{}x{}): {}.",
+            desc.DebugName, desc.Extent.Width, desc.Extent.Height, desc.Extent.Depth,
+            HResultText(hr)));
+    }
+
+    if (!desc.DebugName.empty())
+    {
+        const std::wstring name = WideFromUtf8(desc.DebugName);
+        texture.Resource->SetName(name.c_str());
+        texture.Allocation->SetName(name.c_str());
+    }
+
+    const TextureHandle handle = m_Textures.Create(std::move(texture));
+    DrainDebugMessages();
+    return handle;
 }
 
-void D3D12Device::Destroy(TextureViewHandle) {}
-
-SamplerHandle D3D12Device::CreateSampler(const SamplerDesc&)
+void D3D12Device::Destroy(TextureHandle handle)
 {
-    ThrowNotImplemented("CreateSampler");
+    if (m_Textures.Release(handle))
+    {
+        DrainDebugMessages();
+        return;
+    }
+
+    ReportError(std::format("Rhi::IDevice::Destroy(TextureHandle): handle {:#010x} is stale or "
+                            "was never valid; it may have been destroyed already.",
+                            handle.Value));
 }
 
-void D3D12Device::Destroy(SamplerHandle) {}
-
-const TextureDesc* D3D12Device::GetTextureDesc(TextureHandle) const
+TextureViewHandle D3D12Device::CreateTextureView(const TextureViewDesc& desc)
 {
-    return nullptr;
+    if (!m_Textures.IsValid(desc.Texture))
+    {
+        throw std::runtime_error(std::format(
+            "Rhi::IDevice::CreateTextureView('{}'): the texture handle is stale or was never "
+            "valid.",
+            desc.DebugName));
+    }
+
+    return m_TextureViews.Create(D3D12TextureView{.Desc = desc});
+}
+
+void D3D12Device::Destroy(TextureViewHandle handle)
+{
+    if (m_TextureViews.Release(handle))
+        return;
+
+    ReportError(std::format("Rhi::IDevice::Destroy(TextureViewHandle): handle {:#010x} is stale "
+                            "or was never valid; it may have been destroyed already.",
+                            handle.Value));
+}
+
+SamplerHandle D3D12Device::CreateSampler(const SamplerDesc& desc)
+{
+    return m_Samplers.Create(D3D12Sampler{.Desc = desc});
+}
+
+void D3D12Device::Destroy(SamplerHandle handle)
+{
+    if (m_Samplers.Release(handle))
+        return;
+
+    ReportError(std::format("Rhi::IDevice::Destroy(SamplerHandle): handle {:#010x} is stale or "
+                            "was never valid; it may have been destroyed already.",
+                            handle.Value));
+}
+
+const TextureDesc* D3D12Device::GetTextureDesc(TextureHandle handle) const
+{
+    const D3D12Texture* pTexture = m_Textures.Get(handle);
+    return pTexture ? &pTexture->Desc : nullptr;
 }
 
 std::unique_ptr<IUploadContext> D3D12Device::CreateUploadContext(const UploadContextDesc&)
@@ -368,9 +599,54 @@ std::unique_ptr<ICommandAllocator> D3D12Device::CreateCommandAllocator(const Com
     ThrowNotImplemented("CreateCommandAllocator");
 }
 
-bool D3D12Device::IsFormatSupported(Format, TextureUsage) const
+/**
+ * Every usage asked for must be supported. A depth format's sampling is asked of its
+ * shader view's format, since that is the format a shader reads it through; every
+ * other usage is asked of the format itself.
+ */
+bool D3D12Device::IsFormatSupported(Format format, TextureUsage usage) const
 {
-    ThrowNotImplemented("IsFormatSupported");
+    const auto query = [this](DXGI_FORMAT dxgi, D3D12_FEATURE_DATA_FORMAT_SUPPORT& support)
+    {
+        support.Format = dxgi;
+        return SUCCEEDED(
+            m_Device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
+    };
+
+    if (format == Format::Undefined)
+        return false;
+
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
+    if (!query(ToDxgi(format), support))
+        return false;
+
+    const auto has1 = [&support](D3D12_FORMAT_SUPPORT1 flag)
+    { return (support.Support1 & flag) == flag; };
+
+    if (!has1(D3D12_FORMAT_SUPPORT1_TEXTURE2D))
+        return false;
+
+    const auto wants = [usage](TextureUsage bit) { return (usage & bit) != TextureUsage::None; };
+
+    if (wants(TextureUsage::ColorAttachment) && !has1(D3D12_FORMAT_SUPPORT1_RENDER_TARGET))
+        return false;
+
+    if (wants(TextureUsage::DepthStencilAttachment) && !has1(D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL))
+        return false;
+
+    if (wants(TextureUsage::Storage) &&
+        (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE) == 0)
+        return false;
+
+    if (wants(TextureUsage::Sampled))
+    {
+        D3D12_FEATURE_DATA_FORMAT_SUPPORT viewSupport{};
+        if (!query(ToDxgiShaderViewFormat(format), viewSupport) ||
+            (viewSupport.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE) == 0)
+            return false;
+    }
+
+    return true;
 }
 
 BindGroupLayoutHandle D3D12Device::CreateBindGroupLayout(const BindGroupLayoutDesc&)

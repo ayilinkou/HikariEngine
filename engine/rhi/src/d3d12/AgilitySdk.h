@@ -32,6 +32,9 @@ struct AgilitySdkInfo
  */
 AgilitySdkInfo VerifyLoadedAgilitySdk();
 
+/** UTF-8 as the engine spells names, converted to the UTF-16 Windows APIs take. */
+std::wstring WideFromUtf8(const std::string& text);
+
 /** UTF-16 as Windows APIs return it, converted to the UTF-8 the engine logs. */
 std::string Utf8FromWide(const wchar_t* text);
 } // namespace Hikari::Rhi::D3D12
