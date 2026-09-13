@@ -4,6 +4,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <D3D12MemAlloc.h>
 #include <directx/d3d12.h>
@@ -19,10 +20,12 @@
 #include <rhi/Rendering.h>
 
 #include "d3d12/AgilitySdk.h"
+#include "d3d12/D3D12BindGroup.h"
 #include "d3d12/D3D12Buffer.h"
 #include "d3d12/D3D12CpuDescriptorHeap.h"
 #include "d3d12/D3D12DebugMessages.h"
 #include "d3d12/D3D12Fence.h"
+#include "d3d12/D3D12GpuDescriptorHeap.h"
 #include "d3d12/D3D12Texture.h"
 
 namespace Hikari::Rhi::D3D12
@@ -71,8 +74,8 @@ public:
     void Destroy(BindGroupLayoutHandle handle) override;
     BindGroupHandle CreateBindGroup(const BindGroupDesc& desc) override;
     void Destroy(BindGroupHandle handle) override;
-    uint32_t GetLiveBindGroupLayoutCount() const override { return 0; }
-    uint32_t GetLiveBindGroupCount() const override { return 0; }
+    uint32_t GetLiveBindGroupLayoutCount() const override { return m_BindGroupLayouts.Size(); }
+    uint32_t GetLiveBindGroupCount() const override { return m_BindGroups.Size(); }
 
     FenceHandle CreateFence(const FenceDesc& desc) override;
     void Destroy(FenceHandle handle) override;
@@ -137,15 +140,28 @@ public:
     /** Whether `area` covers the whole of the view's mip level. False when either is stale. */
     bool RenderAreaCoversView(TextureViewHandle view, const Rect2D& area) const;
 
+    /** Binds the device's two shader-visible heaps, which every list binds and never changes. */
+    void BindDescriptorHeaps(ID3D12GraphicsCommandList& list) const;
+
+    /** The pipeline layout behind `handle`, or null when it is stale. */
+    const D3D12PipelineLayout* FindPipelineLayout(PipelineLayoutHandle handle) const
+    {
+        return m_PipelineLayouts.Get(handle);
+    }
+
 private:
     void EnableDebugLayer(const DeviceDesc& desc);
     void CreateFactory();
     void SelectAdapter(const DeviceDesc& desc);
     void CreateAllocator();
     void CreateQueues();
+    void CreateDescriptorHeaps(const DeviceDesc& desc);
     void FillDeviceInfo();
 
     ID3D12CommandQueue& QueueFor(QueueType queue) const;
+
+    /** A shared sampler range holding `samplers`, found or made. Call under m_BindMutex. */
+    size_t AcquireSamplerRange(const std::vector<D3D12_SAMPLER_DESC>& samplers);
 
     [[noreturn]] static void ThrowNotImplemented(std::string_view method);
 
@@ -181,6 +197,27 @@ private:
     std::unique_ptr<D3D12CpuDescriptorHeap> m_RenderTargetHeap;
     std::unique_ptr<D3D12CpuDescriptorHeap> m_DepthStencilHeap;
     std::mutex m_ViewMutex;
+
+    /** A sampler range and the groups sharing it, which all asked for these samplers. */
+    struct SharedSamplerRange
+    {
+        std::vector<D3D12_SAMPLER_DESC> Samplers;
+        uint32_t Start = 0u;
+        uint32_t Users = 0u;
+    };
+
+    /**
+     * The shader-visible heaps, their shared sampler ranges, and the mutex serializing
+     * both: materials are created while assets load.
+     */
+    std::unique_ptr<D3D12GpuDescriptorHeap> m_ResourceHeap;
+    std::unique_ptr<D3D12GpuDescriptorHeap> m_SamplerHeap;
+    std::vector<SharedSamplerRange> m_SamplerRanges;
+    std::mutex m_BindMutex;
+
+    Core::HandlePool<D3D12BindGroupLayout, BindGroupLayoutTag> m_BindGroupLayouts;
+    Core::HandlePool<D3D12BindGroup, BindGroupTag> m_BindGroups;
+    Core::HandlePool<D3D12PipelineLayout, PipelineLayoutTag> m_PipelineLayouts;
 
     /** Declared before every pool, so that the allocations go before their allocator. */
     Microsoft::WRL::ComPtr<D3D12MA::Allocator> m_Allocator;

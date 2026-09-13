@@ -2,15 +2,23 @@
 
 #include <windows.h>
 
+#include <array>
 #include <cstdint>
+#include <memory>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <directx/d3d12.h>
 #include <wrl/client.h>
 
+#include <rhi/BindGroup.h>
+#include <rhi/BufferDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/IDevice.h>
+#include <rhi/SamplerDesc.h>
 
 #include "d3d12/D3D12Device.h"
 
@@ -101,6 +109,129 @@ TEST_CASE("The D3D12 runtime and its debug layer are the Agility SDK beside the 
     // The fixture enables validation, which is what loads the layers at all.
     CHECK(_wcsicmp(LoadedModulePath(L"d3d12SDKLayers.dll").c_str(),
                    DeployedSdkPath(L"d3d12SDKLayers.dll").c_str()) == 0);
+}
+
+namespace
+{
+/**
+ * A D3D12 device of its own with the given descriptor capacities, for the cases that
+ * need a heap small enough to fill. Skips where the process runs another backend.
+ */
+std::unique_ptr<IDevice> MakeD3D12DeviceWithCapacity(Diagnostics& diagnostics, uint32_t resources,
+                                                     uint32_t samplers)
+{
+    RequireD3D12Device();
+
+    DeviceDesc desc = RhiTest::Detail::MakeDesc(RhiTest::DeviceConfig::Default, diagnostics);
+    desc.ResourceDescriptorCapacity = resources;
+    desc.SamplerDescriptorCapacity = samplers;
+    return CreateDevice(desc);
+}
+} // namespace
+
+/**
+ * Identical samplers share their descriptors, which is what keeps a scene of many
+ * materials inside the sampler heap: sixteen groups with the same sampler fit a heap
+ * of four sampler descriptors only if they share.
+ */
+TEST_CASE("Bind groups with identical samplers share their sampler descriptors",
+          "[rhi][gpu][bindgroups][d3d12]")
+{
+    Diagnostics diagnostics;
+    const std::unique_ptr<IDevice> device = MakeD3D12DeviceWithCapacity(diagnostics, 64u, 4u);
+
+    const BindGroupLayoutBinding binding{.Slot = 0u,
+                                         .Type = BindingType::Sampler,
+                                         .Visibility = ShaderStage::Pixel,
+                                         .bOptional = false};
+    const BindGroupLayoutHandle layout = device->CreateBindGroupLayout(BindGroupLayoutDesc{
+        .Bindings = std::span<const BindGroupLayoutBinding>(&binding, 1), .DebugName = "Layout"});
+
+    std::vector<SamplerHandle> samplers;
+    std::vector<BindGroupHandle> groups;
+    for (int i = 0; i < 16; ++i)
+    {
+        // Separate sampler objects describing the same sampler.
+        samplers.push_back(device->CreateSampler(SamplerDesc{.DebugName = "Same"}));
+        const BindGroupBinding entry{.Slot = 0u,
+                                     .Type = BindingType::Sampler,
+                                     .Buffer = {},
+                                     .View = {},
+                                     .Sampler = samplers.back()};
+        groups.push_back(device->CreateBindGroup(
+            BindGroupDesc{.Layout = layout,
+                          .Bindings = std::span<const BindGroupBinding>(&entry, 1),
+                          .DebugName = "Group"}));
+    }
+
+    CHECK(device->GetLiveBindGroupCount() == 16u);
+    CHECK(diagnostics.ErrorCount() == 0u);
+
+    for (const BindGroupHandle group : groups)
+        device->Destroy(group);
+    for (const SamplerHandle sampler : samplers)
+        device->Destroy(sampler);
+    device->Destroy(layout);
+}
+
+/**
+ * The heap never grows, so running out has to say which number to raise rather than
+ * failing somewhere inside the driver.
+ */
+TEST_CASE("A full descriptor heap refuses a bind group, naming its capacity field",
+          "[rhi][gpu][bindgroups][d3d12]")
+{
+    Diagnostics diagnostics;
+    const std::unique_ptr<IDevice> device = MakeD3D12DeviceWithCapacity(diagnostics, 4u, 4u);
+
+    const std::array bindings{
+        BindGroupLayoutBinding{.Slot = 0u,
+                               .Type = BindingType::UniformBuffer,
+                               .Visibility = ShaderStage::Vertex,
+                               .bOptional = false},
+        BindGroupLayoutBinding{.Slot = 1u,
+                               .Type = BindingType::UniformBuffer,
+                               .Visibility = ShaderStage::Vertex,
+                               .bOptional = false},
+    };
+    const BindGroupLayoutHandle layout = device->CreateBindGroupLayout(
+        BindGroupLayoutDesc{.Bindings = bindings, .DebugName = "Two Buffers"});
+    const BufferHandle buffer = device->CreateBuffer(BufferDesc{.Size = 256u,
+                                                                .Usage = BufferUsage::Uniform,
+                                                                .Access = MemoryAccess::CpuToGpu,
+                                                                .DebugName = "Buffer"});
+
+    const std::array entries{
+        BindGroupBinding{
+            .Slot = 0u, .Type = BindingType::UniformBuffer, .Buffer = buffer, .View = {}, .Sampler = {}},
+        BindGroupBinding{
+            .Slot = 1u, .Type = BindingType::UniformBuffer, .Buffer = buffer, .View = {}, .Sampler = {}},
+    };
+    const BindGroupDesc groupDesc{.Layout = layout, .Bindings = entries, .DebugName = "Group"};
+
+    // Two groups of two fill four descriptors exactly; the third has nowhere to go.
+    const BindGroupHandle first = device->CreateBindGroup(groupDesc);
+    const BindGroupHandle second = device->CreateBindGroup(groupDesc);
+
+    try
+    {
+        const BindGroupHandle third = device->CreateBindGroup(groupDesc);
+        device->Destroy(third);
+        FAIL("a third group was created in a heap already full");
+    }
+    catch (const std::runtime_error& error)
+    {
+        CHECK(std::string(error.what()).find("ResourceDescriptorCapacity") != std::string::npos);
+    }
+
+    // Released ranges are reused.
+    device->Destroy(first);
+    const BindGroupHandle reused = device->CreateBindGroup(groupDesc);
+
+    device->Destroy(reused);
+    device->Destroy(second);
+    device->Destroy(buffer);
+    device->Destroy(layout);
 }
 
 /**

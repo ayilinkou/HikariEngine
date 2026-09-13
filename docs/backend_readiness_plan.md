@@ -1930,7 +1930,7 @@ tolerance" is left as it stands, because §15 already records that D26 supersede
 
 ## 5. Stage 7.7 — the D3D12 backend
 
-**Status: in progress — steps 1–4 done.** Grilled on 13 September 2026 — on Linux, then in two sittings on
+**Status: in progress — steps 1–5 done.** Grilled on 13 September 2026 — on Linux, then in two sittings on
 this project's Windows install, where the measurements only that machine could take were made. The
 decisions that govern the RHI's seam are **D36–D46** in §2, together with amendments to **D15, D26,
 D32 and D35**. This section is the stage: what bounds it (§5.2), the facts it rests on (§5.3), the
@@ -2254,6 +2254,20 @@ debug-layer IDs are muted**, `CLEARRENDERTARGETVIEW_` and `CLEARDEPTHSTENCILVIEW
 carries no optimized clear value, so every clear would warn and D3D12's warning count could never equal Vulkan's
 zero. The neutral `RenderingScopeTests` clears a colour and a depth target and reads the colour back, under both
 backends; with the upload round-trips it is step 4's gate, on the RX 580 and WARP.
+
+**Amended at step 5: how bind groups sit in D43's heaps.** `DeviceDesc` gains `ResourceDescriptorCapacity` and
+`SamplerDescriptorCapacity`, which the Vulkan backend ignores. A layout splits its bindings into a resource table
+and a sampler table, since the two live in different heaps; a group takes a contiguous range of each — first fit
+over a free list that merges neighbours — and groups whose samplers are identical share one sampler range,
+reference-counted, which is the deduplication D43 names. Optional textures left empty get null descriptors, so
+tables are fully populated whatever the binding tier; an unbound constant buffer or unordered-access texture is
+refused, as tier 2 requires. A root signature holds one table per group per heap — register space N for group N,
+a binding's slot as its register (D29) — and one root-constants parameter at `b0`, space 7, the space
+`registers.slangh` reserves; it is serialized at version 1.0. Uniform buffers are rounded up to 256 bytes at
+creation, since a constant buffer view's size must be a multiple of 256 and cannot run past its resource. No
+bind group GPU tests existed, so step 5 adds them: a neutral `BindGroupTests` under both backends, and two
+D3D12 cases — sixteen groups with one sampler fitting a heap of four sampler descriptors, and a full heap refusing
+a group with `ResourceDescriptorCapacity` in the message and reusing a released range.
 
 **Why this order.** Step 1 needs no seam change, so the deployment — the part most likely to differ between
 machines — is proven before anything is built on it, and step 2 then proves it on the CI runner. Steps 3–6

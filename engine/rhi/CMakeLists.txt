@@ -40,6 +40,7 @@ if(WIN32)
   set(d3d12_sources
       src/d3d12/AgilitySdk.cpp src/d3d12/D3D12CommandAllocator.cpp src/d3d12/D3D12CommandList.cpp
       src/d3d12/D3D12Conversions.cpp src/d3d12/D3D12CpuDescriptorHeap.cpp
+      src/d3d12/D3D12GpuDescriptorHeap.cpp
       src/d3d12/D3D12UploadContext.cpp
                     src/d3d12/D3D12DebugMessages.cpp
                     src/d3d12/D3D12Device.cpp)

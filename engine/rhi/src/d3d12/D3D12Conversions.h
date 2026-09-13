@@ -5,7 +5,9 @@
 
 #include <rhi/Barrier.h>
 #include <rhi/RhiTypes.h>
+#include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
+#include <rhi/TextureViewDesc.h>
 
 namespace Hikari::Rhi::D3D12
 {
@@ -43,4 +45,13 @@ D3D12_RESOURCE_FLAGS ToResourceFlags(TextureUsage usage);
  * because that layout is also what a shader samples depth through.
  */
 D3D12_RESOURCE_STATES ToLegacyState(TextureLayout layout);
+
+/** A sampler description as the descriptor D3D12 writes into its sampler heap. */
+D3D12_SAMPLER_DESC ToD3D12Sampler(const SamplerDesc& desc);
+
+/** A view as the shader-resource descriptor a shader reads the texture through. */
+D3D12_SHADER_RESOURCE_VIEW_DESC ToShaderResourceView(const TextureViewDesc& desc);
+
+/** A view as the unordered-access descriptor a shader writes through. Throws for a cube view. */
+D3D12_UNORDERED_ACCESS_VIEW_DESC ToUnorderedAccessView(const TextureViewDesc& desc);
 } // namespace Hikari::Rhi::D3D12

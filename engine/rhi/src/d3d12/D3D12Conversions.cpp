@@ -1,5 +1,7 @@
 #include "d3d12/D3D12Conversions.h"
 
+#include <stdexcept>
+
 namespace Hikari::Rhi::D3D12
 {
 
@@ -121,6 +123,185 @@ D3D12_RESOURCE_STATES ToLegacyState(TextureLayout layout)
     }
 
     return D3D12_RESOURCE_STATE_COMMON;
+}
+
+namespace
+{
+D3D12_FILTER_TYPE ToFilterType(Filter filter)
+{
+    switch (filter)
+    {
+        case Filter::Nearest:
+            return D3D12_FILTER_TYPE_POINT;
+        case Filter::Linear:
+            return D3D12_FILTER_TYPE_LINEAR;
+    }
+
+    return D3D12_FILTER_TYPE_LINEAR;
+}
+
+D3D12_FILTER_TYPE ToFilterType(MipmapMode mode)
+{
+    switch (mode)
+    {
+        case MipmapMode::Nearest:
+            return D3D12_FILTER_TYPE_POINT;
+        case MipmapMode::Linear:
+            return D3D12_FILTER_TYPE_LINEAR;
+    }
+
+    return D3D12_FILTER_TYPE_LINEAR;
+}
+
+D3D12_TEXTURE_ADDRESS_MODE ToAddressMode(AddressMode mode)
+{
+    switch (mode)
+    {
+        case AddressMode::Repeat:
+            return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        case AddressMode::MirroredRepeat:
+            return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
+        case AddressMode::ClampToEdge:
+            return D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        case AddressMode::ClampToBorder:
+            return D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    }
+
+    return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+}
+
+D3D12_COMPARISON_FUNC ToComparison(CompareOp op)
+{
+    switch (op)
+    {
+        case CompareOp::Never:
+            return D3D12_COMPARISON_FUNC_NEVER;
+        case CompareOp::Less:
+            return D3D12_COMPARISON_FUNC_LESS;
+        case CompareOp::Equal:
+            return D3D12_COMPARISON_FUNC_EQUAL;
+        case CompareOp::LessOrEqual:
+            return D3D12_COMPARISON_FUNC_LESS_EQUAL;
+        case CompareOp::Greater:
+            return D3D12_COMPARISON_FUNC_GREATER;
+        case CompareOp::NotEqual:
+            return D3D12_COMPARISON_FUNC_NOT_EQUAL;
+        case CompareOp::GreaterOrEqual:
+            return D3D12_COMPARISON_FUNC_GREATER_EQUAL;
+        case CompareOp::Always:
+            return D3D12_COMPARISON_FUNC_ALWAYS;
+    }
+
+    return D3D12_COMPARISON_FUNC_ALWAYS;
+}
+} // namespace
+
+D3D12_SAMPLER_DESC ToD3D12Sampler(const SamplerDesc& desc)
+{
+    // Comparison is a filter reduction on D3D12 rather than a separate enable, and
+    // anisotropy replaces the three filter types rather than joining them.
+    const D3D12_FILTER_REDUCTION_TYPE reduction = desc.bCompareEnable
+                                                      ? D3D12_FILTER_REDUCTION_TYPE_COMPARISON
+                                                      : D3D12_FILTER_REDUCTION_TYPE_STANDARD;
+
+    D3D12_SAMPLER_DESC sampler{};
+    sampler.Filter =
+        desc.bAnisotropyEnable
+            ? D3D12_ENCODE_ANISOTROPIC_FILTER(reduction)
+            : D3D12_ENCODE_BASIC_FILTER(ToFilterType(desc.MinFilter), ToFilterType(desc.MagFilter),
+                                        ToFilterType(desc.MipmapFilter), reduction);
+    sampler.AddressU = ToAddressMode(desc.AddressU);
+    sampler.AddressV = ToAddressMode(desc.AddressV);
+    sampler.AddressW = ToAddressMode(desc.AddressW);
+    sampler.MipLODBias = desc.MipLodBias;
+    sampler.MaxAnisotropy = desc.bAnisotropyEnable ? static_cast<UINT>(desc.MaxAnisotropy) : 1u;
+    sampler.ComparisonFunc =
+        desc.bCompareEnable ? ToComparison(desc.Compare) : D3D12_COMPARISON_FUNC_NEVER;
+    sampler.MinLOD = desc.MinLod;
+    sampler.MaxLOD = desc.MaxLod;
+
+    // The float and int border colours are the same colours to D3D12, which has no
+    // integer border of its own.
+    const float white =
+        desc.Border == BorderColor::OpaqueWhiteFloat || desc.Border == BorderColor::OpaqueWhiteInt
+            ? 1.f
+            : 0.f;
+    const float alpha = desc.Border == BorderColor::TransparentBlackFloat ||
+                                desc.Border == BorderColor::TransparentBlackInt
+                            ? 0.f
+                            : 1.f;
+    sampler.BorderColor[0] = white;
+    sampler.BorderColor[1] = white;
+    sampler.BorderColor[2] = white;
+    sampler.BorderColor[3] = alpha;
+
+    return sampler;
+}
+
+D3D12_SHADER_RESOURCE_VIEW_DESC ToShaderResourceView(const TextureViewDesc& desc)
+{
+    D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+    view.Format = ToDxgiShaderViewFormat(desc.Format);
+    view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+    switch (desc.Dimension)
+    {
+        case TextureViewDimension::Texture2D:
+            view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            view.Texture2D.MostDetailedMip = desc.BaseMip;
+            view.Texture2D.MipLevels = desc.MipCount;
+            break;
+        case TextureViewDimension::Texture2DArray:
+            view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+            view.Texture2DArray.MostDetailedMip = desc.BaseMip;
+            view.Texture2DArray.MipLevels = desc.MipCount;
+            view.Texture2DArray.FirstArraySlice = desc.BaseLayer;
+            view.Texture2DArray.ArraySize = desc.LayerCount;
+            break;
+        case TextureViewDimension::TextureCube:
+            view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+            view.TextureCube.MostDetailedMip = desc.BaseMip;
+            view.TextureCube.MipLevels = desc.MipCount;
+            break;
+        case TextureViewDimension::Texture3D:
+            view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
+            view.Texture3D.MostDetailedMip = desc.BaseMip;
+            view.Texture3D.MipLevels = desc.MipCount;
+            break;
+    }
+
+    return view;
+}
+
+D3D12_UNORDERED_ACCESS_VIEW_DESC ToUnorderedAccessView(const TextureViewDesc& desc)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC view{};
+    view.Format = ToDxgi(desc.Format);
+
+    switch (desc.Dimension)
+    {
+        case TextureViewDimension::Texture2D:
+            view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+            view.Texture2D.MipSlice = desc.BaseMip;
+            break;
+        case TextureViewDimension::Texture2DArray:
+            view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+            view.Texture2DArray.MipSlice = desc.BaseMip;
+            view.Texture2DArray.FirstArraySlice = desc.BaseLayer;
+            view.Texture2DArray.ArraySize = desc.LayerCount;
+            break;
+        case TextureViewDimension::Texture3D:
+            view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
+            view.Texture3D.MipSlice = desc.BaseMip;
+            view.Texture3D.FirstWSlice = 0;
+            // Every depth slice of the mip.
+            view.Texture3D.WSize = static_cast<UINT>(-1);
+            break;
+        case TextureViewDimension::TextureCube:
+            throw std::runtime_error("A cube view cannot be written through unordered access.");
+    }
+
+    return view;
 }
 
 D3D12_RESOURCE_FLAGS ToResourceFlags(TextureUsage usage)

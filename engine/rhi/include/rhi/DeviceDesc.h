@@ -154,6 +154,21 @@ struct DeviceDesc
      * to switch.
      */
     bool bGpuBasedValidation = true;
+
+    /**
+     * How many resource descriptors — constant buffers, textures, unordered-access
+     * textures — and how many sampler descriptors every bind group alive at once may
+     * hold between them, on a backend that binds from fixed heaps.
+     *
+     * D3D12 does: at most one heap of each kind can be bound at a time, switching can
+     * stall, and ImGui keeps raw handles into it, so each heap is created once at this
+     * size and never grows. A scene past the capacity is refused naming the field. The
+     * sampler default is the 2,048 D3D12 guarantees every adapter; identical samplers
+     * share their descriptors, so a scene rarely needs more than a handful. A backend
+     * whose pools grow — Vulkan — ignores both.
+     */
+    uint32_t ResourceDescriptorCapacity = 65'536u;
+    uint32_t SamplerDescriptorCapacity = 2'048u;
 };
 
 /**

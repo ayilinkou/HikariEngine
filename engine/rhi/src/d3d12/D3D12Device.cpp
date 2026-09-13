@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <format>
 #include <optional>
 #include <stdexcept>
@@ -149,6 +150,7 @@ D3D12Device::D3D12Device(const DeviceDesc& desc)
 
     m_bSingleQueue = desc.bForceSingleQueue;
     CreateQueues();
+    CreateDescriptorHeaps(desc);
 
     FillDeviceInfo();
 
@@ -295,6 +297,24 @@ void D3D12Device::CreateQueues()
         *m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 64u, L"Depth Stencil Views");
 
     DrainDebugMessages();
+}
+
+void D3D12Device::CreateDescriptorHeaps(const DeviceDesc& desc)
+{
+    m_ResourceHeap = std::make_unique<D3D12GpuDescriptorHeap>(
+        *m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, desc.ResourceDescriptorCapacity,
+        "ResourceDescriptorCapacity", L"Resource Descriptors");
+    m_SamplerHeap = std::make_unique<D3D12GpuDescriptorHeap>(
+        *m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, desc.SamplerDescriptorCapacity,
+        "SamplerDescriptorCapacity", L"Sampler Descriptors");
+    DrainDebugMessages();
+}
+
+void D3D12Device::BindDescriptorHeaps(ID3D12GraphicsCommandList& list) const
+{
+    // A copy list has no descriptor heaps to bind.
+    ID3D12DescriptorHeap* heaps[] = {m_ResourceHeap->Native(), m_SamplerHeap->Native()};
+    list.SetDescriptorHeaps(2, heaps);
 }
 
 Format D3D12Device::TextureFormatOf(TextureViewHandle view) const
@@ -639,7 +659,14 @@ BufferHandle D3D12Device::CreateBuffer(const BufferDesc& desc)
 
     D3D12_RESOURCE_DESC resourceDesc{};
     resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resourceDesc.Width = desc.Size;
+    // A constant buffer view's size must be a multiple of 256 bytes and cannot run past
+    // its resource, so a uniform buffer's resource is rounded up to one. The seam's size
+    // is what the caller asked for; the padding is never mapped for anyone to see.
+    constexpr uint64_t kConstantBufferAlignment = 256u;
+    resourceDesc.Width =
+        (desc.Usage & BufferUsage::Uniform) != BufferUsage::None
+            ? (desc.Size + kConstantBufferAlignment - 1u) & ~(kConstantBufferAlignment - 1u)
+            : desc.Size;
     resourceDesc.Height = 1;
     resourceDesc.DepthOrArraySize = 1;
     resourceDesc.MipLevels = 1;
@@ -901,19 +928,264 @@ bool D3D12Device::IsFormatSupported(Format format, TextureUsage usage) const
     return true;
 }
 
-BindGroupLayoutHandle D3D12Device::CreateBindGroupLayout(const BindGroupLayoutDesc&)
+BindGroupLayoutHandle D3D12Device::CreateBindGroupLayout(const BindGroupLayoutDesc& desc)
 {
-    ThrowNotImplemented("CreateBindGroupLayout");
+    D3D12BindGroupLayout layout;
+
+    for (const BindGroupLayoutBinding& binding : desc.Bindings)
+    {
+        // Registers are unique across classes within a space (plan D29), because
+        // Vulkan has one binding namespace per set where HLSL has four.
+        for (const D3D12BindGroupLayout::Entry& existing : layout.Entries)
+        {
+            if (existing.Binding.Slot == binding.Slot)
+            {
+                throw std::runtime_error(std::format(
+                    "Rhi::IDevice::CreateBindGroupLayout('{}'): slot {} is declared twice.",
+                    desc.DebugName, binding.Slot));
+            }
+        }
+
+        const bool bSampler = binding.Type == BindingType::Sampler;
+        layout.Entries.push_back(D3D12BindGroupLayout::Entry{
+            .Binding = binding, .Offset = bSampler ? layout.SamplerCount : layout.ResourceCount});
+
+        if (bSampler)
+        {
+            ++layout.SamplerCount;
+            layout.SamplerVisibility = layout.SamplerVisibility | binding.Visibility;
+        }
+        else
+        {
+            ++layout.ResourceCount;
+            layout.ResourceVisibility = layout.ResourceVisibility | binding.Visibility;
+        }
+    }
+
+    return m_BindGroupLayouts.Create(std::move(layout));
 }
 
-void D3D12Device::Destroy(BindGroupLayoutHandle) {}
-
-BindGroupHandle D3D12Device::CreateBindGroup(const BindGroupDesc&)
+void D3D12Device::Destroy(BindGroupLayoutHandle handle)
 {
-    ThrowNotImplemented("CreateBindGroup");
+    if (m_BindGroupLayouts.Release(handle))
+        return;
+
+    ReportError(std::format("Rhi::IDevice::Destroy(BindGroupLayoutHandle): handle {:#010x} is "
+                            "stale or was never valid; it may have been destroyed already.",
+                            handle.Value));
 }
 
-void D3D12Device::Destroy(BindGroupHandle) {}
+/**
+ * Writes the group's resources into a fresh range of the resource heap, and finds or
+ * makes a sampler range holding its samplers. Descriptors are written once here and
+ * never again, which is what the seam's immutable bind groups (plan D20) promise and
+ * what D3D12 requires of a descriptor a submitted list may reference.
+ */
+BindGroupHandle D3D12Device::CreateBindGroup(const BindGroupDesc& desc)
+{
+    const std::lock_guard lock(m_BindMutex);
+
+    const D3D12BindGroupLayout* pLayout = m_BindGroupLayouts.Get(desc.Layout);
+    if (pLayout == nullptr)
+    {
+        throw std::runtime_error(std::format(
+            "Rhi::IDevice::CreateBindGroup('{}'): the layout handle is stale or was never valid.",
+            desc.DebugName));
+    }
+
+    const auto fail = [&desc](const std::string& why)
+    {
+        throw std::runtime_error(
+            std::format("Rhi::IDevice::CreateBindGroup('{}'): {}", desc.DebugName, why));
+    };
+
+    D3D12BindGroup group;
+    group.Layout = desc.Layout;
+    group.ResourceCount = pLayout->ResourceCount;
+    if (group.ResourceCount > 0u)
+        group.ResourceStart = m_ResourceHeap->Allocate(group.ResourceCount);
+
+    std::vector<D3D12_SAMPLER_DESC> samplers(pLayout->SamplerCount);
+
+    try
+    {
+        for (const D3D12BindGroupLayout::Entry& entry : pLayout->Entries)
+        {
+            const BindGroupBinding* pBinding = nullptr;
+            for (const BindGroupBinding& candidate : desc.Bindings)
+            {
+                if (candidate.Slot == entry.Binding.Slot)
+                    pBinding = &candidate;
+            }
+
+            if (pBinding != nullptr && pBinding->Type != entry.Binding.Type)
+                fail(std::format("slot {} is bound as a different type than its layout declares.",
+                                 entry.Binding.Slot));
+
+            const D3D12_CPU_DESCRIPTOR_HANDLE target =
+                m_ResourceHeap->CpuHandle(group.ResourceStart + entry.Offset);
+
+            switch (entry.Binding.Type)
+            {
+                case BindingType::UniformBuffer:
+                {
+                    const D3D12Buffer* pBuffer =
+                        pBinding ? m_Buffers.Get(pBinding->Buffer) : nullptr;
+                    if (pBuffer == nullptr)
+                        fail(std::format("uniform buffer slot {} has no live buffer; resource "
+                                         "binding tier 2 allows no unpopulated constant buffer.",
+                                         entry.Binding.Slot));
+
+                    D3D12_CONSTANT_BUFFER_VIEW_DESC view{};
+                    view.BufferLocation = pBuffer->Resource->GetGPUVirtualAddress();
+                    view.SizeInBytes = static_cast<UINT>(pBuffer->Resource->GetDesc().Width);
+                    m_Device->CreateConstantBufferView(&view, target);
+                    break;
+                }
+                case BindingType::Texture:
+                {
+                    const D3D12TextureView* pView =
+                        pBinding ? m_TextureViews.Get(pBinding->View) : nullptr;
+                    const D3D12Texture* pTexture =
+                        pView ? m_Textures.Get(pView->Desc.Texture) : nullptr;
+                    if (pTexture == nullptr)
+                    {
+                        if (!entry.Binding.bOptional)
+                            fail(std::format("texture slot {} has no live view.",
+                                             entry.Binding.Slot));
+
+                        // An optional texture left empty gets a null descriptor, so the
+                        // table is fully populated whatever the binding tier.
+                        D3D12_SHADER_RESOURCE_VIEW_DESC null{};
+                        null.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                        null.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+                        null.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+                        null.Texture2D.MipLevels = 1;
+                        m_Device->CreateShaderResourceView(nullptr, &null, target);
+                        break;
+                    }
+
+                    const D3D12_SHADER_RESOURCE_VIEW_DESC view = ToShaderResourceView(pView->Desc);
+                    m_Device->CreateShaderResourceView(pTexture->Resource.Get(), &view, target);
+                    break;
+                }
+                case BindingType::UnorderedAccessTexture:
+                {
+                    const D3D12TextureView* pView =
+                        pBinding ? m_TextureViews.Get(pBinding->View) : nullptr;
+                    const D3D12Texture* pTexture =
+                        pView ? m_Textures.Get(pView->Desc.Texture) : nullptr;
+                    if (pTexture == nullptr)
+                        fail(std::format("unordered-access slot {} has no live view; resource "
+                                         "binding tier 2 allows no unpopulated one.",
+                                         entry.Binding.Slot));
+
+                    const D3D12_UNORDERED_ACCESS_VIEW_DESC view =
+                        ToUnorderedAccessView(pView->Desc);
+                    m_Device->CreateUnorderedAccessView(pTexture->Resource.Get(), nullptr, &view,
+                                                        target);
+                    break;
+                }
+                case BindingType::Sampler:
+                {
+                    const D3D12Sampler* pSampler =
+                        pBinding ? m_Samplers.Get(pBinding->Sampler) : nullptr;
+                    if (pSampler == nullptr)
+                        fail(std::format("sampler slot {} has no live sampler.",
+                                         entry.Binding.Slot));
+
+                    samplers[entry.Offset] = ToD3D12Sampler(pSampler->Desc);
+                    break;
+                }
+            }
+        }
+
+        if (!samplers.empty())
+            group.SamplerRange = AcquireSamplerRange(samplers);
+    }
+    catch (...)
+    {
+        m_ResourceHeap->Free(group.ResourceStart, group.ResourceCount);
+        DrainDebugMessages();
+        throw;
+    }
+
+    const BindGroupHandle handle = m_BindGroups.Create(std::move(group));
+    DrainDebugMessages();
+    return handle;
+}
+
+/**
+ * A range holding exactly these samplers: an existing one shared with every group that
+ * asked for the same, or a new one. Materials all sample through the same sampler, so a
+ * scene of hundreds of them needs one range rather than hundreds of the 2,048 sampler
+ * descriptors D3D12 guarantees.
+ */
+size_t D3D12Device::AcquireSamplerRange(const std::vector<D3D12_SAMPLER_DESC>& samplers)
+{
+    const auto same = [&samplers](const SharedSamplerRange& range)
+    {
+        return range.Users > 0u && range.Samplers.size() == samplers.size() &&
+               std::memcmp(range.Samplers.data(), samplers.data(),
+                           samplers.size() * sizeof(D3D12_SAMPLER_DESC)) == 0;
+    };
+
+    for (size_t i = 0; i < m_SamplerRanges.size(); ++i)
+    {
+        if (same(m_SamplerRanges[i]))
+        {
+            ++m_SamplerRanges[i].Users;
+            return i;
+        }
+    }
+
+    const uint32_t count = static_cast<uint32_t>(samplers.size());
+    const uint32_t start = m_SamplerHeap->Allocate(count);
+    for (uint32_t i = 0u; i < count; ++i)
+        m_Device->CreateSampler(&samplers[i], m_SamplerHeap->CpuHandle(start + i));
+
+    SharedSamplerRange range{.Samplers = samplers, .Start = start, .Users = 1u};
+
+    // Reuse a slot a released range left behind, so indices held by live groups stay put.
+    for (size_t i = 0; i < m_SamplerRanges.size(); ++i)
+    {
+        if (m_SamplerRanges[i].Users == 0u)
+        {
+            m_SamplerRanges[i] = std::move(range);
+            return i;
+        }
+    }
+
+    m_SamplerRanges.push_back(std::move(range));
+    return m_SamplerRanges.size() - 1u;
+}
+
+void D3D12Device::Destroy(BindGroupHandle handle)
+{
+    const std::lock_guard lock(m_BindMutex);
+
+    if (const D3D12BindGroup* pGroup = m_BindGroups.Get(handle))
+    {
+        m_ResourceHeap->Free(pGroup->ResourceStart, pGroup->ResourceCount);
+
+        if (pGroup->SamplerRange)
+        {
+            SharedSamplerRange& range = m_SamplerRanges[*pGroup->SamplerRange];
+            if (--range.Users == 0u)
+            {
+                m_SamplerHeap->Free(range.Start, static_cast<uint32_t>(range.Samplers.size()));
+                range.Samplers.clear();
+            }
+        }
+
+        m_BindGroups.Release(handle);
+        return;
+    }
+
+    ReportError(std::format("Rhi::IDevice::Destroy(BindGroupHandle): handle {:#010x} is stale or "
+                            "was never valid; it may have been destroyed already.",
+                            handle.Value));
+}
 
 FenceHandle D3D12Device::CreateFence(const FenceDesc& desc)
 {
@@ -1057,12 +1329,171 @@ void D3D12Device::Submit(const SubmitDesc& desc)
     DrainDebugMessages();
 }
 
-PipelineLayoutHandle D3D12Device::CreatePipelineLayout(const PipelineLayoutDesc&)
+/**
+ * A root signature with a table per bind group per heap — resources and samplers — and
+ * the push constants as root constants.
+ *
+ * Bind group N is register space N and a binding's slot is its register (plan D29), so
+ * the tables say exactly what the shaders declare. Push constants are at register b0 in
+ * space 7, the space the shaders' PUSH_CONSTANT macro reserves (shaders/registers.slangh):
+ * root constants appear to a shader as a constant buffer, and the root signature is what
+ * makes that register hold constants rather than a table.
+ */
+PipelineLayoutHandle D3D12Device::CreatePipelineLayout(const PipelineLayoutDesc& desc)
 {
-    ThrowNotImplemented("CreatePipelineLayout");
+    constexpr UINT kPushConstantRegister = 0u;
+    constexpr UINT kPushConstantSpace = 7u;
+
+    const auto toVisibility = [](ShaderStage stages)
+    {
+        if (stages == ShaderStage::Vertex)
+            return D3D12_SHADER_VISIBILITY_VERTEX;
+        if (stages == ShaderStage::Pixel)
+            return D3D12_SHADER_VISIBILITY_PIXEL;
+        return D3D12_SHADER_VISIBILITY_ALL;
+    };
+
+    D3D12PipelineLayout layout;
+    const size_t groupCount = desc.BindGroupLayouts.size();
+    layout.ResourceTableParameters.resize(groupCount);
+    layout.SamplerTableParameters.resize(groupCount);
+
+    // Reserved up front: each parameter points into its range vector, so neither may
+    // reallocate once a pointer has been taken.
+    std::vector<std::vector<D3D12_DESCRIPTOR_RANGE>> ranges(groupCount * 2u);
+    std::vector<D3D12_ROOT_PARAMETER> parameters;
+    parameters.reserve(groupCount * 2u + desc.PushConstantRanges.size());
+
+    for (size_t group = 0; group < groupCount; ++group)
+    {
+        const D3D12BindGroupLayout* pGroup = m_BindGroupLayouts.Get(desc.BindGroupLayouts[group]);
+        if (pGroup == nullptr)
+        {
+            throw std::runtime_error(std::format(
+                "Rhi::IDevice::CreatePipelineLayout('{}'): bind group layout {} is stale.",
+                desc.DebugName, group));
+        }
+
+        std::vector<D3D12_DESCRIPTOR_RANGE>& resourceRanges = ranges[group * 2u];
+        std::vector<D3D12_DESCRIPTOR_RANGE>& samplerRanges = ranges[group * 2u + 1u];
+
+        for (const D3D12BindGroupLayout::Entry& entry : pGroup->Entries)
+        {
+            D3D12_DESCRIPTOR_RANGE range{};
+            range.NumDescriptors = 1;
+            range.BaseShaderRegister = entry.Binding.Slot;
+            range.RegisterSpace = static_cast<UINT>(group);
+            range.OffsetInDescriptorsFromTableStart = entry.Offset;
+
+            switch (entry.Binding.Type)
+            {
+                case BindingType::UniformBuffer:
+                    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+                    resourceRanges.push_back(range);
+                    break;
+                case BindingType::Texture:
+                    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+                    resourceRanges.push_back(range);
+                    break;
+                case BindingType::UnorderedAccessTexture:
+                    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+                    resourceRanges.push_back(range);
+                    break;
+                case BindingType::Sampler:
+                    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+                    samplerRanges.push_back(range);
+                    break;
+            }
+        }
+
+        const auto addTable = [&](const std::vector<D3D12_DESCRIPTOR_RANGE>& tableRanges,
+                                  ShaderStage visibility) -> std::optional<UINT>
+        {
+            if (tableRanges.empty())
+                return std::nullopt;
+
+            D3D12_ROOT_PARAMETER parameter{};
+            parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+            parameter.DescriptorTable.NumDescriptorRanges = static_cast<UINT>(tableRanges.size());
+            parameter.DescriptorTable.pDescriptorRanges = tableRanges.data();
+            parameter.ShaderVisibility = toVisibility(visibility);
+            parameters.push_back(parameter);
+            return static_cast<UINT>(parameters.size() - 1u);
+        };
+
+        layout.ResourceTableParameters[group] =
+            addTable(resourceRanges, pGroup->ResourceVisibility);
+        layout.SamplerTableParameters[group] = addTable(samplerRanges, pGroup->SamplerVisibility);
+    }
+
+    if (desc.PushConstantRanges.size() > 1u)
+    {
+        throw std::runtime_error(std::format(
+            "Rhi::IDevice::CreatePipelineLayout('{}'): D3D12 takes one push constant block, at "
+            "b0 in space 7, and {} were given.",
+            desc.DebugName, desc.PushConstantRanges.size()));
+    }
+
+    for (const PushConstantRange& pushRange : desc.PushConstantRanges)
+    {
+        D3D12_ROOT_PARAMETER parameter{};
+        parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameter.Constants.ShaderRegister = kPushConstantRegister;
+        parameter.Constants.RegisterSpace = kPushConstantSpace;
+        parameter.Constants.Num32BitValues = (pushRange.Offset + pushRange.Size + 3u) / 4u;
+        parameter.ShaderVisibility = toVisibility(pushRange.Stages);
+        parameters.push_back(parameter);
+        layout.PushConstantParameter = static_cast<UINT>(parameters.size() - 1u);
+    }
+
+    D3D12_ROOT_SIGNATURE_DESC rootDesc{};
+    rootDesc.NumParameters = static_cast<UINT>(parameters.size());
+    rootDesc.pParameters = parameters.data();
+    rootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+    Microsoft::WRL::ComPtr<ID3DBlob> serialized;
+    Microsoft::WRL::ComPtr<ID3DBlob> errors;
+    HRESULT hr =
+        D3D12SerializeRootSignature(&rootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &serialized, &errors);
+    if (FAILED(hr))
+    {
+        const std::string why =
+            errors ? std::string(static_cast<const char*>(errors->GetBufferPointer()),
+                                 errors->GetBufferSize())
+                   : HResultText(hr);
+        throw std::runtime_error(std::format(
+            "Rhi::IDevice::CreatePipelineLayout('{}'): serializing the root signature failed: {}",
+            desc.DebugName, why));
+    }
+
+    hr = m_Device->CreateRootSignature(0, serialized->GetBufferPointer(),
+                                       serialized->GetBufferSize(),
+                                       IID_PPV_ARGS(&layout.RootSignature));
+    if (FAILED(hr))
+    {
+        DrainDebugMessages();
+        throw std::runtime_error(std::format(
+            "Rhi::IDevice::CreatePipelineLayout('{}'): CreateRootSignature failed ({}).",
+            desc.DebugName, HResultText(hr)));
+    }
+
+    if (!desc.DebugName.empty())
+        layout.RootSignature->SetName(WideFromUtf8(desc.DebugName).c_str());
+
+    const PipelineLayoutHandle handle = m_PipelineLayouts.Create(std::move(layout));
+    DrainDebugMessages();
+    return handle;
 }
 
-void D3D12Device::Destroy(PipelineLayoutHandle) {}
+void D3D12Device::Destroy(PipelineLayoutHandle handle)
+{
+    if (m_PipelineLayouts.Release(handle))
+        return;
+
+    ReportError(std::format("Rhi::IDevice::Destroy(PipelineLayoutHandle): handle {:#010x} is stale "
+                            "or was never valid; it may have been destroyed already.",
+                            handle.Value));
+}
 
 ShaderModuleHandle D3D12Device::CreateShaderModule(const ShaderModuleDesc&)
 {
