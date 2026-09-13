@@ -114,18 +114,22 @@ TEST_CASE("Textures of every shape the renderer makes are created, described and
     CHECK(pColor->Format == Format::RGBA8Unorm);
 
     const TextureViewHandle colorView = device.CreateTextureView(
-        TextureViewDesc{.Texture = color, .Format = Format::RGBA8Unorm, .MipCount = 3u});
+        TextureViewDesc{.Texture = color, .Format = Format::RGBA8Unorm, .MipCount = 3u,
+                        .DebugName = "Test Color View"});
     const TextureViewHandle cubeView =
         device.CreateTextureView(TextureViewDesc{.Texture = cube,
                                                  .Dimension = TextureViewDimension::TextureCube,
                                                  .Format = Format::RGBA8Srgb,
-                                                 .LayerCount = 6u});
+                                                 .LayerCount = 6u,
+                                                 .DebugName = "Test Cube View"});
     const TextureViewHandle volumeView =
         device.CreateTextureView(TextureViewDesc{.Texture = volume,
                                                  .Dimension = TextureViewDimension::Texture3D,
-                                                 .Format = Format::RGBA16Float});
+                                                 .Format = Format::RGBA16Float,
+                                                 .DebugName = "Test Volume View"});
     const TextureViewHandle depthView = device.CreateTextureView(TextureViewDesc{
-        .Texture = depth, .Format = Format::D32Float, .Aspect = TextureAspect::Depth});
+        .Texture = depth, .Format = Format::D32Float, .Aspect = TextureAspect::Depth,
+        .DebugName = "Test Depth View"});
 
     const SamplerHandle sampler = device.CreateSampler(SamplerDesc{});
 
