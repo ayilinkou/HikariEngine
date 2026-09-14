@@ -57,6 +57,11 @@ void main(uint3 dispatchId : SV_DispatchThreadID)
 
     float2 uv = (float2(pixel) + 0.5f) / float2(outSize);
     float2 ndc = uv * 2.f - 1.f;
+    // Row 0 is the top of the image, which is clip-space Y +1 where Y points up.
+    // Mirroring the ray without mirroring depthCoord below would test each ray
+    // against the depth of the pixel reflected about the horizon.
+    if (!ClipSpaceYPointsDown())
+        ndc.y = -ndc.y;
 
     float4 nearPoint = mul(globalBuffer.Camera.InvViewProj, float4(ndc, 0.f, 1.f));
     float4 farPoint  = mul(globalBuffer.Camera.InvViewProj, float4(ndc, 1.f, 1.f));

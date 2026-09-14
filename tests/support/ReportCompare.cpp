@@ -170,15 +170,19 @@ constexpr std::array kFields = {
     // them, always (plan D26). Gating them here would excuse exactly the defect
     // a cross-backend comparison exists to find.
     //
-    // They do gate pixels, and for the opposite reason: two rasterizers differ
-    // in the low bits by design, and so do two GPUs on one API. Within Stage 7.6
-    // that makes a cross-machine or cross-backend pair simply not comparable on
-    // pixels; Stage 7.7 is where a differing backend selects D26's tolerance
-    // instead of skipping, once there are two backends to measure between.
-    FieldClassification{"system.backend", FieldRole::Condition, false, true},
-    FieldClassification{"system.gpu", FieldRole::Condition, false, true},
-    FieldClassification{"system.driver", FieldRole::Condition, false, true},
-    FieldClassification{"system.apiVersion", FieldRole::Condition, false, true},
+    // They do gate pixels, and for the opposite reason: two rasterizers differ in
+    // the low bits by design, and so do two GPUs on one API, so a cross-machine pair
+    // is not comparable on pixels. Two backends on one adapter are, within the
+    // tolerance measured for the build type (plan D26 and D35, amended). The backend differs by
+    // construction there, the API version with it, and the GPU and driver names are
+    // each API's own spelling, so across backends those four gate nothing and the
+    // adapter is identified by the PCI identifiers below, which both APIs spell alike
+    // — software rasterizers carry vendor IDs of their own, so WARP against lavapipe
+    // is refused by identity. The OS and architecture stay conditions beside them.
+    FieldClassification{"system.backend", FieldRole::ConditionWithinBackend, false, true},
+    FieldClassification{"system.gpu", FieldRole::ConditionWithinBackend, false, true},
+    FieldClassification{"system.driver", FieldRole::ConditionWithinBackend, false, true},
+    FieldClassification{"system.apiVersion", FieldRole::ConditionWithinBackend, false, true},
     FieldClassification{"system.os", FieldRole::Condition, false, true},
     FieldClassification{"system.arch", FieldRole::Condition, false, true},
     FieldClassification{"system.vendorId", FieldRole::Condition, false, true},
@@ -216,6 +220,22 @@ const FieldClassification* Classify(const std::string& path)
         if (field.Path == path)
             return &field;
     }
+
+    return nullptr;
+}
+
+/**
+ * The cross-backend tolerance measured for a build type, as run.buildConfig spells
+ * it, or null for one never measured. The ASan build takes debug's pair: its shaders
+ * are compiled as a debug build's are, and the sanitizer instruments only the CPU.
+ */
+const ImageTolerance* CrossBackendTolerance(const Json& buildConfig)
+{
+    if (buildConfig == "debug" || buildConfig == "debug+asan")
+        return &kCrossBackendToleranceDebug;
+
+    if (buildConfig == "release")
+        return &kCrossBackendToleranceRelease;
 
     return nullptr;
 }
@@ -346,6 +366,9 @@ ReportComparison CompareReports(std::string_view actualJson, std::string_view ex
             continue;
         }
 
+        if (bAcrossBackends && field.Role == FieldRole::ConditionWithinBackend)
+            continue;
+
         if (bAcrossBackends && field.Role == FieldRole::ZeroAcrossBackends)
         {
             if (inActual->second != 0 || inExpected->second != 0)
@@ -395,6 +418,7 @@ ReportComparison CompareReports(std::string_view actualJson, std::string_view ex
                 break;
 
             case FieldRole::Condition:
+            case FieldRole::ConditionWithinBackend:
                 skip(field, std::format("{} differs ({})", path, values));
                 break;
         }
@@ -406,6 +430,27 @@ ReportComparison CompareReports(std::string_view actualJson, std::string_view ex
     // this withdraws exactly the signal that was skipped.
     if (bCountersSkipped)
         result.Differences.clear();
+
+    if (bAcrossBackends && !bPixelsSkipped)
+    {
+        // run.buildConfig has matched to get here, so either report names the build type.
+        const auto buildConfig = actual.find("run.buildConfig");
+        const ImageTolerance* pTolerance =
+            buildConfig != actual.end() ? CrossBackendTolerance(buildConfig->second) : nullptr;
+
+        if (pTolerance != nullptr)
+        {
+            result.PixelTolerance = *pTolerance;
+        }
+        else
+        {
+            bPixelsSkipped = true;
+            result.Skips.push_back(std::format(
+                "pixels: run.buildConfig is {}, a build type with no measured cross-backend "
+                "tolerance",
+                buildConfig != actual.end() ? buildConfig->second.dump() : "absent"));
+        }
+    }
 
     result.bComparePixels = !bPixelsSkipped;
 

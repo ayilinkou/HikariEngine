@@ -300,8 +300,7 @@ void CheckScene(const SceneExpectation& expected)
         const std::string prefix =
             "comparison_failures/" + std::filesystem::path(expected.Scene).stem().string() + "_";
         TestSupport::WriteComparisonImages(second.Capture.Pixels, second.Capture.Extent,
-                                           first.Capture.Pixels, first.Capture.Extent,
-                                           TestSupport::ImageTolerance{}, prefix);
+                                           first.Capture.Pixels, first.Capture.Extent, prefix);
         WARN("comparison images written with prefix " << prefix);
     }
 }

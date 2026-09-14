@@ -687,6 +687,25 @@ legitimate variation across presets, scenes or drivers — the one with an argum
 to reach for if this is revisited. *The cost:* every driver update and every rendering change that moves
 the gap needs a re-measure, a re-explanation and approval. Cross-backend identity is D35's, as amended.
 
+**The diff image scales to the worst delta on a logarithmic curve** (decided at step 10, 14 September 2026):
+brightness is `255 · ln(1 + d) / ln(1 + worst)`, so the worst pixel is full white and no differing pixel is
+dimmer than 32. The first full-parity pair showed why a straight line fails: its worst pixel differs by 120,
+while 62% of the differing pixels differ by 1 and 93% by 8 or less, and a straight line draws a 1 at
+brightness 2. *Rejected: a straight line to the worst*, which hides most of what moved; *two images*, a mask
+and a magnitude, which reads one question from each. **The user approved the expectation change that
+follows:** `ImageCompareTests`' case for a non-zero ceiling, which expected a delta of 4 against a ceiling of 8
+at half brightness, since the diff no longer reads the tolerance at all.
+
+**Each build type has its own pair of constants** (decided at step 10, 14 September 2026). The worst delta is
+the same in a debug and a release pair, but the count is not: a release build compiles shaders at `-O3`, and
+the cloud raymarch then accumulates four sky pixels differently on the two backends, each by one level, on top
+of everything the debug pair differs in. The comparison takes the pair `run.buildConfig` names, which already
+has to match for pixels to be compared at all; the ASan build compiles its shaders as a debug build does and
+takes debug's, which a measured ASan pair confirms; a build type with no measured pair skips its pixels,
+naming the field. *Rejected: release's count for both*, which gives a debug comparison the headroom this
+decision rules out; *debug's alone*, which fails every release comparison by four pixels. *The cost:* two
+counts to re-measure and re-explain when rendering changes.
+
 ### D27 — DXIL is emitted on every platform, not only on Windows
 
 vcpkg's `shader-slang` carries no DXC, so `-target dxil` fails outright with it: `failed to load
@@ -2435,6 +2454,40 @@ back buffer, the quit at frame 14 — with no validation message and the report 
 1920x1080 editor run of the test scene whose counters equal Vulkan's borderless run on the same GPU in every
 compared field.
 
+**Amended at step 10: two bugs parity found, what the rest of the gap is, and the rule that compares it.** The
+first cross-backend diff differed in 247,886 pixels, 12%, because **two passes mapped image rows to clip space
+by hand**, assuming Vulkan's Y-down convention that D10 hides from everything drawn through the projection: the
+cloud pass reconstructed each pixel's ray mirrored about the horizon while reading depth unmirrored, drawing
+clouds over the car, and the composite quad sampled the cloud image upside down. Both now ask
+`ClipSpaceYPointsDown()`, which reads the sign of the projection's Y scale rather than a flag of its own, so
+`bFlipClipSpaceY` keeps its one site; a Vulkan capture before and after is identical at zero tolerance.
+**`ToD3D12Sampler` passed a `MaxAnisotropy` of 0 through**, where `D3D12_SAMPLER_DESC` documents 1 to 16 as
+valid and the seam's 0 means the device's best; it is `D3D12_REQ_MAXANISOTROPY` now, with a table test, since
+the debug layer did not report it — and it changed no pixel on the RX 580. The remaining 11,434 pixels have two
+mechanisms, each shown by a scratch control run that removed it: clip-space Y reaching the framebuffer through
+the two APIs' opposite viewport mappings, whose float rounding lands some vertices on neighbouring subpixels —
+snapping NDC Y to values both mappings represent exactly removed it with X untouched, while identical clip
+coordinates on both backends removed none of it — and anisotropic filtering, implementation-defined in both
+specifications, which accounted for the last sliver. Against D26's expectation the sky is identical in a debug
+build, so the fraction is set by geometry, not by cloud drift; a release build adds four sky pixels, which is
+what put a pair of constants on each build type. The explanations are beside the constants in
+`ImageCompare.h`. **The cross-backend pixel rule landed as D35's amendment wrote it**, as a fifth `FieldRole`:
+`ConditionWithinBackend` gates like any condition within a backend and gates nothing across two, and
+`system.backend`, `gpu`, `driver` and `apiVersion` take it while the PCI identifiers, `os` and `arch` stay
+conditions; across backends the comparison takes the pair `run.buildConfig` names, and a build type with no
+measured pair skips its pixels naming the field. `HikariCompare` prints the limits beside every measurement a
+non-zero tolerance judges, and `backend_compare` captures both runs and compares them, exit 0 its passing verdict.
+**The user approved the expectation changes that follow:** `ImageCompareTests`' non-zero-ceiling case (D26,
+amended), and deleting `ReportCompareTests`' "A differing backend skips pixels and not counters", whose same-
+adapter pair is comparable now and whose two halves the new same-adapter and different-adapter cases each
+assert. **The gate:** `backend_compare` exiting 0 on the RX 580 from a debug build, its pair differing by at
+most 120 in 11,434 pixels; a release pair within release's 11,438; an ASan pair identical to the debug pair on
+both backends, and within debug's. **The gate's Linux half — the refreshed baseline exiting 0 there — is its
+own commit on the Linux boot** (decided with the user, 14 September 2026): the step lives in a Windows tree
+the Linux boot reaches only through a push, so step 10 is committed without it, and the stage is done when
+that commit lands. The cloud and composite shaders changed, and Vulkan's capture was identical only on the
+RX 580's driver; a pixel RADV moves there is an expectation change, brought to the user before promoting.
+
 **Why this order.** Step 1 needs no seam change, so the deployment — the part most likely to differ between
 machines — is proven before anything is built on it, and step 2 then proves it on the CI runner. Steps 3–6
 build what a frame needs in dependency order: resources before command lists that use them, command lists
@@ -2454,7 +2507,9 @@ good. Step 10 is last because D26's constants cannot be measured before parity.
 - **After steps 1, 3 and 8**, which change the report, and no later than step 10: refresh the committed
   baseline on the Linux boot, carrying `DeviceInfo`'s PCI IDs, the renamed `run.forceSingleQueue` key —
   whose rename the user approved — and the barrier-path field. The Windows gate does not depend on it.
-- **Before step 10:** confirm the RX 580's driver is current (§5.3).
+  Carried past step 10's commit into one of its own on the Linux boot (step 10's amendment).
+- **Before step 10:** confirm the RX 580's driver is current (§5.3). Confirmed by the user on 14 September
+  2026; the constants were measured under `31.0.21925.1001`, Adrenalin 26.5.2.
 - **When step 1 lands:** delete `backlog.md`'s P3 `--gpu` row, as the backlog's own rule requires.
 
 ---

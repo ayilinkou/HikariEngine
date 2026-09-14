@@ -175,7 +175,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 7 — Engine shell + DI | 40b, 41–47 | ✅ done (`engine/engine` + `engine/asset` + `engine/editor`, `HikariEditor` + `HikariHeadless`, injected subsystems, the event seam, and headless scene tests in CI) |
 | 7.5 — Backend readiness | 1–12 | ✅ done (`ICommandAllocator`, submission and fences, rendering scope, bind groups, pipelines, draw and dispatch recording — the transitional area is 2 headers from 4 sites, down from 7 from 18) |
 | 7.6 — Backend prerequisites | 1–12 | ✅ done (`HikariCompare` and the gating table, `--backend` and `rhi/Backend.h`, `DeviceInfo` and the report's `system` block, per-stage blobs with DXIL and its signature gate, `ShaderTypes.h` shared with the shaders and its layout pinned, `--validation` and `--vk-sync-validation`) |
-| **7.7 — D3D12 backend** | 1–10 | **in progress** — steps 1–9 done (the editor under D3D12 on a flip-model DXGI swapchain, presenting in Mailbox; enhanced barriers beside the legacy path, chosen by `--d3d12-barriers legacy|enhanced|auto` and compared on WARP at zero tolerance; the first headless D3D12 scene: a submit names the image it writes and semaphores left the seam, the D3D12 offscreen target, draw and dispatch recording, `D3D12UiBackend` behind `Editor::CreateUiBackend`, the scene suite per backend, `backend_compare` and the cross-backend validation rules; D3D12 pipelines, with cull mode moved into the pipeline and vertex semantics on the attribute tables; bind groups on two persistent heaps and root signatures; command lists, submission, legacy barriers, uploads and rendering scope; buffers, textures, views and samplers; per-backend GPU test registration and the D3D12 half of the boundary check; before that, the Agility SDK and WARP deployed beside each executable, the D3D12 device, `--gpu`, `--d3d12-gpu-based-validation`). Grilled 13 September 2026 (D36–D46, `backend_readiness_plan.md` §5). Headless first, legacy barriers then enhanced, seam changes interleaved and gated on Vulkan within each step; Vulkan stays the default, and it owns the Windows GPU CI job (D28) |
+| **7.7 — D3D12 backend** | 1–10 | **in progress** — steps 1–10 done, the Linux baseline refresh outstanding as a commit of its own on the Linux boot (pixel parity: the cloud and composite passes no longer assume Vulkan's clip-space Y, D3D12 samplers ask for a valid anisotropy, the cross-backend pixel rule on PCI identity, and a measured, explained tolerance per build type; the editor under D3D12 on a flip-model DXGI swapchain, presenting in Mailbox; enhanced barriers beside the legacy path, chosen by `--d3d12-barriers legacy|enhanced|auto` and compared on WARP at zero tolerance; the first headless D3D12 scene: a submit names the image it writes and semaphores left the seam, the D3D12 offscreen target, draw and dispatch recording, `D3D12UiBackend` behind `Editor::CreateUiBackend`, the scene suite per backend, `backend_compare` and the cross-backend validation rules; D3D12 pipelines, with cull mode moved into the pipeline and vertex semantics on the attribute tables; bind groups on two persistent heaps and root signatures; command lists, submission, legacy barriers, uploads and rendering scope; buffers, textures, views and samplers; per-backend GPU test registration and the D3D12 half of the boundary check; before that, the Agility SDK and WARP deployed beside each executable, the D3D12 device, `--gpu`, `--d3d12-gpu-based-validation`). Grilled 13 September 2026 (D36–D46, `backend_readiness_plan.md` §5). Headless first, legacy barriers then enhanced, seam changes interleaved and gated on Vulkan within each step; Vulkan stays the default, and it owns the Windows GPU CI job (D28) |
 | 8+ — Frame graph, DOD, scalability | 49–76 | not started; 49–56 partly superseded by Stage 7.5. Step 48 landed at 7.6 step 11 |
 
 Update this table when a stage completes.
@@ -229,7 +229,7 @@ cmake --workflow --preset ninja-debug-linux   # what build.sh wraps
 tests/scripts/build_tests.sh        # build every test target
 tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
 tests/scripts/run_gpu_tests.sh      # ctest -L gpu --output-on-failure (every backend; a device, or skips)
-tests/scripts/backend_compare.sh    # the test scene under Vulkan and D3D12, counters compared (Windows)
+tests/scripts/backend_compare.sh    # the test scene under Vulkan and D3D12, counters and pixels compared (Windows)
 tests/scripts/header_check.sh       # compile every header standalone, no PCH
 tests/scripts/rhi_boundary_check.sh # the RHI seam: neutral headers, and who may bypass them
 tests/scripts/namespace_check.sh    # every engine header opens its module's namespace
@@ -343,8 +343,9 @@ fails the build if the report gains a field the table does not classify.
 
 **On a pixel failure the tool writes `comparison_actual.png`, `comparison_expected.png` and an
 amplified `comparison_diff.png`** beside the capture, so a reader can see *where* an image moved
-rather than only by how much. The diff is scaled so that the tolerance ceiling is full
-brightness; within one backend the tolerance is zero, so every differing pixel is fully bright.
+and by how much. The diff scales to the worst delta it found, on a logarithmic curve, so the worst
+pixel is full white and no differing pixel is dimmer than 32 — across backends most differ by 1
+beside a worst of 120, and a straight line would draw those black.
 CI cannot retrieve those files yet — `ci.yml` has no artefact step — which is a `backlog.md` row.
 
 **`--update` promotes the run into `tests/baseline/`, and refuses more often than it accepts.**
@@ -369,9 +370,14 @@ Read the two report signals differently, which is why they sit in separate block
 - **Across backends the validation counts must be zero in both reports rather than equal**, and
   the counters are compared only if each run had its own backend's validation sub-mode on —
   `vkSyncValidation` in the Vulkan report, `d3d12GpuBasedValidation` in the D3D12 one (D26,
-  amended). `tests/scripts/backend_compare.sh` runs the test scene under both backends on this
-  machine and compares the reports; until pixel parity its passing verdict is exit 2, pixels not
-  compared.
+  amended). **Pixels are compared across backends only on one adapter** — `system.vendorId`,
+  `deviceId`, `os` and `arch` must match, while the GPU name, driver and API version, which each
+  API spells its own way, stop gating (D35, amended) — and then within the tolerance measured for
+  `run.buildConfig`, committed beside its explanation in `tests/support/ImageCompare.h`: a worst
+  delta of 120 and 11,434 pixels in a debug or ASan build, 11,438 in release, with no headroom.
+  Raising either is changing an expected result. `tests/scripts/backend_compare.sh` runs the test
+  scene under both backends on this machine and compares reports and captures; its passing
+  verdict is exit 0.
 - **`timings`** — `startupMs`, `firstFrame`, and `mean`/`p99`/`min`/`max` for both `frameMs`
   (wall clock) and `cpuMs` (the same minus what the frame spent blocked) — are measurements, not
   expectations. The comparison never diffs them; read them for drift. `frameMs` is bounded below

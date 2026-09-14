@@ -1,5 +1,6 @@
 #include "d3d12/D3D12Conversions.h"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace Hikari::Rhi::D3D12
@@ -386,7 +387,18 @@ D3D12_SAMPLER_DESC ToD3D12Sampler(const SamplerDesc& desc)
     sampler.AddressV = ToAddressMode(desc.AddressV);
     sampler.AddressW = ToAddressMode(desc.AddressW);
     sampler.MipLODBias = desc.MipLodBias;
-    sampler.MaxAnisotropy = desc.bAnisotropyEnable ? static_cast<UINT>(desc.MaxAnisotropy) : 1u;
+    // D3D12 documents 1 to 16 as the valid range, and every device supports 16
+    // (D3D12_REQ_MAXANISOTROPY), so a desc asking for 0 - the device's best - gets
+    // 16, and a larger request is clamped as Vulkan clamps one to its device limit.
+    // A 0 passed through is not reported by the debug layer.
+    sampler.MaxAnisotropy = 1u;
+    if (desc.bAnisotropyEnable)
+    {
+        sampler.MaxAnisotropy = desc.MaxAnisotropy <= 0.f
+                                    ? D3D12_REQ_MAXANISOTROPY
+                                    : std::clamp(static_cast<UINT>(desc.MaxAnisotropy), 1u,
+                                                 UINT{D3D12_REQ_MAXANISOTROPY});
+    }
     sampler.ComparisonFunc =
         desc.bCompareEnable ? ToComparison(desc.Compare) : D3D12_COMPARISON_FUNC_NEVER;
     sampler.MinLOD = desc.MinLod;

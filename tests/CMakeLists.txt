@@ -84,6 +84,13 @@ engine_test(rhi_tests SOURCES unit/rhi/AdapterNameTests.cpp unit/rhi/BackendTest
 target_include_directories(rhi_tests
                            PRIVATE ${CMAKE_SOURCE_DIR}/engine/rhi/src)
 
+# The D3D12 tables, built only where the backend is.
+if(WIN32)
+  target_sources(rhi_tests PRIVATE unit/rhi/D3D12ConversionTests.cpp)
+  set_source_files_properties(unit/rhi/D3D12ConversionTests.cpp
+                              PROPERTIES COMPILE_DEFINITIONS "WIN32_LEAN_AND_MEAN;NOMINMAX")
+endif()
+
 # Needs a real GPU, so it is labelled "gpu" and left out of the "unit" run that
 # CI performs: on a machine with no Vulkan ICD every case here skips, and a run
 # of nothing but skips looks identical to a run of tests that were passing

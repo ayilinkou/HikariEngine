@@ -263,10 +263,10 @@ TEST_CASE("A failure writes actual, expected and an amplified diff", "[support][
     std::vector<uint8_t> actual = expected;
     actual[At(2u, 1u, 0u)] += 4u;
 
-    SECTION("at a zero tolerance every differing pixel is fully bright")
+    SECTION("the worst differing pixel is fully bright")
     {
-        REQUIRE(TestSupport::WriteComparisonImages(actual, kExtent, expected, kExtent,
-                                                   ImageTolerance{}, dir.Prefix()));
+        REQUIRE(
+            TestSupport::WriteComparisonImages(actual, kExtent, expected, kExtent, dir.Prefix()));
 
         const std::optional<Asset::Image> diff = Asset::ReadPng(dir.File("run_diff.png"));
         REQUIRE(diff.has_value());
@@ -288,16 +288,19 @@ TEST_CASE("A failure writes actual, expected and an amplified diff", "[support][
         CHECK(writtenExpected->Pixels == expected);
     }
 
-    SECTION("a non-zero ceiling maps onto full scale")
+    SECTION("a smaller delta sits on a logarithmic curve below the worst")
     {
-        // A delta of 4 against a ceiling of 8 is half brightness.
-        const ImageTolerance tolerance{.MaxChannelDelta = 8u};
-        REQUIRE(TestSupport::WriteComparisonImages(actual, kExtent, expected, kExtent, tolerance,
-                                                   dir.Prefix()));
+        // A delta of 1 beside a worst of 7 is 255 * ln 2 / ln 8, a third of full
+        // brightness, where a straight line would give 36.
+        actual[At(2u, 1u, 0u)] += 3u;
+        actual[At(1u, 0u, 0u)] += 1u;
+        REQUIRE(
+            TestSupport::WriteComparisonImages(actual, kExtent, expected, kExtent, dir.Prefix()));
 
         const std::optional<Asset::Image> diff = Asset::ReadPng(dir.File("run_diff.png"));
         REQUIRE(diff.has_value());
-        CHECK(diff->Pixels[At(2u, 1u, 0u)] == 128u);
+        CHECK(diff->Pixels[At(2u, 1u, 0u)] == 255u);
+        CHECK(diff->Pixels[At(1u, 0u, 0u)] == 85u);
         CHECK(diff->Pixels[At(0u, 0u, 0u)] == 0u);
     }
 }
@@ -308,7 +311,7 @@ TEST_CASE("Mismatched extents write both images and no diff", "[support][image]"
     const Core::Extent2D other{3u, 4u};
 
     REQUIRE(TestSupport::WriteComparisonImages(SolidImage(), kExtent, SolidImage(other), other,
-                                               ImageTolerance{}, dir.Prefix()));
+                                               dir.Prefix()));
 
     CHECK(std::filesystem::exists(dir.File("run_actual.png")));
     CHECK(std::filesystem::exists(dir.File("run_expected.png")));

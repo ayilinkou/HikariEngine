@@ -392,20 +392,146 @@ TEST_CASE("What answered never gates the counters", "[support][report]")
     CHECK_FALSE(result.bComparePixels);
 }
 
-TEST_CASE("A differing backend skips pixels and not counters", "[support][report]")
+TEST_CASE("Two backends on one adapter compare pixels within the cross-backend tolerance",
+          "[support][report]")
 {
-    // Recorded as a D3D12 run records them: its own sub-mode on, Vulkan's off.
-    Engine::RunReport other = MakeReport();
-    other.System.Backend = Rhi::Backend::D3D12;
-    other.Run.bSyncValidation = false;
-    other.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+    // The same card as MakeReport's, described in D3D12's own words: the PCI
+    // identifiers, OS and architecture agree, and the name, driver and API version
+    // are whatever each API reports.
+    Engine::RunReport d3d12 = MakeReport();
+    d3d12.System.Backend = Rhi::Backend::D3D12;
+    d3d12.System.Gpu = "Test GPU 9000 Series";
+    d3d12.System.Driver = "31.0.21925.1001";
+    d3d12.System.ApiVersion = "12_1";
+    d3d12.Run.bSyncValidation = false;
+    d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+
+    Engine::RunReport vulkan = MakeReport();
+
+    const auto comparesWithin = [&](const TestSupport::ImageTolerance& tolerance)
+    {
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(d3d12), Json(vulkan));
+
+        INFO(TestSupport::Describe(result));
+        CHECK(result.Outcome == ReportOutcome::Matched);
+        CHECK(result.Skips.empty());
+        CHECK(result.bComparePixels);
+        CHECK(result.PixelTolerance.MaxChannelDelta == tolerance.MaxChannelDelta);
+        CHECK(result.PixelTolerance.MaxDifferingFraction == tolerance.MaxDifferingFraction);
+    };
+
+    SECTION("a debug pair takes debug's tolerance")
+    {
+        comparesWithin(TestSupport::kCrossBackendToleranceDebug);
+    }
+
+    SECTION("an ASan pair takes debug's too, since its shaders are compiled alike")
+    {
+        d3d12.Run.BuildConfig = "debug+asan";
+        vulkan.Run.BuildConfig = "debug+asan";
+        comparesWithin(TestSupport::kCrossBackendToleranceDebug);
+    }
+
+    SECTION("a release pair takes release's")
+    {
+        d3d12.Run.BuildConfig = "release";
+        vulkan.Run.BuildConfig = "release";
+        comparesWithin(TestSupport::kCrossBackendToleranceRelease);
+    }
+}
+
+TEST_CASE("Across backends a build type with no measured tolerance skips pixels",
+          "[support][report]")
+{
+    Engine::RunReport d3d12 = MakeReport();
+    d3d12.System.Backend = Rhi::Backend::D3D12;
+    d3d12.Run.bSyncValidation = false;
+    d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+    d3d12.Run.BuildConfig = "relwithdebinfo";
+
+    Engine::RunReport vulkan = MakeReport();
+    vulkan.Run.BuildConfig = "relwithdebinfo";
 
     const TestSupport::ReportComparison result =
-        TestSupport::CompareReports(Json(other), Json(MakeReport()));
+        TestSupport::CompareReports(Json(d3d12), Json(vulkan));
 
     CHECK(result.Outcome == ReportOutcome::Skipped);
-    CHECK(Mentions(result.Skips, "pixels: system.backend differs"));
+    CHECK(Mentions(result.Skips, "pixels: run.buildConfig is \"relwithdebinfo\""));
     CHECK_FALSE(Mentions(result.Skips, "counters:"));
+    CHECK_FALSE(result.bComparePixels);
+}
+
+TEST_CASE("Across backends a different adapter, OS or architecture still skips pixels",
+          "[support][report]")
+{
+    Engine::RunReport d3d12 = MakeReport();
+    d3d12.System.Backend = Rhi::Backend::D3D12;
+    d3d12.Run.bSyncValidation = false;
+    d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+
+    const auto skipsPixelsFor = [](const Engine::RunReport& other, std::string_view field)
+    {
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(other), Json(MakeReport()));
+
+        INFO(TestSupport::Describe(result));
+        CHECK(result.Outcome == ReportOutcome::Skipped);
+        CHECK(Mentions(result.Skips, std::string("pixels: ") + std::string(field) + " differs"));
+        CHECK_FALSE(Mentions(result.Skips, "counters:"));
+        CHECK_FALSE(result.bComparePixels);
+    };
+
+    SECTION("another vendor, as WARP against lavapipe would be")
+    {
+        d3d12.System.VendorId = 0x1414u;
+        skipsPixelsFor(d3d12, "system.vendorId");
+    }
+
+    SECTION("another chip from the same vendor")
+    {
+        d3d12.System.DeviceId = 0x687Fu;
+        skipsPixelsFor(d3d12, "system.deviceId");
+    }
+
+    SECTION("another OS")
+    {
+        d3d12.System.Os = "Windows";
+        skipsPixelsFor(d3d12, "system.os");
+    }
+
+    SECTION("another architecture")
+    {
+        d3d12.System.Arch = "arm64";
+        skipsPixelsFor(d3d12, "system.arch");
+    }
+}
+
+TEST_CASE("Within a backend the driver and API version still gate pixels", "[support][report]")
+{
+    // Across backends they are each API's own spelling; within one they say the
+    // rasterizer changed underneath the same adapter.
+    Engine::RunReport other = MakeReport();
+
+    SECTION("the driver")
+    {
+        other.System.Driver = "testdrv 1.2.4";
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(other), Json(MakeReport()));
+        CHECK(Mentions(result.Skips, "pixels: system.driver differs"));
+        CHECK_FALSE(result.bComparePixels);
+    }
+
+    SECTION("the API version")
+    {
+        other.System.ApiVersion = "1.4.355";
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(other), Json(MakeReport()));
+        CHECK(Mentions(result.Skips, "pixels: system.apiVersion differs"));
+        CHECK_FALSE(result.bComparePixels);
+    }
 }
 
 TEST_CASE("Across backends each validation sub-mode is read from its own backend's report",

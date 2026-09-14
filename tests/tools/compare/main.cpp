@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -228,6 +229,16 @@ int main(int argc, char** argv)
                                                 expected->Extent, report.PixelTolerance);
             std::cout << "pixels: " << TestSupport::Describe(*pixels) << "\n";
 
+            // The limits beside the measurement, so a pass still shows how close it came.
+            const TestSupport::ImageTolerance& tolerance = report.PixelTolerance;
+            if (tolerance.MaxChannelDelta != 0u || tolerance.MaxDifferingFraction != 0.0)
+            {
+                std::cout << std::format("pixels: limits are a channel delta of {} and {:.4f}% of "
+                                         "pixels\n",
+                                         tolerance.MaxChannelDelta,
+                                         tolerance.MaxDifferingFraction * 100.0);
+            }
+
             if (!pixels->bComparable)
                 code = Stronger(code, kNoVerdict);
             else if (!pixels->bWithinTolerance)
@@ -242,8 +253,7 @@ int main(int argc, char** argv)
                         : options.DiffPrefix;
 
                 if (TestSupport::WriteComparisonImages(actual->Pixels, actual->Extent,
-                                                       expected->Pixels, expected->Extent,
-                                                       report.PixelTolerance, prefix))
+                                                       expected->Pixels, expected->Extent, prefix))
                 {
                     std::cout << "comparison images written with prefix " << prefix << "\n";
                 }

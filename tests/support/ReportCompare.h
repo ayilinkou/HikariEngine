@@ -58,6 +58,15 @@ enum class FieldRole : uint8_t
     Condition,
 
     /**
+     * A condition within one backend and nothing across two. Across backends it
+     * differs by construction, or is text each API spells its own way, so gating on
+     * it would skip every cross-backend pixel comparison; whether two backends ran on
+     * one adapter is said instead by the PCI identifiers, which both APIs spell alike
+     * and which stay ordinary conditions, with the OS and the architecture beside them.
+     */
+    ConditionWithinBackend,
+
+    /**
      * A validation count. Within a backend an expectation like any Compared field;
      * across backends it must be zero in both reports instead, because two
      * validators check different things at different granularity, so two equal
@@ -123,9 +132,10 @@ struct ReportComparison
 
     /**
      * Whether the captures are worth comparing, and how strictly. False when a
-     * field gating pixels differs. The tolerance is exact today and will stay
-     * exact within one backend; it is chosen from what the reports say rather
-     * than from a flag, so there is nothing to nudge when a comparison goes red.
+     * field gating pixels differs. The tolerance is exact within one backend and
+     * the build type's measured cross-backend pair across two; it is chosen from what
+     * the reports say rather than from a flag, so there is nothing to nudge when a
+     * comparison goes red.
      */
     bool bComparePixels = false;
     ImageTolerance PixelTolerance;
