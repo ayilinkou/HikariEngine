@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,6 +19,7 @@
 #include <rhi/Handles.h>
 #include <rhi/IDevice.h>
 #include <rhi/Rendering.h>
+#include <rhi/d3d12/D3D12Native.h>
 
 #include "d3d12/AgilitySdk.h"
 #include "d3d12/D3D12BindGroup.h"
@@ -101,6 +103,20 @@ public:
     /** The device itself, for the backend's own objects and for tests of it. */
     ID3D12Device& GetNativeDevice() { return *m_Device.Get(); }
 
+    /** The direct queue, which graphics and compute lists are submitted to. */
+    ID3D12CommandQueue& GetDirectQueue() const { return *m_DirectQueue.Get(); }
+
+    /** The shader-visible resource heap every list binds. */
+    ID3D12DescriptorHeap& GetResourceHeap() const { return *m_ResourceHeap->Native(); }
+
+    /**
+     * One descriptor of the resource heap, for what binds a texture outside a bind group:
+     * ImGui's DX12 backend. Taken under the lock bind groups take their ranges under, so
+     * the two cannot hand out the same descriptor.
+     */
+    NativeDescriptor AllocateResourceDescriptor();
+    void FreeResourceDescriptor(D3D12_GPU_DESCRIPTOR_HANDLE descriptor);
+
     /**
      * Reports whatever the debug layer stored since the last call; nothing when it
      * is off. Every backend method that can produce a message ends with this.
@@ -150,6 +166,30 @@ public:
         return m_PipelineLayouts.Get(handle);
     }
 
+    /** The buffer behind `handle`, or null when it is stale. */
+    const D3D12Buffer* FindBuffer(BufferHandle handle) const { return m_Buffers.Get(handle); }
+
+    /** The pipelines behind these handles, or null when they are stale. */
+    const D3D12GraphicsPipeline* FindGraphicsPipeline(GraphicsPipelineHandle handle) const
+    {
+        return m_GraphicsPipelines.Get(handle);
+    }
+    const D3D12ComputePipeline* FindComputePipeline(ComputePipelineHandle handle) const
+    {
+        return m_ComputePipelines.Get(handle);
+    }
+
+    /** Where a bind group's two descriptor tables start in the shader-visible heaps. */
+    struct BindGroupTables
+    {
+        /** Empty when the group's layout has no bindings of that kind. */
+        std::optional<D3D12_GPU_DESCRIPTOR_HANDLE> Resources;
+        std::optional<D3D12_GPU_DESCRIPTOR_HANDLE> Samplers;
+    };
+
+    /** The group's tables; empty for a stale group. */
+    std::optional<BindGroupTables> FindBindGroupTables(BindGroupHandle handle);
+
 private:
     void EnableDebugLayer(const DeviceDesc& desc);
     void CreateFactory();
@@ -181,6 +221,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_DirectQueue;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_CopyQueue;
     bool m_bSingleQueue = false;
+
+    /** Whether the device was asked to present to a window rather than render offscreen. */
+    bool m_bWindowed = false;
 
     /** What WaitIdle signals and waits on, one value per call. */
     Microsoft::WRL::ComPtr<ID3D12Fence> m_IdleFence;

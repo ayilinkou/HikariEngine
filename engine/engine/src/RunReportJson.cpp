@@ -81,6 +81,7 @@ std::string ToJson(const RunReport& report)
         << "    \"run\": {\n"
         << "      \"validationErrors\": " << report.Counters.Run.ValidationErrors << ",\n"
         << "      \"validationWarnings\": " << report.Counters.Run.ValidationWarnings << ",\n"
+        << "      \"uploadBatches\": " << report.Counters.Run.UploadBatches << ",\n"
         << "      \"uploadSubmissions\": " << report.Counters.Run.UploadSubmissions << "\n"
         << "    }\n"
         << "  },\n"
@@ -109,8 +110,8 @@ std::string ToJson(const RunReport& report)
         << ",\n"
         << "    \"validationPolicy\": \"" << Rhi::ToString(report.Run.ValidationPolicy) << "\",\n"
         << "    \"vkSyncValidation\": " << (report.Run.bSyncValidation ? "true" : "false") << ",\n"
-        << "    \"d3d12GpuBasedValidation\": "
-        << (report.Run.bD3D12GpuBasedValidation ? "true" : "false") << ",\n"
+        << "    \"d3d12GpuBasedValidation\": \""
+        << Rhi::ToString(report.Run.D3D12GpuBasedValidation) << "\",\n"
         << "    \"vkDisabledExtensions\": " << StringArrayJson(report.Run.DisabledVulkanExtensions)
         << ",\n"
         << "    \"forceSingleQueue\": " << (report.Run.bForceSingleQueue ? "true" : "false")

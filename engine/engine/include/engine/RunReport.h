@@ -8,6 +8,7 @@
 #include <platform/IPlatform.h>
 
 #include <rhi/Backend.h>
+#include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/RhiTypes.h>
 
@@ -60,10 +61,18 @@ struct RunReport
         uint64_t ValidationWarnings = 0;
 
         /**
-         * Queue submissions the upload context made. The number the asset
-         * layer's batching is visible in: one scene's worth of textures loaded
-         * inside one load scope is a handful of submissions, and one submission
-         * per texture means the scoping broke.
+         * Batches the upload context flushed. The number the asset layer's
+         * batching is visible in: one scene's worth of textures loaded inside one
+         * load scope is a handful of batches, and one batch per texture means the
+         * scoping broke.
+         */
+        uint64_t UploadBatches = 0;
+
+        /**
+         * Queue submissions those batches took, which depends on the backend and
+         * the driver as well as on the engine — see Rhi::UploadStats — so it is a
+         * measurement a comparison never diffs, reported beside the counters it
+         * explains.
          */
         uint64_t UploadSubmissions = 0;
     };
@@ -183,11 +192,11 @@ struct RunReport
         bool bSyncValidation = false;
 
         /**
-         * Whether the D3D12 debug layer also validated on the GPU. What ran rather
-         * than what was asked: false on Vulkan, and false wherever validation was
-         * off, since there was no layer to switch it in.
+         * How much the D3D12 debug layer also validated on the GPU. What ran rather
+         * than what was asked: off on Vulkan, and off wherever validation was off,
+         * since there was no layer to switch it in.
          */
-        bool bD3D12GpuBasedValidation = false;
+        Rhi::GpuBasedValidation D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Off;
 
         std::vector<std::string> DisabledVulkanExtensions;
         bool bForceSingleQueue = false;

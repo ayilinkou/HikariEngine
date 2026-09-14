@@ -19,6 +19,8 @@
 #include "d3d12/D3D12CommandList.h"
 #include "d3d12/D3D12Conversions.h"
 #include "d3d12/D3D12DeviceFactory.h"
+#include "d3d12/D3D12OffscreenTarget.h"
+#include "d3d12/D3D12PresentTarget.h"
 #include "d3d12/D3D12UploadContext.h"
 
 namespace Hikari::Rhi::D3D12
@@ -149,6 +151,7 @@ D3D12Device::D3D12Device(const DeviceDesc& desc)
     CreateAllocator();
 
     m_bSingleQueue = desc.bForceSingleQueue;
+    m_bWindowed = desc.Requirements.bPresent;
     CreateQueues();
     CreateDescriptorHeaps(desc);
 
@@ -200,11 +203,29 @@ void D3D12Device::EnableDebugLayer(const DeviceDesc& desc)
 
     // Only before a device exists: switching it on an existing device removes the
     // device.
-    debug->SetEnableGPUBasedValidation(desc.bGpuBasedValidation ? TRUE : FALSE);
+    debug->SetEnableGPUBasedValidation(desc.GpuBasedValidation != GpuBasedValidation::Off ? TRUE
+                                                                                          : FALSE);
+
+    // Descriptors keeps the shader patching and drops resource-state tracking, which
+    // the flag's documentation says "greatly reduces the performance cost of GPU-based
+    // validation", with descriptors and descriptor heaps still validated. Refused
+    // rather than run in full when the interface is missing, so a run never reports a
+    // level it did not have.
+    if (desc.GpuBasedValidation == GpuBasedValidation::Descriptors)
+    {
+        ComPtr<ID3D12Debug2> debug2;
+        if (FAILED(debug.As(&debug2)))
+        {
+            throw std::runtime_error("GPU-based validation of descriptors alone needs "
+                                     "ID3D12Debug2, which this debug layer does not provide.");
+        }
+
+        debug2->SetGPUBasedValidationFlags(D3D12_GPU_BASED_VALIDATION_FLAGS_DISABLE_STATE_TRACKING);
+    }
 
     Core::LogMsg(Core::LogSeverity::Info, LogRhi,
                  "D3D12 debug layer enabled, GPU-based validation {}",
-                 desc.bGpuBasedValidation ? "on" : "off");
+                 ToString(desc.GpuBasedValidation));
 }
 
 D3D12Device::~D3D12Device()
@@ -812,7 +833,8 @@ void D3D12Device::Destroy(TextureHandle handle)
 
 TextureViewHandle D3D12Device::CreateTextureView(const TextureViewDesc& desc)
 {
-    if (!m_Textures.IsValid(desc.Texture))
+    const D3D12Texture* pTexture = m_Textures.Get(desc.Texture);
+    if (pTexture == nullptr)
     {
         throw std::runtime_error(std::format(
             "Rhi::IDevice::CreateTextureView('{}'): the texture handle is stale or was never "
@@ -820,7 +842,14 @@ TextureViewHandle D3D12Device::CreateTextureView(const TextureViewDesc& desc)
             desc.DebugName));
     }
 
-    return m_TextureViews.Create(D3D12TextureView{.Desc = desc});
+    // Undefined is resolved here, as the Vulkan backend resolves it, because every view
+    // description written from this one has to name a format: D3D12 takes UNKNOWN as
+    // the resource's own only when no description is passed at all.
+    TextureViewDesc resolved = desc;
+    if (resolved.Format == Format::Undefined)
+        resolved.Format = pTexture->Desc.Format;
+
+    return m_TextureViews.Create(D3D12TextureView{.Desc = std::move(resolved)});
 }
 
 void D3D12Device::Destroy(TextureViewHandle handle)
@@ -1160,6 +1189,39 @@ size_t D3D12Device::AcquireSamplerRange(const std::vector<D3D12_SAMPLER_DESC>& s
     return m_SamplerRanges.size() - 1u;
 }
 
+std::optional<D3D12Device::BindGroupTables> D3D12Device::FindBindGroupTables(BindGroupHandle handle)
+{
+    // Under the mutex, because a shared sampler range may move while another thread
+    // creates a group.
+    const std::lock_guard lock(m_BindMutex);
+
+    const D3D12BindGroup* pGroup = m_BindGroups.Get(handle);
+    if (pGroup == nullptr)
+        return std::nullopt;
+
+    BindGroupTables tables;
+    if (pGroup->ResourceCount > 0u)
+        tables.Resources = m_ResourceHeap->GpuHandle(pGroup->ResourceStart);
+    if (pGroup->SamplerRange)
+        tables.Samplers = m_SamplerHeap->GpuHandle(m_SamplerRanges[*pGroup->SamplerRange].Start);
+
+    return tables;
+}
+
+NativeDescriptor D3D12Device::AllocateResourceDescriptor()
+{
+    const std::lock_guard lock(m_BindMutex);
+    const uint32_t index = m_ResourceHeap->Allocate(1u);
+    return NativeDescriptor{.Cpu = m_ResourceHeap->CpuHandle(index),
+                            .Gpu = m_ResourceHeap->GpuHandle(index)};
+}
+
+void D3D12Device::FreeResourceDescriptor(D3D12_GPU_DESCRIPTOR_HANDLE descriptor)
+{
+    const std::lock_guard lock(m_BindMutex);
+    m_ResourceHeap->Free(m_ResourceHeap->IndexOf(descriptor), 1u);
+}
+
 void D3D12Device::Destroy(BindGroupHandle handle)
 {
     const std::lock_guard lock(m_BindMutex);
@@ -1243,9 +1305,13 @@ void D3D12Device::WaitForFence(FenceHandle handle, uint64_t value)
 }
 
 /**
+ * Everything that can refuse the submission is checked before the queue is touched:
+ * the lists' queue, then the present image, whose target records the write.
+ *
  * Wait fences become a queue's GPU-side waits, which hold the lists back without
  * blocking the CPU; signal fences are raised after the lists, so they complete once
- * the lists have run.
+ * the lists have run. A present image needs nothing more: the queue runs its lists in
+ * submission order, so a write is already ordered after the image's last one.
  *
  * Then the states the lists leave their textures in become the textures' submitted
  * states, in submission order — the order the GPU will run them — so a later list's
@@ -1254,10 +1320,31 @@ void D3D12Device::WaitForFence(FenceHandle handle, uint64_t value)
  */
 void D3D12Device::Submit(const SubmitDesc& desc)
 {
-    if (!desc.WaitSemaphores.empty() || !desc.SignalSemaphores.empty())
+    std::vector<ID3D12CommandList*> lists;
+    lists.reserve(desc.CommandLists.size());
+    for (ICommandList* pList : desc.CommandLists)
     {
-        throw std::runtime_error(
-            "Rhi::IDevice::Submit: semaphores are Vulkan's; D3D12 orders work with fences.");
+        const auto* pD3D12List = static_cast<const D3D12CommandList*>(pList);
+        if (pD3D12List->Queue() != desc.Queue)
+        {
+            throw std::runtime_error(
+                "Rhi::IDevice::Submit: a command list allocated for one queue type was submitted "
+                "to another. Its allocator's QueueType must match the submission's.");
+        }
+
+        lists.push_back(pD3D12List->Native());
+    }
+
+    if (desc.PresentImage.pTarget != nullptr)
+    {
+        auto* pTarget = dynamic_cast<D3D12PresentTarget*>(desc.PresentImage.pTarget);
+        if (pTarget == nullptr || !pTarget->BelongsTo(*this))
+        {
+            throw std::runtime_error("Rhi::IDevice::Submit: the present image belongs to a target "
+                                     "another device created.");
+        }
+
+        pTarget->MarkSubmitted(desc.PresentImage.Index);
     }
 
     ID3D12CommandQueue& queue = QueueFor(desc.Queue);
@@ -1273,21 +1360,6 @@ void D3D12Device::Submit(const SubmitDesc& desc)
         ReportError(std::format("Rhi::IDevice::Submit: wait fence {:#010x} is stale or was never "
                                 "valid.",
                                 wait.Fence.Value));
-    }
-
-    std::vector<ID3D12CommandList*> lists;
-    lists.reserve(desc.CommandLists.size());
-    for (ICommandList* pList : desc.CommandLists)
-    {
-        const auto* pD3D12List = static_cast<const D3D12CommandList*>(pList);
-        if (pD3D12List->Queue() != desc.Queue)
-        {
-            throw std::runtime_error(
-                "Rhi::IDevice::Submit: a command list allocated for one queue type was submitted "
-                "to another. Its allocator's QueueType must match the submission's.");
-        }
-
-        lists.push_back(pD3D12List->Native());
     }
 
     if (!lists.empty())
@@ -1729,9 +1801,16 @@ std::unique_ptr<IPipelineCache> D3D12Device::CreatePipelineCache(const PipelineC
     return std::make_unique<D3D12PipelineCache>();
 }
 
-std::unique_ptr<IPresentTarget> D3D12Device::CreatePresentTarget(const PresentTargetDesc&)
+/**
+ * A device with no window renders into images of its own, as the Vulkan backend's
+ * does; the caller cannot tell which it has.
+ */
+std::unique_ptr<IPresentTarget> D3D12Device::CreatePresentTarget(const PresentTargetDesc& desc)
 {
-    ThrowNotImplemented("CreatePresentTarget");
+    if (m_bWindowed)
+        ThrowNotImplemented("CreatePresentTarget for a window");
+
+    return std::make_unique<D3D12OffscreenTarget>(*this, desc);
 }
 
 } // namespace Hikari::Rhi::D3D12

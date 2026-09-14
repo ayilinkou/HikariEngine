@@ -42,9 +42,20 @@ constexpr std::array kFields = {
     FieldClassification{"counters.frame.instances", FieldRole::Compared},
     FieldClassification{"counters.frame.barriers", FieldRole::Compared},
     FieldClassification{"counters.frame.barrierCalls", FieldRole::Compared},
-    FieldClassification{"counters.run.validationErrors", FieldRole::Compared},
-    FieldClassification{"counters.run.validationWarnings", FieldRole::Compared},
-    FieldClassification{"counters.run.uploadSubmissions", FieldRole::Compared},
+    FieldClassification{"counters.run.uploadBatches", FieldRole::Compared},
+
+    // Exact within a backend, and zero in both reports across backends: one mistake
+    // can be one D3D12 message and three Vulkan ones, so equality between two
+    // validators means something only at zero (plan D26, amended).
+    FieldClassification{"counters.run.validationErrors", FieldRole::ZeroAcrossBackends},
+    FieldClassification{"counters.run.validationWarnings", FieldRole::ZeroAcrossBackends},
+
+    // A measurement, although it sits beside the counters it explains: how many
+    // submissions a batch takes is the backend's and the driver's — a Vulkan copy
+    // queue without VK_KHR_maintenance9 hands every batch back in a second one, and
+    // D3D12 never does — so the same engine decisions give 8 on one machine and 4 on
+    // another. uploadBatches is the half the engine decides.
+    FieldClassification{"counters.run.uploadSubmissions", FieldRole::Measured},
 
     // Measurements. They vary with the machine by design, so they are read for
     // drift rather than diffed.
@@ -114,13 +125,22 @@ constexpr std::array kFields = {
     // changes a pixel is unknown, so they gate those too.
     FieldClassification{"run.validationEnabled", FieldRole::Condition, true, true},
     FieldClassification{"run.validationPolicy", FieldRole::Condition, true, true},
-    FieldClassification{"run.vkSyncValidation", FieldRole::Condition, true, true},
+
+    // Each validation sub-mode exists on one backend, so across backends the two
+    // reports always disagree on it, and gating on that would skip the counters of
+    // every cross-backend comparison. Each is read from its own backend's report
+    // instead, and has to be at its strongest there: a zero means most when each
+    // validator ran in full (plan D26, amended). Within a backend they gate as any
+    // condition does.
+    FieldClassification{"run.vkSyncValidation", FieldRole::Condition, true, true, "Vulkan", "true"},
 
     // The GPU-side half of D3D12's layer reports what a shader read, after the GPU
     // ran, and none of it can arrive with the mode off — so the validation counters
     // are only comparable between runs that agree on it. Unknown for pixels, like
-    // the Vulkan sub-mode above.
-    FieldClassification{"run.d3d12GpuBasedValidation", FieldRole::Condition, true, true},
+    // the Vulkan sub-mode above. Its strongest level is full, which adds the
+    // resource-state checks descriptors leaves out.
+    FieldClassification{"run.d3d12GpuBasedValidation", FieldRole::Condition, true, true, "D3D12",
+                        "\"full\""},
 
     // Both testing levers change which code path runs — a disabled extension
     // takes the fallback, and one queue family means no ownership transfers and
@@ -277,6 +297,30 @@ ReportComparison CompareReports(std::string_view actualJson, std::string_view ex
     bool bCountersSkipped = false;
     bool bPixelsSkipped = false;
 
+    // Whether the two runs are known to have run on different backends. A report
+    // without the field cannot say, and is compared by the same-backend rules; its
+    // missing field already makes the result provisional.
+    const auto actualBackend = actual.find("system.backend");
+    const auto expectedBackend = expected.find("system.backend");
+    const bool bAcrossBackends = actualBackend != actual.end() &&
+                                 expectedBackend != expected.end() &&
+                                 actualBackend->second != expectedBackend->second;
+
+    const auto skip = [&](const FieldClassification& field, const std::string& reason)
+    {
+        if (field.bGatesCounters && !bCountersSkipped)
+        {
+            bCountersSkipped = true;
+            result.Skips.push_back(std::format("counters: {}", reason));
+        }
+
+        if (field.bGatesPixels && !bPixelsSkipped)
+        {
+            bPixelsSkipped = true;
+            result.Skips.push_back(std::format("pixels: {}", reason));
+        }
+    };
+
     for (const FieldClassification& field : kFields)
     {
         const std::string path(field.Path);
@@ -296,6 +340,38 @@ ReportComparison CompareReports(std::string_view actualJson, std::string_view ex
             continue;
         }
 
+        if (bAcrossBackends && field.Role == FieldRole::ZeroAcrossBackends)
+        {
+            if (inActual->second != 0 || inExpected->second != 0)
+            {
+                result.Differences.push_back(
+                    std::format("{}: {} vs {} (across backends both must be zero)", path,
+                                inActual->second.dump(), inExpected->second.dump()));
+            }
+            continue;
+        }
+
+        if (bAcrossBackends && !field.OwningBackend.empty())
+        {
+            // Only the owning backend's report says anything about this field; the
+            // other one has no such mode to report.
+            const Json owner = std::string(field.OwningBackend);
+            const bool bActualOwns = actualBackend->second == owner;
+            const bool bExpectedOwns = expectedBackend->second == owner;
+            if (!bActualOwns && !bExpectedOwns)
+                continue;
+
+            const Json& owned = bActualOwns ? inActual->second : inExpected->second;
+            if (owned.dump() != field.StrongestValue)
+            {
+                skip(field,
+                     std::format("{} is {} in the {} run, which must have it at {} to be "
+                                 "compared with another backend",
+                                 path, owned.dump(), field.OwningBackend, field.StrongestValue));
+            }
+            continue;
+        }
+
         if (inActual->second == inExpected->second)
             continue;
 
@@ -305,6 +381,7 @@ ReportComparison CompareReports(std::string_view actualJson, std::string_view ex
         switch (field.Role)
         {
             case FieldRole::Compared:
+            case FieldRole::ZeroAcrossBackends:
                 result.Differences.push_back(std::format("{}: {}", path, values));
                 break;
 
@@ -312,17 +389,7 @@ ReportComparison CompareReports(std::string_view actualJson, std::string_view ex
                 break;
 
             case FieldRole::Condition:
-                if (field.bGatesCounters && !bCountersSkipped)
-                {
-                    bCountersSkipped = true;
-                    result.Skips.push_back(std::format("counters: {} differs ({})", path, values));
-                }
-
-                if (field.bGatesPixels && !bPixelsSkipped)
-                {
-                    bPixelsSkipped = true;
-                    result.Skips.push_back(std::format("pixels: {} differs ({})", path, values));
-                }
+                skip(field, std::format("{} differs ({})", path, values));
                 break;
         }
     }

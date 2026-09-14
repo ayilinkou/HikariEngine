@@ -28,6 +28,7 @@
 #include "vulkan/VulkanConversions.h"
 #include "vulkan/VulkanPipeline.h"
 #include "vulkan/VulkanPipelineCache.h"
+#include "vulkan/VulkanPresentTarget.h"
 #include "vulkan/VulkanUploadContext.h"
 
 namespace Hikari::Rhi::Vulkan
@@ -1126,13 +1127,13 @@ void VulkanDevice::Submit(const SubmitDesc& desc)
     // Fixed capacities rather than per-submit allocations: this runs once per
     // frame per queue, and the counts are bounded by what the frame actually
     // has. Overflowing throws rather than silently dropping a wait, which is the
-    // failure mode that would corrupt a frame invisibly.
+    // failure mode that would corrupt a frame invisibly. One of each is kept for
+    // the present image's semaphores.
     constexpr size_t kMaxLists = 16u;
     constexpr size_t kMaxSyncs = 8u;
 
-    if (desc.CommandLists.size() > kMaxLists ||
-        desc.WaitFences.size() + desc.WaitSemaphores.size() > kMaxSyncs ||
-        desc.SignalFences.size() + desc.SignalSemaphores.size() > kMaxSyncs)
+    if (desc.CommandLists.size() > kMaxLists || desc.WaitFences.size() + 1u > kMaxSyncs ||
+        desc.SignalFences.size() + 1u > kMaxSyncs)
     {
         throw std::runtime_error("Rhi::VulkanDevice::Submit: more lists or synchronization "
                                  "operations than a submission is sized for.");
@@ -1157,6 +1158,22 @@ void VulkanDevice::Submit(const SubmitDesc& desc)
         lists[i] = vk::CommandBufferSubmitInfo{.commandBuffer = pList->Native()};
     }
 
+    // Taken last of everything that can refuse, since taking them is what marks
+    // the image written: a submission refused for another reason must leave it
+    // for the one that follows.
+    PresentSemaphores present{};
+    if (desc.PresentImage.pTarget != nullptr)
+    {
+        auto* pTarget = dynamic_cast<VulkanPresentTarget*>(desc.PresentImage.pTarget);
+        if (pTarget == nullptr || !pTarget->BelongsTo(*this))
+        {
+            throw std::runtime_error("Rhi::VulkanDevice::Submit: the present image belongs to a "
+                                     "target another device created.");
+        }
+
+        present = pTarget->TakeSubmitSemaphores(desc.PresentImage.Index);
+    }
+
     std::array<vk::SemaphoreSubmitInfo, kMaxSyncs> waits{};
     size_t waitCount = 0u;
     for (const FenceOperation& wait : desc.WaitFences)
@@ -1178,14 +1195,12 @@ void VulkanDevice::Submit(const SubmitDesc& desc)
                                     .value = wait.Value,
                                     .stageMask = vk::PipelineStageFlagBits2::eAllCommands};
     }
-    for (const SemaphoreHandle handle : desc.WaitSemaphores)
+    if (present.Wait.IsValid())
     {
-        // ColorAttachmentOutput: the only semaphores that reach here guard writes
-        // to an image a present target just handed out, and that is the first
-        // stage which can write one. See SubmitDesc on why the caller does not
-        // name a stage.
+        // ColorAttachmentOutput: the wait guards writes to the image the target
+        // handed out, and that is the first stage which can write one.
         waits[waitCount++] = vk::SemaphoreSubmitInfo{
-            .semaphore = GetSemaphore(handle),
+            .semaphore = GetSemaphore(present.Wait),
             .stageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput};
     }
 
@@ -1207,10 +1222,10 @@ void VulkanDevice::Submit(const SubmitDesc& desc)
                                     .value = signal.Value,
                                     .stageMask = vk::PipelineStageFlagBits2::eAllCommands};
     }
-    for (const SemaphoreHandle handle : desc.SignalSemaphores)
+    if (present.Signal.IsValid())
     {
         signals[signalCount++] =
-            vk::SemaphoreSubmitInfo{.semaphore = GetSemaphore(handle),
+            vk::SemaphoreSubmitInfo{.semaphore = GetSemaphore(present.Signal),
                                     .stageMask = vk::PipelineStageFlagBits2::eAllCommands};
     }
 

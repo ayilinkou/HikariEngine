@@ -220,8 +220,8 @@ void D3D12UploadContext::Flush()
                                .CommandLists = lists,
                                .WaitFences = {},
                                .SignalFences = std::span<const FenceOperation>(&signal, 1),
-                               .WaitSemaphores = {},
-                               .SignalSemaphores = {}});
+                               .PresentImage = {}});
+    ++m_Stats.Batches;
     ++m_Stats.Submits;
 
     m_Device.WaitForFence(m_Fence, m_FenceValue);

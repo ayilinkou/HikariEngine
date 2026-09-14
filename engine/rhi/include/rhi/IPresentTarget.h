@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <optional>
-#include <span>
 
 #include <core/Extent2D.h>
 #include <rhi/Barrier.h>
@@ -31,9 +30,9 @@ struct PresentTargetDesc
     Core::Extent2D Extent;
 
     /**
-     * How many acquires the caller can have outstanding. Sizes the target's ring
-     * of acquire semaphores; it is not the image count, which the target chooses
-     * and reports through GetImageCount().
+     * How many acquires the caller can have outstanding. Sizes what the target
+     * keeps per outstanding acquire; it is not the image count, which the target
+     * chooses and reports through GetImageCount().
      */
     uint32_t FramesInFlight = 2u;
 };
@@ -48,18 +47,6 @@ struct AcquiredImage
      * counts are unrelated and drivers do change the former across a Recreate.
      */
     uint32_t Index = 0u;
-
-    /**
-     * The semaphores the caller's submit must wait on before writing this
-     * image, all of them at a stage no earlier than the first write. Empty when
-     * nothing needs waiting on, which is not a sentinel: the submit already
-     * takes a count and an array, so an empty set costs no branch at the call
-     * site and means exactly what it says.
-     *
-     * Points into the target; valid until the next Acquire() or Recreate().
-     * Empty when bNeedsRecreate is set.
-     */
-    std::span<const SemaphoreHandle> WaitSemaphores;
 
     /**
      * The target could not produce an image and the caller should Recreate. Not
@@ -114,40 +101,31 @@ public:
      */
     virtual TextureLayout GetRequiredFinalLayout() const = 0;
 
+    /**
+     * An image to write, which exactly one submission then names as its
+     * SubmitDesc::PresentImage before Present. Naming the image is what orders the
+     * write, against the acquire and against whatever wrote the image last, so the
+     * caller never handles the objects that do it.
+     */
     [[nodiscard]] virtual AcquiredImage Acquire() = 0;
 
     /**
-     * The semaphore the caller must signal for `index` before Present will
-     * accept it. Per image rather than per frame because presentation reads the
-     * image: the wait belongs to whoever last wrote that image, and which frame
-     * that was is not something the caller can assume.
-     *
-     * What consumes that signal is the target's business, and the two
-     * implementations differ. A swapchain hands it to the presentation engine.
-     * A target with no presentation engine has nothing to hand it to, so it
-     * gives the semaphore back through the next Acquire() of the same image,
-     * where it is both the real "this image is free again" dependency and the
-     * wait that leaves a binary semaphore unsignalled for the next signal.
-     * Either way the caller signals it exactly once per Acquire/Present pair.
-     */
-    virtual SemaphoreHandle GetRenderCompleteSemaphore(uint32_t index) const = 0;
-
-    /**
-     * False means the target needs recreating, on the same terms as
-     * AcquiredImage::bNeedsRecreate. A genuine failure throws.
+     * Presents `index`, whose submission must already have been made; presenting
+     * an image no submission named throws. False means the target needs
+     * recreating, on the same terms as AcquiredImage::bNeedsRecreate. A genuine
+     * failure throws.
      */
     virtual bool Present(uint32_t index) = 0;
 
     /**
      * Rebuilds the target at `newExtent`, waiting for work still in flight
      * before it does. On success it invalidates every handle previously
-     * returned by Acquire() and every semaphore handed out before it, and may
-     * change GetImageCount(), so a caller holding per-image state has to
-     * rebuild it.
+     * returned by Acquire(), and may change GetImageCount(), so a caller holding
+     * per-image state has to rebuild it.
      *
      * False means the target cannot be rebuilt yet and nothing was touched:
-     * the existing images and semaphores stay valid and the caller should ask
-     * again. A window with no area puts a swapchain in that state, and a
+     * the existing images stay valid and the caller should ask again. A
+     * window with no area puts a swapchain in that state, and a
      * caller cannot test for it itself without knowing it holds one. Not an
      * error, on the same terms as AcquiredImage::bNeedsRecreate; a genuine
      * failure throws.

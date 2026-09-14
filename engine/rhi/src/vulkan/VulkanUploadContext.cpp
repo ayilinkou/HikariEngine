@@ -548,6 +548,8 @@ void VulkanUploadContext::Flush()
         ++m_Stats.Submits;
     }
 
+    ++m_Stats.Batches;
+
     // No barrier is needed between these copies and whatever reads the results
     // in a later submission, and that is a specification guarantee rather than
     // an assumption. A fence signal's first access scope is "all memory access

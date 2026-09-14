@@ -24,7 +24,9 @@ engine_module(
   Engine::Core
   Engine::Platform
   Vulkan::Vulkan
-  GPUOpen::VulkanMemoryAllocator)
+  GPUOpen::VulkanMemoryAllocator
+  WINDOWS_ONLY_HEADERS
+  rhi/d3d12)
 
 # Backend sources include each other as "vulkan/VulkanConversions.h" — relative
 # to src/, not to the file doing the including — so the path reads the same from
@@ -38,12 +40,17 @@ target_include_directories(RHI PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # sources and nowhere else — a Windows build without them has to say so.
 if(WIN32)
   set(d3d12_sources
-      src/d3d12/AgilitySdk.cpp src/d3d12/D3D12CommandAllocator.cpp src/d3d12/D3D12CommandList.cpp
-      src/d3d12/D3D12Conversions.cpp src/d3d12/D3D12CpuDescriptorHeap.cpp
+      src/d3d12/AgilitySdk.cpp
+      src/d3d12/D3D12CommandAllocator.cpp
+      src/d3d12/D3D12CommandList.cpp
+      src/d3d12/D3D12Conversions.cpp
+      src/d3d12/D3D12CpuDescriptorHeap.cpp
+      src/d3d12/D3D12DebugMessages.cpp
+      src/d3d12/D3D12Device.cpp
       src/d3d12/D3D12GpuDescriptorHeap.cpp
-      src/d3d12/D3D12UploadContext.cpp
-                    src/d3d12/D3D12DebugMessages.cpp
-                    src/d3d12/D3D12Device.cpp)
+      src/d3d12/D3D12Native.cpp
+      src/d3d12/D3D12OffscreenTarget.cpp
+      src/d3d12/D3D12UploadContext.cpp)
   target_sources(RHI PRIVATE ${d3d12_sources})
 
   # Per source rather than on the module: the Vulkan backend's translation units
@@ -53,9 +60,13 @@ if(WIN32)
                                                           "WIN32_LEAN_AND_MEAN;NOMINMAX")
 
   target_compile_definitions(RHI PRIVATE HIKARI_RHI_D3D12)
-  target_link_libraries(
-    RHI PRIVATE Microsoft::DirectX-Headers Microsoft::DirectX-Guids
-                GPUOpen::D3D12MemoryAllocator d3d12.lib dxgi.lib)
+
+  # The headers PUBLIC, as Vulkan::Vulkan is, because include/rhi/d3d12/D3D12Native.h
+  # names D3D12 types for the one caller outside the module allowed to use them.
+  # rhi_boundary_check is what keeps everyone else from naming them.
+  target_link_libraries(RHI PUBLIC Microsoft::DirectX-Headers)
+  target_link_libraries(RHI PRIVATE Microsoft::DirectX-Guids GPUOpen::D3D12MemoryAllocator
+                                    d3d12.lib dxgi.lib)
 
   # The two symbols that opt an executable into the Agility SDK. Its own OBJECT
   # library, linked by each executable through hikari_deploy_d3d12(), because an

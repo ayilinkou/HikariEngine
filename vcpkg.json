@@ -15,7 +15,11 @@
       "name": "imgui",
       "features": [
         "vulkan-binding",
-        "sdl3-binding"
+        "sdl3-binding",
+        {
+          "name": "dx12-binding",
+          "platform": "windows"
+        }
       ]
     },
     "pugixml",

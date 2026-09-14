@@ -1,10 +1,13 @@
 #include "d3d12/D3D12CommandList.h"
 
 #include <array>
+#include <cstring>
 #include <format>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "d3d12/D3D12Conversions.h"
 #include "d3d12/D3D12Device.h"
@@ -14,11 +17,6 @@ namespace Hikari::Rhi::D3D12
 
 namespace
 {
-[[noreturn]] void ThrowNotImplemented(std::string_view method)
-{
-    throw std::logic_error(std::format("The D3D12 backend does not implement {} yet", method));
-}
-
 uint32_t LayersOf(const TextureDesc& desc)
 {
     return desc.Dimension == TextureDimension::Texture3D ? 1u : desc.ArrayLayers;
@@ -72,10 +70,30 @@ void D3D12CommandList::ResetAllocator()
     }
 }
 
+void D3D12CommandList::ForgetBoundState()
+{
+    m_GraphicsLayout = {};
+    m_ComputeLayout = {};
+    m_GraphicsPipeline = {};
+
+    // Kept rather than cleared, but marked for binding again: they were set through
+    // this list, and only whether the native list still has them is in doubt.
+    m_bVertexBuffersDirty = true;
+}
+
+ID3D12GraphicsCommandList* D3D12CommandList::NativeForRecording()
+{
+    ForgetBoundState();
+    return m_List.Get();
+}
+
 void D3D12CommandList::Begin()
 {
     m_Transitions.clear();
     m_CopiedTextures.clear();
+    ForgetBoundState();
+    m_VertexBuffers = {};
+    m_bVertexBuffersDirty = false;
 
     const HRESULT hr = m_List->Reset(m_Allocator.Get(), nullptr);
     m_Device.DrainDebugMessages();
@@ -84,6 +102,11 @@ void D3D12CommandList::Begin()
         throw std::runtime_error(std::format("Resetting a D3D12 command list failed (0x{:08X})",
                                              static_cast<uint32_t>(hr)));
     }
+
+    // A reset list binds no descriptor heaps, and a table can only be bound once they
+    // are. Every list that can bind one binds the device's two, which never change.
+    if (m_Type != D3D12_COMMAND_LIST_TYPE_COPY)
+        m_Device.BindDescriptorHeaps(*m_List.Get());
 }
 
 void D3D12CommandList::End()
@@ -362,50 +385,246 @@ void D3D12CommandList::BeginRendering(const RenderingDesc& desc)
 // Nothing to end: the targets stay bound until the next scope binds others.
 void D3D12CommandList::EndRendering() {}
 
-void D3D12CommandList::SetPipeline(GraphicsPipelineHandle)
+const D3D12PipelineLayout& D3D12CommandList::UseLayout(PipelineLayoutHandle layout, bool bCompute)
 {
-    ThrowNotImplemented("SetPipeline");
+    const D3D12PipelineLayout* pLayout = m_Device.FindPipelineLayout(layout);
+    if (pLayout == nullptr)
+    {
+        throw std::runtime_error(
+            std::format("Rhi::ICommandList: pipeline layout {:#010x} is stale.", layout.Value));
+    }
+
+    PipelineLayoutHandle& current = bCompute ? m_ComputeLayout : m_GraphicsLayout;
+    if (current != layout)
+    {
+        if (bCompute)
+            m_List->SetComputeRootSignature(pLayout->RootSignature.Get());
+        else
+            m_List->SetGraphicsRootSignature(pLayout->RootSignature.Get());
+
+        current = layout;
+    }
+
+    return *pLayout;
 }
 
-void D3D12CommandList::SetBindGroup(PipelineLayoutHandle, uint32_t, BindGroupHandle)
+/**
+ * Sets the pipeline's layout as well as its state, because a pipeline state object
+ * never sets the root signature itself; when a bind group already set the same one,
+ * nothing more is recorded.
+ */
+void D3D12CommandList::SetPipeline(GraphicsPipelineHandle pipeline)
 {
-    ThrowNotImplemented("SetBindGroup");
+    const D3D12GraphicsPipeline* pPipeline = m_Device.FindGraphicsPipeline(pipeline);
+    if (pPipeline == nullptr)
+    {
+        throw std::runtime_error(
+            std::format("Rhi::ICommandList::SetPipeline: graphics pipeline {:#010x} is stale.",
+                        pipeline.Value));
+    }
+
+    UseLayout(pPipeline->Layout, false);
+    m_List->SetPipelineState(pPipeline->State.Get());
+
+    // Every graphics pipeline draws triangle lists, the topology its state object was
+    // created for. Set with each pipeline, since a list's input-assembler state starts
+    // undefined.
+    m_List->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    // Strides are the pipeline's, so a switch rebinds the buffers at the next draw.
+    if (m_GraphicsPipeline != pipeline)
+    {
+        m_GraphicsPipeline = pipeline;
+        m_bVertexBuffersDirty = true;
+    }
+
+    m_Device.DrainDebugMessages();
 }
 
-void D3D12CommandList::SetPipeline(ComputePipelineHandle)
+void D3D12CommandList::BindGroupTables(PipelineLayoutHandle layout, uint32_t slot,
+                                       BindGroupHandle group, bool bCompute)
 {
-    ThrowNotImplemented("SetPipeline");
+    const D3D12PipelineLayout& native = UseLayout(layout, bCompute);
+    if (slot >= native.ResourceTableParameters.size())
+    {
+        throw std::runtime_error(
+            std::format("Rhi::ICommandList::SetBindGroup: the layout has no group slot {}.", slot));
+    }
+
+    const std::optional<D3D12Device::BindGroupTables> tables = m_Device.FindBindGroupTables(group);
+    if (!tables)
+    {
+        throw std::runtime_error(std::format(
+            "Rhi::ICommandList::SetBindGroup: bind group {:#010x} is stale.", group.Value));
+    }
+
+    const auto bind = [this, bCompute](std::optional<UINT> parameter,
+                                       std::optional<D3D12_GPU_DESCRIPTOR_HANDLE> table)
+    {
+        if (!parameter || !table)
+            return;
+
+        if (bCompute)
+            m_List->SetComputeRootDescriptorTable(*parameter, *table);
+        else
+            m_List->SetGraphicsRootDescriptorTable(*parameter, *table);
+    };
+
+    bind(native.ResourceTableParameters[slot], tables->Resources);
+    bind(native.SamplerTableParameters[slot], tables->Samplers);
+    m_Device.DrainDebugMessages();
 }
 
-void D3D12CommandList::SetComputeBindGroup(PipelineLayoutHandle, uint32_t, BindGroupHandle)
+void D3D12CommandList::SetBindGroup(PipelineLayoutHandle layout, uint32_t slot,
+                                    BindGroupHandle group)
 {
-    ThrowNotImplemented("SetComputeBindGroup");
+    BindGroupTables(layout, slot, group, false);
 }
 
-void D3D12CommandList::PushConstants(PipelineLayoutHandle, ShaderStage, uint32_t,
-                                     std::span<const std::byte>)
+void D3D12CommandList::SetPipeline(ComputePipelineHandle pipeline)
 {
-    ThrowNotImplemented("PushConstants");
+    const D3D12ComputePipeline* pPipeline = m_Device.FindComputePipeline(pipeline);
+    if (pPipeline == nullptr)
+    {
+        throw std::runtime_error(std::format(
+            "Rhi::ICommandList::SetPipeline: compute pipeline {:#010x} is stale.", pipeline.Value));
+    }
+
+    UseLayout(pPipeline->Layout, true);
+    m_List->SetPipelineState(pPipeline->State.Get());
+    m_Device.DrainDebugMessages();
 }
 
-void D3D12CommandList::Dispatch(uint32_t, uint32_t, uint32_t)
+void D3D12CommandList::SetComputeBindGroup(PipelineLayoutHandle layout, uint32_t slot,
+                                           BindGroupHandle group)
 {
-    ThrowNotImplemented("Dispatch");
+    BindGroupTables(layout, slot, group, true);
 }
 
-void D3D12CommandList::SetVertexBuffer(uint32_t, BufferHandle, uint64_t)
+/**
+ * Root constants are 32-bit values, so the bytes are copied into whole values, the
+ * last padded with zeros, and the offset must fall on one. A compute stage writes the
+ * compute root signature's constants and every other stage the graphics one's, since
+ * a layout's one block serves whichever kind of pipeline it was made for.
+ */
+void D3D12CommandList::PushConstants(PipelineLayoutHandle layout, ShaderStage stages,
+                                     uint32_t offset, std::span<const std::byte> data)
 {
-    ThrowNotImplemented("SetVertexBuffer");
+    if (offset % 4u != 0u)
+    {
+        throw std::runtime_error(std::format(
+            "Rhi::ICommandList::PushConstants: offset {} is not a whole 32-bit value, and D3D12 "
+            "writes push constants as root constants.",
+            offset));
+    }
+
+    const bool bCompute = (stages & ShaderStage::Compute) != ShaderStage::None;
+    const D3D12PipelineLayout& native = UseLayout(layout, bCompute);
+    if (!native.PushConstantParameter)
+    {
+        throw std::runtime_error(
+            "Rhi::ICommandList::PushConstants: the layout declares no push constant range.");
+    }
+
+    std::vector<uint32_t> values((data.size() + 3u) / 4u, 0u);
+    std::memcpy(values.data(), data.data(), data.size());
+
+    const UINT count = static_cast<UINT>(values.size());
+    if (bCompute)
+    {
+        m_List->SetComputeRoot32BitConstants(*native.PushConstantParameter, count, values.data(),
+                                             offset / 4u);
+    }
+    else
+    {
+        m_List->SetGraphicsRoot32BitConstants(*native.PushConstantParameter, count, values.data(),
+                                              offset / 4u);
+    }
+
+    m_Device.DrainDebugMessages();
 }
 
-void D3D12CommandList::SetIndexBuffer(BufferHandle, IndexFormat, uint64_t)
+void D3D12CommandList::Dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ)
 {
-    ThrowNotImplemented("SetIndexBuffer");
+    m_List->Dispatch(groupsX, groupsY, groupsZ);
+    m_Device.DrainDebugMessages();
 }
 
-void D3D12CommandList::DrawIndexed(uint32_t, uint32_t, uint32_t, int32_t, uint32_t)
+void D3D12CommandList::SetVertexBuffer(uint32_t slot, BufferHandle buffer, uint64_t offset)
 {
-    ThrowNotImplemented("DrawIndexed");
+    if (slot >= m_VertexBuffers.size())
+    {
+        throw std::runtime_error(std::format(
+            "Rhi::ICommandList::SetVertexBuffer: slot {} is past D3D12's slots.", slot));
+    }
+
+    m_VertexBuffers[slot] = VertexBufferBinding{.Buffer = buffer, .Offset = offset};
+    m_bVertexBuffersDirty = true;
+}
+
+void D3D12CommandList::FlushVertexBuffers()
+{
+    if (!m_bVertexBuffersDirty)
+        return;
+
+    const D3D12GraphicsPipeline* pPipeline = m_Device.FindGraphicsPipeline(m_GraphicsPipeline);
+    if (pPipeline == nullptr)
+        throw std::runtime_error("Rhi::ICommandList::DrawIndexed: no graphics pipeline is bound.");
+
+    for (UINT slot = 0u; slot < m_VertexBuffers.size(); ++slot)
+    {
+        const VertexBufferBinding& binding = m_VertexBuffers[slot];
+        if (!binding.Buffer.IsValid())
+            continue;
+
+        const D3D12Buffer* pBuffer = m_Device.FindBuffer(binding.Buffer);
+        if (pBuffer == nullptr || binding.Offset > pBuffer->Desc.Size)
+        {
+            throw std::runtime_error(std::format(
+                "Rhi::ICommandList::SetVertexBuffer: the buffer in slot {} is stale, or its "
+                "offset is past its end.",
+                slot));
+        }
+
+        const D3D12_VERTEX_BUFFER_VIEW view{
+            .BufferLocation = pBuffer->Resource->GetGPUVirtualAddress() + binding.Offset,
+            .SizeInBytes = static_cast<UINT>(pBuffer->Desc.Size - binding.Offset),
+            .StrideInBytes = pPipeline->Strides[slot]};
+        m_List->IASetVertexBuffers(slot, 1u, &view);
+    }
+
+    m_bVertexBuffersDirty = false;
+}
+
+void D3D12CommandList::SetIndexBuffer(BufferHandle buffer, IndexFormat format, uint64_t offset)
+{
+    const D3D12Buffer* pBuffer = m_Device.FindBuffer(buffer);
+    if (pBuffer == nullptr || offset > pBuffer->Desc.Size)
+    {
+        throw std::runtime_error("Rhi::ICommandList::SetIndexBuffer: the buffer is stale, or the "
+                                 "offset is past its end.");
+    }
+
+    const D3D12_INDEX_BUFFER_VIEW view{
+        .BufferLocation = pBuffer->Resource->GetGPUVirtualAddress() + offset,
+        .SizeInBytes = static_cast<UINT>(pBuffer->Desc.Size - offset),
+        .Format = format == IndexFormat::Uint16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT};
+    m_List->IASetIndexBuffer(&view);
+    m_Device.DrainDebugMessages();
+}
+
+/**
+ * D3D12's base vertex and start instance are Vulkan's vertex offset and first
+ * instance: the base is added to every index before a vertex is read, and
+ * per-instance streams start at the first instance.
+ */
+void D3D12CommandList::DrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
+                                   int32_t vertexOffset, uint32_t firstInstance)
+{
+    FlushVertexBuffers();
+    m_List->DrawIndexedInstanced(indexCount, instanceCount, firstIndex, vertexOffset,
+                                 firstInstance);
+    m_Device.DrainDebugMessages();
 }
 
 void D3D12CommandList::SetViewport(const Viewport& viewport)

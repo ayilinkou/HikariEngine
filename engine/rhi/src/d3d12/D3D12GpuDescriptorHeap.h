@@ -37,6 +37,9 @@ public:
 
     D3D12_CPU_DESCRIPTOR_HANDLE CpuHandle(uint32_t index) const;
     D3D12_GPU_DESCRIPTOR_HANDLE GpuHandle(uint32_t index) const;
+
+    /** The index `handle` addresses. Throws for a handle that is not one of this heap's. */
+    uint32_t IndexOf(D3D12_GPU_DESCRIPTOR_HANDLE handle) const;
     ID3D12DescriptorHeap* Native() const { return m_Heap.Get(); }
 
 private:

@@ -43,7 +43,7 @@ namespace RhiTest
  */
 inline void RunGraphicsCommands(Hikari::Rhi::IDevice& device,
                                 const std::function<void(Hikari::Rhi::ICommandList&)>& record,
-                                std::optional<Hikari::Rhi::SemaphoreHandle> waitSemaphore = {})
+                                std::optional<Hikari::Rhi::FenceOperation> waitFence = {})
 {
     const std::unique_ptr<Hikari::Rhi::ICommandAllocator> allocator =
         device.CreateCommandAllocator(Hikari::Rhi::CommandAllocatorDesc{
@@ -66,10 +66,10 @@ inline void RunGraphicsCommands(Hikari::Rhi::IDevice& device,
     device.Submit(Hikari::Rhi::SubmitDesc{
         .Queue = Hikari::Rhi::QueueType::Graphics,
         .CommandLists = {&pList, 1u},
+        .WaitFences = waitFence ? std::span<const Hikari::Rhi::FenceOperation>(&*waitFence, 1u)
+                                : std::span<const Hikari::Rhi::FenceOperation>{},
         .SignalFences = {&signal, 1u},
-        .WaitSemaphores = waitSemaphore ? std::span<const Hikari::Rhi::SemaphoreHandle>(
-                                              &*waitSemaphore, 1u)
-                                        : std::span<const Hikari::Rhi::SemaphoreHandle>{}});
+        .PresentImage = {}});
 
     device.WaitForFence(fence.Get(), kDone);
 }
@@ -205,22 +205,22 @@ ReadTextureLayers(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle sourc
  * outside these tests ever called it — the renderer's own screenshot path
  * stages its copy inside the frame instead.
  *
- * `waitSemaphore` is the target's pending render-complete signal, taken with
- * OffscreenTarget::TakePendingSignal. Passing it explicitly is the point: the
- * wait is what orders this copy after the render that produced the image, and a
- * helper that reached for WaitIdle instead would let a target that established
- * no dependency at all still pass.
+ * `afterFrame` is the fence value the submission that rendered the image
+ * signalled. Passing it explicitly is the point: the wait is what orders this
+ * copy after the render that produced the image, and a helper that reached for
+ * WaitIdle instead would let a caller that established no dependency at all
+ * still pass.
  *
  * `currentLayout` is where the last frame left the image. The barrier's source
- * scope names the render target rather than nothing, because a barrier is only
- * ordered after a semaphore wait when its source stage covers the stage waited
- * at.
+ * scope names the render target rather than nothing, so that it reads as the
+ * write it follows.
  */
-inline std::vector<std::byte>
-ReadRenderedTexture(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle source,
-                    Hikari::Core::Extent2D extent, Hikari::Rhi::Format format,
-                    Hikari::Rhi::TextureLayout currentLayout,
-                    std::optional<Hikari::Rhi::SemaphoreHandle> waitSemaphore)
+inline std::vector<std::byte> ReadRenderedTexture(Hikari::Rhi::IDevice& device,
+                                                  Hikari::Rhi::TextureHandle source,
+                                                  Hikari::Core::Extent2D extent,
+                                                  Hikari::Rhi::Format format,
+                                                  Hikari::Rhi::TextureLayout currentLayout,
+                                                  Hikari::Rhi::FenceOperation afterFrame)
 {
     const uint32_t bytesPerTexel = Hikari::Rhi::BytesPerTexel(format);
     REQUIRE(bytesPerTexel != 0u);
@@ -262,7 +262,7 @@ ReadRenderedTexture(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle sou
                                          .Aspect = Hikari::Rhi::DefaultAspect(format),
                                          .Extent = {extent.Width, extent.Height, 1u}});
         },
-        waitSemaphore);
+        afterFrame);
 
     const void* pMapped = device.GetMappedData(staging.Get());
     REQUIRE(pMapped != nullptr);

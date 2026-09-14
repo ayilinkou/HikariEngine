@@ -72,7 +72,7 @@ private:
      * outermost one ends is what makes "a resource this class returns is on the
      * GPU" true by construction rather than by remembering.
      *
-     * The run report's counters.run.uploadSubmissions is what guards this from a
+     * The run report's counters.run.uploadBatches is what guards this from a
      * distance: break the nesting and that number climbs with the scene's
      * texture count instead of staying at a handful.
      */

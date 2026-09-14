@@ -62,12 +62,19 @@ struct UploadContextDesc
 struct UploadStats
 {
     /**
-     * Queue submissions, which is what batching exists to reduce: there used to
-     * be one per resource. Counted as submissions rather than as batches
-     * because a backend that moves uploads onto a dedicated copy queue needs a
-     * second submission per batch to hand the results back — so the two numbers
-     * differ, and the honest one is the one that says how often the GPU was
-     * handed work.
+     * Flushes that had something to submit, which is what batching exists to
+     * reduce: there used to be one per resource. The same on every backend and
+     * driver for the same uploads and the same flushes, which is what makes it
+     * the number a comparison across them can hold exact.
+     */
+    uint64_t Batches = 0u;
+
+    /**
+     * Queue submissions, which is how often the GPU was handed work. Not the same
+     * as Batches: a Vulkan device that moves uploads onto a dedicated copy queue
+     * needs a second submission per batch to hand the results back, where D3D12
+     * and a device with VK_KHR_maintenance9 need none — so it varies with the
+     * backend and the driver.
      */
     uint64_t Submits = 0u;
 

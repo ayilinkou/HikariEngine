@@ -4,7 +4,6 @@
 #include <cstring>
 #include <format>
 #include <limits>
-#include <span>
 #include <stdexcept>
 
 #include "vulkan/vulkan_raii.hpp"
@@ -120,7 +119,6 @@ void OffscreenTarget::Create(Core::Extent2D extent)
     // Reset with the semaphores: the first pass over a fresh set of images has
     // nothing to wait on, and the counter is what says so.
     m_AcquireCount = 0u;
-    m_CurrentWait = SemaphoreHandle{};
 
     Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Offscreen target: {}x{}, {} images",
                  m_Extent.Width, m_Extent.Height, m_Images.size());
@@ -154,7 +152,8 @@ AcquiredImage OffscreenTarget::Acquire()
 
     // The previous frame that wrote this image signalled its render-complete
     // semaphore and nothing has waited on it, because there is no presentation
-    // engine to do the waiting. Handing it back here does both jobs at once:
+    // engine to do the waiting. Making it the next write's wait does both jobs at
+    // once:
     //
     //   * It is the real dependency. The image is about to be written again,
     //     and the previous write has to have finished first. Expressing it here
@@ -163,16 +162,13 @@ AcquiredImage OffscreenTarget::Acquire()
     //     hazard already, but nothing in IPresentTarget says it must.
     //   * It leaves the semaphore unsignalled, which is what a binary semaphore
     //     needs before it may be signalled again. The wait executes before the
-    //     batch's commands and the signal after them, so the caller's own
-    //     submit may legally wait on and signal the same semaphore.
+    //     batch's commands and the signal after them, so the one submission may
+    //     legally wait on and signal the same semaphore.
     //
-    // Empty on the first pass, when nothing has written the image yet.
-    if (image.bSignalPending)
-    {
-        m_CurrentWait = image.RenderComplete;
-        image.bSignalPending = false;
-        acquired.WaitSemaphores = std::span(&m_CurrentWait, 1u);
-    }
+    // Nothing on the first pass, when nothing has written the image yet.
+    image.PendingWait = image.bSignalPending ? image.RenderComplete : SemaphoreHandle{};
+    image.bSignalPending = false;
+    image.State = PresentImageState::Acquired;
 
     // Never true: an offscreen target owns its images outright, so nothing can
     // invalidate them behind the caller's back the way a surface can.
@@ -180,12 +176,21 @@ AcquiredImage OffscreenTarget::Acquire()
     return acquired;
 }
 
-SemaphoreHandle OffscreenTarget::GetRenderCompleteSemaphore(uint32_t index) const
+PresentSemaphores OffscreenTarget::TakeSubmitSemaphores(uint32_t index)
 {
     if (index >= m_Images.size())
-        throw std::runtime_error("IPresentTarget::GetRenderCompleteSemaphore: index out of range.");
+        throw std::runtime_error(
+            "Rhi::IDevice::Submit: the present image's index is out of range.");
 
-    return m_Images[index].RenderComplete;
+    Image& image = m_Images[index];
+    if (image.State != PresentImageState::Acquired)
+    {
+        throw std::logic_error("Rhi::IDevice::Submit: the present image was not acquired, or a "
+                               "submission has already named it since its Acquire.");
+    }
+
+    image.State = PresentImageState::Submitted;
+    return PresentSemaphores{.Wait = image.PendingWait, .Signal = image.RenderComplete};
 }
 
 bool OffscreenTarget::Present(uint32_t index)
@@ -193,28 +198,20 @@ bool OffscreenTarget::Present(uint32_t index)
     if (index >= m_Images.size())
         throw std::runtime_error("IPresentTarget::Present: index out of range.");
 
-    // Nothing to present to, so this records only that the caller has signalled
-    // the image's render-complete semaphore — which the interface requires
-    // before Present may be called, and which the next Acquire of this image
-    // consumes.
-    m_Images[index].bSignalPending = true;
-    return true;
-}
-
-std::optional<SemaphoreHandle> OffscreenTarget::TakePendingSignal(uint32_t index)
-{
-    if (index >= m_Images.size())
-        throw std::runtime_error("OffscreenTarget::TakePendingSignal: index out of range.");
-
+    // Nothing to present to, so this records only that the image's submission
+    // signalled its render-complete semaphore, which the next Acquire of this
+    // image consumes. Refused before that submission, whose signal the next
+    // write would otherwise wait on forever.
     Image& image = m_Images[index];
-    if (!image.bSignalPending)
-        return std::nullopt;
+    if (image.State != PresentImageState::Submitted)
+    {
+        throw std::logic_error("IPresentTarget::Present: no submission named this image since "
+                               "its Acquire.");
+    }
 
-    // Cleared for the same reason Acquire clears it: the caller's wait consumes
-    // the signal, and leaving the flag set would have the next Acquire hand back
-    // a wait for a signal that has already been taken.
-    image.bSignalPending = false;
-    return image.RenderComplete;
+    image.State = PresentImageState::Idle;
+    image.bSignalPending = true;
+    return true;
 }
 
 bool OffscreenTarget::Recreate(Core::Extent2D newExtent)

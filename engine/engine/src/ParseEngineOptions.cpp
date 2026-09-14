@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <iostream>
+#include <optional>
 #include <string>
 
 #include <rhi/Backend.h>
+#include <rhi/DeviceDesc.h>
 
 #include <engine/CameraPresets.h>
 
@@ -105,7 +107,19 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
     else if (flag == "--vk-sync-validation")
         spec.bVulkanSyncValidation = RequireOnOff(option);
     else if (flag == "--d3d12-gpu-based-validation")
-        spec.bD3D12GpuBasedValidation = RequireOnOff(option);
+    {
+        // No on: with three levels it would not say which.
+        const std::string value = option.RequireValue();
+        const std::optional<Rhi::GpuBasedValidation> level =
+            Rhi::GpuBasedValidationFromString(value);
+        if (!level)
+        {
+            throw Platform::CommandLineError(
+                "--d3d12-gpu-based-validation expects off, descriptors or full, got: " + value);
+        }
+
+        spec.D3D12GpuBasedValidation = *level;
+    }
     else if (flag == "--gpu")
         spec.Gpu = option.RequireValue();
     else if (flag == "--validation-policy")
@@ -213,10 +227,13 @@ void PrintEngineUsage()
                      "validation runs at\n"
                      "                          all. The expensive sub-mode; on by default "
                      "(default: on)\n"
-                     "  --d3d12-gpu-based-validation <on|off>\n"
+                     "  --d3d12-gpu-based-validation <off|descriptors|full>\n"
                      "                          D3D12 only. The debug layer's GPU-side checks, "
                      "where validation runs\n"
-                     "                          at all. Expensive; on by default (default: on)\n"
+                     "                          at all: what shaders read, and with full also "
+                     "resource states,\n"
+                     "                          which cost several times more "
+                     "(default: descriptors)\n"
                      "  --backend <name>        Which backend to run on. Available in this "
                      "build: " +
                      AvailableBackendNames() +

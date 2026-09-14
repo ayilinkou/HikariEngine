@@ -35,9 +35,10 @@ namespace Hikari::Rhi::BarrierPresets
  * driver preserve pixels that are overwritten a command later.
  *
  * The source stage is RenderTarget rather than None, and that is load-bearing:
- * an acquire hands back semaphores the submit waits on at the stage of its
- * first write, and a layout transition is only ordered after a semaphore wait
- * if the barrier's source stage covers the stage that was waited at. With an
+ * on Vulkan the submission naming an acquired image waits on the acquire's
+ * semaphore at the stage of its first write, and a layout transition is only
+ * ordered after a semaphore wait if the barrier's source stage covers the stage
+ * that was waited at. With an
  * empty source scope the transition may run before the wait completes — the
  * classic under-synchronized acquire, which is correct on the driver it was
  * written on and a corrupt first frame elsewhere.
@@ -116,9 +117,9 @@ inline constexpr TextureBarrier PreserveRenderTarget()
  * calling this.
  *
  * Nothing waits on this transition inside the command list, which is what the
- * empty destination scope says. What makes it safe is the semaphore the present
- * waits on: its signal happens after every command in the submission, this one
- * included.
+ * empty destination scope says. What makes it safe is that a present waits for
+ * the submission naming its image — on Vulkan through a semaphore signalled after
+ * every command in it, this one included, and on D3D12 by queueing behind it.
  */
 inline constexpr TextureBarrier RenderTargetToFinal(TextureLayout finalLayout)
 {

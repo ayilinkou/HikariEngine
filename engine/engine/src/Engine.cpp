@@ -355,7 +355,7 @@ private:
         // did before the flag existed.
         desc.bEnableValidation = m_Spec.bValidationEnabled.value_or(bEnableValidationLayers);
         desc.bSyncValidation = m_Spec.bVulkanSyncValidation;
-        desc.bGpuBasedValidation = m_Spec.bD3D12GpuBasedValidation;
+        desc.GpuBasedValidation = m_Spec.D3D12GpuBasedValidation;
         desc.Gpu = m_Spec.Gpu;
         desc.pDiagnostics = &m_Diagnostics;
         // The line the whole headless path turns on: no present requirement
@@ -561,6 +561,7 @@ private:
 
         report.Counters.Run = {.ValidationErrors = m_Diagnostics.ErrorCount(),
                                .ValidationWarnings = m_Diagnostics.WarningCount(),
+                               .UploadBatches = m_UploadContext->GetStats().Batches,
                                .UploadSubmissions = m_UploadContext->GetStats().Submits};
 
         report.Timings = {.StartupMs = m_StartupMs,
@@ -586,13 +587,16 @@ private:
                       // What the run actually did, not what was asked: the
                       // layer settings chain is only attached when the layer is
                       // loaded, so sync validation off is also what "no
-                      // validation at all" looks like.
+                      // validation at all" looks like. Each sub-mode is off on
+                      // the backend that has no such mode.
                       .bValidationEnabled = bValidationOn,
                       .ValidationPolicy = m_Spec.ValidationPolicy,
-                      .bSyncValidation = bValidationOn && m_Spec.bVulkanSyncValidation,
-                      .bD3D12GpuBasedValidation = bValidationOn &&
-                                                  device.Backend == Rhi::Backend::D3D12 &&
-                                                  m_Spec.bD3D12GpuBasedValidation,
+                      .bSyncValidation = bValidationOn && device.Backend == Rhi::Backend::Vulkan &&
+                                         m_Spec.bVulkanSyncValidation,
+                      .D3D12GpuBasedValidation =
+                          bValidationOn && device.Backend == Rhi::Backend::D3D12
+                              ? m_Spec.D3D12GpuBasedValidation
+                              : Rhi::GpuBasedValidation::Off,
                       .DisabledVulkanExtensions = m_Spec.DisabledVulkanExtensions,
                       .bForceSingleQueue = m_Spec.bForceSingleQueue,
                       .FramesInFlight = m_Config.FramesInFlight,
@@ -833,14 +837,6 @@ private:
 
     void DrawFrame(bool captureScreenshot = false)
     {
-        // Semaphores coordinate GPU to GPU synchronisation, for example
-        // ordering work between queues. They get reset automatically after the
-        // waiting operation begins.
-        //
-        // Fences coordinate CPU to GPU synchronisation, for times when
-        // the CPU needs to know that the GPU has finished a task. Must be
-        // explicitely reset by the host.
-
         // A recreation that was deferred means the surface had no area when it
         // was last asked. Retry it here, and skip the frame while the answer
         // has not changed: there is nothing to draw into.
@@ -916,23 +912,19 @@ private:
             frameData.TransparentCommands.List, frameData.CloudCommands.List,
             frameData.CompositeCommands.List,   frameData.ImGuiCommands.List,
             frameData.FinalLayoutCommands.List};
-        // The waits arrive as a span because how many there are is the target's
-        // business: a swapchain hands back the one its acquire signalled, and a
-        // headless target hands back the previous write of the same image, or
-        // nothing at all on the first pass.
-        const Rhi::SemaphoreHandle renderComplete =
-            m_PresentTarget->GetRenderCompleteSemaphore(image.Index);
-
         // The value this slot will wait for next time round.
         frameData.LastSubmitValue = ++m_FrameSubmitCount;
         const Rhi::FenceOperation signalFrame{.Fence = m_FrameFence.Get(),
                                               .Value = frameData.LastSubmitValue};
 
-        m_RhiDevice->Submit(Rhi::SubmitDesc{.Queue = Rhi::QueueType::Graphics,
-                                            .CommandLists = commandLists,
-                                            .SignalFences = {&signalFrame, 1u},
-                                            .WaitSemaphores = image.WaitSemaphores,
-                                            .SignalSemaphores = {&renderComplete, 1u}});
+        // Naming the acquired image is what orders the write against the acquire
+        // and against the image's previous write; what does the ordering is the
+        // target's business.
+        m_RhiDevice->Submit(Rhi::SubmitDesc{
+            .Queue = Rhi::QueueType::Graphics,
+            .CommandLists = commandLists,
+            .SignalFences = {&signalFrame, 1u},
+            .PresentImage = {.pTarget = m_PresentTarget.get(), .Index = image.Index}});
 
         const auto presentStart = std::chrono::steady_clock::now();
         const bool bPresented = m_PresentTarget->Present(image.Index);

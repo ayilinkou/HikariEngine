@@ -29,19 +29,6 @@ using SamplerHandle = Core::Handle<struct SamplerTag>;
 using FenceHandle = Core::Handle<struct FenceTag>;
 
 /**
- * A GPU-to-GPU ordering point with no value attached, and the counterpart to
- * FenceHandle rather than a lesser version of it: presentation is the one place
- * both APIs still order work by a single-shot object the caller never resets.
- *
- * Only IPresentTarget produces one. The target owns the object, decides how many
- * there are and when they are recycled; a handle is how a caller names one for
- * long enough to wait on or signal it in its own submit. Nothing else in the RHI
- * hands out a semaphore, and nothing should — a caller that wants ordering
- * against RHI-owned work wants a fence and a value.
- */
-using SemaphoreHandle = Core::Handle<struct SemaphoreTag>;
-
-/**
  * The shape of a bind group: which slots it has, of what kind, visible to which
  * shader stages. Immutable once created, and shared by every group built to it.
  */

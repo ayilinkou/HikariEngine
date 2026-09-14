@@ -100,4 +100,17 @@ D3D12_GPU_DESCRIPTOR_HANDLE D3D12GpuDescriptorHeap::GpuHandle(uint32_t index) co
                                        static_cast<UINT64>(index) * m_DescriptorSize};
 }
 
+uint32_t D3D12GpuDescriptorHeap::IndexOf(D3D12_GPU_DESCRIPTOR_HANDLE handle) const
+{
+    const UINT64 offset = handle.ptr - m_GpuStart.ptr;
+    if (handle.ptr < m_GpuStart.ptr || offset % m_DescriptorSize != 0u ||
+        offset / m_DescriptorSize >= m_Capacity)
+    {
+        throw std::runtime_error(std::format(
+            "A GPU descriptor handle ({:#x}) is not one of this heap's descriptors.", handle.ptr));
+    }
+
+    return static_cast<uint32_t>(offset / m_DescriptorSize);
+}
+
 } // namespace Hikari::Rhi::D3D12

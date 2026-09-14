@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -9,8 +10,11 @@
 #include <directx/d3d12.h>
 #include <wrl/client.h>
 
+#include <rhi/Handles.h>
 #include <rhi/ICommandList.h>
 #include <rhi/RhiTypes.h>
+
+#include "d3d12/D3D12BindGroup.h"
 
 namespace Hikari::Rhi::D3D12
 {
@@ -72,6 +76,13 @@ public:
     ID3D12CommandList* Native() const { return m_List.Get(); }
     D3D12_COMMAND_LIST_TYPE Type() const { return m_Type; }
 
+    /**
+     * The list, for something that records into it directly. What that records is
+     * invisible here, so the list forgets its root signatures, pipeline and vertex
+     * buffers, and sets each again when next given one.
+     */
+    ID3D12GraphicsCommandList* NativeForRecording();
+
     /** The whole-texture states this list leaves behind, in recording order. */
     const std::vector<std::pair<TextureHandle, D3D12_RESOURCE_STATES>>& Transitions() const
     {
@@ -85,6 +96,28 @@ private:
     void CopyTextureLayers(TextureHandle texture, BufferHandle buffer,
                            const BufferTextureCopyRegion& region, bool bToTexture);
 
+    /**
+     * Makes `layout` the list's graphics or compute root signature, unless it already
+     * is. Only a change is recorded, because setting a different root signature makes
+     * every earlier binding stale while setting the same one again keeps them (*Using a
+     * Root Signature*) — which is what lets a bound group survive a SetPipeline whose
+     * layout is the same, as the seam promises.
+     */
+    const D3D12PipelineLayout& UseLayout(PipelineLayoutHandle layout, bool bCompute);
+
+    /** Makes the next root signature, pipeline and vertex buffers be set rather than skipped. */
+    void ForgetBoundState();
+
+    void BindGroupTables(PipelineLayoutHandle layout, uint32_t slot, BindGroupHandle group,
+                         bool bCompute);
+
+    /**
+     * Binds the vertex buffers set since the last draw, with the bound pipeline's
+     * strides: D3D12 takes a stride with the buffer, where Vulkan took it with the
+     * pipeline, so a buffer set before its pipeline is bound at the draw.
+     */
+    void FlushVertexBuffers();
+
     D3D12Device& m_Device;
     QueueType m_Queue;
     D3D12_COMMAND_LIST_TYPE m_Type;
@@ -94,5 +127,19 @@ private:
 
     std::vector<std::pair<TextureHandle, D3D12_RESOURCE_STATES>> m_Transitions;
     std::vector<TextureHandle> m_CopiedTextures;
+
+    /** What this recording has bound so far; reset by Begin, as Reset resets the list. */
+    PipelineLayoutHandle m_GraphicsLayout{};
+    PipelineLayoutHandle m_ComputeLayout{};
+    GraphicsPipelineHandle m_GraphicsPipeline{};
+
+    struct VertexBufferBinding
+    {
+        BufferHandle Buffer{};
+        uint64_t Offset = 0u;
+    };
+
+    std::array<VertexBufferBinding, D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT> m_VertexBuffers{};
+    bool m_bVertexBuffersDirty = false;
 };
 } // namespace Hikari::Rhi::D3D12

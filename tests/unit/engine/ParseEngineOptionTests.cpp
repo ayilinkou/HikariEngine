@@ -8,6 +8,7 @@
 #include <platform/CommandLine.h>
 
 #include <rhi/Backend.h>
+#include <rhi/DeviceDesc.h>
 
 #include <engine/EngineConfig.h>
 #include <engine/ParseEngineOptions.h>
@@ -16,6 +17,7 @@
 using namespace Hikari::Engine;
 using namespace Hikari::Platform;
 using Hikari::Rhi::Backend;
+using Hikari::Rhi::GpuBasedValidation;
 using Hikari::Rhi::ValidationPolicy;
 
 namespace
@@ -231,20 +233,27 @@ TEST_CASE("Synchronization validation is on unless asked otherwise", "[ParseEngi
     CHECK(spec.bVulkanSyncValidation);
 }
 
-TEST_CASE("GPU-based validation is on unless asked otherwise", "[ParseEngineOption]")
+TEST_CASE("GPU-based validation checks descriptors unless asked otherwise", "[ParseEngineOption]")
 {
     RunSpec spec;
     EngineConfig config;
 
-    // On by default because it is D3D12's only check of what a shader reads.
-    CHECK(spec.bD3D12GpuBasedValidation);
+    // Descriptors by default: D3D12's only check of what a shader reads, without the
+    // resource-state tracking that costs a debug frame several times over.
+    CHECK(spec.D3D12GpuBasedValidation == GpuBasedValidation::Descriptors);
 
     REQUIRE(ParseEngineOption(Option("--d3d12-gpu-based-validation", "off"), spec, config));
-    CHECK_FALSE(spec.bD3D12GpuBasedValidation);
+    CHECK(spec.D3D12GpuBasedValidation == GpuBasedValidation::Off);
 
-    REQUIRE(ParseEngineOption(Option("--d3d12-gpu-based-validation", "on"), spec, config));
-    CHECK(spec.bD3D12GpuBasedValidation);
+    REQUIRE(ParseEngineOption(Option("--d3d12-gpu-based-validation", "full"), spec, config));
+    CHECK(spec.D3D12GpuBasedValidation == GpuBasedValidation::Full);
 
+    REQUIRE(ParseEngineOption(Option("--d3d12-gpu-based-validation", "descriptors"), spec, config));
+    CHECK(spec.D3D12GpuBasedValidation == GpuBasedValidation::Descriptors);
+
+    // With three levels, on would not say which.
+    CHECK_THROWS_AS(ParseEngineOption(Option("--d3d12-gpu-based-validation", "on"), spec, config),
+                    CommandLineError);
     CHECK_THROWS_AS(
         ParseEngineOption(Option("--d3d12-gpu-based-validation", "maybe"), spec, config),
         CommandLineError);

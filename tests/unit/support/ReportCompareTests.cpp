@@ -10,6 +10,7 @@
 #include <platform/IPlatform.h>
 
 #include <rhi/Backend.h>
+#include <rhi/DeviceDesc.h>
 #include <rhi/RhiTypes.h>
 
 #include "ReportCompare.h"
@@ -34,7 +35,8 @@ Engine::RunReport MakeReport()
     report.Counters.Frame.BarrierCalls = 9u;
     report.Counters.Run.ValidationErrors = 0u;
     report.Counters.Run.ValidationWarnings = 0u;
-    report.Counters.Run.UploadSubmissions = 4u;
+    report.Counters.Run.UploadBatches = 4u;
+    report.Counters.Run.UploadSubmissions = 8u;
 
     report.Timings.StartupMs = 512.25f;
     report.Timings.FirstFrame.FrameMs = 33.5f;
@@ -318,13 +320,33 @@ TEST_CASE("A report that will not parse gives no verdict", "[support][report]")
 TEST_CASE("Describe names what the comparison established", "[support][report]")
 {
     Engine::RunReport moved = MakeReport();
-    moved.Counters.Run.UploadSubmissions = 40u;
+    moved.Counters.Run.UploadBatches = 40u;
 
     const std::string text =
         TestSupport::Describe(TestSupport::CompareReports(Json(moved), Json(MakeReport())));
 
     CHECK(text.find("a compared signal moved") != std::string::npos);
-    CHECK(text.find("counters.run.uploadSubmissions: 40 vs 4") != std::string::npos);
+    CHECK(text.find("counters.run.uploadBatches: 40 vs 4") != std::string::npos);
+}
+
+TEST_CASE("Upload submissions never move a comparison, and upload batches do", "[support][report]")
+{
+    // The same batches cost a second submission each on a Vulkan device that hands
+    // uploads back from a copy queue, and none on D3D12, so only the batches are the
+    // engine's decision.
+    Engine::RunReport handedBack = MakeReport();
+    handedBack.Counters.Run.UploadSubmissions = 4u;
+
+    CHECK(TestSupport::CompareReports(Json(handedBack), Json(MakeReport())).Outcome ==
+          ReportOutcome::Matched);
+
+    Engine::RunReport unbatched = MakeReport();
+    unbatched.Counters.Run.UploadBatches = 22u;
+
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(unbatched), Json(MakeReport()));
+    CHECK(result.Outcome == ReportOutcome::Moved);
+    CHECK(Mentions(result.Differences, "counters.run.uploadBatches: 22 vs 4"));
 }
 
 TEST_CASE("What answered never gates the counters", "[support][report]")
@@ -349,8 +371,11 @@ TEST_CASE("What answered never gates the counters", "[support][report]")
 
 TEST_CASE("A differing backend skips pixels and not counters", "[support][report]")
 {
+    // Recorded as a D3D12 run records them: its own sub-mode on, Vulkan's off.
     Engine::RunReport other = MakeReport();
     other.System.Backend = Rhi::Backend::D3D12;
+    other.Run.bSyncValidation = false;
+    other.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
 
     const TestSupport::ReportComparison result =
         TestSupport::CompareReports(Json(other), Json(MakeReport()));
@@ -358,6 +383,108 @@ TEST_CASE("A differing backend skips pixels and not counters", "[support][report
     CHECK(result.Outcome == ReportOutcome::Skipped);
     CHECK(Mentions(result.Skips, "pixels: system.backend differs"));
     CHECK_FALSE(Mentions(result.Skips, "counters:"));
+}
+
+TEST_CASE("Across backends each validation sub-mode is read from its own backend's report",
+          "[support][report]")
+{
+    Engine::RunReport d3d12 = MakeReport();
+    d3d12.System.Backend = Rhi::Backend::D3D12;
+    d3d12.Run.bSyncValidation = false;
+    d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+
+    SECTION("both on their own backend: the counters are compared")
+    {
+        d3d12.Counters.Frame.DrawCalls = 99u;
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(d3d12), Json(MakeReport()));
+
+        CHECK(result.Outcome == ReportOutcome::Moved);
+        CHECK(Mentions(result.Differences, "counters.frame.drawCalls: 99 vs 22"));
+    }
+
+    SECTION("GPU-based validation of descriptors alone in the D3D12 run: the counters are skipped")
+    {
+        d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Descriptors;
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(d3d12), Json(MakeReport()));
+
+        CHECK(result.Outcome == ReportOutcome::Skipped);
+        CHECK(
+            Mentions(result.Skips,
+                     "counters: run.d3d12GpuBasedValidation is \"descriptors\" in the D3D12 run"));
+    }
+
+    SECTION("sync validation off in the Vulkan run, on either side: the counters are skipped")
+    {
+        Engine::RunReport vulkan = MakeReport();
+        vulkan.Run.bSyncValidation = false;
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(vulkan), Json(d3d12));
+
+        CHECK(result.Outcome == ReportOutcome::Skipped);
+        CHECK(Mentions(result.Skips, "counters: run.vkSyncValidation is false in the Vulkan run"));
+    }
+}
+
+TEST_CASE("Within a backend a validation sub-mode still gates the counters", "[support][report]")
+{
+    Engine::RunReport other = MakeReport();
+    other.Run.bSyncValidation = false;
+    other.Counters.Run.ValidationErrors = 3u;
+
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(other), Json(MakeReport()));
+
+    CHECK(result.Outcome == ReportOutcome::Skipped);
+    CHECK(Mentions(result.Skips, "counters: run.vkSyncValidation differs"));
+    CHECK(result.Differences.empty());
+}
+
+TEST_CASE("Across backends validation counts must be zero in both reports", "[support][report]")
+{
+    Engine::RunReport d3d12 = MakeReport();
+    d3d12.System.Backend = Rhi::Backend::D3D12;
+    d3d12.Run.bSyncValidation = false;
+    d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+
+    SECTION("equal and non-zero is not agreement")
+    {
+        // One message from each validator, which need not be about the same thing.
+        Engine::RunReport vulkan = MakeReport();
+        vulkan.Counters.Run.ValidationWarnings = 1u;
+        d3d12.Counters.Run.ValidationWarnings = 1u;
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(d3d12), Json(vulkan));
+
+        CHECK(result.Outcome == ReportOutcome::Moved);
+        CHECK(Mentions(result.Differences, "counters.run.validationWarnings: 1 vs 1 (across "
+                                           "backends both must be zero)"));
+    }
+
+    SECTION("a count on one side alone moves the comparison")
+    {
+        d3d12.Counters.Run.ValidationErrors = 2u;
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(d3d12), Json(MakeReport()));
+
+        CHECK(result.Outcome == ReportOutcome::Moved);
+        CHECK(Mentions(result.Differences, "counters.run.validationErrors: 2 vs 0"));
+    }
+
+    SECTION("within a backend, equal non-zero counts still match")
+    {
+        Engine::RunReport vulkan = MakeReport();
+        vulkan.Counters.Run.ValidationWarnings = 1u;
+
+        CHECK(TestSupport::CompareReports(Json(vulkan), Json(vulkan)).Outcome ==
+              ReportOutcome::Matched);
+    }
 }
 
 TEST_CASE("A baseline without the system block is provisional, not a failure", "[support][report]")

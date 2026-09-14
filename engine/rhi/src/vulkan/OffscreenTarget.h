@@ -11,6 +11,9 @@
 #include <rhi/IPresentTarget.h>
 #include <rhi/RhiTypes.h>
 
+#include "vulkan/VulkanPresentTarget.h"
+#include "vulkan/VulkanSemaphore.h"
+
 namespace Hikari::Rhi::Vulkan
 {
 class VulkanDevice;
@@ -27,9 +30,9 @@ class VulkanDevice;
  *
  * Deliberately not "a swapchain minus presentation": what it drops is the
  * presentation engine, and what it therefore has to add is somewhere for the
- * caller's render-complete signal to go. See Acquire() for that.
+ * render-complete signal of each write to go. See Acquire() for that.
  */
-class OffscreenTarget final : public IPresentTarget
+class OffscreenTarget final : public VulkanPresentTarget
 {
 public:
     /**
@@ -58,23 +61,11 @@ public:
     TextureLayout GetRequiredFinalLayout() const override { return TextureLayout::Undefined; }
 
     [[nodiscard]] AcquiredImage Acquire() override;
-    SemaphoreHandle GetRenderCompleteSemaphore(uint32_t index) const override;
     bool Present(uint32_t index) override;
     [[nodiscard]] bool Recreate(Core::Extent2D newExtent) override;
 
-    /**
-     * Hands over the pending render-complete signal for `index`, if there is
-     * one, and marks it consumed.
-     *
-     * Anything reading an image outside a frame has to wait on the same
-     * semaphore Acquire would have handed back — that wait is what orders the
-     * read after the render that produced the image. Taking it through here is
-     * what keeps the target's own bookkeeping true: a binary semaphore must be
-     * unsignalled before it may be signalled again, so a wait the target does
-     * not know about would leave the next Acquire handing back a wait that
-     * nothing will ever signal, and the frame after it hanging.
-     */
-    std::optional<SemaphoreHandle> TakePendingSignal(uint32_t index);
+    bool BelongsTo(const VulkanDevice& device) const override { return &m_Device == &device; }
+    PresentSemaphores TakeSubmitSemaphores(uint32_t index) override;
 
 private:
     struct Image
@@ -85,9 +76,8 @@ private:
 
         /**
          * Whether RenderComplete has been signalled by a submit nothing has
-         * waited on yet. Set by Present(), which is the caller asserting it
-         * signalled the semaphore, and cleared by the Acquire() that hands it
-         * back as a wait.
+         * waited on yet. Set by Present(), once the image's submission was made,
+         * and cleared by the Acquire() that turns it into the next write's wait.
          *
          * A binary semaphore has to be unsignalled when a signal operation
          * reaches the device (VUID-vkQueueSubmit-pSignalSemaphores-00067), so
@@ -96,6 +86,11 @@ private:
          * consume the signal, so the target consumes it itself.
          */
         bool bSignalPending = false;
+
+        /** What this image's next write waits on: the previous write, or nothing. */
+        SemaphoreHandle PendingWait{};
+
+        PresentImageState State = PresentImageState::Idle;
     };
 
     void Create(Core::Extent2D extent);
@@ -106,16 +101,11 @@ private:
      * creating and destroying the textures and views, and WaitIdle, are all
      * neutral already. Two things are not, and neither is an oversight.
      *
-     *   * Semaphores. IDevice deliberately hands none out — SemaphoreHandle
-     *     exists so that a caller can name one a target owns, and widening the
-     *     device to create them for one internal user would undo that.
+     *   * Semaphores. IDevice hands none out: a submission names the image it
+     *     writes, and the device asks this target which semaphores order it.
      *   * Asking whether a format can back a colour attachment. There is no
      *     neutral capability query, and adding one is a public-seam decision
      *     rather than something to settle inside a backend class.
-     *
-     * Worth revisiting when submission moves behind the RHI in Stage 8: the
-     * target waits and signals internally from then on, so what a second
-     * backend would share is a different shape from this one.
      */
     VulkanDevice& m_Device;
 
@@ -142,13 +132,5 @@ private:
      * with every bSignalPending false.
      */
     uint64_t m_AcquireCount = 0u;
-
-    /**
-     * The storage AcquiredImage::WaitSemaphores points at, so that the span
-     * outlives the call that returned it and is invalidated by the next
-     * Acquire, exactly as the interface documents. A single handle because a
-     * frame can only be waiting on one previous write of one image.
-     */
-    SemaphoreHandle m_CurrentWait{};
 };
 } // namespace Hikari::Rhi::Vulkan

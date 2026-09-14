@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <rhi/Backend.h>
+#include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 
 namespace Hikari::Engine
@@ -109,15 +110,16 @@ struct RunSpec
     bool bVulkanSyncValidation = true;
 
     /**
-     * Whether the D3D12 debug layer also validates on the GPU, where validation
+     * How much the D3D12 debug layer also validates on the GPU, where validation
      * runs at all.
      *
-     * On by default: it is the one check that sees what a shader actually reads,
-     * which D3D12's CPU-side layer cannot. D3D12-only, as the flag's prefix says —
-     * the counterpart of the Vulkan flag above, and for the same reason it can be
-     * turned off: it is expensive.
+     * Descriptors by default: it is the one check that sees what a shader actually
+     * reads, which D3D12's CPU-side layer cannot, and Full's resource-state tracking
+     * costs a debug frame several times over. Tests that assert on validation ask
+     * for Full. D3D12-only, as the flag's prefix says — the counterpart of the Vulkan
+     * flag above.
      */
-    bool bD3D12GpuBasedValidation = true;
+    Rhi::GpuBasedValidation D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Descriptors;
 
     /**
      * Which backend to build the device from. Vulkan on every platform unless

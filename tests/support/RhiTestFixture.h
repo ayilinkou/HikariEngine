@@ -1,5 +1,6 @@
 #pragma once
 
+#include "TestBackend.h"
 #include "TestEnvironment.h"
 
 #include <algorithm>
@@ -97,29 +98,6 @@ struct DeviceInstance
     std::unique_ptr<Hikari::Rhi::IDevice> pDevice;
 };
 
-/**
- * The backend this process's tests run on: HIKARI_TEST_BACKEND, or Vulkan when it
- * is unset.
- *
- * A name the build does not contain fails rather than skips. A registration
- * asking for a backend and getting skips would read as that backend passing —
- * the green run of nothing that HIKARI_TESTS_REQUIRE_DEVICE exists to prevent,
- * reached from a different direction.
- */
-inline Hikari::Rhi::Backend TestBackend()
-{
-    const std::string requested = TestEnvironment::Value("HIKARI_TEST_BACKEND");
-    if (requested.empty())
-        return Hikari::Rhi::Backend::Vulkan;
-
-    const std::optional<Hikari::Rhi::Backend> backend = Hikari::Rhi::BackendFromString(requested);
-    const std::span<const Hikari::Rhi::Backend> available = Hikari::Rhi::AvailableBackends();
-    if (!backend || std::ranges::find(available, *backend) == available.end())
-        FAIL("HIKARI_TEST_BACKEND names a backend this build does not contain: " + requested);
-
-    return *backend;
-}
-
 namespace Detail
 {
 inline Hikari::Rhi::DeviceDesc MakeDesc(DeviceConfig config, Hikari::Rhi::Diagnostics& diagnostics)
@@ -127,10 +105,7 @@ inline Hikari::Rhi::DeviceDesc MakeDesc(DeviceConfig config, Hikari::Rhi::Diagno
     Hikari::Rhi::DeviceDesc desc;
     desc.ApplicationName = "HikariEngine RHI GPU tests";
     desc.Backend = TestBackend();
-
-    // The adapter, as --gpu names one for the apps. What runs D3D12's suite on
-    // WARP on a machine that also has a GPU, which would otherwise always win.
-    desc.Gpu = TestEnvironment::Value("HIKARI_TEST_GPU");
+    desc.Gpu = TestGpu();
 
     // The whole reason these tests exist is to be the place a validation error
     // is noticed, so they pay for the layer. Count rather than FailFast: a
@@ -138,6 +113,11 @@ inline Hikari::Rhi::DeviceDesc MakeDesc(DeviceConfig config, Hikari::Rhi::Diagno
     // than an abort inside the driver.
     desc.bEnableValidation = true;
     desc.pDiagnostics = &diagnostics;
+
+    // Full rather than the default, for the same reason: the resource-state checks
+    // are what a backend's own state tracking is caught by, and a test's timings
+    // are not what it asserts on.
+    desc.GpuBasedValidation = Hikari::Rhi::GpuBasedValidation::Full;
 
     // No window exists in a test binary, and none is needed: nothing here
     // presents.

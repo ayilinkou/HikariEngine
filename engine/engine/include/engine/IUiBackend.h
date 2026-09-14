@@ -38,8 +38,8 @@ struct UiBackendDesc
  * The UI layer's rendering and platform integration, behind an interface so
  * that the engine's frame loop never names one.
  *
- * There is one implementation today, over Vulkan. A second backend is a sibling
- * file rather than an edit here, which is the point: the UI library's
+ * There is one implementation per graphics backend, each a sibling file in the
+ * Editor module rather than an edit here, which is the point: the UI library's
  * integration is inherently backend-specific, so it is demoted to a leaf rather
  * than abstracted away.
  */

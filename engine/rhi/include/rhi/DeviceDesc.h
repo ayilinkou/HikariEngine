@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <rhi/Backend.h>
@@ -9,6 +11,70 @@
 
 namespace Hikari::Rhi
 {
+/**
+ * How much of a D3D12 debug layer's validation runs on the GPU, where validation
+ * runs at all.
+ *
+ * D3D12's term, because D3D12 is the backend that needs it: a D3D12 descriptor
+ * names no resource state, so the layer on the CPU knows what is bound but not
+ * what a shader reads. Vulkan checks the equivalent on the CPU, because a
+ * descriptor write there names the layout.
+ */
+enum class GpuBasedValidation : uint8_t
+{
+    Off,
+
+    /**
+     * Shaders are checked for what they read — uninitialized or incompatible
+     * descriptors and samplers, descriptors naming deleted resources, reads past
+     * the heap — and resource states are not tracked. The tracking is nearly all of
+     * the cost: on the RX 580 a test-scene frame is 3.8 ms here against 22.8 ms at
+     * Full, and 1.3 ms Off.
+     */
+    Descriptors,
+
+    /**
+     * Descriptors, and also whether each resource a shader reads is in a state it
+     * may be read in, including implicit promotion and decay — the check a mistake
+     * in a backend's own state tracking shows up in. What the tests ask for.
+     */
+    Full,
+};
+
+/**
+ * The level's name, and the only spelling of it: --d3d12-gpu-based-validation
+ * parses these words and a run report prints them.
+ */
+constexpr std::string_view ToString(GpuBasedValidation level)
+{
+    switch (level)
+    {
+        case GpuBasedValidation::Off:
+            return "off";
+        case GpuBasedValidation::Descriptors:
+            return "descriptors";
+        case GpuBasedValidation::Full:
+            return "full";
+    }
+
+    return "unknown";
+}
+
+/** The inverse, returning nothing for a word that names no level. */
+constexpr std::optional<GpuBasedValidation> GpuBasedValidationFromString(std::string_view name)
+{
+    if (name == "off")
+        return GpuBasedValidation::Off;
+
+    if (name == "descriptors")
+        return GpuBasedValidation::Descriptors;
+
+    if (name == "full")
+        return GpuBasedValidation::Full;
+
+    return std::nullopt;
+}
+
 /**
  * How much a device is required to be able to do. Separated from DeviceDesc
  * because presentation is the one requirement that is about to become optional:
@@ -139,21 +205,16 @@ struct DeviceDesc
     bool bSyncValidation = true;
 
     /**
-     * Whether the debug layer also validates on the GPU, where bEnableValidation
-     * turned validation on at all.
+     * How much the debug layer also validates on the GPU, where bEnableValidation
+     * turned validation on at all. Its output arrives after the GPU executes rather
+     * than inside the offending call. Ignored by a backend with nothing to switch.
      *
-     * D3D12's term, because D3D12 is the backend that needs it: a D3D12
-     * descriptor names no resource state, so the layer on the CPU knows what is
-     * bound but not what a shader reads, and only the GPU-side pass checks that
-     * a shader's access matches the state its resource is in. Vulkan checks the
-     * equivalent on the CPU, because a descriptor write there names the layout.
-     *
-     * On by default for the same reason bSyncValidation is: it is the check that
-     * catches what nothing else does. Its output arrives after the GPU executes
-     * rather than inside the offending call. Ignored by a backend with nothing
-     * to switch.
+     * Descriptors by default rather than Full, because resource-state tracking
+     * costs a debug frame several times over and an interactive run pays that
+     * every frame; the tests ask for Full, so the state checks still run under
+     * every gate. Type qualified because the member and its type share a name.
      */
-    bool bGpuBasedValidation = true;
+    Rhi::GpuBasedValidation GpuBasedValidation = Rhi::GpuBasedValidation::Descriptors;
 
     /**
      * How many resource descriptors — constant buffers, textures, unordered-access

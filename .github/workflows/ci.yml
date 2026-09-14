@@ -325,12 +325,26 @@ jobs:
           HIKARI_TESTS_REQUIRE_DEVICE: "1"
         run: ctest --test-dir build/${{ matrix.preset }} -L gpu-d3d12 --output-on-failure
 
+      # The scene matrix under D3D12 on WARP, in every Windows configuration, for the
+      # reasons the two steps above give: the Linux scene step's for running it in
+      # release, and the D3D12 GPU step's for WARP and for failing rather than
+      # skipping. The launched headless binary is deployed beside the tests, so it
+      # runs on the same WARP.
+      - name: Scene tests (D3D12, WARP)
+        id: d3d12-scene-tests
+        if: matrix.os == 'windows-latest'
+        continue-on-error: true
+        env:
+          HIKARI_TESTS_REQUIRE_DEVICE: "1"
+        run: ctest --test-dir build/${{ matrix.preset }} -L scene-d3d12 --output-on-failure
+
       # header-check reports "skipped" in the four non-debug jobs, which is not a
       # failure and so passes this gate.
       - name: Fail if any check failed
         if: steps.header-check.outcome == 'failure' || steps.catch2-tests.outcome ==
           'failure' || steps.gpu-tests.outcome == 'failure' || steps.scene-tests.outcome ==
-          'failure' || steps.d3d12-gpu-tests.outcome == 'failure'
+          'failure' || steps.d3d12-gpu-tests.outcome == 'failure' ||
+          steps.d3d12-scene-tests.outcome == 'failure'
         run: |
           echo "One or more checks failed:"
           echo "  Header self-containment: ${{ steps.header-check.outcome }}"
@@ -338,6 +352,7 @@ jobs:
           echo "  GPU tests: ${{ steps.gpu-tests.outcome }}"
           echo "  Scene tests: ${{ steps.scene-tests.outcome }}"
           echo "  D3D12 GPU tests: ${{ steps.d3d12-gpu-tests.outcome }}"
+          echo "  D3D12 scene tests: ${{ steps.d3d12-scene-tests.outcome }}"
           exit 1
 
       # Unconditional, because this run's key is its own and cannot collide with

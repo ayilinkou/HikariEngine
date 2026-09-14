@@ -3,9 +3,9 @@
 # backend_readiness_plan.md D45 for the D3D12 half):
 #
 #   1. A neutral header in include/rhi/ must not depend on either backend's API.
-#   2. include/rhi/vulkan/, the transitional area that may expose Vulkan, holds
-#      exactly the headers listed here and no others.
-#   3. Outside engine/rhi/, only allowlisted sites may include that area.
+#   2. include/rhi/vulkan/ and include/rhi/d3d12/, the areas that may expose a
+#      backend's API, hold exactly the headers listed here and no others.
+#   3. Outside engine/rhi/, only allowlisted sites may include those areas.
 #   4. Outside engine/rhi/, only allowlisted files may name a backend's API at all.
 #   5. Inside engine/rhi/, each backend names only its own API, and the module's
 #      shared sources name neither.
@@ -71,8 +71,9 @@ set(banned_patterns ${vulkan_patterns} ${d3d12_patterns})
 # What is banned is a dependency, not a mention.
 include("${CMAKE_CURRENT_LIST_DIR}/StripComments.cmake")
 
-# GLOB rather than GLOB_RECURSE is load-bearing: it excludes include/rhi/vulkan/,
-# the transitional area that is allowed to expose Vulkan (plan D1 and D9).
+# GLOB rather than GLOB_RECURSE is load-bearing: it excludes include/rhi/vulkan/
+# and include/rhi/d3d12/, the areas allowed to expose a backend (plan D1, D9 and
+# D45), which checks 2 and 3 govern instead.
 file(GLOB neutral_headers "${neutral_dir}/*.h")
 
 if(NOT neutral_headers)
@@ -138,12 +139,13 @@ message(
 )
 
 # ---------------------------------------------------------------------------
-# Check 2: the transitional area is a fixed set of headers.
+# Check 2: the areas that may expose a backend are fixed sets of headers.
 #
-# include/rhi/vulkan/ is the one place in the module that may expose Vulkan
-# outside it (plan D1 and D9). Stage 5 ends with it frozen: a backend header
-# added here rather than in src/vulkan/ has to be argued for by editing this
-# list, which is the point. Everything else the backend needs is private.
+# include/rhi/vulkan/ and include/rhi/d3d12/ are the only places in the module
+# that may expose a backend's API outside it (plan D1, D9 and D45). Both are
+# frozen: a backend header added to one rather than to src/<backend>/ has to be
+# argued for by editing this list, which is the point. Everything else a backend
+# needs is private. Entries are relative to include/rhi/.
 # ---------------------------------------------------------------------------
 
 set(transitional_headers
@@ -153,7 +155,7 @@ set(transitional_headers
     # VkCommandBuffer by value, so a D3D12 build answers with a sibling file
     # rather than an edit. The one non-ImGui entry is the physical device, for a
     # depth-format query the neutral API cannot yet express.
-    "VulkanNative.h"
+    "vulkan/VulkanNative.h"
     # Pure functions over surface query results. Its only production caller is
     # now SwapchainTarget, inside the module, so this could move to src/vulkan/
     # and shrink the list. It is kept here deliberately: the functions are pure
@@ -163,15 +165,19 @@ set(transitional_headers
     # surface into states a real display cannot be asked for on demand, a zero
     # extent among them. Reconsider if it grows past choosing surface
     # parameters, or if it acquires state or a device dependency.
-    "SwapchainUtil.h")
+    "vulkan/SwapchainUtil.h"
+    # D3D12's escape hatch, permanent for the same reason as VulkanNative.h (D45):
+    # ImGui's DX12 backend takes a raw device, queue, command list and the heap its
+    # texture descriptors live in.
+    "d3d12/D3D12Native.h")
 
-set(transitional_dir "${neutral_dir}/vulkan")
-file(GLOB transitional_present RELATIVE "${transitional_dir}" "${transitional_dir}/*.h")
+file(GLOB transitional_present RELATIVE "${neutral_dir}" "${neutral_dir}/vulkan/*.h"
+     "${neutral_dir}/d3d12/*.h")
 
 set(unexpected "")
 foreach(header IN LISTS transitional_present)
   if(NOT header IN_LIST transitional_headers)
-    list(APPEND unexpected "  engine/rhi/include/rhi/vulkan/${header}")
+    list(APPEND unexpected "  engine/rhi/include/rhi/${header}")
   endif()
 endforeach()
 
@@ -179,9 +185,9 @@ if(unexpected)
   list(JOIN unexpected "\n" unexpected_text)
   message(
     FATAL_ERROR
-      "rhi_boundary_check: unexpected header in the transitional area.\n"
+      "rhi_boundary_check: unexpected header in an area that may expose a backend.\n"
       "${unexpected_text}\n\n"
-      "A backend header belongs in engine/rhi/src/vulkan/, where nothing\n"
+      "A backend header belongs in engine/rhi/src/<backend>/, where nothing\n"
       "outside the module can reach it. Put it here only if something outside\n"
       "the module must include it, and say why by adding it to\n"
       "transitional_headers in cmake/RhiBoundaryCheck.cmake.")
@@ -208,13 +214,14 @@ endforeach()
 # fails too, so the list cannot quietly outlive the code it excuses.
 #
 # Entries are "<path>|<header>|<why it is still here>", split on "|" because a
-# CMake list is already split on ";".
+# CMake list is already split on ";". The header is relative to include/rhi/.
 # ---------------------------------------------------------------------------
 
 set(transitional_allowlist
-    "engine/editor/src/VulkanUiBackend.cpp|VulkanNative.h|ImGui's backend takes instance/device/queue and a VkCommandBuffer by value (D9)"
-    "tests/unit/rhi/SwapchainUtilTests.cpp|SwapchainUtil.h|Surface states a real display cannot be put into on demand"
-    "tests/gpu/rhi/DeviceTests.cpp|VulkanNative.h|The escape hatch is what these cases assert on"
+    "engine/editor/src/VulkanUiBackend.cpp|vulkan/VulkanNative.h|ImGui's backend takes instance/device/queue and a VkCommandBuffer by value (D9)"
+    "engine/editor/src/D3D12UiBackend.cpp|d3d12/D3D12Native.h|ImGui's DX12 backend takes a device, a queue, a command list and a descriptor heap by value (D45)"
+    "tests/unit/rhi/SwapchainUtilTests.cpp|vulkan/SwapchainUtil.h|Surface states a real display cannot be put into on demand"
+    "tests/gpu/rhi/DeviceTests.cpp|vulkan/VulkanNative.h|The escape hatch is what these cases assert on"
 )
 
 # Splitting by hand rather than with file(STRINGS), which would turn every
@@ -248,7 +255,8 @@ foreach(scanned IN LISTS scanned_files)
 
     # Anchored at the start of the line so a commented-out include does not
     # count as a use.
-    if(NOT line MATCHES "^[ \t]*#[ \t]*include[ \t]*[<\"]rhi/vulkan/([A-Za-z0-9_]+\\.h)[>\"]")
+    if(NOT line MATCHES
+       "^[ \t]*#[ \t]*include[ \t]*[<\"]rhi/((vulkan|d3d12)/[A-Za-z0-9_]+\\.h)[>\"]")
       continue()
     endif()
 
@@ -266,7 +274,7 @@ foreach(scanned IN LISTS scanned_files)
     endforeach()
 
     if(NOT found)
-      list(APPEND unlisted "  ${relative_path}:${line_number}: rhi/vulkan/${included}")
+      list(APPEND unlisted "  ${relative_path}:${line_number}: rhi/${included}")
     endif()
   endforeach()
 endforeach()
@@ -275,9 +283,9 @@ if(unlisted)
   list(JOIN unlisted "\n" unlisted_text)
   message(
     FATAL_ERROR
-      "rhi_boundary_check: new use of the transitional RHI area.\n"
+      "rhi_boundary_check: new use of an RHI area that exposes a backend.\n"
       "${unlisted_text}\n\n"
-      "Outside engine/rhi/, rhi/vulkan/ may only be included by the sites\n"
+      "Outside engine/rhi/, rhi/vulkan/ and rhi/d3d12/ may only be included by the sites\n"
       "listed in transitional_allowlist in cmake/RhiBoundaryCheck.cmake. Prefer\n"
       "the neutral API in rhi/. If there is genuinely no neutral way to say it\n"
       "yet, add an entry naming the work that removes it again.")
@@ -331,16 +339,17 @@ message(
 # the transitional area is already governed by check 3.
 #
 # One entry per backend, and each is permanent: the ImGui glue, whose backends
-# take raw API objects by value (D9). If a list ever grows a second, the
+# take raw API objects by value (D9, D45). If a list ever grows a second, the
 # question to ask is what neutral call is missing -- that is what the last
-# temporary entry turned out to be. D3D12's is empty until its UI backend
-# exists, because an entry matching no file fails.
+# temporary entry turned out to be.
 # ---------------------------------------------------------------------------
 
 set(vulkan_naming_allowlist
     "engine/editor/src/VulkanUiBackend.cpp|ImGui's Vulkan backend takes a VkFormat, a VkCommandBuffer and raw handles by value (D9). Permanent: a D3D12 build gets a sibling file, not an edit"
 )
-set(d3d12_naming_allowlist)
+set(d3d12_naming_allowlist
+    "engine/editor/src/D3D12UiBackend.cpp|ImGui's DX12 backend takes a device, a queue, a command list, a descriptor heap and DXGI formats by value (D45). Permanent, as its Vulkan sibling is"
+)
 
 # Matches every line of `path` against the patterns in the list named by
 # `patterns_var`, comments stripped, appending "path:line: code" for each hit to

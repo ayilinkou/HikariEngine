@@ -633,6 +633,33 @@ the first run would be agreed with by every same-backend comparison and asserted
 a D3D12 warning with no Vulkan counterpart is fixed or argued away before a cross-backend comparison
 passes.
 
+**Each backend's own validation sub-mode must be on for counters to be compared across backends**
+(decided at step 7, 14 September 2026). `run.vkSyncValidation` and `run.d3d12GpuBasedValidation` gate
+counters because a sub-mode left off is mistakes the counters cannot report, and within a backend a
+difference in either still skips them. Across backends the two always differ, since each exists on one
+backend only — so, read literally, every cross-backend comparison would skip its counters and step 7's
+gate would pass having compared nothing. When `system.backend` differs, each is read from the report of
+the backend it belongs to alone, and the counters are skipped, naming the field, unless it is on there: a
+zero means most when each validator ran in full. A report records a sub-mode as off on the backend that
+lacks it. *Rejected: neither gating across backends*, which would pass a D3D12 run with GPU-based
+validation off against Vulkan on zero warnings while checking less. *The cost:* a deliberately weakened
+run — a release run with `--vk-sync-validation off`, taken for its timings — cannot be compared with the
+other backend on counters.
+
+**Upload batches are compared; upload submissions are measured** (decided at step 7, 14 September 2026).
+The first D3D12 scene run on the RX 580 matched Vulkan's every counter but `uploadSubmissions`: 4 against
+8, for the same four batches. How many submissions a batch costs is the backend's and the driver's — the
+Windows AMD Vulkan driver has a separate copy family without `VK_KHR_maintenance9`, so each batch is a
+copy and an ownership-transfer submission, where D3D12 has no handover and RADV needs none — so the count
+was never a statement about what the engine decided, and a Vulkan run on Windows would have moved against
+the Linux baseline on it too. **The report gains `counters.run.uploadBatches`, compared exactly across
+backends and drivers, and `uploadSubmissions` stays as a measurement**, reported and never compared, so a
+report still shows what the handover costs. *Rejected: batches alone*, which hides the handover outside
+the log; *rejected: submissions compared within a backend only*, which leaves the batching guard short of
+spanning backends and still moving across Vulkan drivers. *The cost:* a field more, and a Compared field
+reclassified. **The user approved the expectation changes that follow:** `ReportCompareTests` classifying
+`uploadSubmissions` as measured, and the committed baseline gaining `uploadBatches` at its Linux refresh.
+
 **The two pixel constants are measured on one machine, from two fresh runs.** The pair is this
 project's RX 580 under Vulkan and under D3D12, taken back to back — one GPU, one driver, so the
 difference isolates the backend and nothing else. Two alternatives crossed more than the backend: WARP
@@ -1152,6 +1179,34 @@ at the first step that renders a scene under D3D12, and if it makes the WARP sce
 default is revisited with the numbers.
 
 The validation *counters* across backends are D26's, as amended.
+
+**Amended at step 7 (14 September 2026): a default run validates descriptors, and tests validate in
+full.** The condition above came due with the first D3D12 scene. On the RX 580, headless on the test scene
+in debug, GPU-based validation took a frame from 1.3 ms to 22.8 ms and the first frame from 5 ms to 1.75 s;
+Vulkan's layer with synchronization validation costs 1.5 ms. The cost is per frame, not per pixel — 19.3
+ms at 640x360 — and almost all of it is resource-state tracking: with
+`ID3D12Debug2::SetGPUBasedValidationFlags(D3D12_GPU_BASED_VALIDATION_FLAGS_DISABLE_STATE_TRACKING)` the frame
+is 3.8 ms and the first 0.37 s, while the patch mode that keeps the tracking and drops the checks is 19.2 ms.
+Microsoft documents that flag as skipping resource-state validation, "which greatly reduces the performance
+cost", with descriptors and descriptor heaps still validated. On NuGet WARP at 640x360 the three are 488,
+333 and 77 ms. **`--d3d12-gpu-based-validation` becomes `off|descriptors|full`, defaulting to
+`descriptors`**: four of the six checks the mode documents — uninitialized or incompatible descriptors and
+samplers, descriptors referencing deleted resources, indexing past the heap — for about 2.5 ms, where the
+other two, incompatible resource states and promotion and decay, cost about nineteen. **The GPU and scene
+suites and `backend_compare` ask for `full` explicitly**, as `RunScene` already asks for validation, so the
+state checks this decision was made for still run under every gate; and D26's rule that each backend's own
+sub-mode be on for a cross-backend counter comparison means `full`. The other levers were weighed and
+measured: guarded patching changes nothing, front-loading patched pipelines moves the first frame's cost into
+startup without reducing it, and per-command-list patch modes cannot reach the tracking, which is
+device-wide. *Rejected: off by default*, this decision's original rejection, since a default run would then
+check nothing only the GPU side can see; *rejected: full by default*, a 22.8 ms debug frame in every
+interactive run from step 9 on. *The cost:* a default run misses a resource-state mistake until a test
+runs, and the report's field becomes a word. **The flag takes exactly those three words** — `on` is refused,
+since it no longer says which level — and the user approved `ParseEngineOptionTests` changing to match.
+**A D3D12 run whose frame times are watched for drift over time, as the Vulkan baseline's are, runs at
+`descriptors`**, the user's call: close enough to Vulkan's validation cost to track, where `full` would drown
+the frame in tracking. No such run exists yet — `backend_compare` runs `full` for its counters and its timings
+are not read — so where it lives is decided with a D3D12 baseline.
 
 ### D41 — Cull mode is a pipeline property, not command-list state
 
@@ -2288,6 +2343,45 @@ have — and both compute pipelines from the compiled shaders, with the renderer
 constant blocks, and asserts no errors and no warnings. It passes on Vulkan, the RX 580 and WARP; with the clouds
 pipeline's depth layout left out it fails on D3D12 with the debug layer's ID 882, "Root Signature doesn't match
 Compute Shader".
+
+**Amended at step 7: what the first scene rests on, what it found, and what it measured.** D42 landed as
+written: `SubmitDesc::PresentImage` names the target and the index, `SemaphoreHandle` is private to the Vulkan
+backend, and every target tracks each image from Acquire through its one submission to Present, refusing a
+second submission or a Present before one — on both backends, so a caller correct on one is correct on the
+other — while a submission naming another device's target is refused. The Vulkan before-and-after headless pairs
+of the test scene and `mixed_sidedness.map` compared identical at zero tolerance; the readback helpers wait on
+the frame's fence value instead of a pending signal. The D3D12 offscreen target has the Vulkan one's shape. Draw
+and dispatch recording sets a root signature only when it changes, since a different one makes earlier bindings
+stale and the same one keeps them; binds vertex buffers at the draw with the bound pipeline's strides; writes push
+constants as whole 32-bit root constants; and binds the device's two heaps when a list begins. **The first scene
+found one defect**: a view of `Format::Undefined` reached `CreateShaderResourceView` as `DXGI_FORMAT_UNKNOWN`,
+which D3D12 refuses whenever a description is passed (the debug layer's ID 28, then device removal), so a view's
+format is resolved to its texture's at creation, as Vulkan resolves it. **The UI backend** is ImGui's DX12 backend
+behind `Editor::CreateUiBackend`, keyed on `HIKARI_EDITOR_D3D12`, with the concrete backends private to the Editor
+module. `include/rhi/d3d12/D3D12Native.h` hands it the device, the direct queue and the resource heap, allocates
+its texture descriptors one at a time out of D43's heap, and hands out a list's native object only after the list
+forgets its bindings, since ImGui sets its own; ImGui's pipeline state is created at Init so a failure throws, and a
+changed target format is refused until the swapchain exists. The boundary check freezes `rhi/d3d12/` beside
+`rhi/vulkan/` — three headers from four sites — `engine_module` gained `WINDOWS_ONLY_HEADERS` so the header check
+skips that directory where nothing can compile it, `DirectX-Headers` is PUBLIC as `Vulkan::Vulkan` is, and the
+namespace check spells `d3d12` as `D3D12`. **The scene suite is registered per backend** (`scene-d3d12`), passing
+the backend, the adapter and full GPU-based validation to the `HikariHeadless` it launches, and Windows CI runs it on
+WARP in all three jobs. **The report** records each validation sub-mode as off on the backend without it, gains
+`uploadBatches` and D40's word, and `ReportCompare` gains D26's two cross-backend rules. **The gate:** precommit
+green with 275 unit, 59 GPU and 24 scene cases, devices required; the D3D12 scene suite passing on the RX 580 and
+on WARP; `backend_compare` exiting 2 with nothing moved and every counter compared; and ImGui drawing under D3D12
+with no validation message. **Measured** — headless, test scene, 1920x1080, the warm second of two runs. Debug
+with validation: Vulkan on the RX 580 starts in 2.59 s, first frame 4.8 ms, 1.5 ms a frame; D3D12 on the RX 580
+at `full` 2.83 s, 1.75 s, 22.8 ms, and with GPU-based validation off 2.51 s, 5.3 ms, 1.3 ms; WARP at `full` 4.24 s,
+4.5 s, 4.0 s, and off 3.43 s, 12 ms, 0.60 s. Release without validation: Vulkan on the RX 580 about 0.80 s with a
+1.6–2.4 ms first frame, D3D12 about 0.76 s and 3.1–3.5 ms, WARP 1.64 s and 4.6–5.0 ms. The D3D12 scene suite takes
+77 s on the RX 580 and on WARP alike, against 7.4 s for Vulkan's: startup and `full`'s first-frame shader patching
+dominate it, not frames. **The triggers, read with the user:** GPU-based validation's cost reopened D40's default,
+now `descriptors` (D40, amended); the pipeline library's does not fire, since D3D12 starts as fast as Vulkan warm
+and WARP's setup does not dominate a local step; and WARP's scene-run time does not reopen running enhanced barriers
+under every gate. CI's WARP step times are read when the step's run completes. **Left for step 10:** the D3D12
+capture draws the cloud layer over the car where Vulkan's car occludes it, which looks like the cloud pass
+reconstructing depth at a vertically mirrored coordinate — D10's clip-space flip — and is a parity question.
 
 **Why this order.** Step 1 needs no seam change, so the deployment — the part most likely to differ between
 machines — is proven before anything is built on it, and step 2 then proves it on the CI runner. Steps 3–6

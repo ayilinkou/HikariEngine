@@ -56,6 +56,14 @@ enum class FieldRole : uint8_t
      * then skipped and named.
      */
     Condition,
+
+    /**
+     * A validation count. Within a backend an expectation like any Compared field;
+     * across backends it must be zero in both reports instead, because two
+     * validators check different things at different granularity, so two equal
+     * non-zero counts say nothing about each other.
+     */
+    ZeroAcrossBackends,
 };
 
 /**
@@ -74,6 +82,17 @@ struct FieldClassification
     FieldRole Role = FieldRole::Condition;
     bool bGatesCounters = false;
     bool bGatesPixels = false;
+
+    /**
+     * Empty for a condition every backend has. Otherwise the backend it exists on,
+     * as system.backend spells it: across backends such a condition always differs,
+     * so it is read from that backend's report alone, and the signals it gates are
+     * skipped unless it holds StrongestValue there.
+     */
+    std::string_view OwningBackend{};
+
+    /** The value, as JSON text, an owned condition must hold to be compared across backends. */
+    std::string_view StrongestValue{};
 };
 
 /** Every field the run report emits, for the comparison and for the test that pins it. */

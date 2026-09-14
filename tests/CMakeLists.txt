@@ -105,7 +105,7 @@ engine_test(
           support/RhiDeviceListener.cpp
   LIBS Engine::RHI
   LABEL gpu
-  BACKEND_SPECS Vulkan "~[d3d12]" D3D12 "[device]~[vulkan],[resources],[upload],[rendering],[bindgroups],[pipelines],[d3d12]")
+  BACKEND_SPECS Vulkan "~[d3d12]" D3D12 "[device]~[vulkan],[resources],[upload],[rendering],[bindgroups],[pipelines],[present],[d3d12]")
 
 # The same reach into the module's own sources that rhi_tests makes, plus the
 # shared fixture: submitting a command list needs a queue, and the RHI hands out
@@ -138,8 +138,16 @@ endif()
 # The scene matrix: real runs of the engine, headless, asserting on the RunReport
 # they return. Labelled "scene" rather than "gpu" so that ctest -L gpu keeps its
 # under-a-minute meaning and a red step says which kind of thing broke.
-engine_test(scene_tests SOURCES scene/SceneLaunchTests.cpp LIBS Engine::Engine
-            Engine::Editor TestSupport LABEL scene)
+#
+# Registered once per backend, as the GPU suite is, and every case runs under both:
+# a scene is the engine's, not a backend's. The two specs differ only because
+# each registration of one binary needs its own.
+engine_test(
+  scene_tests
+  SOURCES scene/SceneLaunchTests.cpp
+  LIBS Engine::Engine Engine::Editor TestSupport
+  LABEL scene
+  BACKEND_SPECS Vulkan "~[d3d12]" D3D12 "~[vulkan]")
 
 # Beside the shaders rather than in tests/: the engine loads them from its own
 # directory, so a test that runs the engine has to live where a binary does.
