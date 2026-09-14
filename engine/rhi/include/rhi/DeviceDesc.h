@@ -145,10 +145,10 @@ struct DeviceRequirements
     bool bPresent = true;
 
     /**
-     * Opaque platform window handle, needed only when bPresent. Opaque rather
-     * than typed because the two backends want unrelated things from it (a
-     * native window pointer versus an HWND), and neither type belongs in a
-     * neutral header.
+     * The platform's window, needed only when bPresent. Opaque rather than typed
+     * because the window type belongs to the platform layer, not to a neutral RHI
+     * header. What it carries is the SDL window, and each backend asks SDL for what
+     * it needs: Vulkan for a surface, D3D12 for the HWND its swapchain is made on.
      */
     void* NativeWindowHandle = nullptr;
 };

@@ -50,6 +50,7 @@ if(WIN32)
       src/d3d12/D3D12GpuDescriptorHeap.cpp
       src/d3d12/D3D12Native.cpp
       src/d3d12/D3D12OffscreenTarget.cpp
+      src/d3d12/D3D12SwapchainTarget.cpp
       src/d3d12/D3D12UploadContext.cpp)
   target_sources(RHI PRIVATE ${d3d12_sources})
 

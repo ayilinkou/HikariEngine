@@ -2412,6 +2412,29 @@ positive control, a barrier through the RHI from a layout the texture is not in,
 on WARP under legacy and enhanced, compared with `HikariCompare`, matching in every counter and identical in
 every pixel at zero tolerance; and `enhanced` refused on the RX 580.
 
+**Amended at step 9: the swapchain, and why it presents in Mailbox.** A windowed D3D12 device creates a
+flip-model DXGI swapchain on its direct queue — `FLIP_DISCARD`, `BGRA8Unorm` as the Vulkan target asks for first,
+two buffers or one per frame in flight if more — on the HWND SDL gives for `SDL_PROP_WINDOW_WIN32_HWND_POINTER`,
+with `DXGI_MWA_NO_ALT_ENTER` so fullscreen stays the platform's. The back buffers are registered as textures
+with no allocation, an acquire is `GetCurrentBackBufferIndex`, and a recreate releases every buffer reference
+before `ResizeBuffers`, refusing a zero extent as a minimised Vulkan surface does. DXGI reports no out-of-date
+swapchain — the flip model stretches a mismatched buffer — so the platform's resize event is what recreates the
+target, and `Present` returns false for nothing; `DXGI_STATUS_OCCLUDED` is a success. **The mapping is §5.4's,
+and its outcome is always Mailbox:** the preference is the Vulkan target's, Mailbox first, and the flip model at
+sync interval 0 always offers it, so the tearing path — sync interval 0 with `ALLOW_TEARING`, which Immediate
+needs — is not built; it arrives with the first request for a particular mode, which is `backlog.md`'s
+`--present-mode` row. On this machine that makes the two backends' editors differ in `run.presentMode`, since
+AMD's Vulkan driver offers no Mailbox on a Win32 surface and Vulkan falls back to Immediate, and the field gates
+counters and pixels; the counters were compared by hand instead, below. The UI backend's platform half runs
+under D3D12, and its refusal of a changed format stays, because neither D3D12 target changes format on a
+recreate. `DeviceDesc`'s comment no longer claims the backends want different things from the window, and the
+D3D12 device's `ThrowNotImplemented` is gone with its last caller. **The gate:** `HikariEditor --backend D3D12`
+windowed on the RX 580, legacy barriers, and on NuGet WARP, enhanced, with GPU-based validation in full, replaying
+`scripted_replay.txt` — the resize to 320x240 recreating the swapchain, the capture at frame 12 read back from a
+back buffer, the quit at frame 14 — with no validation message and the report naming `mailbox`; and a borderless
+1920x1080 editor run of the test scene whose counters equal Vulkan's borderless run on the same GPU in every
+compared field.
+
 **Why this order.** Step 1 needs no seam change, so the deployment — the part most likely to differ between
 machines — is proven before anything is built on it, and step 2 then proves it on the CI runner. Steps 3–6
 build what a frame needs in dependency order: resources before command lists that use them, command lists

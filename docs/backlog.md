@@ -74,7 +74,10 @@ One of these is worth expanding on, because it carries a decision:
   on a surface without it. And the *mode* is neutral vocabulary under D13 ("where only one API
   has the concept at all, its term stands"): Vulkan names these, D3D12 spells the same
   behaviour as `SyncInterval` plus `ALLOW_TEARING`, so this is `--present-mode` rather than
-  `--vk-present-mode`.
+  `--vk-present-mode`. On D3D12 it is also what builds the tearing path: `D3D12SwapchainTarget`
+  always presents in Mailbox, which the flip model always offers, so asking DXGI for
+  `DXGI_FEATURE_PRESENT_ALLOW_TEARING` and creating the swapchain with it waits for a request
+  for Immediate (`backend_readiness_plan.md` §5.5, step 9).
 
   Reject `--present-mode` together with `--headless`, alongside the borderless/fullscreen
   check step 40a adds — an offscreen target does not present, so there is no mode to choose.

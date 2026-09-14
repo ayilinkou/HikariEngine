@@ -126,17 +126,17 @@ void D3D12UiBackend::Render(Rhi::ICommandList& commandList)
 /**
  * ImGui's DX12 backend takes the target format once, at Init, and has nothing to be
  * told about the image count: its ring is sized by the frames in flight. So only a
- * change of format matters, and until the swapchain target exists no target changes
- * its format on a recreate; one that does is refused rather than drawn into with a
- * pipeline state made for another format.
+ * change of format matters, and neither D3D12 target changes its format on a
+ * recreate — the swapchain resizes its buffers in the format it was made with — so one
+ * that did is refused rather than drawn into with a pipeline state made for another.
  */
 void D3D12UiBackend::OnTargetRecreated(uint32_t, Rhi::Format targetFormat)
 {
     if (targetFormat != m_TargetFormat)
     {
         throw std::logic_error(
-            "D3D12UiBackend::OnTargetRecreated: the target's format changed, and rebuilding "
-            "ImGui's pipeline state for a new format is not implemented yet.");
+            "D3D12UiBackend::OnTargetRecreated: the target's format changed on a recreate, "
+            "which no D3D12 target does; ImGui's pipeline state was made for the old one.");
     }
 }
 

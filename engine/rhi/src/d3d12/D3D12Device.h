@@ -37,9 +37,8 @@ namespace Hikari::Rhi::D3D12
  * The D3D12 device: the adapter it runs on, the runtime it runs on, the debug layer
  * that validates it, and the resources, queues and fences it owns.
  *
- * What it does not implement yet throws, naming the method, so a run that reaches
- * one fails at that call rather than rendering nothing. Destroy methods and live
- * counts never throw: a teardown after a failed start still has to get through them.
+ * Destroy methods and live counts never throw: a teardown after a failed start still
+ * has to get through them.
  */
 class D3D12Device final : public IDevice
 {
@@ -102,6 +101,16 @@ public:
 
     /** The device itself, for the backend's own objects and for tests of it. */
     ID3D12Device& GetNativeDevice() { return *m_Device.Get(); }
+
+    /**
+     * A texture over a resource something else created — a swapchain's back buffer.
+     * The handle holds a reference and no allocation, so destroying it releases the
+     * reference and frees nothing.
+     */
+    TextureHandle RegisterExternalTexture(Microsoft::WRL::ComPtr<ID3D12Resource> resource,
+                                          const TextureDesc& desc);
+
+    IDXGIFactory4& GetFactory() const { return *m_Factory.Get(); }
 
     /** Whether lists record barriers as enhanced barriers rather than legacy transitions. */
     bool UsesEnhancedBarriers() const { return m_Info.BarrierPath == BarrierPath::Enhanced; }
@@ -208,8 +217,6 @@ private:
     /** A shared sampler range holding `samplers`, found or made. Call under m_BindMutex. */
     size_t AcquireSamplerRange(const std::vector<D3D12_SAMPLER_DESC>& samplers);
 
-    [[noreturn]] static void ThrowNotImplemented(std::string_view method);
-
     /** Declared before m_pDiagnostics, which may point at it. */
     std::unique_ptr<Diagnostics> m_OwnedDiagnostics;
     Diagnostics* m_pDiagnostics = nullptr;
@@ -228,6 +235,9 @@ private:
 
     /** Whether the device was asked to present to a window rather than render offscreen. */
     bool m_bWindowed = false;
+
+    /** The platform's window, which a swapchain target asks for its HWND; null when headless. */
+    void* m_pNativeWindow = nullptr;
 
     /** What WaitIdle signals and waits on, one value per call. */
     Microsoft::WRL::ComPtr<ID3D12Fence> m_IdleFence;

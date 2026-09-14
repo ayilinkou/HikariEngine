@@ -21,6 +21,7 @@
 #include "d3d12/D3D12DeviceFactory.h"
 #include "d3d12/D3D12OffscreenTarget.h"
 #include "d3d12/D3D12PresentTarget.h"
+#include "d3d12/D3D12SwapchainTarget.h"
 #include "d3d12/D3D12UploadContext.h"
 
 namespace Hikari::Rhi::D3D12
@@ -152,6 +153,12 @@ D3D12Device::D3D12Device(const DeviceDesc& desc)
 
     m_bSingleQueue = desc.bForceSingleQueue;
     m_bWindowed = desc.Requirements.bPresent;
+    m_pNativeWindow = desc.Requirements.NativeWindowHandle;
+    if (m_bWindowed && m_pNativeWindow == nullptr)
+    {
+        throw std::runtime_error(
+            "Rhi::CreateDevice: presentation was required and no window was given to present to.");
+    }
     CreateQueues();
     CreateDescriptorHeaps(desc);
 
@@ -162,8 +169,9 @@ D3D12Device::D3D12Device(const DeviceDesc& desc)
     m_Caps.bFlipClipSpaceY = false;
     m_Caps.ShaderExtension = "dxil";
 
-    // Nothing this device creates can present yet.
-    m_Caps.bPresentSupported = false;
+    // A windowed device presents through a DXGI swapchain on its direct queue; a
+    // headless one renders offscreen.
+    m_Caps.bPresentSupported = m_bWindowed;
 
     // Every D3D12 device offers compute and copy queues beside the direct one, so the
     // device has them unless it was asked to behave as though it had one queue for
@@ -646,11 +654,6 @@ void D3D12Device::DrainDebugMessages()
 {
     if (m_pDebugMessages)
         m_pDebugMessages->Drain();
-}
-
-void D3D12Device::ThrowNotImplemented(std::string_view method)
-{
-    throw std::logic_error(std::format("The D3D12 backend does not implement {} yet", method));
 }
 
 /**
@@ -1831,15 +1834,33 @@ std::unique_ptr<IPipelineCache> D3D12Device::CreatePipelineCache(const PipelineC
 }
 
 /**
- * A device with no window renders into images of its own, as the Vulkan backend's
+ * A windowed device presents through a swapchain on the window it was created for, and
+ * a device with no window renders into images of its own, as the Vulkan backend's
  * does; the caller cannot tell which it has.
  */
 std::unique_ptr<IPresentTarget> D3D12Device::CreatePresentTarget(const PresentTargetDesc& desc)
 {
     if (m_bWindowed)
-        ThrowNotImplemented("CreatePresentTarget for a window");
+        return std::make_unique<D3D12SwapchainTarget>(*this, m_pNativeWindow, desc);
 
     return std::make_unique<D3D12OffscreenTarget>(*this, desc);
+}
+
+TextureHandle D3D12Device::RegisterExternalTexture(ComPtr<ID3D12Resource> resource,
+                                                   const TextureDesc& desc)
+{
+    if (resource == nullptr)
+        throw std::runtime_error("Rhi::D3D12::RegisterExternalTexture: null resource.");
+
+    ValidateTextureDesc(desc);
+
+    if (!desc.DebugName.empty())
+        resource->SetName(WideFromUtf8(desc.DebugName).c_str());
+
+    D3D12Texture texture;
+    texture.Resource = std::move(resource);
+    texture.Desc = desc;
+    return m_Textures.Create(std::move(texture));
 }
 
 } // namespace Hikari::Rhi::D3D12
