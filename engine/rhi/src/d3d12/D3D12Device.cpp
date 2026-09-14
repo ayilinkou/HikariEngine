@@ -156,6 +156,7 @@ D3D12Device::D3D12Device(const DeviceDesc& desc)
     CreateDescriptorHeaps(desc);
 
     FillDeviceInfo();
+    ResolveBarrierPath(desc);
 
     // D3D12's clip space already has Y up, as GLM's projection produces it.
     m_Caps.bFlipClipSpaceY = false;
@@ -171,8 +172,9 @@ D3D12Device::D3D12Device(const DeviceDesc& desc)
     m_Caps.bHasDedicatedCopyQueue = !m_bSingleQueue;
 
     Core::LogMsg(Core::LogSeverity::Info, LogRhi,
-                 "D3D12 device: {} (vendor 0x{:04X}, device 0x{:04X}), driver {}, {}", m_Info.Gpu,
-                 m_Info.VendorId, m_Info.DeviceId, m_Info.Driver, m_Info.ApiVersion);
+                 "D3D12 device: {} (vendor 0x{:04X}, device 0x{:04X}), driver {}, {}, {} barriers",
+                 m_Info.Gpu, m_Info.VendorId, m_Info.DeviceId, m_Info.Driver, m_Info.ApiVersion,
+                 ToString(*m_Info.BarrierPath));
     Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Agility SDK {} loaded from {}",
                  m_AgilitySdk.Version, m_AgilitySdk.CorePath);
 
@@ -611,6 +613,33 @@ void D3D12Device::FillDeviceInfo()
                             ? std::format("feature level {}",
                                           FeatureLevelName(featureLevels.MaxSupportedFeatureLevel))
                             : std::string("feature level unknown");
+}
+
+/**
+ * Enhanced barriers are "not currently a hardware or driver requirement", so support is
+ * the driver's to report. Asking for them on an adapter without is refused rather than
+ * quietly run legacy: a legacy-against-enhanced comparison would otherwise compare
+ * legacy with itself and pass.
+ */
+void D3D12Device::ResolveBarrierPath(const DeviceDesc& desc)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS12 options12{};
+    const bool bSupported = SUCCEEDED(m_Device->CheckFeatureSupport(
+                                D3D12_FEATURE_D3D12_OPTIONS12, &options12, sizeof(options12))) &&
+                            options12.EnhancedBarriersSupported;
+
+    if (desc.BarrierPath == BarrierPath::Enhanced && !bSupported)
+    {
+        throw std::runtime_error(std::format(
+            "Enhanced barriers were asked for, and '{}' does not support them "
+            "(D3D12_FEATURE_DATA_D3D12_OPTIONS12::EnhancedBarriersSupported is false). Use "
+            "legacy or auto.",
+            m_Info.Gpu));
+    }
+
+    const bool bEnhanced = desc.BarrierPath == BarrierPath::Enhanced ||
+                           (desc.BarrierPath == BarrierPath::Auto && bSupported);
+    m_Info.BarrierPath = bEnhanced ? BarrierPath::Enhanced : BarrierPath::Legacy;
 }
 
 void D3D12Device::DrainDebugMessages()

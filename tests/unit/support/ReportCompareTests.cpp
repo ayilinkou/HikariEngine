@@ -255,6 +255,29 @@ TEST_CASE("Fields that must never gate do not", "[support][report]")
         CHECK(Mentions(result.Skips, "counters: run.headless differs"));
         CHECK_FALSE(Mentions(result.Skips, "pixels:"));
     }
+
+    SECTION("D3D12's barrier path gates nothing, since both paths must agree on both signals")
+    {
+        Engine::RunReport legacy = MakeReport();
+        legacy.System.Backend = Rhi::Backend::D3D12;
+        legacy.Run.bSyncValidation = false;
+        legacy.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+        legacy.Run.D3D12Barriers = Rhi::BarrierPath::Legacy;
+
+        Engine::RunReport enhanced = legacy;
+        enhanced.Run.D3D12Barriers = Rhi::BarrierPath::Enhanced;
+
+        const TestSupport::ReportComparison matching =
+            TestSupport::CompareReports(Json(enhanced), Json(legacy));
+        CHECK(matching.Outcome == ReportOutcome::Matched);
+        CHECK(matching.bComparePixels);
+
+        enhanced.Counters.Frame.Barriers = 15u;
+        const TestSupport::ReportComparison moved =
+            TestSupport::CompareReports(Json(enhanced), Json(legacy));
+        CHECK(moved.Outcome == ReportOutcome::Moved);
+        CHECK(Mentions(moved.Differences, "counters.frame.barriers: 15 vs 14"));
+    }
 }
 
 TEST_CASE("A missing field is provisional and still compares the rest", "[support][report]")

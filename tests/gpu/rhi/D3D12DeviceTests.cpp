@@ -19,9 +19,12 @@
 #include <rhi/Diagnostics.h>
 #include <rhi/IDevice.h>
 #include <rhi/SamplerDesc.h>
+#include <rhi/TextureDesc.h>
+#include <rhi/UniqueHandle.h>
 
 #include "d3d12/D3D12Device.h"
 
+#include "GpuReadback.h"
 #include "RhiTestFixture.h"
 #include "ValidationGuard.h"
 
@@ -316,6 +319,108 @@ TEST_CASE("The D3D12 debug layer reports a barrier from the wrong before-state",
         const DWORD waited = WaitForSingleObject(completed, 30'000);
         CloseHandle(completed);
         REQUIRE(waited == WAIT_OBJECT_0);
+    }
+
+    device.DrainDebugMessages();
+
+    std::string recent;
+    for (const std::string& message : diagnostics.RecentMessages())
+        recent += "\n  " + message;
+    INFO("messages:" << recent);
+
+    const uint64_t errors = diagnostics.ErrorCount();
+    diagnostics.Reset();
+
+    CHECK(errors >= 1u);
+}
+
+/**
+ * Auto takes the adapter's best barrier path, so the shared device says which this
+ * adapter has. Legacy is always given when named; enhanced is given where the adapter
+ * has it and refused where it does not, naming the capability, rather than quietly
+ * running legacy — which would make a legacy-against-enhanced comparison compare legacy
+ * with itself.
+ */
+TEST_CASE("A named barrier path is the path taken, and enhanced is refused where unsupported",
+          "[rhi][gpu][device][d3d12]")
+{
+    const bool bEnhancedSupported =
+        RequireD3D12Device().GetInfo().BarrierPath == BarrierPath::Enhanced;
+
+    Diagnostics diagnostics;
+
+    SECTION("legacy")
+    {
+        DeviceDesc desc = RhiTest::Detail::MakeDesc(RhiTest::DeviceConfig::Default, diagnostics);
+        desc.BarrierPath = BarrierPath::Legacy;
+
+        const std::unique_ptr<IDevice> device = CreateDevice(desc);
+        CHECK(device->GetInfo().BarrierPath == BarrierPath::Legacy);
+    }
+
+    SECTION("enhanced")
+    {
+        DeviceDesc desc = RhiTest::Detail::MakeDesc(RhiTest::DeviceConfig::Default, diagnostics);
+        desc.BarrierPath = BarrierPath::Enhanced;
+
+        if (bEnhancedSupported)
+        {
+            const std::unique_ptr<IDevice> device = CreateDevice(desc);
+            CHECK(device->GetInfo().BarrierPath == BarrierPath::Enhanced);
+        }
+        else
+        {
+            try
+            {
+                const std::unique_ptr<IDevice> device = CreateDevice(desc);
+                FAIL("enhanced barriers were given on an adapter that reports no support");
+            }
+            catch (const std::runtime_error& error)
+            {
+                CHECK(std::string_view(error.what()).find("EnhancedBarriersSupported") !=
+                      std::string_view::npos);
+            }
+        }
+    }
+}
+
+/**
+ * The enhanced path's positive control, recorded through the RHI: a barrier naming a
+ * layout the texture is not in. The debug layer tracks enhanced layouts itself, so a
+ * clean run of every other case proves something only if this one fails.
+ */
+TEST_CASE("The D3D12 debug layer reports an enhanced barrier from the wrong layout",
+          "[rhi][gpu][validation][d3d12]")
+{
+    D3D12::D3D12Device& device = RequireD3D12Device();
+    if (!device.UsesEnhancedBarriers())
+        SKIP("This adapter records legacy barriers.");
+
+    Diagnostics& diagnostics = device.GetDiagnostics();
+    diagnostics.Reset();
+
+    {
+        const UniqueHandle<TextureHandle> texture(
+            device, device.CreateTexture(
+                        TextureDesc{.Format = Format::RGBA8Unorm,
+                                    .Extent = {16u, 16u, 1u},
+                                    .Usage = TextureUsage::ColorAttachment | TextureUsage::Sampled,
+                                    .DebugName = "Wrong Layout Texture"}));
+
+        // The deliberate error: a new texture is in COMMON, and the barrier claims it
+        // is a render target.
+        RhiTest::RunGraphicsCommands(
+            device,
+            [&](ICommandList& list)
+            {
+                list.Barrier(TextureBarrier{.Texture = texture.Get(),
+                                            .SrcStage = PipelineStage::RenderTarget,
+                                            .SrcAccess = AccessFlags::RenderTargetWrite,
+                                            .DstStage = PipelineStage::PixelStage,
+                                            .DstAccess = AccessFlags::ShaderRead,
+                                            .OldLayout = TextureLayout::RenderTarget,
+                                            .NewLayout = TextureLayout::ShaderResource});
+            });
     }
 
     device.DrainDebugMessages();

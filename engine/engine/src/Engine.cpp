@@ -356,6 +356,7 @@ private:
         desc.bEnableValidation = m_Spec.bValidationEnabled.value_or(bEnableValidationLayers);
         desc.bSyncValidation = m_Spec.bVulkanSyncValidation;
         desc.GpuBasedValidation = m_Spec.D3D12GpuBasedValidation;
+        desc.BarrierPath = m_Spec.D3D12Barriers;
         desc.Gpu = m_Spec.Gpu;
         desc.pDiagnostics = &m_Diagnostics;
         // The line the whole headless path turns on: no present requirement
@@ -597,6 +598,7 @@ private:
                           bValidationOn && device.Backend == Rhi::Backend::D3D12
                               ? m_Spec.D3D12GpuBasedValidation
                               : Rhi::GpuBasedValidation::Off,
+                      .D3D12Barriers = device.BarrierPath,
                       .DisabledVulkanExtensions = m_Spec.DisabledVulkanExtensions,
                       .bForceSingleQueue = m_Spec.bForceSingleQueue,
                       .FramesInFlight = m_Config.FramesInFlight,

@@ -43,6 +43,11 @@ D3D12UploadContext::D3D12UploadContext(D3D12Device& device, const UploadContextD
 
     m_Allocator = m_Device.CreateCommandAllocator(
         CommandAllocatorDesc{.Queue = m_Queue, .DebugName = name + " Allocator"});
+    if (m_Queue == QueueType::Copy && m_Device.UsesEnhancedBarriers())
+    {
+        m_LatchAllocator = m_Device.CreateCommandAllocator(CommandAllocatorDesc{
+            .Queue = QueueType::Graphics, .DebugName = name + " Latch Allocator"});
+    }
     m_Fence = m_Device.CreateFence(FenceDesc{.InitialValue = 0u, .DebugName = name + " Fence"});
 
     Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Upload context '{}' uploads on the {} queue.",
@@ -162,6 +167,7 @@ void D3D12UploadContext::Flush()
     list.Begin();
 
     const bool bDirect = m_Queue != QueueType::Copy;
+    const uint64_t submitsBefore = m_Stats.Submits;
 
     std::vector<TextureBarrier> toCopyDst;
     std::vector<TextureBarrier> toShaderResource;
@@ -224,6 +230,9 @@ void D3D12UploadContext::Flush()
     ++m_Stats.Batches;
     ++m_Stats.Submits;
 
+    if (m_LatchAllocator && !m_TextureCopies.empty())
+        LatchCopiedTextures(signal);
+
     m_Device.WaitForFence(m_Fence, m_FenceValue);
 
     const uint64_t flushedBytes = m_PendingBytes;
@@ -238,8 +247,60 @@ void D3D12UploadContext::Flush()
     m_PendingBytes = 0u;
 
     Core::LogMsg(Core::LogSeverity::Info, LogRhi,
-                 "Upload flush: {} resource(s), {:.1f} MiB, in 1 submission.", flushedUploads,
-                 static_cast<double>(flushedBytes) / (1024.0 * 1024.0));
+                 "Upload flush: {} resource(s), {:.1f} MiB, in {} submission(s).", flushedUploads,
+                 static_cast<double>(flushedBytes) / (1024.0 * 1024.0),
+                 m_Stats.Submits - submitsBefore);
+}
+
+/**
+ * Every enhanced barrier here is a latch — no synchronization before or after it, and no
+ * access on either side — which the Enhanced Barriers specification describes for an
+ * ExecuteCommandLists that only barriers to latch a layout. It is legal only because the
+ * submission holds nothing else: the specification requires no other access to the
+ * subresources in the same scope on either side of a NONE sync. The wait on the copy's
+ * fence orders it after the copy, so the textures are in COMMON when it runs, as a copy
+ * queue leaves them.
+ */
+void D3D12UploadContext::LatchCopiedTextures(const FenceOperation& afterCopy)
+{
+    std::vector<TextureBarrier> latches;
+    latches.reserve(m_TextureCopies.size());
+    for (const PendingTextureCopy& copy : m_TextureCopies)
+    {
+        const D3D12Texture* pTexture = m_Device.FindTexture(copy.Destination);
+        if (pTexture == nullptr)
+            continue; // Reported when the copy was recorded.
+
+        const TextureDesc& desc = pTexture->Desc;
+        latches.push_back(TextureBarrier{
+            .Texture = copy.Destination,
+            .SrcStage = PipelineStage::None,
+            .SrcAccess = AccessFlags::None,
+            .DstStage = PipelineStage::None,
+            .DstAccess = AccessFlags::None,
+            .OldLayout = TextureLayout::Common,
+            .NewLayout = TextureLayout::ShaderResource,
+            .Aspect = DefaultAspect(desc.Format),
+            .BaseMip = 0u,
+            .MipCount = desc.MipLevels,
+            .BaseLayer = 0u,
+            .LayerCount = desc.Dimension == TextureDimension::Texture3D ? 1u : desc.ArrayLayers});
+    }
+
+    m_LatchAllocator->Reset();
+    ICommandList& list = m_LatchAllocator->Acquire();
+    list.Begin();
+    list.Barrier(latches);
+    list.End();
+
+    ICommandList* lists[] = {&list};
+    const FenceOperation signal{.Fence = m_Fence, .Value = ++m_FenceValue};
+    m_Device.Submit(SubmitDesc{.Queue = QueueType::Graphics,
+                               .CommandLists = lists,
+                               .WaitFences = std::span<const FenceOperation>(&afterCopy, 1),
+                               .SignalFences = std::span<const FenceOperation>(&signal, 1),
+                               .PresentImage = {}});
+    ++m_Stats.Submits;
 }
 
 } // namespace Hikari::Rhi::D3D12

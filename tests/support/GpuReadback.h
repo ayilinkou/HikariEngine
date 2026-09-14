@@ -212,8 +212,11 @@ ReadTextureLayers(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle sourc
  * still pass.
  *
  * `currentLayout` is where the last frame left the image. The barrier's source
- * scope names the render target rather than nothing, so that it reads as the
- * write it follows.
+ * scope is empty, as ReadTextureLayers' is: the write it follows is in an earlier
+ * submission, which the fence wait orders this one after, so nothing in this
+ * submission precedes it. Naming the render target's write there instead
+ * describes an access the layout does not allow — which D3D12's enhanced barriers
+ * refuse outright, closing the list with E_INVALIDARG.
  */
 inline std::vector<std::byte> ReadRenderedTexture(Hikari::Rhi::IDevice& device,
                                                   Hikari::Rhi::TextureHandle source,
@@ -239,8 +242,8 @@ inline std::vector<std::byte> ReadRenderedTexture(Hikari::Rhi::IDevice& device,
 
     const Hikari::Rhi::TextureBarrier toCopySrc{
         .Texture = source,
-        .SrcStage = Hikari::Rhi::PipelineStage::RenderTarget,
-        .SrcAccess = Hikari::Rhi::AccessFlags::RenderTargetWrite,
+        .SrcStage = Hikari::Rhi::PipelineStage::None,
+        .SrcAccess = Hikari::Rhi::AccessFlags::None,
         .DstStage = Hikari::Rhi::PipelineStage::Copy,
         .DstAccess = Hikari::Rhi::AccessFlags::CopySrc,
         .OldLayout = currentLayout,

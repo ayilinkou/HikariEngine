@@ -48,6 +48,24 @@ D3D12_RESOURCE_FLAGS ToResourceFlags(TextureUsage usage);
 D3D12_RESOURCE_STATES ToLegacyState(TextureLayout layout);
 
 /**
+ * A layout as an enhanced barrier's. One-to-one but for DepthStencilRead, which is a
+ * depth attachment tested read-only and sampled at once: DEPTH_STENCIL_READ admits no
+ * shader read, so it maps to DIRECT_QUEUE_GENERIC_READ, the one layout the Enhanced
+ * Barriers specification lists as compatible with both — legal because every list that
+ * records a barrier here is a direct list.
+ */
+D3D12_BARRIER_LAYOUT ToBarrierLayout(TextureLayout layout);
+
+/**
+ * Accesses as an enhanced barrier's. No access at all is NO_ACCESS, never COMMON, which
+ * means every access the layout allows and, as a before-access, every write.
+ */
+D3D12_BARRIER_ACCESS ToBarrierAccess(AccessFlags access);
+
+/** Pipeline stages as an enhanced barrier's synchronization scope. */
+D3D12_BARRIER_SYNC ToBarrierSync(PipelineStage stage);
+
+/**
  * A blend factor for the colour channels, or — `bAlpha` — for the alpha channel. D3D12
  * forbids a colour factor on alpha; Vulkan allows it and means the alpha component, so
  * a colour factor on alpha becomes its alpha twin, the same factor.

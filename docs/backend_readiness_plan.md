@@ -2383,6 +2383,35 @@ under every gate. CI's WARP step times are read when the step's run completes. *
 capture draws the cloud layer over the car where Vulkan's car occludes it, which looks like the cloud pass
 reconstructing depth at a vertically mirrored coordinate — D10's clip-space flip — and is a parity question.
 
+**Amended at step 8: how the enhanced path maps the seam, and what it found.** D37 and D38 landed as written:
+`DeviceDesc::BarrierPath` and `--d3d12-barriers legacy|enhanced|auto`, auto taking enhanced barriers where
+`D3D12_FEATURE_DATA_D3D12_OPTIONS12::EnhancedBarriersSupported` says so, `enhanced` refused at device creation
+elsewhere naming the adapter and the capability, and a named path refused on Vulkan at parse time. The path taken
+is `DeviceInfo::BarrierPath` and the report's `run.d3d12Barriers` — `null` on Vulkan — classified to gate
+nothing, since the two paths must agree on counters and pixels alike. Each `TextureBarrier` is one
+`D3D12_TEXTURE_BARRIER` with its halves and range as given, recorded through `ID3D12GraphicsCommandList7`. The
+mapping follows the Enhanced Barriers specification's tables, with three points decided by them: no access is
+`NO_ACCESS`, never `COMMON`, which as a before-access means every write; `AllGraphics` is `SYNC_DRAW`, the scope
+that supersedes every graphics stage; and **`DepthStencilRead` is `DIRECT_QUEUE_GENERIC_READ`**, because the
+depth buffer after the opaque pass is both a read-only attachment and sampled by the cloud pass, and
+`DEPTH_STENCIL_READ` admits no shader read — the queue-specific layout is the only one the specification lists
+as admitting both, and every list that records a barrier is a direct list. **Enhanced barriers neither promote
+nor decay**, so the upload context latches the textures a copy queue filled from `COMMON` to shader resource
+in a submission of its own on the direct queue, ordered after the copy's fence: a layout-only barrier with no
+sync on either side, the shape the specification gives for exactly that. That makes a flush two submissions,
+which `uploadSubmissions` — measured since step 7 — shows and `uploadBatches` does not. **The enhanced path's
+first run found a mistake in test support** that Vulkan and the legacy path had both let through:
+`ReadRenderedTexture`'s barrier named a render target's write as its source while naming the shader-resource
+layout the image was in, an access that layout does not allow, and the list failed to close with
+`E_INVALIDARG`. Its source scope is empty now, as `ReadTextureLayers`' already was, since the write it follows is
+in a submission the fence wait orders it after. D3D12's fixture arrangements are `Default` and `SingleQueue`
+crossed with the barrier path — the added `LegacyBarriers` and `SingleQueueLegacyBarriers` run the legacy path
+on an adapter that has enhanced barriers — and two D3D12 cases join: the path a request gets, and an enhanced
+positive control, a barrier through the RHI from a layout the texture is not in, which the debug layer reports.
+**The gate:** both suites on NuGet WARP under enhanced barriers, 32 GPU cases and 12 scene cases; the test scene
+on WARP under legacy and enhanced, compared with `HikariCompare`, matching in every counter and identical in
+every pixel at zero tolerance; and `enhanced` refused on the RX 580.
+
 **Why this order.** Step 1 needs no seam change, so the deployment — the part most likely to differ between
 machines — is proven before anything is built on it, and step 2 then proves it on the CI runner. Steps 3–6
 build what a frame needs in dependency order: resources before command lists that use them, command lists

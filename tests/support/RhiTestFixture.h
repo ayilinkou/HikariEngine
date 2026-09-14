@@ -85,6 +85,15 @@ enum class DeviceConfig : uint8_t
      * nothing to hand over. What an integrated GPU exposes.
      */
     SingleQueue,
+
+    /**
+     * D3D12's two arrangements on its legacy barrier path, whatever the adapter
+     * supports. Default and SingleQueue take the adapter's best path — enhanced
+     * wherever it has them — so these are what run the legacy path on the same
+     * adapter as well, and a difference between the two shows up in one run.
+     */
+    LegacyBarriers,
+    SingleQueueLegacyBarriers,
 };
 
 /**
@@ -135,6 +144,13 @@ inline Hikari::Rhi::DeviceDesc MakeDesc(DeviceConfig config, Hikari::Rhi::Diagno
             break;
         case DeviceConfig::SingleQueue:
             desc.bForceSingleQueue = true;
+            break;
+        case DeviceConfig::LegacyBarriers:
+            desc.BarrierPath = Hikari::Rhi::BarrierPath::Legacy;
+            break;
+        case DeviceConfig::SingleQueueLegacyBarriers:
+            desc.bForceSingleQueue = true;
+            desc.BarrierPath = Hikari::Rhi::BarrierPath::Legacy;
             break;
     }
 
@@ -241,10 +257,16 @@ inline constexpr std::array kVulkanDeviceConfigs{
     DeviceConfig::SingleQueue,
 };
 
-/** Every configuration D3D12 has: no ownership transfer to force. */
+/**
+ * Every configuration D3D12 has: no ownership transfer to force, and each arrangement
+ * crossed with the barrier path — on an adapter without enhanced barriers the two
+ * crossings are the same device twice.
+ */
 inline constexpr std::array kD3D12DeviceConfigs{
     DeviceConfig::Default,
     DeviceConfig::SingleQueue,
+    DeviceConfig::LegacyBarriers,
+    DeviceConfig::SingleQueueLegacyBarriers,
 };
 
 /** Every configuration this process's backend has, for the cases that have to pass under all of them. */
@@ -273,6 +295,10 @@ inline const char* Describe(DeviceConfig config)
             return "ownership transfer, all stages";
         case DeviceConfig::SingleQueue:
             return "single queue";
+        case DeviceConfig::LegacyBarriers:
+            return "legacy barriers";
+        case DeviceConfig::SingleQueueLegacyBarriers:
+            return "single queue, legacy barriers";
     }
 
     return "unknown";

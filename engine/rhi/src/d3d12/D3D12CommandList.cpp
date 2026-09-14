@@ -52,6 +52,15 @@ D3D12CommandList::D3D12CommandList(D3D12Device& device, QueueType queue,
                                              static_cast<uint32_t>(hr)));
     }
 
+    // The interface enhanced barriers are recorded through, on a device that records
+    // them. A driver reporting support is one whose runtime has it.
+    if (device.UsesEnhancedBarriers() && FAILED(m_List.As(&m_List7)))
+    {
+        throw std::runtime_error(
+            "The D3D12 device records enhanced barriers, and its command list has no "
+            "ID3D12GraphicsCommandList7 to record them through.");
+    }
+
     // A list is created open. Closing it here lets Begin reset it the same way on its
     // first use as on every later one.
     m_List->Close();
@@ -122,6 +131,67 @@ void D3D12CommandList::End()
 }
 
 BarrierCounts D3D12CommandList::Barrier(std::span<const TextureBarrier> barriers)
+{
+    return m_List7 ? EnhancedBarrier(barriers) : LegacyBarrier(barriers);
+}
+
+/**
+ * Each TextureBarrier is one enhanced texture barrier, halves and range as given: the
+ * seam was shaped on this model. Undefined is D3D12_BARRIER_LAYOUT_UNDEFINED, so nothing
+ * is tracked. The debug layer checks the synchronization scopes against the Enhanced
+ * Barriers rules, which is a check of the neutral presets no legacy path can make.
+ */
+BarrierCounts D3D12CommandList::EnhancedBarrier(std::span<const TextureBarrier> barriers)
+{
+    std::vector<D3D12_TEXTURE_BARRIER> converted;
+    converted.reserve(barriers.size());
+
+    for (const TextureBarrier& barrier : barriers)
+    {
+        const D3D12Texture* pTexture = m_Device.FindTexture(barrier.Texture);
+        if (pTexture == nullptr)
+        {
+            m_Device.ReportError(
+                std::format("Rhi::ICommandList::Barrier: texture handle {:#010x} is stale or was "
+                            "never valid; the barrier was not recorded.",
+                            barrier.Texture.Value));
+            continue;
+        }
+
+        // Every plane, as the legacy path transitions every plane: a layout belongs to
+        // the depth and stencil of a texture together in how the engine uses it.
+        const D3D12_TEXTURE_BARRIER texture{
+            .SyncBefore = ToBarrierSync(barrier.SrcStage),
+            .SyncAfter = ToBarrierSync(barrier.DstStage),
+            .AccessBefore = ToBarrierAccess(barrier.SrcAccess),
+            .AccessAfter = ToBarrierAccess(barrier.DstAccess),
+            .LayoutBefore = ToBarrierLayout(barrier.OldLayout),
+            .LayoutAfter = ToBarrierLayout(barrier.NewLayout),
+            .pResource = pTexture->Resource.Get(),
+            .Subresources = {.IndexOrFirstMipLevel = barrier.BaseMip,
+                             .NumMipLevels = barrier.MipCount,
+                             .FirstArraySlice = barrier.BaseLayer,
+                             .NumArraySlices = barrier.LayerCount,
+                             .FirstPlane = 0u,
+                             .NumPlanes = PlanesOf(pTexture->Desc.Format)},
+            .Flags = D3D12_TEXTURE_BARRIER_FLAG_NONE};
+        converted.push_back(texture);
+    }
+
+    if (!converted.empty())
+    {
+        const D3D12_BARRIER_GROUP group{.Type = D3D12_BARRIER_TYPE_TEXTURE,
+                                        .NumBarriers = static_cast<UINT32>(converted.size()),
+                                        .pTextureBarriers = converted.data()};
+        m_List7->Barrier(1u, &group);
+    }
+
+    m_Device.DrainDebugMessages();
+    const uint32_t counted = static_cast<uint32_t>(converted.size());
+    return BarrierCounts{.Barriers = counted, .Calls = counted > 0u ? 1u : 0u};
+}
+
+BarrierCounts D3D12CommandList::LegacyBarrier(std::span<const TextureBarrier> barriers)
 {
     std::vector<D3D12_RESOURCE_BARRIER> converted;
     uint32_t counted = 0u;

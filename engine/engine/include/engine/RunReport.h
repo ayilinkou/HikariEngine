@@ -198,6 +198,12 @@ struct RunReport
          */
         Rhi::GpuBasedValidation D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Off;
 
+        /**
+         * The barrier model D3D12 recorded with, auto resolved. Empty on a backend
+         * with only one.
+         */
+        std::optional<Rhi::BarrierPath> D3D12Barriers;
+
         std::vector<std::string> DisabledVulkanExtensions;
         bool bForceSingleQueue = false;
 

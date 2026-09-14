@@ -120,6 +120,18 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
 
         spec.D3D12GpuBasedValidation = *level;
     }
+    else if (flag == "--d3d12-barriers")
+    {
+        const std::string value = option.RequireValue();
+        const std::optional<Rhi::BarrierPath> path = Rhi::BarrierPathFromString(value);
+        if (!path)
+        {
+            throw Platform::CommandLineError(
+                "--d3d12-barriers expects legacy, enhanced or auto, got: " + value);
+        }
+
+        spec.D3D12Barriers = *path;
+    }
     else if (flag == "--gpu")
         spec.Gpu = option.RequireValue();
     else if (flag == "--validation-policy")
@@ -190,6 +202,16 @@ void RejectContradictoryOptions(const RunSpec& spec)
             "extensions to disable");
     }
 
+    // A path named for a backend that has one barrier model would read as a choice
+    // that was made. Auto is what leaving the flag alone means, so it stays accepted.
+    if (spec.Backend != Rhi::Backend::D3D12 && spec.D3D12Barriers != Rhi::BarrierPath::Auto)
+    {
+        throw Platform::CommandLineError(
+            "--d3d12-barriers " + std::string(Rhi::ToString(spec.D3D12Barriers)) +
+            " cannot be combined with --backend " + std::string(Rhi::ToString(spec.Backend)) +
+            ": only D3D12 has a barrier path to choose");
+    }
+
     if (spec.bValidationEnabled == false && spec.bStrictValidation)
     {
         throw Platform::CommandLineError(
@@ -234,6 +256,12 @@ void PrintEngineUsage()
                      "resource states,\n"
                      "                          which cost several times more "
                      "(default: descriptors)\n"
+                     "  --d3d12-barriers <legacy|enhanced|auto>\n"
+                     "                          D3D12 only. The barrier model to record with; "
+                     "auto takes enhanced\n"
+                     "                          where the adapter supports it, and enhanced "
+                     "is refused where it\n"
+                     "                          does not (default: auto)\n"
                      "  --backend <name>        Which backend to run on. Available in this "
                      "build: " +
                      AvailableBackendNames() +

@@ -28,11 +28,13 @@ class D3D12Device;
  * several lists from one allocator open at once, as Vulkan does. One native
  * allocator per list is what keeps that legal.
  *
- * Barriers take the legacy path: each TextureBarrier becomes a transition between
- * two D3D12_RESOURCE_STATES, its pipeline stages are discarded because legacy
- * barriers carry no synchronization scope, and a from-Undefined barrier resolves to
- * the state earlier submissions left the texture in. The states a list leaves its
- * textures in are recorded here and applied by the device at Submit.
+ * Barriers take whichever path the device chose. On the enhanced path each
+ * TextureBarrier is one enhanced texture barrier with all three halves. On the
+ * legacy path each becomes a transition between two D3D12_RESOURCE_STATES, its
+ * pipeline stages are discarded because legacy barriers carry no synchronization
+ * scope, and a from-Undefined barrier resolves to the state earlier submissions left
+ * the texture in; the states a list leaves its textures in are recorded here and
+ * applied by the device at Submit.
  */
 class D3D12CommandList final : public ICommandList
 {
@@ -96,6 +98,9 @@ private:
     void CopyTextureLayers(TextureHandle texture, BufferHandle buffer,
                            const BufferTextureCopyRegion& region, bool bToTexture);
 
+    BarrierCounts EnhancedBarrier(std::span<const TextureBarrier> barriers);
+    BarrierCounts LegacyBarrier(std::span<const TextureBarrier> barriers);
+
     /**
      * Makes `layout` the list's graphics or compute root signature, unless it already
      * is. Only a change is recorded, because setting a different root signature makes
@@ -124,6 +129,9 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_Allocator;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_List;
+
+    /** The same list, where the device records enhanced barriers; null where it records legacy. */
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> m_List7;
 
     std::vector<std::pair<TextureHandle, D3D12_RESOURCE_STATES>> m_Transitions;
     std::vector<TextureHandle> m_CopiedTextures;

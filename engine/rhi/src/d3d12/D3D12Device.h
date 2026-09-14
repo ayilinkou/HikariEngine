@@ -103,6 +103,9 @@ public:
     /** The device itself, for the backend's own objects and for tests of it. */
     ID3D12Device& GetNativeDevice() { return *m_Device.Get(); }
 
+    /** Whether lists record barriers as enhanced barriers rather than legacy transitions. */
+    bool UsesEnhancedBarriers() const { return m_Info.BarrierPath == BarrierPath::Enhanced; }
+
     /** The direct queue, which graphics and compute lists are submitted to. */
     ID3D12CommandQueue& GetDirectQueue() const { return *m_DirectQueue.Get(); }
 
@@ -198,6 +201,7 @@ private:
     void CreateQueues();
     void CreateDescriptorHeaps(const DeviceDesc& desc);
     void FillDeviceInfo();
+    void ResolveBarrierPath(const DeviceDesc& desc);
 
     ID3D12CommandQueue& QueueFor(QueueType queue) const;
 

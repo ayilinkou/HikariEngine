@@ -142,6 +142,12 @@ constexpr std::array kFields = {
     FieldClassification{"run.d3d12GpuBasedValidation", FieldRole::Condition, true, true, "D3D12",
                         "\"full\""},
 
+    // Never gates anything, and that is a requirement: D3D12's two barrier paths must
+    // make the same decisions and draw the same frame, so a legacy run compared with
+    // an enhanced one on one adapter is exactly the comparison that has to see both
+    // signals (plan D37 and D38).
+    FieldClassification{"run.d3d12Barriers", FieldRole::Condition, false, false},
+
     // Both testing levers change which code path runs — a disabled extension
     // takes the fallback, and one queue family means no ownership transfers and
     // a different set of barriers.

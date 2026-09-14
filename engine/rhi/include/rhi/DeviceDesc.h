@@ -76,6 +76,59 @@ constexpr std::optional<GpuBasedValidation> GpuBasedValidationFromString(std::st
 }
 
 /**
+ * Which of D3D12's two barrier models a device records TextureBarriers with.
+ *
+ * D3D12's choice, because only D3D12 has two: legacy barriers move a subresource
+ * between D3D12_RESOURCE_STATES and carry no synchronization scope, while enhanced
+ * barriers carry sync, access and layout as independent halves — the shape
+ * TextureBarrier already has. Enhanced barriers are optional per driver, so a
+ * legacy path is what runs on hardware without them.
+ */
+enum class BarrierPath : uint8_t
+{
+    /** Enhanced where the adapter supports it, legacy where it does not. */
+    Auto,
+    Legacy,
+
+    /** Refused at device creation on an adapter without enhanced barriers. */
+    Enhanced,
+};
+
+/**
+ * The path's name, and the only spelling of it: --d3d12-barriers parses these words
+ * and a run report prints the path taken.
+ */
+constexpr std::string_view ToString(BarrierPath path)
+{
+    switch (path)
+    {
+        case BarrierPath::Auto:
+            return "auto";
+        case BarrierPath::Legacy:
+            return "legacy";
+        case BarrierPath::Enhanced:
+            return "enhanced";
+    }
+
+    return "unknown";
+}
+
+/** The inverse, returning nothing for a word that names no path. */
+constexpr std::optional<BarrierPath> BarrierPathFromString(std::string_view name)
+{
+    if (name == "auto")
+        return BarrierPath::Auto;
+
+    if (name == "legacy")
+        return BarrierPath::Legacy;
+
+    if (name == "enhanced")
+        return BarrierPath::Enhanced;
+
+    return std::nullopt;
+}
+
+/**
  * How much a device is required to be able to do. Separated from DeviceDesc
  * because presentation is the one requirement that is about to become optional:
  * a headless run wants everything here except a window, and keeping the split
@@ -217,6 +270,14 @@ struct DeviceDesc
     Rhi::GpuBasedValidation GpuBasedValidation = Rhi::GpuBasedValidation::Descriptors;
 
     /**
+     * Which barrier model a backend with two records with. Auto takes the better one
+     * the adapter supports; naming one is how both are run on one adapter, so that
+     * a difference between them is not confounded with hardware. Ignored by a
+     * backend with one. Type qualified because the member and its type share a name.
+     */
+    Rhi::BarrierPath BarrierPath = Rhi::BarrierPath::Auto;
+
+    /**
      * How many resource descriptors — constant buffers, textures, unordered-access
      * textures — and how many sampler descriptors every bind group alive at once may
      * hold between them, on a backend that binds from fixed heaps.
@@ -338,5 +399,11 @@ struct DeviceInfo
      */
     uint32_t VendorId = 0;
     uint32_t DeviceId = 0;
+
+    /**
+     * The barrier model the device records with, Auto resolved: empty on a backend
+     * that has only one.
+     */
+    std::optional<Rhi::BarrierPath> BarrierPath;
 };
 } // namespace Hikari::Rhi

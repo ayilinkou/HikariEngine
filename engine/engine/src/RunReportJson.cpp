@@ -112,6 +112,11 @@ std::string ToJson(const RunReport& report)
         << "    \"vkSyncValidation\": " << (report.Run.bSyncValidation ? "true" : "false") << ",\n"
         << "    \"d3d12GpuBasedValidation\": \""
         << Rhi::ToString(report.Run.D3D12GpuBasedValidation) << "\",\n"
+        << "    \"d3d12Barriers\": "
+        << (report.Run.D3D12Barriers
+                ? "\"" + std::string(Rhi::ToString(*report.Run.D3D12Barriers)) + "\""
+                : std::string("null"))
+        << ",\n"
         << "    \"vkDisabledExtensions\": " << StringArrayJson(report.Run.DisabledVulkanExtensions)
         << ",\n"
         << "    \"forceSingleQueue\": " << (report.Run.bForceSingleQueue ? "true" : "false")

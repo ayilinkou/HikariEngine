@@ -125,6 +125,132 @@ D3D12_RESOURCE_STATES ToLegacyState(TextureLayout layout)
     return D3D12_RESOURCE_STATE_COMMON;
 }
 
+D3D12_BARRIER_LAYOUT ToBarrierLayout(TextureLayout layout)
+{
+    switch (layout)
+    {
+        case TextureLayout::Undefined:
+            return D3D12_BARRIER_LAYOUT_UNDEFINED;
+        case TextureLayout::Common:
+            return D3D12_BARRIER_LAYOUT_COMMON;
+        case TextureLayout::RenderTarget:
+            return D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+        case TextureLayout::ShaderResource:
+            return D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+        case TextureLayout::UnorderedAccess:
+            return D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS;
+        case TextureLayout::DepthStencilWrite:
+            return D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE;
+        case TextureLayout::DepthStencilRead:
+            return D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ;
+        case TextureLayout::CopySrc:
+            return D3D12_BARRIER_LAYOUT_COPY_SOURCE;
+        case TextureLayout::CopyDst:
+            return D3D12_BARRIER_LAYOUT_COPY_DEST;
+        case TextureLayout::Present:
+            return D3D12_BARRIER_LAYOUT_PRESENT;
+    }
+
+    return D3D12_BARRIER_LAYOUT_UNDEFINED;
+}
+
+D3D12_BARRIER_ACCESS ToBarrierAccess(AccessFlags access)
+{
+    D3D12_BARRIER_ACCESS result = D3D12_BARRIER_ACCESS_COMMON;
+    for (const AccessFlags flag : kAllAccessFlags)
+    {
+        if (!Any(access & flag))
+            continue;
+
+        switch (flag)
+        {
+            case AccessFlags::None:
+                break;
+            case AccessFlags::VertexBufferRead:
+                result |= D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
+                break;
+            case AccessFlags::IndexBufferRead:
+                result |= D3D12_BARRIER_ACCESS_INDEX_BUFFER;
+                break;
+            case AccessFlags::ConstantBufferRead:
+                result |= D3D12_BARRIER_ACCESS_CONSTANT_BUFFER;
+                break;
+            case AccessFlags::ShaderRead:
+                result |= D3D12_BARRIER_ACCESS_SHADER_RESOURCE;
+                break;
+            case AccessFlags::UnorderedAccess:
+                result |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
+                break;
+            // D3D12 has one render-target access for reading and writing alike.
+            case AccessFlags::RenderTargetRead:
+            case AccessFlags::RenderTargetWrite:
+                result |= D3D12_BARRIER_ACCESS_RENDER_TARGET;
+                break;
+            case AccessFlags::DepthStencilRead:
+                result |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ;
+                break;
+            case AccessFlags::DepthStencilWrite:
+                result |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE;
+                break;
+            case AccessFlags::CopySrc:
+                result |= D3D12_BARRIER_ACCESS_COPY_SOURCE;
+                break;
+            case AccessFlags::CopyDst:
+                result |= D3D12_BARRIER_ACCESS_COPY_DEST;
+                break;
+        }
+    }
+
+    return result == D3D12_BARRIER_ACCESS_COMMON ? D3D12_BARRIER_ACCESS_NO_ACCESS : result;
+}
+
+D3D12_BARRIER_SYNC ToBarrierSync(PipelineStage stage)
+{
+    D3D12_BARRIER_SYNC result = D3D12_BARRIER_SYNC_NONE;
+    for (const PipelineStage flag : kAllPipelineStages)
+    {
+        if (!Any(stage & flag))
+            continue;
+
+        switch (flag)
+        {
+            case PipelineStage::None:
+                break;
+            case PipelineStage::Draw:
+            // Every graphics stage, which DRAW supersedes.
+            case PipelineStage::AllGraphics:
+                result |= D3D12_BARRIER_SYNC_DRAW;
+                break;
+            case PipelineStage::VertexStage:
+                result |= D3D12_BARRIER_SYNC_VERTEX_SHADING;
+                break;
+            case PipelineStage::PixelStage:
+                result |= D3D12_BARRIER_SYNC_PIXEL_SHADING;
+                break;
+            case PipelineStage::ComputeStage:
+                result |= D3D12_BARRIER_SYNC_COMPUTE_SHADING;
+                break;
+            case PipelineStage::DepthStencil:
+                result |= D3D12_BARRIER_SYNC_DEPTH_STENCIL;
+                break;
+            case PipelineStage::RenderTarget:
+                result |= D3D12_BARRIER_SYNC_RENDER_TARGET;
+                break;
+            case PipelineStage::Copy:
+                result |= D3D12_BARRIER_SYNC_COPY;
+                break;
+            case PipelineStage::Resolve:
+                result |= D3D12_BARRIER_SYNC_RESOLVE;
+                break;
+            case PipelineStage::All:
+                result |= D3D12_BARRIER_SYNC_ALL;
+                break;
+        }
+    }
+
+    return result;
+}
+
 namespace
 {
 D3D12_FILTER_TYPE ToFilterType(Filter filter)

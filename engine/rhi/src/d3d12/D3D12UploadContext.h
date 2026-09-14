@@ -7,6 +7,7 @@
 
 #include <rhi/Handles.h>
 #include <rhi/ICommandAllocator.h>
+#include <rhi/Submit.h>
 #include <rhi/UploadContext.h>
 
 namespace Hikari::Rhi::D3D12
@@ -18,13 +19,16 @@ class D3D12Device;
  * flush, as Vulkan's does, so a scene's textures loaded inside one scope are the same
  * handful of submissions on either backend.
  *
- * The copies go to the copy queue with no barriers: a resource in COMMON is promoted
- * to a copy destination on its first copy there, and everything a copy queue touches
- * decays back to COMMON once it has run, which a later transition to shader-resource
- * may name as its before-state. On a device behaving as a single queue the copies are
- * direct-queue work instead, where a write promotion does not decay, so there the
- * textures are transitioned explicitly — to copy destination, then to shader resource
- * — which is also the layout Vulkan leaves an uploaded texture in.
+ * The copies go to the copy queue with no barriers: a copy queue records none, and
+ * everything it touches is in COMMON when it has run. Legacy barriers promote and decay
+ * implicitly, so there a later transition to shader-resource may name that as its
+ * before-state. Enhanced barriers do neither, so on that path the textures are then put
+ * into shader-resource layout by a latch on the direct queue — a layout-only barrier
+ * in a submission of its own, ordered after the copy. On a device behaving as a single
+ * queue the copies are direct-queue work instead, where a write promotion does not
+ * decay, so there the textures are transitioned explicitly — to copy destination, then
+ * to shader resource. Either way an uploaded texture ends in the layout Vulkan leaves it
+ * in.
  */
 class D3D12UploadContext final : public IUploadContext
 {
@@ -67,6 +71,9 @@ private:
     };
 
     BufferHandle CreateStaging(uint64_t size, const char* what);
+
+    /** Submits the latch taking this flush's copied textures from COMMON to shader resource. */
+    void LatchCopiedTextures(const FenceOperation& afterCopy);
     void FlushIfOverBudget(uint64_t bytes);
 
     D3D12Device& m_Device;
@@ -74,6 +81,10 @@ private:
     QueueType m_Queue;
 
     std::unique_ptr<ICommandAllocator> m_Allocator;
+
+    /** The direct-queue lists enhanced barriers latch copied textures with; null otherwise. */
+    std::unique_ptr<ICommandAllocator> m_LatchAllocator;
+
     FenceHandle m_Fence;
     uint64_t m_FenceValue = 0u;
 

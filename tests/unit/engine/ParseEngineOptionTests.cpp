@@ -17,6 +17,7 @@
 using namespace Hikari::Engine;
 using namespace Hikari::Platform;
 using Hikari::Rhi::Backend;
+using Hikari::Rhi::BarrierPath;
 using Hikari::Rhi::GpuBasedValidation;
 using Hikari::Rhi::ValidationPolicy;
 
@@ -307,6 +308,51 @@ TEST_CASE("Disabling a Vulkan extension is refused on D3D12, and only there",
     RunSpec d3d12;
     d3d12.Backend = Backend::D3D12;
     CHECK_NOTHROW(RejectContradictoryOptions(d3d12));
+}
+
+TEST_CASE("The D3D12 barrier path is auto unless named, and takes exactly three words",
+          "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+
+    CHECK(spec.D3D12Barriers == BarrierPath::Auto);
+
+    REQUIRE(ParseEngineOption(Option("--d3d12-barriers", "legacy"), spec, config));
+    CHECK(spec.D3D12Barriers == BarrierPath::Legacy);
+
+    REQUIRE(ParseEngineOption(Option("--d3d12-barriers", "enhanced"), spec, config));
+    CHECK(spec.D3D12Barriers == BarrierPath::Enhanced);
+
+    REQUIRE(ParseEngineOption(Option("--d3d12-barriers", "auto"), spec, config));
+    CHECK(spec.D3D12Barriers == BarrierPath::Auto);
+
+    CHECK_THROWS_AS(ParseEngineOption(Option("--d3d12-barriers", "on"), spec, config),
+                    CommandLineError);
+    CHECK_THROWS_AS(ParseEngineOption(Option("--d3d12-barriers"), spec, config), CommandLineError);
+}
+
+TEST_CASE("A named barrier path is refused off D3D12, and auto never is", "[ParseEngineOption]")
+{
+    // On the spec rather than through --backend, as above, so the case holds on a
+    // build without D3D12.
+    for (const BarrierPath path : {BarrierPath::Legacy, BarrierPath::Enhanced})
+    {
+        INFO("path: " << Hikari::Rhi::ToString(path));
+
+        RunSpec spec;
+        spec.D3D12Barriers = path;
+
+        spec.Backend = Backend::Vulkan;
+        CHECK_THROWS_AS(RejectContradictoryOptions(spec), CommandLineError);
+
+        spec.Backend = Backend::D3D12;
+        CHECK_NOTHROW(RejectContradictoryOptions(spec));
+    }
+
+    RunSpec leftAlone;
+    leftAlone.Backend = Backend::Vulkan;
+    CHECK_NOTHROW(RejectContradictoryOptions(leftAlone));
 }
 
 TEST_CASE("Contradictory validation options are refused", "[ParseEngineOption]")
