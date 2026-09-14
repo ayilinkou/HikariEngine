@@ -1361,10 +1361,14 @@ in the low bits.
 **The two signals are therefore split by what each can honestly promise.**
 
 **Counters must match exactly, even across backends.** `drawCalls`, `batches`, `instances`,
-`barriers`, `barrierCalls`, `validationErrors` and `uploadSubmissions` describe what the
-renderer *decided*, not what the rasterizer produced. Two backends disagreeing about a draw
-call count is a bug in one of them, always. This makes the counters strictly more valuable than
-they are with one backend, rather than less.
+`barriers`, `barrierCalls` and `uploadBatches` describe what the renderer *decided*, not what the
+rasterizer produced. Two backends disagreeing about a draw call count is a bug in one of them,
+always. This makes the counters strictly more valuable than they are with one backend, rather
+than less. Two refinements came with the second backend (D26, amended). The validation counts
+must be **zero in both reports** across backends rather than equal, since two validators count
+one mistake differently, and they are compared only when each backend's own validation sub-mode
+ran at its strongest. And `uploadSubmissions` is a **measurement**: how many submissions a batch
+takes is the backend's and the driver's, so it is reported and never compared.
 
 **Pixels are compared with a tolerance: a per-channel delta with two caps.** No pixel may
 differ by more than N per channel, and at most M% of pixels may differ at all. Each cap catches
@@ -1382,9 +1386,21 @@ comparison **always reports the measured delta**, not just pass or fail, so drif
 while it is still headroom rather than only on the day it crosses.
 
 **One implementation, two settings.** Within a backend the tolerance is zero and the check stays
-exactly as strict as it is today; across backends it is the configured limits. This is the same
+exactly as strict as it is today; across backends it is the measured limits. This is the same
 tool as §15.4's golden comparison rather than a second one — that section's "perceptual metric
 and a tolerance" is superseded by the per-channel form above.
+
+**What the limits turned out to be, and what makes a pair comparable** (Stage 7.7, D26 and D35,
+amended). Two backends' pixels are compared only when the runs had **one adapter** — the PCI
+vendor and device IDs, which both APIs spell alike, plus the OS and architecture — so a
+tolerance can never absorb two rasterizers. The limits are **exactly the measured values, with
+no headroom**: the pair is deterministic, so the difference moves only when something changes,
+and every differing region is explained by a named mechanism beside the constants before they
+are committed. They are measured per build type, because optimised shaders round differently;
+the first pair, Vulkan and D3D12 on an RX 580, differs by at most 120 in 11,434 pixels of a
+1920×1080 frame in a debug build, all of it subpixel rounding in the two APIs' opposite viewport
+mappings and anisotropic filtering. The consequence, accepted: every driver update and rendering
+change that moves the gap needs a re-measure, a re-explanation and approval.
 
 ## 16. Test harness components
 
@@ -1433,10 +1449,11 @@ This is what makes renderer unit tests possible at all.
 Per-channel comparison against D26's two limits — no pixel differing by more than N per channel,
 and at most M% of pixels differing at all — reporting the measured delta whether it passes or
 fails. On failure it writes `actual.png`, `expected.png` and an amplified `diff.png`, so a reader
-can see *where* an image moved rather than only by how much. Stage 7.6 builds it in
-`tests/support/`, shared by the scene tests, the command-line baseline comparison and 7.7's
-cross-backend runs; `backend_readiness_plan.md` §4.1 has the details. CI cannot upload those images
-yet — `ci.yml` has no artefact step at all — which is a `backlog.md` row.
+can see *where* an image moved and by how much — scaled to the worst delta on a logarithmic curve,
+since most differences worth seeing are a level or two beside a worst of a hundred. Stage 7.6
+builds it in `tests/support/`, shared by the scene tests, the command-line baseline comparison and
+7.7's cross-backend runs; `backend_readiness_plan.md` §4.1 has the details. CI cannot upload those
+images yet — `ci.yml` has no artefact step at all — which is a `backlog.md` row.
 
 ### 16.7 `TestPaths`
 Locates `tests/data` via a compile-time-injected absolute path

@@ -10,7 +10,8 @@
 interview §0 demanded · **Supersedes:** `rhi_extraction_plan.md` D7 and D8;
 `architecture_plan.md` Part IV steps 48–56 in part, and §20's bindless row ·
 **Status:** Stages 7.5 and 7.6 complete. 7.6's interview ran on 6, 11 and 12 September 2026 and
-finished — D27–D35 and §4.1–§4.4 are its output. **Stage 7.7 is planned and not started**: its
+finished — D27–D35 and §4.1–§4.4 are its output. **Stage 7.7 has all ten steps committed**, and is
+done once the Linux baseline refresh lands as a commit of its own (§5.5, step 10's amendment): its
 interview ran on 13 September 2026, on Linux and then on this project's Windows install, and
 finished — D36–D46, amendments to D15, D26, D32 and D35, and §5 are its output.
 
