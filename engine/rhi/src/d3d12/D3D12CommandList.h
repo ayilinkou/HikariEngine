@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -39,7 +40,9 @@ class D3D12Device;
 class D3D12CommandList final : public ICommandList
 {
 public:
-    D3D12CommandList(D3D12Device& device, QueueType queue, D3D12_COMMAND_LIST_TYPE type);
+    /** `debugName` names the native list and its allocator both; empty leaves them unnamed. */
+    D3D12CommandList(D3D12Device& device, QueueType queue, D3D12_COMMAND_LIST_TYPE type,
+                     const std::string& debugName);
 
     void Begin() override;
     void End() override;

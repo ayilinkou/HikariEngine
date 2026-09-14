@@ -54,6 +54,8 @@ void HandleRhiDiagnostic(Rhi::DiagnosticSeverity severity, std::string_view mess
     LogSeverity logSeverity = LogSeverity::Info;
     switch (severity)
     {
+        // The log has no tier below Info to put it in.
+        case Rhi::DiagnosticSeverity::Verbose:
         case Rhi::DiagnosticSeverity::Info:
             logSeverity = LogSeverity::Info;
             break;

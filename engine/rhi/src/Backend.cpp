@@ -6,6 +6,8 @@
 #include <format>
 #include <stdexcept>
 
+#include <core/Log.h>
+
 #include <rhi/IDevice.h>
 
 #include "vulkan/VulkanDeviceFactory.h"
@@ -19,6 +21,8 @@ namespace Hikari::Rhi
 
 namespace
 {
+constexpr Core::LogCategory LogRhi("RHI");
+
 /** One spelling per backend, so the command line and the run report share it. */
 struct Spelling
 {
@@ -99,6 +103,10 @@ std::unique_ptr<IDevice> CreateDevice(const DeviceDesc& desc)
         throw std::runtime_error(
             std::format("Backend not in this build: {}", ToString(desc.Backend)));
     }
+
+    // Before the factory rather than inside it, so a device that fails to come up
+    // still leaves a log saying which backend it was.
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Backend selected: {}", ToString(desc.Backend));
 
     switch (desc.Backend)
     {

@@ -18,6 +18,7 @@
 #include "d3d12/D3D12CommandAllocator.h"
 #include "d3d12/D3D12CommandList.h"
 #include "d3d12/D3D12Conversions.h"
+#include "d3d12/D3D12DebugName.h"
 #include "d3d12/D3D12DeviceFactory.h"
 #include "d3d12/D3D12OffscreenTarget.h"
 #include "d3d12/D3D12PresentTarget.h"
@@ -234,7 +235,7 @@ void D3D12Device::EnableDebugLayer(const DeviceDesc& desc)
     }
 
     Core::LogMsg(Core::LogSeverity::Info, LogRhi,
-                 "D3D12 debug layer enabled, GPU-based validation {}",
+                 "D3D12 debug layer enabled, GPU-based validation: {}",
                  ToString(desc.GpuBasedValidation));
 }
 
@@ -295,7 +296,7 @@ void D3D12Device::ReportError(const std::string& message)
  */
 void D3D12Device::CreateQueues()
 {
-    const auto create = [this](D3D12_COMMAND_LIST_TYPE type, const wchar_t* name)
+    const auto create = [this](D3D12_COMMAND_LIST_TYPE type, const std::string& name)
     {
         D3D12_COMMAND_QUEUE_DESC queueDesc{};
         queueDesc.Type = type;
@@ -308,24 +309,26 @@ void D3D12Device::CreateQueues()
                 std::format("CreateCommandQueue failed ({})", HResultText(hr)));
         }
 
-        queue->SetName(name);
+        SetDebugName(*queue.Get(), name);
         return queue;
     };
 
-    m_DirectQueue = create(D3D12_COMMAND_LIST_TYPE_DIRECT, L"Direct Queue");
+    m_DirectQueue = create(D3D12_COMMAND_LIST_TYPE_DIRECT, "Direct Queue");
     if (!m_bSingleQueue)
-        m_CopyQueue = create(D3D12_COMMAND_LIST_TYPE_COPY, L"Copy Queue");
+        m_CopyQueue = create(D3D12_COMMAND_LIST_TYPE_COPY, "Copy Queue");
 
     const HRESULT hr = m_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_IdleFence));
     if (FAILED(hr))
         throw std::runtime_error(std::format("CreateFence failed ({})", HResultText(hr)));
 
+    SetDebugName(*m_IdleFence.Get(), "Idle Fence");
+
     // Sized for every rendering target alive at once — a few per frame in flight — with
     // room to spare. Exhaustion throws naming the heap rather than growing.
     m_RenderTargetHeap = std::make_unique<D3D12CpuDescriptorHeap>(
-        *m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 256u, L"Render Target Views");
+        *m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 256u, "Render Target Views");
     m_DepthStencilHeap = std::make_unique<D3D12CpuDescriptorHeap>(
-        *m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 64u, L"Depth Stencil Views");
+        *m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 64u, "Depth Stencil Views");
 
     DrainDebugMessages();
 }
@@ -334,10 +337,10 @@ void D3D12Device::CreateDescriptorHeaps(const DeviceDesc& desc)
 {
     m_ResourceHeap = std::make_unique<D3D12GpuDescriptorHeap>(
         *m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, desc.ResourceDescriptorCapacity,
-        "ResourceDescriptorCapacity", L"Resource Descriptors");
+        "ResourceDescriptorCapacity", "Resource Descriptors");
     m_SamplerHeap = std::make_unique<D3D12GpuDescriptorHeap>(
         *m_Device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, desc.SamplerDescriptorCapacity,
-        "SamplerDescriptorCapacity", L"Sampler Descriptors");
+        "SamplerDescriptorCapacity", "Sampler Descriptors");
     DrainDebugMessages();
 }
 
@@ -767,9 +770,8 @@ BufferHandle D3D12Device::CreateBuffer(const BufferDesc& desc)
 
     if (!desc.DebugName.empty())
     {
-        const std::wstring name = WideFromUtf8(desc.DebugName);
-        buffer.Resource->SetName(name.c_str());
-        buffer.Allocation->SetName(name.c_str());
+        SetDebugName(*buffer.Resource.Get(), desc.DebugName);
+        buffer.Allocation->SetName(WideFromUtf8(desc.DebugName).c_str());
     }
 
     const BufferHandle handle = m_Buffers.Create(std::move(buffer));
@@ -840,9 +842,8 @@ TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc)
 
     if (!desc.DebugName.empty())
     {
-        const std::wstring name = WideFromUtf8(desc.DebugName);
-        texture.Resource->SetName(name.c_str());
-        texture.Allocation->SetName(name.c_str());
+        SetDebugName(*texture.Resource.Get(), desc.DebugName);
+        texture.Allocation->SetName(WideFromUtf8(desc.DebugName).c_str());
     }
 
     const TextureHandle handle = m_Textures.Create(std::move(texture));
@@ -1293,8 +1294,7 @@ FenceHandle D3D12Device::CreateFence(const FenceDesc& desc)
                                              desc.DebugName, HResultText(hr)));
     }
 
-    if (!desc.DebugName.empty())
-        fence.Fence->SetName(WideFromUtf8(desc.DebugName).c_str());
+    SetDebugName(*fence.Fence.Get(), desc.DebugName);
 
     return m_Fences.Create(std::move(fence));
 }
@@ -1581,8 +1581,7 @@ PipelineLayoutHandle D3D12Device::CreatePipelineLayout(const PipelineLayoutDesc&
             desc.DebugName, HResultText(hr)));
     }
 
-    if (!desc.DebugName.empty())
-        layout.RootSignature->SetName(WideFromUtf8(desc.DebugName).c_str());
+    SetDebugName(*layout.RootSignature.Get(), desc.DebugName);
 
     const PipelineLayoutHandle handle = m_PipelineLayouts.Create(std::move(layout));
     DrainDebugMessages();
@@ -1767,8 +1766,7 @@ GraphicsPipelineHandle D3D12Device::CreateGraphicsPipeline(const GraphicsPipelin
                          "why.",
                          HResultText(hr)));
 
-    if (!desc.DebugName.empty())
-        pipeline.State->SetName(WideFromUtf8(desc.DebugName).c_str());
+    SetDebugName(*pipeline.State.Get(), desc.DebugName);
 
     return m_GraphicsPipelines.Create(std::move(pipeline));
 }
@@ -1812,8 +1810,7 @@ ComputePipelineHandle D3D12Device::CreateComputePipeline(const ComputePipelineDe
             desc.DebugName, HResultText(hr)));
     }
 
-    if (!desc.DebugName.empty())
-        pipeline.State->SetName(WideFromUtf8(desc.DebugName).c_str());
+    SetDebugName(*pipeline.State.Get(), desc.DebugName);
 
     return m_ComputePipelines.Create(std::move(pipeline));
 }
@@ -1854,8 +1851,7 @@ TextureHandle D3D12Device::RegisterExternalTexture(ComPtr<ID3D12Resource> resour
 
     ValidateTextureDesc(desc);
 
-    if (!desc.DebugName.empty())
-        resource->SetName(WideFromUtf8(desc.DebugName).c_str());
+    SetDebugName(*resource.Get(), desc.DebugName);
 
     D3D12Texture texture;
     texture.Resource = std::move(resource);

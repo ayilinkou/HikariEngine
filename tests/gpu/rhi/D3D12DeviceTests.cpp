@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -17,11 +18,13 @@
 #include <rhi/BindGroup.h>
 #include <rhi/BufferDesc.h>
 #include <rhi/Diagnostics.h>
+#include <rhi/ICommandAllocator.h>
 #include <rhi/IDevice.h>
 #include <rhi/SamplerDesc.h>
 #include <rhi/TextureDesc.h>
 #include <rhi/UniqueHandle.h>
 
+#include "d3d12/D3D12CommandList.h"
 #include "d3d12/D3D12Device.h"
 
 #include "GpuReadback.h"
@@ -112,6 +115,79 @@ TEST_CASE("The D3D12 runtime and its debug layer are the Agility SDK beside the 
     // The fixture enables validation, which is what loads the layers at all.
     CHECK(_wcsicmp(LoadedModulePath(L"d3d12SDKLayers.dll").c_str(),
                    DeployedSdkPath(L"d3d12SDKLayers.dll").c_str()) == 0);
+}
+
+namespace
+{
+/** The bytes an object holds under `guid`, empty when it holds none. */
+std::vector<char> PrivateData(ID3D12Object& object, const GUID& guid)
+{
+    UINT size = 0u;
+    if (FAILED(object.GetPrivateData(guid, &size, nullptr)) || size == 0u)
+        return {};
+
+    std::vector<char> data(size);
+    if (FAILED(object.GetPrivateData(guid, &size, data.data())))
+        return {};
+
+    return data;
+}
+
+/** The UTF-8 name the debug layer's lifetime messages print, without its terminator. */
+std::string NarrowDebugName(ID3D12Object& object)
+{
+    const std::vector<char> data = PrivateData(object, WKPDID_D3DDebugObjectName);
+    std::string name(data.begin(), data.end());
+    while (!name.empty() && name.back() == '\0')
+        name.pop_back();
+
+    return name;
+}
+
+/** The UTF-16 name SetName stores and the debug layer's errors print, without its terminator. */
+std::wstring WideDebugName(ID3D12Object& object)
+{
+    const std::vector<char> data = PrivateData(object, WKPDID_D3DDebugObjectNameW);
+    std::wstring name(data.size() / sizeof(wchar_t), L'\0');
+    std::memcpy(name.data(), data.data(), name.size() * sizeof(wchar_t));
+    while (!name.empty() && name.back() == L'\0')
+        name.pop_back();
+
+    return name;
+}
+} // namespace
+
+/**
+ * The debug layer reads an object's name in two encodings: its errors print the UTF-16
+ * one SetName stores, and its object lifetime messages print the UTF-8 one, cutting the
+ * UTF-16 name to eight bytes followed by stray memory when that is all there is. So a
+ * name longer than eight bytes has to arrive in both, including on the lists an
+ * allocator creates for itself.
+ */
+TEST_CASE("A D3D12 debug name is given in both encodings the debug layer reads",
+          "[rhi][gpu][device][d3d12]")
+{
+    D3D12::D3D12Device& device = RequireD3D12Device();
+    const RhiTest::ValidationGuard guard(device);
+
+    const UniqueHandle<BufferHandle> buffer(
+        device, device.CreateBuffer(BufferDesc{.Size = 64u,
+                                               .Usage = BufferUsage::Storage,
+                                               .DebugName = "A Buffer Named Past Eight Bytes"}));
+    const D3D12::D3D12Buffer* pBuffer = device.FindBuffer(buffer.Get());
+    REQUIRE(pBuffer != nullptr);
+
+    CHECK(NarrowDebugName(*pBuffer->Resource.Get()) == "A Buffer Named Past Eight Bytes");
+    CHECK(WideDebugName(*pBuffer->Resource.Get()) == L"A Buffer Named Past Eight Bytes");
+
+    // Numbered by acquisition, as the Vulkan backend numbers its command buffers.
+    const std::unique_ptr<ICommandAllocator> allocator = device.CreateCommandAllocator(
+        CommandAllocatorDesc{.Queue = QueueType::Graphics, .DebugName = "Named Allocator"});
+    ID3D12CommandList* pList = static_cast<D3D12::D3D12CommandList&>(allocator->Acquire()).Native();
+    REQUIRE(pList != nullptr);
+
+    CHECK(NarrowDebugName(*pList) == "Named Allocator [0]");
+    CHECK(WideDebugName(*pList) == L"Named Allocator [0]");
 }
 
 namespace

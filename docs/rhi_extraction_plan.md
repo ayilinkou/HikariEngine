@@ -701,6 +701,12 @@ are the ones later steps need to read.
     where `FromVk` is deliberately many-to-one — `eVerbose` and `eInfo` both collapse to `Info`,
     because the neutral scale has no verbose tier and dropping those messages instead would
     silently lose the driver's most detailed output.
+    > **Reversed during Stage 7.7.** The neutral scale gained `Verbose`, below `Info`, and
+    > `FromVk` is now one-to-one: `eVerbose` maps to `Verbose`. Collapsing stopped being
+    > harmless with the D3D12 backend, whose INFO tier announces every object created and
+    > destroyed — some 350 messages for three frames of the test scene. Folded into `Info`, a
+    > default run prints all of them; given a tier of their own, the default threshold of `Info`
+    > leaves them out, and a caller who asks for `Verbose` still loses nothing.
 - **Verified deliberately:** the baseline reports zero validation errors *and* zero warnings, so
   it does not exercise the diagnostic path at all — a miswired callback would have been
   invisible to every automated check. Confirmed by hand instead, by naming the graphics queue
@@ -819,6 +825,13 @@ are the ones later steps need to read.
     what avoids paying `std::format` for a message about to be discarded. Verbose is never
     requested: it collapses to `Info` on the neutral scale, so asking for it would multiply
     message volume with nothing a caller could distinguish.
+    > **Reversed during Stage 7.7**, along with R5's mapping: with a `Verbose` tier a caller can
+    > tell those messages apart, so the messenger asks for `eVerbose` when `MinSeverity` is
+    > `Verbose`. The D3D12 backend applies the same rule at its info queue, whose storage and
+    > retrieval filters deny every severity that maps below `MinSeverity` — INFO and MESSAGE,
+    > both `Verbose`, at the default. There it saves more than formatting: the queue keeps
+    > whatever it stores for the life of the device, and a pushed filter replaces the queue's
+    > default one, which denies INFO, rather than adding to it.
 - **Verified deliberately:** precommit green (121 unit tests, 9 of them new); the baseline
   report is byte-identical and the screenshot hash matches. Then, because none of that
   touches the diagnostic path, the R5 hand check was repeated — graphics queue named with

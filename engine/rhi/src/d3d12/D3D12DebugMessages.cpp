@@ -1,5 +1,6 @@
 #include "d3d12/D3D12DebugMessages.h"
 
+#include <array>
 #include <format>
 #include <iterator>
 #include <stdexcept>
@@ -13,9 +14,18 @@ namespace Hikari::Rhi::D3D12
 
 namespace
 {
+constexpr std::array kSeverities = {
+    D3D12_MESSAGE_SEVERITY_CORRUPTION, D3D12_MESSAGE_SEVERITY_ERROR,
+    D3D12_MESSAGE_SEVERITY_WARNING,    D3D12_MESSAGE_SEVERITY_INFO,
+    D3D12_MESSAGE_SEVERITY_MESSAGE,
+};
+
 /**
- * The layer's five severities folded onto Diagnostics' three. Corruption is an
- * error: it means state the layer no longer trusts, which no run should pass with.
+ * The layer's five severities folded onto Diagnostics' four. Corruption is an error:
+ * it means state the layer no longer trusts, which no run should pass with. INFO is
+ * Verbose rather than Info, because it is the layer's announcement of every object
+ * created and destroyed — some 350 messages for three frames of the test scene — and
+ * MESSAGE goes with it, since D3D12 orders it below INFO.
  */
 DiagnosticSeverity ToDiagnosticSeverity(D3D12_MESSAGE_SEVERITY severity)
 {
@@ -28,7 +38,7 @@ DiagnosticSeverity ToDiagnosticSeverity(D3D12_MESSAGE_SEVERITY severity)
             return DiagnosticSeverity::Warning;
         case D3D12_MESSAGE_SEVERITY_INFO:
         case D3D12_MESSAGE_SEVERITY_MESSAGE:
-            return DiagnosticSeverity::Info;
+            return DiagnosticSeverity::Verbose;
     }
 
     return DiagnosticSeverity::Error;
@@ -53,18 +63,48 @@ D3D12DebugMessages::D3D12DebugMessages(ID3D12Device& device, Diagnostics& diagno
     // costs is memory proportional to how wrong a run is.
     m_InfoQueue->SetMessageCountLimit(static_cast<UINT64>(-1));
 
-    // Never stored, so never counted. Both say a target was cleared without the
-    // optimized clear value D3D12 lets a resource declare at creation, which makes the
-    // clear "typically slower" and nothing else. The seam's TextureDesc carries no
-    // clear value, so every clear would warn and a D3D12 run's warning count could
-    // never match Vulkan's zero; the Vulkan backend mutes its one performance hint at
-    // the layer for the same reason.
-    D3D12_MESSAGE_ID muted[] = {D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
-                                D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE};
+    // Whatever the threshold would drop is denied here instead, as the Vulkan backend
+    // asks its messenger only for what the threshold admits. That saves more than the
+    // formatting: the queue keeps whatever it stores for the life of the device, under
+    // the unlimited count above. Denied explicitly even at the default threshold,
+    // because a pushed filter replaces the one the queue starts with rather than adding
+    // to it — and that one denies INFO (read back with GetStorageFilter, on the RX 580
+    // and WARP under Agility SDK 1.619.5), which a filter denying nothing would undo.
+    std::vector<D3D12_MESSAGE_SEVERITY> deniedSeverities;
+    for (const D3D12_MESSAGE_SEVERITY severity : kSeverities)
+    {
+        if (ToDiagnosticSeverity(severity) < diagnostics.MinSeverity())
+            deniedSeverities.push_back(severity);
+    }
+
+    D3D12_MESSAGE_ID deniedIds[] = {
+        // Both say a target was cleared without the optimized clear value D3D12 lets a
+        // resource declare at creation, which makes the clear "typically slower" and
+        // nothing else. The seam's TextureDesc carries no clear value, so every clear
+        // would warn and a D3D12 run's warning count could never match Vulkan's zero;
+        // the Vulkan backend mutes its one performance hint at the layer for the same
+        // reason.
+        D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
+        D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE,
+
+        // The layer's notice that GPU-based validation is on, muted at every threshold.
+        // Its "(disabled by default)" is D3D12's default, not this engine's, and it says
+        // the same whether state tracking is on or off, so EnableDebugLayer logs the
+        // level actually chosen instead.
+        D3D12_MESSAGE_ID_CREATEDEVICE_DEBUG_LAYER_STARTUP_OPTIONS,
+    };
+
     D3D12_INFO_QUEUE_FILTER filter{};
-    filter.DenyList.NumIDs = static_cast<UINT>(std::size(muted));
-    filter.DenyList.pIDList = muted;
+    filter.DenyList.NumSeverities = static_cast<UINT>(deniedSeverities.size());
+    filter.DenyList.pSeverityList = deniedSeverities.data();
+    filter.DenyList.NumIDs = static_cast<UINT>(std::size(deniedIds));
+    filter.DenyList.pIDList = deniedIds;
+
+    // Retrieval as well as storage, because device creation stored the startup notice
+    // before this queue existed to filter it. Pushed before the first read and never
+    // changed, so the indices Drain() reads by stay stable.
     m_InfoQueue->PushStorageFilter(&filter);
+    m_InfoQueue->PushRetrievalFilter(&filter);
 }
 
 void D3D12DebugMessages::Drain()

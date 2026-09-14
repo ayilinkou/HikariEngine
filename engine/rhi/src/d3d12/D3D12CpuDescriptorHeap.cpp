@@ -3,12 +3,14 @@
 #include <format>
 #include <stdexcept>
 
+#include "d3d12/D3D12DebugName.h"
+
 namespace Hikari::Rhi::D3D12
 {
 
 D3D12CpuDescriptorHeap::D3D12CpuDescriptorHeap(ID3D12Device& device,
                                                D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t capacity,
-                                               const wchar_t* name)
+                                               const std::string& name)
     : m_Capacity(capacity)
 {
     D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
@@ -23,7 +25,7 @@ D3D12CpuDescriptorHeap::D3D12CpuDescriptorHeap(ID3D12Device& device,
             std::format("CreateDescriptorHeap failed (0x{:08X})", static_cast<uint32_t>(hr)));
     }
 
-    m_Heap->SetName(name);
+    SetDebugName(*m_Heap.Get(), name);
     m_Start = m_Heap->GetCPUDescriptorHandleForHeapStart();
 
     // Queried rather than assumed: the size differs between adapters, and between a

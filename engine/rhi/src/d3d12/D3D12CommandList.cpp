@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "d3d12/D3D12Conversions.h"
+#include "d3d12/D3D12DebugName.h"
 #include "d3d12/D3D12Device.h"
 
 namespace Hikari::Rhi::D3D12
@@ -36,7 +37,7 @@ UINT Subresource(const TextureDesc& desc, uint32_t mip, uint32_t layer, uint32_t
 } // namespace
 
 D3D12CommandList::D3D12CommandList(D3D12Device& device, QueueType queue,
-                                   D3D12_COMMAND_LIST_TYPE type)
+                                   D3D12_COMMAND_LIST_TYPE type, const std::string& debugName)
     : m_Device(device), m_Queue(queue), m_Type(type)
 {
     ID3D12Device& native = device.GetNativeDevice();
@@ -51,6 +52,9 @@ D3D12CommandList::D3D12CommandList(D3D12Device& device, QueueType queue,
         throw std::runtime_error(std::format("Creating a D3D12 command list failed (0x{:08X})",
                                              static_cast<uint32_t>(hr)));
     }
+
+    SetDebugName(*m_Allocator.Get(), debugName);
+    SetDebugName(*m_List.Get(), debugName);
 
     // The interface enhanced barriers are recorded through, on a device that records
     // them. A driver reporting support is one whose runtime has it.

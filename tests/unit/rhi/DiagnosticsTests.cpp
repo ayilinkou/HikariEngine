@@ -47,8 +47,33 @@ struct Sink
  */
 TEST_CASE("Neutral severity ordering is ascending", "[rhi][diagnostics]")
 {
+    STATIC_REQUIRE(DiagnosticSeverity::Verbose < DiagnosticSeverity::Info);
     STATIC_REQUIRE(DiagnosticSeverity::Info < DiagnosticSeverity::Warning);
     STATIC_REQUIRE(DiagnosticSeverity::Warning < DiagnosticSeverity::Error);
+}
+
+TEST_CASE("Verbose is counted on its own, and dropped by the default threshold",
+          "[rhi][diagnostics]")
+{
+    {
+        Sink sink;
+        Diagnostics diagnostics(sink.Desc(ValidationPolicy::Count, DiagnosticSeverity::Verbose));
+        diagnostics.Report(DiagnosticSeverity::Verbose, "verbose");
+
+        REQUIRE(diagnostics.VerboseCount() == 1);
+        REQUIRE(diagnostics.InfoCount() == 0);
+        REQUIRE(sink.Received.size() == 1);
+    }
+
+    {
+        Sink sink;
+        Diagnostics diagnostics(sink.Desc());
+        diagnostics.Report(DiagnosticSeverity::Verbose, "verbose");
+
+        REQUIRE(diagnostics.VerboseCount() == 0);
+        REQUIRE(sink.Received.empty());
+        REQUIRE(diagnostics.RecentMessages().empty());
+    }
 }
 
 TEST_CASE("Messages are counted per severity", "[rhi][diagnostics]")

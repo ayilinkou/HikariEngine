@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -21,7 +22,7 @@ class D3D12CpuDescriptorHeap
 {
 public:
     D3D12CpuDescriptorHeap(ID3D12Device& device, D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t capacity,
-                           const wchar_t* name);
+                           const std::string& name);
 
     /** A free slot. Throws naming the heap and its capacity when there is none. */
     uint32_t Allocate(std::string_view kind);

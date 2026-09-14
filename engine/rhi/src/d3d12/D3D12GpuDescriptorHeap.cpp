@@ -5,12 +5,14 @@
 #include <stdexcept>
 #include <utility>
 
+#include "d3d12/D3D12DebugName.h"
+
 namespace Hikari::Rhi::D3D12
 {
 
 D3D12GpuDescriptorHeap::D3D12GpuDescriptorHeap(ID3D12Device& device,
                                                D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t capacity,
-                                               std::string capacityField, const wchar_t* name)
+                                               std::string capacityField, const std::string& name)
     : m_Capacity(capacity), m_CapacityField(std::move(capacityField))
 {
     D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
@@ -27,7 +29,7 @@ D3D12GpuDescriptorHeap::D3D12GpuDescriptorHeap(ID3D12Device& device,
             capacity, static_cast<uint32_t>(hr), m_CapacityField));
     }
 
-    m_Heap->SetName(name);
+    SetDebugName(*m_Heap.Get(), name);
     m_CpuStart = m_Heap->GetCPUDescriptorHandleForHeapStart();
     m_GpuStart = m_Heap->GetGPUDescriptorHandleForHeapStart();
 

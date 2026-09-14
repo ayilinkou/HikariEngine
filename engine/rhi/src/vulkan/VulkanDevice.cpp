@@ -1423,15 +1423,15 @@ void VulkanDevice::SetupDebugMessenger(const DeviceDesc& desc)
         return;
 
     // Ask the driver only for what the threshold admits, so the filtering
-    // happens before the callback rather than inside it. Verbose is never
-    // requested: it collapses to Info on the neutral scale, and asking for it
-    // would multiply the message volume for nothing a caller can distinguish.
+    // happens before the callback rather than inside it.
     vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(
         vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
     if (m_pDiagnostics->MinSeverity() <= DiagnosticSeverity::Warning)
         severityFlags |= vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning;
     if (m_pDiagnostics->MinSeverity() <= DiagnosticSeverity::Info)
         severityFlags |= vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo;
+    if (m_pDiagnostics->MinSeverity() <= DiagnosticSeverity::Verbose)
+        severityFlags |= vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose;
 
     vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(
         vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |

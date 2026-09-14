@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <directx/d3d12.h>
@@ -30,6 +31,7 @@ public:
 
 private:
     D3D12Device& m_Device;
+    std::string m_DebugName;
     QueueType m_Queue;
     D3D12_COMMAND_LIST_TYPE m_Type;
 

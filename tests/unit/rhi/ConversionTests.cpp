@@ -533,26 +533,27 @@ TEST_CASE("A barrier preset carries no texture until On() gives it one", "[RhiCo
 
 TEST_CASE("Diagnostic severities map to the Vulkan tier of the same name", "[RhiConversions]")
 {
+    REQUIRE(ToVk(DiagnosticSeverity::Verbose) ==
+            vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose);
     REQUIRE(ToVk(DiagnosticSeverity::Info) == vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo);
     REQUIRE(ToVk(DiagnosticSeverity::Warning) ==
             vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning);
     REQUIRE(ToVk(DiagnosticSeverity::Error) == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
 
-    // Every neutral severity survives the round trip. Asserted in this direction
-    // only: the reverse does not hold for eVerbose, which is the next case.
+    // Every neutral severity survives the round trip.
     for (const DiagnosticSeverity severity :
-         {DiagnosticSeverity::Info, DiagnosticSeverity::Warning, DiagnosticSeverity::Error})
+         {DiagnosticSeverity::Verbose, DiagnosticSeverity::Info, DiagnosticSeverity::Warning,
+          DiagnosticSeverity::Error})
         REQUIRE(FromVk(ToVk(severity)) == severity);
 }
 
-TEST_CASE("A verbose Vulkan message is reported as Info, not dropped", "[RhiConversions]")
+TEST_CASE("A verbose Vulkan message is reported as Verbose, not folded into Info",
+          "[RhiConversions]")
 {
-    // The neutral scale has no verbose tier. The mapping must collapse it into
-    // Info rather than treating it as unknown: a caller that asked for Info-level
-    // diagnostics silently losing the driver's most detailed messages is a
-    // debugging trap, and the run report would show zero of them.
+    // Kept apart from Info so that a threshold of Info leaves it out: the default
+    // run asks for Info, and a verbose tier folded into it would be printed there.
     REQUIRE(FromVk(vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose) ==
-            DiagnosticSeverity::Info);
+            DiagnosticSeverity::Verbose);
     REQUIRE(FromVk(vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo) == DiagnosticSeverity::Info);
 }
 
@@ -564,11 +565,7 @@ TEST_CASE("Severity ordering is preserved, so it can be used as a threshold",
     // specification says they do; this pins it, because the failure mode is
     // silent — an inverted comparison would either drop every message or drop
     // none, and the baseline run produces no diagnostics either way.
+    REQUIRE(ToVk(DiagnosticSeverity::Verbose) < ToVk(DiagnosticSeverity::Info));
     REQUIRE(ToVk(DiagnosticSeverity::Info) < ToVk(DiagnosticSeverity::Warning));
     REQUIRE(ToVk(DiagnosticSeverity::Warning) < ToVk(DiagnosticSeverity::Error));
-
-    // Verbose sits below the lowest neutral severity, so a minimum of Info
-    // filters it out.
-    REQUIRE(vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose <
-            ToVk(DiagnosticSeverity::Info));
 }

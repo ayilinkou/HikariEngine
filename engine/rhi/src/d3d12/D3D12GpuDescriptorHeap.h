@@ -29,7 +29,7 @@ public:
      * exhausted heap says which number to raise.
      */
     D3D12GpuDescriptorHeap(ID3D12Device& device, D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t capacity,
-                           std::string capacityField, const wchar_t* name);
+                           std::string capacityField, const std::string& name);
 
     /** The first index of `count` free contiguous descriptors. Throws when there are none. */
     uint32_t Allocate(uint32_t count);
