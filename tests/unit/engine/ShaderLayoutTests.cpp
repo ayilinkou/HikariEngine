@@ -306,11 +306,11 @@ ReflectedInput Describe(Hikari::Rhi::Format format)
     switch (format)
     {
         case Hikari::Rhi::Format::RG32Float:
-            return {"float32", 2u};
+            return {"float32", 2u, {}, 0u};
         case Hikari::Rhi::Format::RGB32Float:
-            return {"float32", 3u};
+            return {"float32", 3u, {}, 0u};
         case Hikari::Rhi::Format::RGBA32Float:
-            return {"float32", 4u};
+            return {"float32", 4u, {}, 0u};
         default:
             break;
     }
