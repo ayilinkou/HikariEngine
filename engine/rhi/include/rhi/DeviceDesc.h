@@ -1,6 +1,9 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <rhi/Backend.h>
@@ -8,6 +11,123 @@
 
 namespace Hikari::Rhi
 {
+/**
+ * How much of a D3D12 debug layer's validation runs on the GPU, where validation
+ * runs at all.
+ *
+ * D3D12's term, because D3D12 is the backend that needs it: a D3D12 descriptor
+ * names no resource state, so the layer on the CPU knows what is bound but not
+ * what a shader reads. Vulkan checks the equivalent on the CPU, because a
+ * descriptor write there names the layout.
+ */
+enum class GpuBasedValidation : uint8_t
+{
+    Off,
+
+    /**
+     * Shaders are checked for what they read — uninitialized or incompatible
+     * descriptors and samplers, descriptors naming deleted resources, reads past
+     * the heap — and resource states are not tracked. The tracking is nearly all of
+     * the cost: on the RX 580 a test-scene frame is 3.8 ms here against 22.8 ms at
+     * Full, and 1.3 ms Off.
+     */
+    Descriptors,
+
+    /**
+     * Descriptors, and also whether each resource a shader reads is in a state it
+     * may be read in, including implicit promotion and decay — the check a mistake
+     * in a backend's own state tracking shows up in. What the tests ask for.
+     */
+    Full,
+};
+
+/**
+ * The level's name, and the only spelling of it: --d3d12-gpu-based-validation
+ * parses these words and a run report prints them.
+ */
+constexpr std::string_view ToString(GpuBasedValidation level)
+{
+    switch (level)
+    {
+        case GpuBasedValidation::Off:
+            return "off";
+        case GpuBasedValidation::Descriptors:
+            return "descriptors";
+        case GpuBasedValidation::Full:
+            return "full";
+    }
+
+    return "unknown";
+}
+
+/** The inverse, returning nothing for a word that names no level. */
+constexpr std::optional<GpuBasedValidation> GpuBasedValidationFromString(std::string_view name)
+{
+    if (name == "off")
+        return GpuBasedValidation::Off;
+
+    if (name == "descriptors")
+        return GpuBasedValidation::Descriptors;
+
+    if (name == "full")
+        return GpuBasedValidation::Full;
+
+    return std::nullopt;
+}
+
+/**
+ * Which of D3D12's two barrier models a device records TextureBarriers with.
+ *
+ * D3D12's choice, because only D3D12 has two: legacy barriers move a subresource
+ * between D3D12_RESOURCE_STATES and carry no synchronization scope, while enhanced
+ * barriers carry sync, access and layout as independent halves — the shape
+ * TextureBarrier already has. Enhanced barriers are optional per driver, so a
+ * legacy path is what runs on hardware without them.
+ */
+enum class BarrierPath : uint8_t
+{
+    /** Enhanced where the adapter supports it, legacy where it does not. */
+    Auto,
+    Legacy,
+
+    /** Refused at device creation on an adapter without enhanced barriers. */
+    Enhanced,
+};
+
+/**
+ * The path's name, and the only spelling of it: --d3d12-barriers parses these words
+ * and a run report prints the path taken.
+ */
+constexpr std::string_view ToString(BarrierPath path)
+{
+    switch (path)
+    {
+        case BarrierPath::Auto:
+            return "auto";
+        case BarrierPath::Legacy:
+            return "legacy";
+        case BarrierPath::Enhanced:
+            return "enhanced";
+    }
+
+    return "unknown";
+}
+
+/** The inverse, returning nothing for a word that names no path. */
+constexpr std::optional<BarrierPath> BarrierPathFromString(std::string_view name)
+{
+    if (name == "auto")
+        return BarrierPath::Auto;
+
+    if (name == "legacy")
+        return BarrierPath::Legacy;
+
+    if (name == "enhanced")
+        return BarrierPath::Enhanced;
+
+    return std::nullopt;
+}
+
 /**
  * How much a device is required to be able to do. Separated from DeviceDesc
  * because presentation is the one requirement that is about to become optional:
@@ -25,10 +145,10 @@ struct DeviceRequirements
     bool bPresent = true;
 
     /**
-     * Opaque platform window handle, needed only when bPresent. Opaque rather
-     * than typed because the two backends want unrelated things from it (a
-     * native window pointer versus an HWND), and neither type belongs in a
-     * neutral header.
+     * The platform's window, needed only when bPresent. Opaque rather than typed
+     * because the window type belongs to the platform layer, not to a neutral RHI
+     * header. What it carries is the SDL window, and each backend asks SDL for what
+     * it needs: Vulkan for a surface, D3D12 for the HWND its swapchain is made on.
      */
     void* NativeWindowHandle = nullptr;
 };
@@ -49,6 +169,25 @@ struct DeviceDesc
     Rhi::Backend Backend = Rhi::Backend::Vulkan;
 
     DeviceRequirements Requirements;
+
+    /**
+     * Part of the name of the adapter to run on, matched without regard to case
+     * against the backend's own name for each one. Empty keeps each backend's
+     * rule: the first suitable adapter in enumeration order.
+     *
+     * A name rather than an index because enumeration order is not a stable
+     * identifier — it differs between machines and can differ between boots.
+     * The cost is that a name means something only within one backend, since
+     * each API spells adapter names its own way; and it cannot tell two copies
+     * of one adapter apart, such as the WARP Windows ships from the WARP deployed
+     * beside the executable, where deployment decides which one answers.
+     *
+     * An adapter that matches but does not meet the backend's requirements is
+     * refused rather than skipped for the next one, and no match at all refuses
+     * with the adapters that were found: asking for a GPU and silently getting
+     * another would measure the wrong machine.
+     */
+    std::string Gpu;
 
     /**
      * Turns on the backend's validation/debug layer. Costs real performance, so
@@ -117,6 +256,41 @@ struct DeviceDesc
      * ask for, and what a backend can honour is the backend's business.
      */
     bool bSyncValidation = true;
+
+    /**
+     * How much the debug layer also validates on the GPU, where bEnableValidation
+     * turned validation on at all. Its output arrives after the GPU executes rather
+     * than inside the offending call. Ignored by a backend with nothing to switch.
+     *
+     * Descriptors by default rather than Full, because resource-state tracking
+     * costs a debug frame several times over and an interactive run pays that
+     * every frame; the tests ask for Full, so the state checks still run under
+     * every gate. Type qualified because the member and its type share a name.
+     */
+    Rhi::GpuBasedValidation GpuBasedValidation = Rhi::GpuBasedValidation::Descriptors;
+
+    /**
+     * Which barrier model a backend with two records with. Auto takes the better one
+     * the adapter supports; naming one is how both are run on one adapter, so that
+     * a difference between them is not confounded with hardware. Ignored by a
+     * backend with one. Type qualified because the member and its type share a name.
+     */
+    Rhi::BarrierPath BarrierPath = Rhi::BarrierPath::Auto;
+
+    /**
+     * How many resource descriptors — constant buffers, textures, unordered-access
+     * textures — and how many sampler descriptors every bind group alive at once may
+     * hold between them, on a backend that binds from fixed heaps.
+     *
+     * D3D12 does: at most one heap of each kind can be bound at a time, switching can
+     * stall, and ImGui keeps raw handles into it, so each heap is created once at this
+     * size and never grows. A scene past the capacity is refused naming the field. The
+     * sampler default is the 2,048 D3D12 guarantees every adapter; identical samplers
+     * share their descriptors, so a scene rarely needs more than a handful. A backend
+     * whose pools grow — Vulkan — ignores both.
+     */
+    uint32_t ResourceDescriptorCapacity = 65'536u;
+    uint32_t SamplerDescriptorCapacity = 2'048u;
 };
 
 /**
@@ -212,5 +386,24 @@ struct DeviceInfo
      * carries the disambiguation, so a feature level never reads as a version.
      */
     std::string ApiVersion;
+
+    /**
+     * The adapter's PCI vendor and device identifiers.
+     *
+     * The one piece of identity both APIs spell alike, because both report the
+     * PCI identifiers themselves — which is what lets two reports from different
+     * backends be recognised as the same adapter, where the names above cannot
+     * be matched across APIs. They name the chip rather than the card: two cards
+     * of one model share them. Software rasterizers carry vendor identifiers of
+     * their own.
+     */
+    uint32_t VendorId = 0;
+    uint32_t DeviceId = 0;
+
+    /**
+     * The barrier model the device records with, Auto resolved: empty on a backend
+     * that has only one.
+     */
+    std::optional<Rhi::BarrierPath> BarrierPath;
 };
 } // namespace Hikari::Rhi

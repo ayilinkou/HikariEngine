@@ -1,7 +1,6 @@
 #include "vulkan/SwapchainTarget.h"
 
 #include <format>
-#include <span>
 #include <stdexcept>
 #include <tuple>
 #include <vector>
@@ -172,24 +171,29 @@ AcquiredImage SwapchainTarget::Acquire()
     // semaphore whose acquire is still outstanding.
     m_AcquireIndex = (m_AcquireIndex + 1u) % m_FramesInFlight;
 
-    const Image& image = m_Images[imageIndex];
+    Image& image = m_Images[imageIndex];
+    image.AcquireWait = available;
+    image.State = PresentImageState::Acquired;
 
-    // The span points at the ring slot rather than at a copy, so it stays valid
-    // exactly as long as AcquiredImage documents: until the next Acquire or
-    // Recreate, neither of which resizes the ring without rebuilding it.
-    return AcquiredImage{.Texture = image.Texture,
-                         .View = image.View,
-                         .Index = imageIndex,
-                         .WaitSemaphores = std::span(&m_AcquireSemaphores[acquireIndex], 1u),
-                         .bNeedsRecreate = false};
+    return AcquiredImage{
+        .Texture = image.Texture, .View = image.View, .Index = imageIndex, .bNeedsRecreate = false};
 }
 
-SemaphoreHandle SwapchainTarget::GetRenderCompleteSemaphore(uint32_t index) const
+PresentSemaphores SwapchainTarget::TakeSubmitSemaphores(uint32_t index)
 {
     if (index >= m_Images.size())
-        throw std::runtime_error("IPresentTarget::GetRenderCompleteSemaphore: index out of range.");
+        throw std::runtime_error(
+            "Rhi::IDevice::Submit: the present image's index is out of range.");
 
-    return m_Images[index].RenderComplete;
+    Image& image = m_Images[index];
+    if (image.State != PresentImageState::Acquired)
+    {
+        throw std::logic_error("Rhi::IDevice::Submit: the present image was not acquired, or a "
+                               "submission has already named it since its Acquire.");
+    }
+
+    image.State = PresentImageState::Submitted;
+    return PresentSemaphores{.Wait = image.AcquireWait, .Signal = image.RenderComplete};
 }
 
 bool SwapchainTarget::Present(uint32_t index)
@@ -197,7 +201,18 @@ bool SwapchainTarget::Present(uint32_t index)
     if (index >= m_Images.size())
         throw std::runtime_error("IPresentTarget::Present: index out of range.");
 
-    const vk::Semaphore waitOn = m_Device.GetSemaphore(m_Images[index].RenderComplete);
+    // Checked because the present below waits on the render-complete semaphore,
+    // which only the image's submission signals: presenting an unwritten image
+    // would wait on something nothing will ever signal.
+    Image& image = m_Images[index];
+    if (image.State != PresentImageState::Submitted)
+    {
+        throw std::logic_error("IPresentTarget::Present: no submission named this image since "
+                               "its Acquire.");
+    }
+    image.State = PresentImageState::Idle;
+
+    const vk::Semaphore waitOn = m_Device.GetSemaphore(image.RenderComplete);
     const vk::PresentInfoKHR presentInfo{.waitSemaphoreCount = 1u,
                                          .pWaitSemaphores = &waitOn,
                                          .swapchainCount = 1u,

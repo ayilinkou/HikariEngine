@@ -7,6 +7,19 @@
 // annotation (plan D29).
 ConstantBuffer<GlobalBuffer> globalBuffer : register(b0, space0);
 
+/**
+ * True when clip-space Y points down the image, as Vulkan's does and D3D12's does
+ * not. A pass that maps image rows to clip space without drawing geometry through
+ * the projection needs this, since only the rasteriser applies the flip for it.
+ * It is read from the projection rather than passed as a flag of its own, because
+ * the renderer negates the projection's Y scale for exactly these backends, and a
+ * second copy of that fact could disagree with the first.
+ */
+bool ClipSpaceYPointsDown()
+{
+	return globalBuffer.Camera.Proj[1][1] < 0.f;
+}
+
 // Inverse-square law
 float CalcAttenuation(float3 FragPos, float3 LightPos)
 {

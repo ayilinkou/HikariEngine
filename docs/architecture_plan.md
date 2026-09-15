@@ -9,7 +9,11 @@
 supports (a) headless + automated runtime testing, (b) data-oriented performance,
 (c) scalability as features are added.
 
-**Status:** Stage 6 and the cleanup work between the stages are complete. Next: Stage 7.
+**Status:** Stages 0 to 7 are complete, and so are the inserted Stages 7.5, 7.6 and 7.7 —
+the D3D12 backend landed on 15 September 2026; `docs/rhi.md` holds its decisions. **Next:
+Stage 8** — Passes & frame graph — whose steps 49–56 those three stages partly superseded, and
+step 48 of which landed at 7.6. Read the note at the head of that section before starting, and
+grill the stage first, as the working rules require.
 
 > Companion document: `suggested_work.md` covers *correctness bugs* and
 > localised fixes. This document deliberately does **not** repeat them. Where a bug is
@@ -287,7 +291,7 @@ S2-2's material ceiling, the per-batch descriptor bind, and the 3-texture cap in
 > available" overstated it: partial binding is a different feature, and bindless additionally
 > needs `runtimeDescriptorArray` and `shaderSampledImageArrayNonUniformIndexing` at minimum,
 > neither of which is enabled. The material ceiling was lifted separately by a growable pool
-> (R13); the 3-texture cap remains. See D14 in `backend_readiness_plan.md`.
+> (R13); the 3-texture cap remains. See D14 in `rhi.md`.
 
 ### S2-4 — Assets load synchronously on the frame thread, with a full GPU drain per resource.
 `EndSingleTimeCommand` does `queue.waitIdle()` per texture/buffer. Scene load runs inside
@@ -725,7 +729,7 @@ fields, `bPresent` and an opaque `NativeWindowHandle`. Everything the sketch wan
 express as caller-supplied policy — API version, extension lists, the required feature set —
 stayed *inside* the backend instead, because none of it can be spelled in a backend-neutral
 header without leaking Vulkan's vocabulary into it, and a caller has no basis on which to
-vary it. That is the D0–D12 rule from `rhi_extraction_plan.md` applied: the seam says what is
+vary it. That is the D0–D12 rule from `rhi.md` applied: the seam says what is
 wanted, not how it is spelled.
 
 When `bPresent` is false the backend creates no surface, requests neither the surface
@@ -799,8 +803,10 @@ int main(int argc, char** argv)
 }
 ```
 
-The same `Engine` runs windowed and headless. `apps/hikariengine/main.cpp` differs only in
-that it constructs `SdlPlatform` and attaches `EditorLayer`.
+The same `Engine` runs windowed and headless. Stage 7 built this as two binaries rather than
+one: `apps/editor/main.cpp` constructs `SdlPlatform` and an `IUiBackend`, `apps/headless/main.cpp`
+constructs `HeadlessPlatform`, and each is nothing but that choice. `EditorLayer` is still Stage
+8's — the ImGui panels remain in `Engine.cpp`.
 
 ## 11. Data-oriented core
 
@@ -1347,7 +1353,7 @@ first run.
 
 ### 15.7 Comparing two renderers — exact counters, tolerant pixels
 
-Settled during Stage 7.5's grill (`backend_readiness_plan.md` D26) and recorded here because it
+Settled during Stage 7.5's grill (`rhi.md` D26) and recorded here because it
 outlives that stage: it is how *any* two renderers of this engine are compared, including two
 D3D12 driver versions, not only Vulkan against D3D12.
 
@@ -1361,10 +1367,14 @@ in the low bits.
 **The two signals are therefore split by what each can honestly promise.**
 
 **Counters must match exactly, even across backends.** `drawCalls`, `batches`, `instances`,
-`barriers`, `barrierCalls`, `validationErrors` and `uploadSubmissions` describe what the
-renderer *decided*, not what the rasterizer produced. Two backends disagreeing about a draw
-call count is a bug in one of them, always. This makes the counters strictly more valuable than
-they are with one backend, rather than less.
+`barriers`, `barrierCalls` and `uploadBatches` describe what the renderer *decided*, not what the
+rasterizer produced. Two backends disagreeing about a draw call count is a bug in one of them,
+always. This makes the counters strictly more valuable than they are with one backend, rather
+than less. Two refinements came with the second backend (D26, amended). The validation counts
+must be **zero in both reports** across backends rather than equal, since two validators count
+one mistake differently, and they are compared only when each backend's own validation sub-mode
+ran at its strongest. And `uploadSubmissions` is a **measurement**: how many submissions a batch
+takes is the backend's and the driver's, so it is reported and never compared.
 
 **Pixels are compared with a tolerance: a per-channel delta with two caps.** No pixel may
 differ by more than N per channel, and at most M% of pixels may differ at all. Each cap catches
@@ -1382,9 +1392,21 @@ comparison **always reports the measured delta**, not just pass or fail, so drif
 while it is still headroom rather than only on the day it crosses.
 
 **One implementation, two settings.** Within a backend the tolerance is zero and the check stays
-exactly as strict as it is today; across backends it is the configured limits. This is the same
+exactly as strict as it is today; across backends it is the measured limits. This is the same
 tool as §15.4's golden comparison rather than a second one — that section's "perceptual metric
 and a tolerance" is superseded by the per-channel form above.
+
+**What the limits turned out to be, and what makes a pair comparable** (Stage 7.7, D26 and D35,
+amended). Two backends' pixels are compared only when the runs had **one adapter** — the PCI
+vendor and device IDs, which both APIs spell alike, plus the OS and architecture — so a
+tolerance can never absorb two rasterizers. The limits are **exactly the measured values, with
+no headroom**: the pair is deterministic, so the difference moves only when something changes,
+and every differing region is explained by a named mechanism beside the constants before they
+are committed. They are measured per build type, because optimised shaders round differently;
+the first pair, Vulkan and D3D12 on an RX 580, differs by at most 120 in 11,434 pixels of a
+1920×1080 frame in a debug build, all of it subpixel rounding in the two APIs' opposite viewport
+mappings and anisotropic filtering. The consequence, accepted: every driver update and rendering
+change that moves the gap needs a re-measure, a re-explanation and approval.
 
 ## 16. Test harness components
 
@@ -1433,10 +1455,12 @@ This is what makes renderer unit tests possible at all.
 Per-channel comparison against D26's two limits — no pixel differing by more than N per channel,
 and at most M% of pixels differing at all — reporting the measured delta whether it passes or
 fails. On failure it writes `actual.png`, `expected.png` and an amplified `diff.png`, so a reader
-can see *where* an image moved rather than only by how much. Stage 7.6 builds it in
-`tests/support/`, shared by the scene tests, the command-line baseline comparison and 7.7's
-cross-backend runs; `backend_readiness_plan.md` §4.1 has the details. CI cannot upload those images
-yet — `ci.yml` has no artefact step at all — which is a `backlog.md` row.
+can see *where* an image moved and by how much — scaled to the worst delta on a logarithmic curve,
+since most differences worth seeing are a level or two beside a worst of a hundred. Stage 7.6
+builds it in `tests/support/`, shared by the scene tests, the command-line baseline comparison and
+7.7's cross-backend runs. `tests/support/ImageCompare.h` carries the measured constants and what
+each differing region is; `rhi.md` D26 has the reasoning. CI cannot upload those
+images yet — `ci.yml` has no artefact step at all — which is a `backlog.md` row.
 
 ### 16.7 `TestPaths`
 Locates `tests/data` via a compile-time-injected absolute path
@@ -1670,7 +1694,7 @@ prefixes, `p` for raw pointers). Codify rather than change it:
 | 2 | **lavapipe fidelity.** It is not a real driver; some bugs won't reproduce, some lavapipe quirks aren't real bugs. | Treat it as a *smoke and correctness* device, not a conformance oracle. Golden images per-driver-class. Add a self-hosted GPU runner later if it becomes worthwhile. |
 | 3 | **ECS rewrite risk.** Replacing `Entity`/`Component` touches scene, serialization, editor and renderer. | Sequenced *after* headless tests exist (Phase 5, not Phase 1). Sparse sets over archetypes to limit complexity. Keep `SceneDesc`/`.map` stable so scenes don't need re-authoring. |
 | 4 | **Frame graph complexity.** Easy to over-engineer into 3k lines. | Constrain: no async compute in v1, no aliasing in v1, no multi-queue in v1. Add only when a pass needs it. Target < 900 lines. |
-| 5 | **Bindless portability.** Older and mobile-class drivers have weaker descriptor-indexing support. | **Resolved by deferral** — see D14 in `backend_readiness_plan.md`. This row and D7 pointed in opposite directions: D7 deferred the binding model *because* bindless would replace it, while this row's mitigation ("keep a non-bindless fallback behind a device-capability flag; the `gpu` suite runs both") required building that model regardless. Bindless now waits until after the D3D12 backend and the binding model is neutralised in Stage 7.5, so there is no bindless path to fall back from and no flag to carry. Revisit this row when step 70 is scheduled. Note also that the assurance below it was overstated: only `descriptorBindingPartiallyBound` is enabled (`VulkanDevice.cpp:980`), and it serves partially-bound material sets, not bindless — which additionally needs `runtimeDescriptorArray` and `shaderSampledImageArrayNonUniformIndexing` at minimum. |
+| 5 | **Bindless portability.** Older and mobile-class drivers have weaker descriptor-indexing support. | **Resolved by deferral** — see D14 in `rhi.md`. This row and D7 pointed in opposite directions: D7 deferred the binding model *because* bindless would replace it, while this row's mitigation ("keep a non-bindless fallback behind a device-capability flag; the `gpu` suite runs both") required building that model regardless. Bindless now waits until after the D3D12 backend and the binding model is neutralised in Stage 7.5, so there is no bindless path to fall back from and no flag to carry. Revisit this row when step 70 is scheduled. Note also that the assurance below it was overstated: only `descriptorBindingPartiallyBound` is enabled (`VulkanDevice.cpp:980`), and it serves partially-bound material sets, not bindless — which additionally needs `runtimeDescriptorArray` and `shaderSampledImageArrayNonUniformIndexing` at minimum. |
 | 6 | **Build time** with 9 targets and no PCH sharing. | Per-module PCHs, `ccache` (already wired), unity builds for the leaf modules if needed. Note that splitting *reduces* rebuild cost: touching a pass no longer rebuilds a 2,453-line TU. |
 | 7 | **Golden-image flakiness eroding trust.** | Non-blocking until stable; D26's per-channel tolerance — two limits, always reported as a measured delta; determinism fixes (esp. the pointer-value sort order) land first. |
 | 8 | **Catch2 vs GoogleTest.** | Recommendation: Catch2 v3. Decide once, in Phase 0. |
@@ -1704,8 +1728,9 @@ gets a quick re-grill against four mechanical checks — do its file and line re
 resolve, have prerequisites it lists as pending landed, do the counts and inventories it
 asserts still match the tree, and has another document taken a decision that conflicts with one
 of its own. It may end in "nothing moved, proceed" only if all four come back clean. The rule
-and its rationale live in `CLAUDE.md`'s working rules; `backend_readiness_plan.md` §0 is the
-worked example of why it exists.
+and its rationale live in `CLAUDE.md`'s working rules. The worked example is Stage 7.5's
+interview, which found four stale premises in a plan one day old and the combined image samplers
+D3D12 cannot express — the latter would otherwise have been discovered mid-backend (`rhi.md` D22).
 
 ### The one rule that makes this work
 
@@ -1747,7 +1772,8 @@ document.
 | 10 | 69–76 | Bindless, mega-buffers, async loading, indirect | open-ended |
 
 Stages **7.5**, **7.6** and **7.7** are inserted between 7 and 8 and are not in that table
-because they are not part of Part IV: `docs/backend_readiness_plan.md` carries all three. 7.5
+because they are not part of Part IV. Their own plans were retired when 7.7 landed, and
+`docs/rhi.md` carries the decisions they took. 7.5
 neutralises the RHI's frame API — submission, rendering scope, binding, pipelines, draw and
 dispatch — which Stage 5 left undone and which a D3D12 backend needs before it can be written,
 as twelve steps. 7.6 builds what the backend needs around that seam: the comparison tool, the
@@ -2777,10 +2803,11 @@ and a real-content one.
 
 ## Stage 8 — Passes & frame graph (steps 48–56)
 
-> **Stages 7.5 to 7.7 come first, and change this stage.** `docs/backend_readiness_plan.md`
+> **Stages 7.5 to 7.7 came first, and changed this stage.** Stage 7.5
 > inserted twelve steps that neutralised submission, rendering scope, binding, pipelines and
 > draw/dispatch recording — the prerequisites for a D3D12 backend, none of which this stage
-> was written to provide. Stage 7.5 is complete; 7.6 and 7.7 follow it. Four consequences here:
+> was written to provide. All three are complete, 7.7 as of 15 September 2026. Four consequences
+> here:
 >
 > - **50–54 follow that work, not the reverse** (D18). Each recorder is then moved onto the
 >   neutral API once and into a `Pass` class once, rather than having `Pass::Execute` take a
@@ -2978,7 +3005,7 @@ The long pole, and the only strictly serial chain:
                           B1 → B2 → B3 → B4 → B5 → B6 → D3D12   ← backend goal
 ```
 
-The chain continues past the CI goal into **Stage 7.5** (`backend_readiness_plan.md`), which
+The chain continues past the CI goal into **Stage 7.5**, which
 is the serial run-up to a second backend. Step 47 is a genuine prerequisite rather than a
 convenient predecessor: it is the instrument that tells you whether the D3D12 backend renders
 what the Vulkan one does, and without it every B-step is verified by eye.

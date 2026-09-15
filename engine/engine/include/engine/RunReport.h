@@ -8,6 +8,7 @@
 #include <platform/IPlatform.h>
 
 #include <rhi/Backend.h>
+#include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/RhiTypes.h>
 
@@ -60,10 +61,18 @@ struct RunReport
         uint64_t ValidationWarnings = 0;
 
         /**
-         * Queue submissions the upload context made. The number the asset
-         * layer's batching is visible in: one scene's worth of textures loaded
-         * inside one load scope is a handful of submissions, and one submission
-         * per texture means the scoping broke.
+         * Batches the upload context flushed. The number the asset layer's
+         * batching is visible in: one scene's worth of textures loaded inside one
+         * load scope is a handful of batches, and one batch per texture means the
+         * scoping broke.
+         */
+        uint64_t UploadBatches = 0;
+
+        /**
+         * Queue submissions those batches took, which depends on the backend and
+         * the driver as well as on the engine — see Rhi::UploadStats — so it is a
+         * measurement a comparison never diffs, reported beside the counters it
+         * explains.
          */
         uint64_t UploadSubmissions = 0;
     };
@@ -121,6 +130,14 @@ struct RunReport
          */
         std::string Os;
         std::string Arch;
+
+        /**
+         * The adapter's PCI vendor and device identifiers — the identity both
+         * backends spell alike, so two reports from different backends can be
+         * recognised as the same adapter. See Rhi::DeviceInfo.
+         */
+        uint32_t VendorId = 0;
+        uint32_t DeviceId = 0;
     };
 
     /**
@@ -173,6 +190,19 @@ struct RunReport
          * whenever validation is, until it gains a switch of its own.
          */
         bool bSyncValidation = false;
+
+        /**
+         * How much the D3D12 debug layer also validated on the GPU. What ran rather
+         * than what was asked: off on Vulkan, and off wherever validation was off,
+         * since there was no layer to switch it in.
+         */
+        Rhi::GpuBasedValidation D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Off;
+
+        /**
+         * The barrier model D3D12 recorded with, auto resolved. Empty on a backend
+         * with only one.
+         */
+        std::optional<Rhi::BarrierPath> D3D12Barriers;
 
         std::vector<std::string> DisabledVulkanExtensions;
         bool bForceSingleQueue = false;

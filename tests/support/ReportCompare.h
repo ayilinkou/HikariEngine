@@ -56,6 +56,23 @@ enum class FieldRole : uint8_t
      * then skipped and named.
      */
     Condition,
+
+    /**
+     * A condition within one backend and nothing across two. Across backends it
+     * differs by construction, or is text each API spells its own way, so gating on
+     * it would skip every cross-backend pixel comparison; whether two backends ran on
+     * one adapter is said instead by the PCI identifiers, which both APIs spell alike
+     * and which stay ordinary conditions, with the OS and the architecture beside them.
+     */
+    ConditionWithinBackend,
+
+    /**
+     * A validation count. Within a backend an expectation like any Compared field;
+     * across backends it must be zero in both reports instead, because two
+     * validators check different things at different granularity, so two equal
+     * non-zero counts say nothing about each other.
+     */
+    ZeroAcrossBackends,
 };
 
 /**
@@ -74,6 +91,17 @@ struct FieldClassification
     FieldRole Role = FieldRole::Condition;
     bool bGatesCounters = false;
     bool bGatesPixels = false;
+
+    /**
+     * Empty for a condition every backend has. Otherwise the backend it exists on,
+     * as system.backend spells it: across backends such a condition always differs,
+     * so it is read from that backend's report alone, and the signals it gates are
+     * skipped unless it holds StrongestValue there.
+     */
+    std::string_view OwningBackend{};
+
+    /** The value, as JSON text, an owned condition must hold to be compared across backends. */
+    std::string_view StrongestValue{};
 };
 
 /** Every field the run report emits, for the comparison and for the test that pins it. */
@@ -104,9 +132,10 @@ struct ReportComparison
 
     /**
      * Whether the captures are worth comparing, and how strictly. False when a
-     * field gating pixels differs. The tolerance is exact today and will stay
-     * exact within one backend; it is chosen from what the reports say rather
-     * than from a flag, so there is nothing to nudge when a comparison goes red.
+     * field gating pixels differs. The tolerance is exact within one backend and
+     * the build type's measured cross-backend pair across two; it is chosen from what
+     * the reports say rather than from a flag, so there is nothing to nudge when a
+     * comparison goes red.
      */
     bool bComparePixels = false;
     ImageTolerance PixelTolerance;

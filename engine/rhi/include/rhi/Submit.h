@@ -10,6 +10,7 @@
 namespace Hikari::Rhi
 {
 class ICommandList;
+class IPresentTarget;
 
 /**
  * A fence, and the value it is waited on or signalled to reach.
@@ -36,21 +37,20 @@ struct FenceDesc
 };
 
 /**
+ * The image of a present target that a submission writes: the target, and the
+ * index its Acquire handed out.
+ */
+struct PresentTargetImage
+{
+    IPresentTarget* pTarget = nullptr;
+    uint32_t Index = 0u;
+};
+
+/**
  * One submission to one queue.
  *
  * Lists execute in the order given. Every list must have been ended, and every
  * one must have come from an allocator created for this queue type.
- *
- * The two semaphore spans exist only for present targets. Nothing else produces
- * a SemaphoreHandle, and nothing should: a swapchain image is acquired and
- * presented with binary semaphores because Vulkan requires it
- * (VUID-vkAcquireNextImageKHR-semaphore-03265 and
- * VUID-vkQueuePresentKHR-pWaitSemaphores-03267 both demand
- * VK_SEMAPHORE_TYPE_BINARY), and D3D12's swap chain has no equivalent object at
- * all. They carry no stage: Vulkan wants one, D3D12 has none, and the only
- * semaphores that reach here guard writes to an acquired image, so the backend
- * picks the first stage that could write one rather than asking a caller to
- * name a stage it cannot express portably.
  */
 struct SubmitDesc
 {
@@ -61,7 +61,16 @@ struct SubmitDesc
     std::span<const FenceOperation> WaitFences{};
     std::span<const FenceOperation> SignalFences{};
 
-    std::span<const SemaphoreHandle> WaitSemaphores{};
-    std::span<const SemaphoreHandle> SignalSemaphores{};
+    /**
+     * The acquired image these lists write, or no target when they write none.
+     *
+     * What a frame knows is which image it draws into, and that is all a backend
+     * needs to order the write: Vulkan's present path orders it with binary
+     * semaphores the target owns, and D3D12 needs nothing, since a present is
+     * queued behind the rendering already on its queue. Exactly one submission
+     * names each acquired image, between its Acquire and its Present, and the
+     * target must be this device's.
+     */
+    PresentTargetImage PresentImage{};
 };
 } // namespace Hikari::Rhi

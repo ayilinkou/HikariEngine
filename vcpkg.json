@@ -15,7 +15,11 @@
       "name": "imgui",
       "features": [
         "vulkan-binding",
-        "sdl3-binding"
+        "sdl3-binding",
+        {
+          "name": "dx12-binding",
+          "platform": "windows"
+        }
       ]
     },
     "pugixml",
@@ -30,6 +34,22 @@
       "platform": "linux"
     },
     "vulkan-validationlayers",
+    {
+      "name": "directx-headers",
+      "platform": "windows"
+    },
+    {
+      "name": "directx12-agility",
+      "platform": "windows"
+    },
+    {
+      "name": "d3d12-memory-allocator",
+      "platform": "windows"
+    },
+    {
+      "name": "directx-warp",
+      "platform": "windows"
+    },
     {
       "name": "shader-slang",
       "host": true

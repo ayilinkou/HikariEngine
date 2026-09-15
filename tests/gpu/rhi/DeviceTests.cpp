@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "vulkan/vulkan_raii.hpp"
@@ -23,7 +26,7 @@
  */
 using namespace Hikari::Rhi;
 
-TEST_CASE("A headless device is created and reports no presentation", "[rhi][gpu][device]")
+TEST_CASE("A headless device is created and reports no presentation", "[rhi][gpu][device][vulkan]")
 {
     IDevice& device = RhiTest::RequireDevice();
     const RhiTest::ValidationGuard guard(device);
@@ -47,7 +50,7 @@ TEST_CASE("A headless device is created and reports no presentation", "[rhi][gpu
  * on — and loosening the suitability check would otherwise surface as a driver
  * crash somewhere unrelated.
  */
-TEST_CASE("The device supports the features the renderer requires", "[rhi][gpu][device]")
+TEST_CASE("The device supports the features the renderer requires", "[rhi][gpu][device][vulkan]")
 {
     IDevice& device = RhiTest::RequireDevice();
     const RhiTest::ValidationGuard guard(device);
@@ -84,7 +87,7 @@ TEST_CASE("The device supports the features the renderer requires", "[rhi][gpu][
  * to a C API that cannot check them, so a null one is a crash inside somebody
  * else's library.
  */
-TEST_CASE("The native handles the ImGui hatch exposes are all real", "[rhi][gpu][device]")
+TEST_CASE("The native handles the ImGui hatch exposes are all real", "[rhi][gpu][device][vulkan]")
 {
     IDevice& device = RhiTest::RequireDevice();
     const RhiTest::ValidationGuard guard(device);
@@ -105,13 +108,56 @@ TEST_CASE("The native handles the ImGui hatch exposes are all real", "[rhi][gpu]
  * roles, those tests would keep passing while silently covering one fewer path
  * — so the lever gets its own check rather than being trusted.
  */
-TEST_CASE("Forcing a single queue removes the dedicated copy queue", "[rhi][gpu][device]")
+TEST_CASE("Forcing a single queue removes the dedicated copy queue", "[rhi][gpu][device][queues]")
 {
     IDevice& forced = RhiTest::RequireDevice(RhiTest::DeviceConfig::SingleQueue);
     const RhiTest::ValidationGuard guard(forced);
 
     REQUIRE_FALSE(forced.GetCaps().bHasDedicatedCopyQueue);
     REQUIRE_FALSE(forced.GetCaps().bHasDedicatedComputeQueue);
+}
+
+/**
+ * The adapter's PCI identity is what lets reports from two backends be recognised
+ * as the same adapter, so a device that left it at zero would make every such pair
+ * look like two different machines. No real adapter reports vendor zero: a PCI
+ * vendor has its PCI ID, and anything else a Khronos ID from 0x10000 up.
+ */
+TEST_CASE("The device reports its adapter's vendor", "[rhi][gpu][device]")
+{
+    IDevice& device = RhiTest::RequireDevice();
+
+    CHECK(device.GetInfo().VendorId != 0u);
+    CHECK_FALSE(device.GetInfo().Gpu.empty());
+}
+
+/**
+ * A name that matches nothing is refused rather than ignored: silently running on
+ * another adapter would measure the wrong machine. The refusal lists what was found,
+ * which is the only way a user learns the spelling this backend wants.
+ */
+TEST_CASE("Asking for an adapter no one has is refused, naming the adapters found",
+          "[rhi][gpu][device]")
+{
+    // Only meaningful where a device can exist at all; skips with the fixture's
+    // reason otherwise.
+    const IDevice& existing = RhiTest::RequireDevice();
+
+    Diagnostics diagnostics;
+    DeviceDesc desc = RhiTest::Detail::MakeDesc(RhiTest::DeviceConfig::Default, diagnostics);
+    desc.Gpu = "no adapter is called this";
+
+    try
+    {
+        const std::unique_ptr<IDevice> device = CreateDevice(desc);
+        FAIL("a device was created for an adapter name nothing matches");
+    }
+    catch (const std::runtime_error& error)
+    {
+        const std::string message = error.what();
+        CHECK(message.find("no adapter is called this") != std::string::npos);
+        CHECK(message.find(existing.GetInfo().Gpu) != std::string::npos);
+    }
 }
 
 /**
@@ -125,7 +171,7 @@ TEST_CASE("Forcing a single queue removes the dedicated copy queue", "[rhi][gpu]
  */
 TEST_CASE("A new device owns no resources", "[rhi][gpu][device]")
 {
-    for (const RhiTest::DeviceConfig config : RhiTest::kAllDeviceConfigs)
+    for (const RhiTest::DeviceConfig config : RhiTest::AllDeviceConfigs())
     {
         INFO("device configuration: " << RhiTest::Describe(config));
 

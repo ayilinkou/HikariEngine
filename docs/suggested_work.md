@@ -7,6 +7,10 @@
 **Status:** In progress; completed tasks are removed as they land. Last reconciled against
 the tree on 25/08/2026, after Stage 5 and Part IV steps 35-36.
 
+**Paths below predate Stage 7**, which dissolved `src/` into the engine modules. Read every
+`src/X` here as `engine/engine/src/X` unless the text says otherwise; line numbers have moved
+too, so find the symbol rather than the line.
+
 ---
 
 ## Table of Contents

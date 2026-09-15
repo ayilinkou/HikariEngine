@@ -1,6 +1,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
 
 #include <core/Log.h>
@@ -10,8 +11,9 @@
 #include <platform/InputScript.h>
 #include <platform/SdlPlatform.h>
 
-#include <editor/VulkanUiBackend.h>
+#include <editor/CreateUiBackend.h>
 
+#include <engine/IUiBackend.h>
 #include <engine/ParseEngineOptions.h>
 #include <engine/RunApp.h>
 
@@ -222,8 +224,9 @@ int main(int argc, char** argv)
         if (!options.InputScriptPath.empty())
             platform.SetInputScript(InputScript::Load(options.InputScriptPath));
 
-        Editor::VulkanUiBackend uiBackend;
-        return Engine::RunApp(platform, uiBackend, options.Run, processStart);
+        const std::unique_ptr<Engine::IUiBackend> uiBackend =
+            Editor::CreateUiBackend(options.Run.Spec.Backend);
+        return Engine::RunApp(platform, *uiBackend, options.Run, processStart);
     }
     catch (const InputScriptError& e)
     {

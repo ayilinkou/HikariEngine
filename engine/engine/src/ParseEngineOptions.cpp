@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <iostream>
+#include <optional>
 #include <string>
 
 #include <rhi/Backend.h>
+#include <rhi/DeviceDesc.h>
 
 #include <engine/CameraPresets.h>
 
@@ -104,6 +106,34 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
         spec.bValidationEnabled = RequireOnOff(option);
     else if (flag == "--vk-sync-validation")
         spec.bVulkanSyncValidation = RequireOnOff(option);
+    else if (flag == "--d3d12-gpu-based-validation")
+    {
+        // No on: with three levels it would not say which.
+        const std::string value = option.RequireValue();
+        const std::optional<Rhi::GpuBasedValidation> level =
+            Rhi::GpuBasedValidationFromString(value);
+        if (!level)
+        {
+            throw Platform::CommandLineError(
+                "--d3d12-gpu-based-validation expects off, descriptors or full, got: " + value);
+        }
+
+        spec.D3D12GpuBasedValidation = *level;
+    }
+    else if (flag == "--d3d12-barriers")
+    {
+        const std::string value = option.RequireValue();
+        const std::optional<Rhi::BarrierPath> path = Rhi::BarrierPathFromString(value);
+        if (!path)
+        {
+            throw Platform::CommandLineError(
+                "--d3d12-barriers expects legacy, enhanced or auto, got: " + value);
+        }
+
+        spec.D3D12Barriers = *path;
+    }
+    else if (flag == "--gpu")
+        spec.Gpu = option.RequireValue();
     else if (flag == "--validation-policy")
     {
         const std::string value = option.RequireValue();
@@ -128,7 +158,7 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
     }
     else if (flag == "--vk-disable-extension")
         spec.DisabledVulkanExtensions.push_back(option.RequireValue());
-    else if (flag == "--vk-force-single-queue")
+    else if (flag == "--force-single-queue")
     {
         option.RequireNoValue();
         spec.bForceSingleQueue = true;
@@ -161,6 +191,27 @@ void RejectContradictoryOptions(const RunSpec& spec)
             ": with no validation layer loaded there are no messages for a policy to act on");
     }
 
+    // D3D12 has capability bits rather than extensions, and a branch worth forcing
+    // there gets a lever of its own. Refused rather than ignored: the device would
+    // report and skip names it does not know, so the run would quietly take the
+    // path nobody asked for.
+    if (spec.Backend == Rhi::Backend::D3D12 && !spec.DisabledVulkanExtensions.empty())
+    {
+        throw Platform::CommandLineError(
+            "--vk-disable-extension cannot be combined with --backend D3D12: D3D12 has no "
+            "extensions to disable");
+    }
+
+    // A path named for a backend that has one barrier model would read as a choice
+    // that was made. Auto is what leaving the flag alone means, so it stays accepted.
+    if (spec.Backend != Rhi::Backend::D3D12 && spec.D3D12Barriers != Rhi::BarrierPath::Auto)
+    {
+        throw Platform::CommandLineError(
+            "--d3d12-barriers " + std::string(Rhi::ToString(spec.D3D12Barriers)) +
+            " cannot be combined with --backend " + std::string(Rhi::ToString(spec.Backend)) +
+            ": only D3D12 has a barrier path to choose");
+    }
+
     if (spec.bValidationEnabled == false && spec.bStrictValidation)
     {
         throw Platform::CommandLineError(
@@ -185,8 +236,10 @@ void PrintEngineUsage()
                      "                          pass still runs, so only what is drawn "
                      "changes\n"
                      "  --jobs <N>              Worker thread count (0 = SerialJobSystem, "
-                     "no threads; default = hardware_concurrency() - 1)\n"
-                     "  --frames-in-flight <N>  Frames the CPU may work on at once "
+                     "no threads;\n"
+                     "                          default = hardware_concurrency() - 1)\n"
+                     "  --frames-in-flight <N>\n"
+                     "                          Frames the CPU may work on at once "
                      "(default: 2)\n"
                      "  --strict-validation     Exit non-zero if any Vulkan "
                      "validation error occurred\n"
@@ -198,21 +251,39 @@ void PrintEngineUsage()
                      "validation runs at\n"
                      "                          all. The expensive sub-mode; on by default "
                      "(default: on)\n"
+                     "  --d3d12-gpu-based-validation <off|descriptors|full>\n"
+                     "                          D3D12 only. The debug layer's GPU-side checks, "
+                     "where validation runs\n"
+                     "                          at all: what shaders read, and with full also "
+                     "resource states,\n"
+                     "                          which cost several times more "
+                     "(default: descriptors)\n"
+                     "  --d3d12-barriers <legacy|enhanced|auto>\n"
+                     "                          D3D12 only. The barrier model to record with; "
+                     "auto takes enhanced\n"
+                     "                          where the adapter supports it, and enhanced "
+                     "is refused where it\n"
+                     "                          does not (default: auto)\n"
                      "  --backend <name>        Which backend to run on. Available in this "
                      "build: " +
                      AvailableBackendNames() +
                      "\n"
-                     "  --validation-policy <p> ignore | count | failfast "
-                     "(default: count; failfast aborts on the first error)\n"
+                     "  --gpu <name>            Run on the first suitable adapter whose name "
+                     "contains <name>,\n"
+                     "                          ignoring case. Names are each backend's own "
+                     "spelling\n"
+                     "  --validation-policy <ignore|count|failfast>\n"
+                     "                          What a validation message means for the run; "
+                     "failfast aborts\n"
+                     "                          on the first error (default: count)\n"
                      "  --vk-disable-extension <name>\n"
                      "                          Vulkan only. Behave as though the device did not "
                      "support this\n"
                      "                          optional extension, to exercise the fallback path. "
                      "Repeatable.\n"
-                     "  --vk-force-single-queue Vulkan only. Behave as though the device exposed "
-                     "one queue\n"
-                     "                          family, to exercise the path an integrated GPU "
-                     "takes\n";
+                     "  --force-single-queue    Behave as though the device had one queue for "
+                     "every role, to\n"
+                     "                          exercise the path an integrated GPU takes\n";
 }
 
 } // namespace Hikari::Engine

@@ -1,9 +1,28 @@
 #pragma once
 
 #include <cstdlib>
+#include <string>
 
 namespace TestEnvironment
 {
+
+/** An environment variable's value, or empty when it is unset. Windows-safe as Flag() is. */
+inline std::string Value(const char* name)
+{
+#if defined(_WIN32)
+    char* value = nullptr;
+    std::size_t length = 0u;
+    if (_dupenv_s(&value, &length, name) != 0 || value == nullptr)
+        return {};
+
+    std::string result = value;
+    std::free(value);
+    return result;
+#else
+    const char* value = std::getenv(name);
+    return value != nullptr ? std::string(value) : std::string();
+#endif
+}
 
 /**
  * Reads a boolean-ish environment variable: set, non-empty and not "0".

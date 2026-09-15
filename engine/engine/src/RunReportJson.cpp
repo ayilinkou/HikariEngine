@@ -81,6 +81,7 @@ std::string ToJson(const RunReport& report)
         << "    \"run\": {\n"
         << "      \"validationErrors\": " << report.Counters.Run.ValidationErrors << ",\n"
         << "      \"validationWarnings\": " << report.Counters.Run.ValidationWarnings << ",\n"
+        << "      \"uploadBatches\": " << report.Counters.Run.UploadBatches << ",\n"
         << "      \"uploadSubmissions\": " << report.Counters.Run.UploadSubmissions << "\n"
         << "    }\n"
         << "  },\n"
@@ -109,9 +110,16 @@ std::string ToJson(const RunReport& report)
         << ",\n"
         << "    \"validationPolicy\": \"" << Rhi::ToString(report.Run.ValidationPolicy) << "\",\n"
         << "    \"vkSyncValidation\": " << (report.Run.bSyncValidation ? "true" : "false") << ",\n"
+        << "    \"d3d12GpuBasedValidation\": \""
+        << Rhi::ToString(report.Run.D3D12GpuBasedValidation) << "\",\n"
+        << "    \"d3d12Barriers\": "
+        << (report.Run.D3D12Barriers
+                ? "\"" + std::string(Rhi::ToString(*report.Run.D3D12Barriers)) + "\""
+                : std::string("null"))
+        << ",\n"
         << "    \"vkDisabledExtensions\": " << StringArrayJson(report.Run.DisabledVulkanExtensions)
         << ",\n"
-        << "    \"vkForceSingleQueue\": " << (report.Run.bForceSingleQueue ? "true" : "false")
+        << "    \"forceSingleQueue\": " << (report.Run.bForceSingleQueue ? "true" : "false")
         << ",\n"
         << "    \"framesInFlight\": " << report.Run.FramesInFlight << ",\n"
         << "    \"windowMode\": "
@@ -126,7 +134,12 @@ std::string ToJson(const RunReport& report)
         << "    \"driver\": \"" << report.System.Driver << "\",\n"
         << "    \"apiVersion\": \"" << report.System.ApiVersion << "\",\n"
         << "    \"os\": \"" << report.System.Os << "\",\n"
-        << "    \"arch\": \"" << report.System.Arch << "\"\n"
+        << "    \"arch\": \"" << report.System.Arch
+        << "\",\n"
+        // Hexadecimal text, the way PCI identifiers are written everywhere else a
+        // reader would look one up.
+        << "    \"vendorId\": \"" << std::format("0x{:04X}", report.System.VendorId) << "\",\n"
+        << "    \"deviceId\": \"" << std::format("0x{:04X}", report.System.DeviceId) << "\"\n"
         << "  }\n"
         << "}\n";
 

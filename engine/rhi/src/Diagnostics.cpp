@@ -21,6 +21,9 @@ void Diagnostics::Report(DiagnosticSeverity severity, std::string_view message)
 
     switch (severity)
     {
+        case DiagnosticSeverity::Verbose:
+            m_VerboseCount.fetch_add(1, std::memory_order_relaxed);
+            break;
         case DiagnosticSeverity::Info:
             m_InfoCount.fetch_add(1, std::memory_order_relaxed);
             break;
@@ -87,6 +90,7 @@ std::vector<std::string> Diagnostics::RecentMessages() const
 
 void Diagnostics::Reset()
 {
+    m_VerboseCount.store(0, std::memory_order_relaxed);
     m_InfoCount.store(0, std::memory_order_relaxed);
     m_WarningCount.store(0, std::memory_order_relaxed);
     m_ErrorCount.store(0, std::memory_order_relaxed);

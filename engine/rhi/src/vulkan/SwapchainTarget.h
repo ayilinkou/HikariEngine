@@ -12,6 +12,8 @@
 #include <rhi/RhiTypes.h>
 
 #include "vulkan/VulkanConversions.h"
+#include "vulkan/VulkanPresentTarget.h"
+#include "vulkan/VulkanSemaphore.h"
 
 namespace Hikari::Rhi::Vulkan
 {
@@ -26,7 +28,7 @@ class VulkanDevice;
  * the semaphores that order access to them have the same lifetime, and splitting
  * them is what let the two disagree about how many there were.
  */
-class SwapchainTarget final : public IPresentTarget
+class SwapchainTarget final : public VulkanPresentTarget
 {
 public:
     SwapchainTarget(VulkanDevice& device, const PresentTargetDesc& desc);
@@ -47,9 +49,11 @@ public:
     TextureLayout GetRequiredFinalLayout() const override { return TextureLayout::Present; }
 
     [[nodiscard]] AcquiredImage Acquire() override;
-    SemaphoreHandle GetRenderCompleteSemaphore(uint32_t index) const override;
     bool Present(uint32_t index) override;
     [[nodiscard]] bool Recreate(Core::Extent2D newExtent) override;
+
+    bool BelongsTo(const VulkanDevice& device) const override { return &m_Device == &device; }
+    PresentSemaphores TakeSubmitSemaphores(uint32_t index) override;
 
 private:
     /**
@@ -62,6 +66,11 @@ private:
         TextureHandle Texture;
         TextureViewHandle View;
         SemaphoreHandle RenderComplete;
+
+        /** The semaphore this image's outstanding acquire signals, which its write waits on. */
+        SemaphoreHandle AcquireWait{};
+
+        PresentImageState State = PresentImageState::Idle;
     };
 
     void Create(Core::Extent2D extent);

@@ -34,6 +34,11 @@ get_filename_component(repo_root "${CMAKE_CURRENT_LIST_DIR}" DIRECTORY)
 # cannot quietly outlive its reason.
 set(no_namespace_allowlist "engine/core/include/core/MyMacros.h")
 
+# Directory names whose namespace is not their PascalCase: an acronym keeps its
+# capitals, as D3D12 does in Rhi::Backend::D3D12 and throughout its backend.
+# Entries are "<directory>=<namespace component>".
+set(namespace_spellings "d3d12=D3D12")
+
 set(errors "")
 
 # ---------------------------------------------------------------------------
@@ -63,10 +68,21 @@ foreach(module_dir IN LISTS module_dirs)
 
     set(expected "Hikari")
     foreach(component IN LISTS components)
-      string(SUBSTRING "${component}" 0 1 first)
-      string(SUBSTRING "${component}" 1 -1 remainder)
-      string(TOUPPER "${first}" first)
-      string(APPEND expected "::${first}${remainder}")
+      set(spelling "")
+      foreach(entry IN LISTS namespace_spellings)
+        if(entry MATCHES "^${component}=(.+)$")
+          set(spelling "${CMAKE_MATCH_1}")
+        endif()
+      endforeach()
+
+      if(spelling STREQUAL "")
+        string(SUBSTRING "${component}" 0 1 first)
+        string(SUBSTRING "${component}" 1 -1 remainder)
+        string(TOUPPER "${first}" first)
+        set(spelling "${first}${remainder}")
+      endif()
+
+      string(APPEND expected "::${spelling}")
     endforeach()
 
     file(STRINGS "${header}" lines)

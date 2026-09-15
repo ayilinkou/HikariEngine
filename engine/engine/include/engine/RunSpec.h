@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <rhi/Backend.h>
+#include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 
 namespace Hikari::Engine
@@ -109,11 +110,38 @@ struct RunSpec
     bool bVulkanSyncValidation = true;
 
     /**
+     * How much the D3D12 debug layer also validates on the GPU, where validation
+     * runs at all.
+     *
+     * Descriptors by default: it is the one check that sees what a shader actually
+     * reads, which D3D12's CPU-side layer cannot, and Full's resource-state tracking
+     * costs a debug frame several times over. Tests that assert on validation ask
+     * for Full. D3D12-only, as the flag's prefix says — the counterpart of the Vulkan
+     * flag above.
+     */
+    Rhi::GpuBasedValidation D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Descriptors;
+
+    /**
+     * Which of D3D12's barrier models to record with. Auto takes enhanced barriers
+     * where the adapter has them; naming a path is how both run on one adapter, and
+     * naming one on another backend is refused, since it would read as a choice that
+     * was made. D3D12-only, as the flag's prefix says.
+     */
+    Rhi::BarrierPath D3D12Barriers = Rhi::BarrierPath::Auto;
+
+    /**
      * Which backend to build the device from. Vulkan on every platform unless
      * asked otherwise, permanently (plan D25): a bug report, a baseline capture
      * and a run report then mean the same thing whoever produced them.
      */
     Rhi::Backend Backend = Rhi::Backend::Vulkan;
+
+    /**
+     * Part of the name of the adapter to run on, or empty for the backend's first
+     * suitable one. Neutral, though a name means something only within one
+     * backend: each API spells adapter names its own way. See Rhi::DeviceDesc::Gpu.
+     */
+    std::string Gpu;
 
     /**
      * Optional extensions to behave as though the device did not support, so a

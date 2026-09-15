@@ -17,6 +17,8 @@
 
 #include <core/Log.h>
 
+#include "AdapterName.h"
+#include "TextureValidation.h"
 #include "vulkan/DebugNames.h"
 
 #include "vulkan/OffscreenTarget.h"
@@ -26,6 +28,7 @@
 #include "vulkan/VulkanConversions.h"
 #include "vulkan/VulkanPipeline.h"
 #include "vulkan/VulkanPipelineCache.h"
+#include "vulkan/VulkanPresentTarget.h"
 #include "vulkan/VulkanUploadContext.h"
 
 namespace Hikari::Rhi::Vulkan
@@ -61,41 +64,6 @@ std::string DescribeFamily(const QueueFamilies& families, QueueType role)
     return std::format("family {}{}", index, families.IsDedicated(role) ? " (dedicated)" : "");
 }
 
-/**
- * Rejects the descriptions Vulkan would reject anyway, but with a message that
- * names the caller's field rather than a VUID. Every one of these is a
- * programming error rather than a runtime condition, so they throw.
- */
-void ValidateTextureDesc(const TextureDesc& desc)
-{
-    const auto fail = [&desc](std::string_view why)
-    {
-        throw std::runtime_error(
-            std::format("Rhi::IDevice::CreateTexture('{}'): {}", desc.DebugName, why));
-    };
-
-    if (desc.Format == Rhi::Format::Undefined)
-        fail("no format.");
-
-    if (desc.Extent.Width == 0u || desc.Extent.Height == 0u || desc.Extent.Depth == 0u)
-        fail("every extent must be at least 1.");
-
-    if (desc.MipLevels == 0u || desc.ArrayLayers == 0u)
-        fail("MipLevels and ArrayLayers must be at least 1.");
-
-    // Depth is the third dimension of a 3D texture and the array is the layers;
-    // Vulkan has no 3D array images, and mixing the two is the classic way to
-    // describe a cubemap as six slices deep instead of six layers wide.
-    if (desc.Dimension == TextureDimension::Texture3D && desc.ArrayLayers != 1u)
-        fail("a 3D texture cannot have array layers.");
-
-    if (desc.Dimension == TextureDimension::Texture2D && desc.Extent.Depth != 1u)
-        fail("a 2D texture must have a depth of 1; use ArrayLayers for slices.");
-
-    if (desc.bCubeCompatible &&
-        (desc.Dimension != TextureDimension::Texture2D || desc.ArrayLayers % 6u != 0u))
-        fail("a cube-compatible texture must be 2D with a multiple of 6 array layers.");
-}
 /**
  * Adds the validation layer vcpkg installed to the loader's layer search path.
  *
@@ -148,7 +116,7 @@ VulkanDevice::VulkanDevice(const DeviceDesc& desc)
     CreateInstance(desc);
     SetupDebugMessenger(desc);
     CreateSurface(desc.Requirements);
-    PickPhysicalDevice(desc.Requirements);
+    PickPhysicalDevice(desc);
     SelectOptionalExtensions(desc);
     FindQueueFamilies(desc);
     CreateLogicalDevice(desc.Requirements);
@@ -189,6 +157,14 @@ void VulkanDevice::FillDeviceInfo()
 
     m_Info.Backend = Rhi::Backend::Vulkan;
     m_Info.Gpu = static_cast<const char*>(properties.deviceName);
+
+    // The spec requires the PCI vendor ID when the vendor has one, and the PCI
+    // device ID when the implementation is driven by a PCI device — what DXGI
+    // reports too. A vendor without one reports a Khronos vendor ID, allocated
+    // from 0x10000 so it cannot collide with PCI's namespace; lavapipe's is
+    // VK_VENDOR_ID_MESA, so a software rasterizer never matches a GPU.
+    m_Info.VendorId = properties.vendorID;
+    m_Info.DeviceId = properties.deviceID;
 
     // Both halves: driverName is the implementation ("radv"), driverInfo its own
     // version string ("Mesa 25.2.3"), and neither alone identifies a machine.
@@ -986,13 +962,10 @@ GraphicsPipelineHandle VulkanDevice::CreateGraphicsPipeline(const GraphicsPipeli
     const vk::PipelineColorBlendStateCreateInfo colorBlending{
         .attachmentCount = static_cast<uint32_t>(blends.size()), .pAttachments = blends.data()};
 
-    // Viewport and scissor are always dynamic (see ICommandList); cull is dynamic
-    // only when the caller says so, because a pipeline that never needs it should
-    // not pay for a state token per draw.
-    std::vector<vk::DynamicState> dynamicStates{vk::DynamicState::eViewport,
-                                                vk::DynamicState::eScissor};
-    if (desc.bDynamicCull)
-        dynamicStates.push_back(vk::DynamicState::eCullMode);
+    // Viewport and scissor are always dynamic (see ICommandList). Cull mode is not:
+    // it is baked from desc.Cull, because D3D12 cannot set it per draw and the seam
+    // does not claim what one backend cannot do.
+    const std::array dynamicStates{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
 
     const vk::PipelineDynamicStateCreateInfo dynamicState{
         .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
@@ -1154,13 +1127,13 @@ void VulkanDevice::Submit(const SubmitDesc& desc)
     // Fixed capacities rather than per-submit allocations: this runs once per
     // frame per queue, and the counts are bounded by what the frame actually
     // has. Overflowing throws rather than silently dropping a wait, which is the
-    // failure mode that would corrupt a frame invisibly.
+    // failure mode that would corrupt a frame invisibly. One of each is kept for
+    // the present image's semaphores.
     constexpr size_t kMaxLists = 16u;
     constexpr size_t kMaxSyncs = 8u;
 
-    if (desc.CommandLists.size() > kMaxLists ||
-        desc.WaitFences.size() + desc.WaitSemaphores.size() > kMaxSyncs ||
-        desc.SignalFences.size() + desc.SignalSemaphores.size() > kMaxSyncs)
+    if (desc.CommandLists.size() > kMaxLists || desc.WaitFences.size() + 1u > kMaxSyncs ||
+        desc.SignalFences.size() + 1u > kMaxSyncs)
     {
         throw std::runtime_error("Rhi::VulkanDevice::Submit: more lists or synchronization "
                                  "operations than a submission is sized for.");
@@ -1185,6 +1158,22 @@ void VulkanDevice::Submit(const SubmitDesc& desc)
         lists[i] = vk::CommandBufferSubmitInfo{.commandBuffer = pList->Native()};
     }
 
+    // Taken last of everything that can refuse, since taking them is what marks
+    // the image written: a submission refused for another reason must leave it
+    // for the one that follows.
+    PresentSemaphores present{};
+    if (desc.PresentImage.pTarget != nullptr)
+    {
+        auto* pTarget = dynamic_cast<VulkanPresentTarget*>(desc.PresentImage.pTarget);
+        if (pTarget == nullptr || !pTarget->BelongsTo(*this))
+        {
+            throw std::runtime_error("Rhi::VulkanDevice::Submit: the present image belongs to a "
+                                     "target another device created.");
+        }
+
+        present = pTarget->TakeSubmitSemaphores(desc.PresentImage.Index);
+    }
+
     std::array<vk::SemaphoreSubmitInfo, kMaxSyncs> waits{};
     size_t waitCount = 0u;
     for (const FenceOperation& wait : desc.WaitFences)
@@ -1206,14 +1195,12 @@ void VulkanDevice::Submit(const SubmitDesc& desc)
                                     .value = wait.Value,
                                     .stageMask = vk::PipelineStageFlagBits2::eAllCommands};
     }
-    for (const SemaphoreHandle handle : desc.WaitSemaphores)
+    if (present.Wait.IsValid())
     {
-        // ColorAttachmentOutput: the only semaphores that reach here guard writes
-        // to an image a present target just handed out, and that is the first
-        // stage which can write one. See SubmitDesc on why the caller does not
-        // name a stage.
+        // ColorAttachmentOutput: the wait guards writes to the image the target
+        // handed out, and that is the first stage which can write one.
         waits[waitCount++] = vk::SemaphoreSubmitInfo{
-            .semaphore = GetSemaphore(handle),
+            .semaphore = GetSemaphore(present.Wait),
             .stageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput};
     }
 
@@ -1235,10 +1222,10 @@ void VulkanDevice::Submit(const SubmitDesc& desc)
                                     .value = signal.Value,
                                     .stageMask = vk::PipelineStageFlagBits2::eAllCommands};
     }
-    for (const SemaphoreHandle handle : desc.SignalSemaphores)
+    if (present.Signal.IsValid())
     {
         signals[signalCount++] =
-            vk::SemaphoreSubmitInfo{.semaphore = GetSemaphore(handle),
+            vk::SemaphoreSubmitInfo{.semaphore = GetSemaphore(present.Signal),
                                     .stageMask = vk::PipelineStageFlagBits2::eAllCommands};
     }
 
@@ -1436,15 +1423,15 @@ void VulkanDevice::SetupDebugMessenger(const DeviceDesc& desc)
         return;
 
     // Ask the driver only for what the threshold admits, so the filtering
-    // happens before the callback rather than inside it. Verbose is never
-    // requested: it collapses to Info on the neutral scale, and asking for it
-    // would multiply the message volume for nothing a caller can distinguish.
+    // happens before the callback rather than inside it.
     vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(
         vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
     if (m_pDiagnostics->MinSeverity() <= DiagnosticSeverity::Warning)
         severityFlags |= vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning;
     if (m_pDiagnostics->MinSeverity() <= DiagnosticSeverity::Info)
         severityFlags |= vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo;
+    if (m_pDiagnostics->MinSeverity() <= DiagnosticSeverity::Verbose)
+        severityFlags |= vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose;
 
     vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(
         vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
@@ -1519,19 +1506,41 @@ bool VulkanDevice::IsPhysicalDeviceSuitable(const vk::raii::PhysicalDevice& devi
     return false;
 }
 
-void VulkanDevice::PickPhysicalDevice(const DeviceRequirements& requirements)
+/**
+ * The first suitable device in the loader's enumeration order, among those whose
+ * name matches DeviceDesc::Gpu when it names one. Every device passed over is
+ * listed in the refusal, with why.
+ */
+void VulkanDevice::PickPhysicalDevice(const DeviceDesc& desc)
 {
     Core::LogMsg(Core::LogSeverity::Info, LogRhi, "PickPhysicalDevice()");
 
-    auto devices = m_Instance.enumeratePhysicalDevices();
-    const auto deviceIt =
-        std::ranges::find_if(devices, [&](const auto& device)
-                             { return IsPhysicalDeviceSuitable(device, requirements); });
+    std::vector<std::string> considered;
+    for (const vk::raii::PhysicalDevice& device : m_Instance.enumeratePhysicalDevices())
+    {
+        const std::string name = static_cast<const char*>(device.getProperties().deviceName);
 
-    if (deviceIt == devices.end())
-        throw std::runtime_error("Failed to find a suitable GPU!");
+        if (!AdapterNameMatches(name, desc.Gpu))
+        {
+            considered.push_back(std::format("{} — does not match the requested name", name));
+            continue;
+        }
 
-    m_PhysicalDevice = *deviceIt;
+        if (!IsPhysicalDeviceSuitable(device, desc.Requirements))
+        {
+            considered.push_back(std::format("{} — does not meet the requirements", name));
+            continue;
+        }
+
+        m_PhysicalDevice = device;
+        return;
+    }
+
+    if (desc.Gpu.empty())
+        throw std::runtime_error("Failed to find a suitable GPU:" + DescribeAdapters(considered));
+
+    throw std::runtime_error(
+        std::format("No suitable GPU matches \"{}\":{}", desc.Gpu, DescribeAdapters(considered)));
 }
 
 void VulkanDevice::SelectOptionalExtensions(const DeviceDesc& desc)

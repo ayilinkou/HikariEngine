@@ -24,13 +24,60 @@ engine_module(
   Engine::Core
   Engine::Platform
   Vulkan::Vulkan
-  GPUOpen::VulkanMemoryAllocator)
+  GPUOpen::VulkanMemoryAllocator
+  WINDOWS_ONLY_HEADERS
+  rhi/d3d12)
 
 # Backend sources include each other as "vulkan/VulkanConversions.h" — relative
 # to src/, not to the file doing the including — so the path reads the same from
 # anywhere in the module. Deliberately PRIVATE: nothing outside the module may
 # reach these headers, which is half of what keeps the boundary in place.
 target_include_directories(RHI PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# The D3D12 backend, beside Vulkan rather than instead of it: Vulkan stays in
+# every build and stays the default. HIKARI_RHI_D3D12 is what Backend.cpp keys
+# AvailableBackends() and the dispatcher on, so it is defined together with the
+# sources and nowhere else — a Windows build without them has to say so.
+if(WIN32)
+  set(d3d12_sources
+      src/d3d12/AgilitySdk.cpp
+      src/d3d12/D3D12CommandAllocator.cpp
+      src/d3d12/D3D12CommandList.cpp
+      src/d3d12/D3D12Conversions.cpp
+      src/d3d12/D3D12CpuDescriptorHeap.cpp
+      src/d3d12/D3D12DebugMessages.cpp
+      src/d3d12/D3D12DebugName.cpp
+      src/d3d12/D3D12Device.cpp
+      src/d3d12/D3D12GpuDescriptorHeap.cpp
+      src/d3d12/D3D12Native.cpp
+      src/d3d12/D3D12OffscreenTarget.cpp
+      src/d3d12/D3D12SwapchainTarget.cpp
+      src/d3d12/D3D12UploadContext.cpp)
+  target_sources(RHI PRIVATE ${d3d12_sources})
+
+  # Per source rather than on the module: the Vulkan backend's translation units
+  # have never been compiled with windows.h trimmed or min/max undefined, and
+  # nothing about adding a second backend should change what they see.
+  set_source_files_properties(${d3d12_sources} PROPERTIES COMPILE_DEFINITIONS
+                                                          "WIN32_LEAN_AND_MEAN;NOMINMAX")
+
+  target_compile_definitions(RHI PRIVATE HIKARI_RHI_D3D12)
+
+  # The headers PUBLIC, as Vulkan::Vulkan is, because include/rhi/d3d12/D3D12Native.h
+  # names D3D12 types for the one caller outside the module allowed to use them.
+  # rhi_boundary_check is what keeps everyone else from naming them.
+  target_link_libraries(RHI PUBLIC Microsoft::DirectX-Headers)
+  target_link_libraries(RHI PRIVATE Microsoft::DirectX-Guids GPUOpen::D3D12MemoryAllocator
+                                    d3d12.lib dxgi.lib)
+
+  # The two symbols that opt an executable into the Agility SDK. Its own OBJECT
+  # library, linked by each executable through hikari_deploy_d3d12(), because an
+  # export has to be in the executable itself — see cmake/D3D12.cmake.
+  add_library(D3D12AgilityExports OBJECT src/d3d12/AgilitySdkExports.cpp)
+  target_compile_definitions(D3D12AgilityExports
+                             PRIVATE HIKARI_D3D12_SDK_VERSION=${HIKARI_D3D12_SDK_VERSION})
+  engine_set_warnings(D3D12AgilityExports)
+endif()
 
 # The validation layer comes from vcpkg rather than from a system-wide SDK, so
 # the loader has to be pointed at it: VulkanDevice::CreateInstance puts

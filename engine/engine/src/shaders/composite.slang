@@ -19,6 +19,10 @@ VS_Out vertMain(VS_In v)
 	VS_Out o;
 	o.Pos = float4(v.Pos, 0.f, 1.f);
 	o.TexCoord = v.TexCoord;
+	// The quad puts texture row 0 at clip-space Y -1, which is the top of the
+	// image only where clip-space Y points down.
+	if (!ClipSpaceYPointsDown())
+		o.TexCoord.y = 1.f - o.TexCoord.y;
 	return o;
 }
 

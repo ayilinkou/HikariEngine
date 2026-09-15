@@ -355,6 +355,9 @@ private:
         // did before the flag existed.
         desc.bEnableValidation = m_Spec.bValidationEnabled.value_or(bEnableValidationLayers);
         desc.bSyncValidation = m_Spec.bVulkanSyncValidation;
+        desc.GpuBasedValidation = m_Spec.D3D12GpuBasedValidation;
+        desc.BarrierPath = m_Spec.D3D12Barriers;
+        desc.Gpu = m_Spec.Gpu;
         desc.pDiagnostics = &m_Diagnostics;
         // The line the whole headless path turns on: no present requirement
         // means the device creates no surface, and CreatePresentTarget hands
@@ -460,6 +463,7 @@ private:
                 m_Platform.IsHeadless() ? nullptr : m_Platform.GetNativeWindowHandle(),
             .TargetFormat = m_PresentTarget->GetFormat(),
             .RingSize = std::max(m_PresentTarget->GetImageCount(), m_Config.FramesInFlight)});
+        m_bUiInitialized = true;
     }
 
     /**
@@ -493,9 +497,13 @@ private:
         // Before any pipeline is built, and before ImGui, which is handed the
         // same one. Paths::UserData is empty when the platform gave us nowhere
         // to write, and an empty path is how the cache is told to stay in
-        // memory for the run.
+        // memory for the run. The file is named for the backend that wrote it, since
+        // one machine runs both and each would otherwise overwrite the other's blob
+        // on every run.
+        const std::string cacheFile =
+            std::format("pipeline_cache_{}.bin", Rhi::ToString(m_RhiDevice->GetInfo().Backend));
         m_PipelineCache = m_RhiDevice->CreatePipelineCache(Rhi::PipelineCacheDesc{
-            .Path = m_Paths.UserData("pipeline_cache.bin"), .DebugName = "Pipeline Cache"});
+            .Path = m_Paths.UserData(cacheFile), .DebugName = "Pipeline Cache"});
 
         // Before the registry, which hands it to the loader that builds
         // materials, and before the pipelines, which are laid out against its
@@ -554,6 +562,7 @@ private:
 
         report.Counters.Run = {.ValidationErrors = m_Diagnostics.ErrorCount(),
                                .ValidationWarnings = m_Diagnostics.WarningCount(),
+                               .UploadBatches = m_UploadContext->GetStats().Batches,
                                .UploadSubmissions = m_UploadContext->GetStats().Submits};
 
         report.Timings = {.StartupMs = m_StartupMs,
@@ -562,6 +571,7 @@ private:
                           .CpuMs = ComputeTimingStats(m_CpuMs)};
 
         const bool bValidationOn = m_Spec.bValidationEnabled.value_or(bEnableValidationLayers);
+        const Rhi::DeviceInfo& device = m_RhiDevice->GetInfo();
 
         report.Run = {.bFixedDt = m_Spec.bFixedDt,
                       .bHeadless = m_Platform.IsHeadless(),
@@ -578,22 +588,30 @@ private:
                       // What the run actually did, not what was asked: the
                       // layer settings chain is only attached when the layer is
                       // loaded, so sync validation off is also what "no
-                      // validation at all" looks like.
+                      // validation at all" looks like. Each sub-mode is off on
+                      // the backend that has no such mode.
                       .bValidationEnabled = bValidationOn,
                       .ValidationPolicy = m_Spec.ValidationPolicy,
-                      .bSyncValidation = bValidationOn && m_Spec.bVulkanSyncValidation,
+                      .bSyncValidation = bValidationOn && device.Backend == Rhi::Backend::Vulkan &&
+                                         m_Spec.bVulkanSyncValidation,
+                      .D3D12GpuBasedValidation =
+                          bValidationOn && device.Backend == Rhi::Backend::D3D12
+                              ? m_Spec.D3D12GpuBasedValidation
+                              : Rhi::GpuBasedValidation::Off,
+                      .D3D12Barriers = device.BarrierPath,
                       .DisabledVulkanExtensions = m_Spec.DisabledVulkanExtensions,
                       .bForceSingleQueue = m_Spec.bForceSingleQueue,
                       .FramesInFlight = m_Config.FramesInFlight,
                       .WindowMode = m_Platform.GetWindowMode()};
 
-        const Rhi::DeviceInfo& device = m_RhiDevice->GetInfo();
         report.System = {.Backend = device.Backend,
                          .Gpu = device.Gpu,
                          .Driver = device.Driver,
                          .ApiVersion = device.ApiVersion,
                          .Os = HIKARI_OS,
-                         .Arch = HIKARI_ARCH};
+                         .Arch = HIKARI_ARCH,
+                         .VendorId = device.VendorId,
+                         .DeviceId = device.DeviceId};
 
         return report;
     }
@@ -658,13 +676,20 @@ private:
     {
         LogMsg(LogSeverity::Info, LogEngine, "Shutdown()");
 
+        // Shutdown also runs after an Init that threw part-way, from the
+        // destructor, so each step checks that what it tears down was built: a
+        // start that fails at its first call must end in the error that says why,
+        // not a crash that loses it.
+
         // Before ImGui, which built pipelines into the same cache, and before
         // the device that owns it goes away.
-        m_PipelineCache->Save();
+        if (m_PipelineCache)
+            m_PipelineCache->Save();
 
         m_Skybox.reset();
         m_SceneGraph.reset();
-        ShutdownImGui();
+        if (m_bUiInitialized)
+            ShutdownImGui();
         // The registry's caches assert they are empty, which only holds once
         // everything above has dropped what it borrowed; and the factory owns
         // the descriptor sets those materials were allocated from, so it goes
@@ -814,14 +839,6 @@ private:
 
     void DrawFrame(bool captureScreenshot = false)
     {
-        // Semaphores coordinate GPU to GPU synchronisation, for example
-        // ordering work between queues. They get reset automatically after the
-        // waiting operation begins.
-        //
-        // Fences coordinate CPU to GPU synchronisation, for times when
-        // the CPU needs to know that the GPU has finished a task. Must be
-        // explicitely reset by the host.
-
         // A recreation that was deferred means the surface had no area when it
         // was last asked. Retry it here, and skip the frame while the answer
         // has not changed: there is nothing to draw into.
@@ -897,23 +914,19 @@ private:
             frameData.TransparentCommands.List, frameData.CloudCommands.List,
             frameData.CompositeCommands.List,   frameData.ImGuiCommands.List,
             frameData.FinalLayoutCommands.List};
-        // The waits arrive as a span because how many there are is the target's
-        // business: a swapchain hands back the one its acquire signalled, and a
-        // headless target hands back the previous write of the same image, or
-        // nothing at all on the first pass.
-        const Rhi::SemaphoreHandle renderComplete =
-            m_PresentTarget->GetRenderCompleteSemaphore(image.Index);
-
         // The value this slot will wait for next time round.
         frameData.LastSubmitValue = ++m_FrameSubmitCount;
         const Rhi::FenceOperation signalFrame{.Fence = m_FrameFence.Get(),
                                               .Value = frameData.LastSubmitValue};
 
-        m_RhiDevice->Submit(Rhi::SubmitDesc{.Queue = Rhi::QueueType::Graphics,
-                                            .CommandLists = commandLists,
-                                            .SignalFences = {&signalFrame, 1u},
-                                            .WaitSemaphores = image.WaitSemaphores,
-                                            .SignalSemaphores = {&renderComplete, 1u}});
+        // Naming the acquired image is what orders the write against the acquire
+        // and against the image's previous write; what does the ordering is the
+        // target's business.
+        m_RhiDevice->Submit(Rhi::SubmitDesc{
+            .Queue = Rhi::QueueType::Graphics,
+            .CommandLists = commandLists,
+            .SignalFences = {&signalFrame, 1u},
+            .PresentImage = {.pTarget = m_PresentTarget.get(), .Index = image.Index}});
 
         const auto presentStart = std::chrono::steady_clock::now();
         const bool bPresented = m_PresentTarget->Present(image.Index);
@@ -1104,24 +1117,31 @@ private:
         const std::array formats{m_OpaqueImageFormat};
         const std::array blends{Rhi::RenderTargetBlend{}};
 
-        m_OpaquePipeline = Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle>(
-            *m_RhiDevice,
-            m_RhiDevice->CreateGraphicsPipeline(
-                Rhi::GraphicsPipelineDesc{
-                    .Layout = m_OpaquePipelineLayout.Get(),
-                    .VertexShader = {LoadShader("opaque.vert")},
-                    .PixelShader = {LoadShader("opaque.frag")},
-                    .VertexBuffers = kSurfaceVertexBuffers,
-                    .VertexAttributes = kAttributes,
-                    .RenderTargetFormats = formats,
-                    .RenderTargetBlends = blends,
-                    .DepthFormat = m_DepthFormat,
-                    .Depth = {.bTest = true, .bWrite = true, .Compare = Rhi::CompareOp::Less},
-                    // Two-sided materials are a per-batch property, so the mode is
-                    // set per draw rather than baked in.
-                    .bDynamicCull = true,
-                    .DebugName = "Opaque"},
-                *m_PipelineCache));
+        // One pipeline per cull mode the pass draws with, sharing the layout, since
+        // cull mode is baked into a pipeline: single-sided materials cull back faces
+        // and two-sided ones cull nothing. The recorder binds whichever a batch needs.
+        const auto create = [&](Rhi::CullMode cull, const char* name)
+        {
+            return Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle>(
+                *m_RhiDevice,
+                m_RhiDevice->CreateGraphicsPipeline(
+                    Rhi::GraphicsPipelineDesc{
+                        .Layout = m_OpaquePipelineLayout.Get(),
+                        .VertexShader = {LoadShader("opaque.vert")},
+                        .PixelShader = {LoadShader("opaque.frag")},
+                        .VertexBuffers = kSurfaceVertexBuffers,
+                        .VertexAttributes = kAttributes,
+                        .RenderTargetFormats = formats,
+                        .RenderTargetBlends = blends,
+                        .DepthFormat = m_DepthFormat,
+                        .Depth = {.bTest = true, .bWrite = true, .Compare = Rhi::CompareOp::Less},
+                        .Cull = cull,
+                        .DebugName = name},
+                    *m_PipelineCache));
+        };
+
+        m_OpaquePipeline = create(Rhi::CullMode::Back, "Opaque");
+        m_OpaqueTwoSidedPipeline = create(Rhi::CullMode::None, "Opaque Two-Sided");
     }
 
     void CreateTransparentPipeline()
@@ -1168,9 +1188,10 @@ private:
                     .DepthFormat = m_DepthFormat,
                     // Tested against the opaque depth, never written to it.
                     .Depth = {.bTest = true, .bWrite = false, .Compare = Rhi::CompareOp::Less},
-                    // Not dynamic, unlike the opaque pass: transparent surfaces
+                    // One pipeline, unlike the opaque pass: transparent surfaces
                     // are drawn from both sides regardless of what the material
                     // says, so there is nothing per batch to vary.
+                    .Cull = Rhi::CullMode::None,
                     .DebugName = "Transparent"},
                 *m_PipelineCache));
     }
@@ -1316,7 +1337,10 @@ private:
         list->BeginRendering(Rhi::RenderingDesc{.RenderArea = WholeTarget(),
                                                 .RenderTargets = renderTargets,
                                                 .pDepthStencil = &depthTarget});
-        list->SetPipeline(m_OpaquePipeline.Get());
+        // Bound before the groups, which then survive every pipeline switch below:
+        // both opaque pipelines share the layout they were bound against.
+        Rhi::GraphicsPipelineHandle boundPipeline = m_OpaquePipeline.Get();
+        list->SetPipeline(boundPipeline);
 
         list->SetViewport(FullViewport());
         list->SetScissor(WholeTarget());
@@ -1329,15 +1353,16 @@ private:
         uint32_t instanceCount = 0;
         for (const MeshBatch& batch : batches)
         {
-            // Set every batch rather than tracked and skipped when unchanged. A
-            // command buffer starts with no dynamic cull mode at all, so anything
-            // that skips the first set leaves the draw invalid
-            // (VUID-vkCmdDrawIndexed-None-07840) — which is what the previous
-            // version did for a single-sided material, and what every material
-            // shipped today being two-sided hid. Recording one more state token
-            // per batch is not worth a rule about when it may be skipped.
-            list->SetCullMode(batch.pMaterial->IsTwoSided() ? Rhi::CullMode::None
-                                                            : Rhi::CullMode::Back);
+            // Only switched when the batch needs the other cull mode, since a
+            // pipeline bind is not free and scenes are mostly one or the other.
+            const Rhi::GraphicsPipelineHandle pipeline = batch.pMaterial->IsTwoSided()
+                                                             ? m_OpaqueTwoSidedPipeline.Get()
+                                                             : m_OpaquePipeline.Get();
+            if (pipeline != boundPipeline)
+            {
+                list->SetPipeline(pipeline);
+                boundPipeline = pipeline;
+            }
 
             list->SetVertexBuffer(0u, batch.VertexBuffer);
             list->SetIndexBuffer(batch.IndexBuffer, Rhi::IndexFormat::Uint32);
@@ -2049,6 +2074,7 @@ private:
     Rhi::UniqueHandle<Rhi::PipelineLayoutHandle> m_TransparentPipelineLayout;
     Rhi::UniqueHandle<Rhi::PipelineLayoutHandle> m_CompositePipelineLayout;
     Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle> m_OpaquePipeline;
+    Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle> m_OpaqueTwoSidedPipeline;
     Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle> m_TransparentPipeline;
     Rhi::UniqueHandle<Rhi::GraphicsPipelineHandle> m_CompositePipeline;
 
@@ -2129,6 +2155,9 @@ private:
     float m_DisplayFrameTime = 0.f;
     float m_DisplayFPS = 0.f;
     bool m_bShutdown = false;
+
+    /** Whether the UI backend was initialised, and so has something to shut down. */
+    bool m_bUiInitialized = false;
 
     /**
      * Barriers recorded for the current frame, split by the thread that records

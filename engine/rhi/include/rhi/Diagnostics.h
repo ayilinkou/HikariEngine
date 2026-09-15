@@ -13,9 +13,8 @@
 namespace Hikari::Rhi
 {
 /**
- * Deliberately coarser than any one backend's validation severity scale. The
- * backends have more levels than this (Vulkan adds a verbose tier below Info),
- * and mapping those down loses nothing a caller acts on differently.
+ * Coarser than D3D12's validation severity scale, whose corruption tier is an error
+ * here, and as fine as Vulkan's.
  *
  * The order is load-bearing: both Report() and the backend's own message filter
  * compare these as a threshold, so reordering them would silently drop every
@@ -23,6 +22,13 @@ namespace Hikari::Rhi
  */
 enum class DiagnosticSeverity : uint8_t
 {
+    /**
+     * What a backend says about ordinary work rather than about a mistake: Vulkan's
+     * verbose tier, and D3D12's announcement of every object created and destroyed.
+     * Below the threshold a normal run uses, because a scene's worth of it runs to
+     * hundreds of lines; a backend does not even ask for it unless it is the threshold.
+     */
+    Verbose,
     Info,
     Warning,
     Error,
@@ -147,6 +153,7 @@ public:
      */
     void Report(DiagnosticSeverity severity, std::string_view message);
 
+    uint64_t VerboseCount() const { return m_VerboseCount.load(std::memory_order_relaxed); }
     uint64_t InfoCount() const { return m_InfoCount.load(std::memory_order_relaxed); }
     uint64_t WarningCount() const { return m_WarningCount.load(std::memory_order_relaxed); }
     uint64_t ErrorCount() const { return m_ErrorCount.load(std::memory_order_relaxed); }
@@ -181,6 +188,7 @@ private:
      * while the driver is still reporting is normal, and should not contend with
      * message capture to do it.
      */
+    std::atomic<uint64_t> m_VerboseCount{0};
     std::atomic<uint64_t> m_InfoCount{0};
     std::atomic<uint64_t> m_WarningCount{0};
     std::atomic<uint64_t> m_ErrorCount{0};

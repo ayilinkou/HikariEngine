@@ -8,7 +8,7 @@
  * Every bind group layout the renderer creates, written down once.
  *
  * This exists to be pinned. The binding model is deliberately narrow -- scoped
- * to the layouts that exist rather than generalised (RHI plan D14) -- and D21
+ * to the layouts that exist rather than generalised (rhi.md D14) -- and D21
  * makes that a rule something enforces rather than a rule someone remembers:
  * BindGroupLayoutInventoryTests asserts this table's exact shape, so a fifth
  * layout or a fourth binding on an existing one cannot land without editing a

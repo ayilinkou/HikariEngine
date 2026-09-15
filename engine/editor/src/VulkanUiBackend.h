@@ -8,11 +8,11 @@ namespace Hikari::Editor
 {
 
 /**
- * ImGui over Vulkan and SDL3, and the only implementation of IUiBackend today.
+ * ImGui over Vulkan and SDL3.
  *
- * Everything that names a graphics API in the UI path lives here. The engine
- * holds the interface, the app builds this and hands it over, and a second
- * backend is a file beside this one.
+ * Everything that names Vulkan in the UI path lives here. The engine holds the
+ * interface, CreateUiBackend builds this for a Vulkan run, and D3D12UiBackend is
+ * the same thing for the other backend.
  */
 class VulkanUiBackend final : public Engine::IUiBackend
 {

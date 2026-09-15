@@ -607,6 +607,8 @@ vk::DebugUtilsMessageSeverityFlagBitsEXT ToVk(DiagnosticSeverity severity)
 {
     switch (severity)
     {
+        case DiagnosticSeverity::Verbose:
+            return vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose;
         case DiagnosticSeverity::Info:
             return vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo;
         case DiagnosticSeverity::Warning:
@@ -623,9 +625,8 @@ DiagnosticSeverity FromVk(vk::DebugUtilsMessageSeverityFlagBitsEXT severity)
 {
     switch (severity)
     {
-        // Verbose has no neutral counterpart and collapses into Info. Dropping
-        // it instead would silently discard messages a caller asked to see.
         case vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose:
+            return DiagnosticSeverity::Verbose;
         case vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo:
             return DiagnosticSeverity::Info;
         case vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning:

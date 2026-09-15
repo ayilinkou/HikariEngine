@@ -1,6 +1,7 @@
 #include "ImageCompare.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <vector>
@@ -41,21 +42,24 @@ uint32_t LargestChannelDelta(const uint8_t* a, const uint8_t* b)
 }
 
 /**
- * A delta as a brightness, with the tolerance's ceiling mapped to full scale.
+ * A delta as a brightness on a logarithmic curve, with the worst delta in the image
+ * at full brightness.
  *
- * A zero ceiling has no scale to map onto, so any difference at all is full
- * brightness — which is the right answer for a within-backend comparison, where
- * every differing pixel is a defect rather than a degree of one.
+ * Logarithmic because the differences worth seeing span two orders of magnitude in
+ * one image: across backends most differing pixels differ by 1 and the worst by more
+ * than a hundred, and a straight line would draw the 1s at brightness 2, where nobody
+ * can see them. On this curve no differing pixel is dimmer than 32 of 255.
  */
-uint8_t Amplify(uint32_t delta, uint32_t ceiling)
+uint8_t Amplify(uint32_t delta, uint32_t worst)
 {
     if (delta == 0u)
         return 0u;
 
-    if (ceiling == 0u)
+    if (delta >= worst)
         return 255u;
 
-    return static_cast<uint8_t>(std::min<uint32_t>(255u, (delta * 255u + ceiling / 2u) / ceiling));
+    return static_cast<uint8_t>(std::lround(255.0 * std::log1p(static_cast<double>(delta)) /
+                                            std::log1p(static_cast<double>(worst))));
 }
 } // namespace
 
@@ -134,7 +138,7 @@ std::string Describe(const ImageComparison& comparison)
 
 bool WriteComparisonImages(std::span<const uint8_t> actual, Core::Extent2D actualExtent,
                            std::span<const uint8_t> expected, Core::Extent2D expectedExtent,
-                           ImageTolerance tolerance, const std::string& pathPrefix)
+                           const std::string& pathPrefix)
 {
     const std::filesystem::path parent = std::filesystem::path(pathPrefix).parent_path();
     if (!parent.empty())
@@ -161,12 +165,16 @@ bool WriteComparisonImages(std::span<const uint8_t> actual, Core::Extent2D actua
         return bWroteAll;
     }
 
+    uint32_t worst = 0u;
+    for (size_t pixel = 0u; pixel < actual.size(); pixel += kChannels)
+        worst =
+            std::max(worst, LargestChannelDelta(actual.data() + pixel, expected.data() + pixel));
+
     std::vector<uint8_t> diff(actual.size());
     for (size_t pixel = 0u; pixel < diff.size(); pixel += kChannels)
     {
         const uint8_t value =
-            Amplify(LargestChannelDelta(actual.data() + pixel, expected.data() + pixel),
-                    tolerance.MaxChannelDelta);
+            Amplify(LargestChannelDelta(actual.data() + pixel, expected.data() + pixel), worst);
 
         diff[pixel] = value;
         diff[pixel + 1u] = value;

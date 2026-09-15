@@ -1,0 +1,156 @@
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <directx/d3d12.h>
+#include <wrl/client.h>
+
+#include <rhi/Handles.h>
+#include <rhi/ICommandList.h>
+#include <rhi/RhiTypes.h>
+
+#include "d3d12/D3D12BindGroup.h"
+
+namespace Hikari::Rhi::D3D12
+{
+class D3D12Device;
+
+/**
+ * One command list and the native allocator it records into.
+ *
+ * Its own allocator rather than a share of the neutral allocator's: D3D12 lets only
+ * one list per native allocator record at a time, while the seam lets a caller hold
+ * several lists from one allocator open at once, as Vulkan does. One native
+ * allocator per list is what keeps that legal.
+ *
+ * Barriers take whichever path the device chose. On the enhanced path each
+ * TextureBarrier is one enhanced texture barrier with all three halves. On the
+ * legacy path each becomes a transition between two D3D12_RESOURCE_STATES, its
+ * pipeline stages are discarded because legacy barriers carry no synchronization
+ * scope, and a from-Undefined barrier resolves to the state earlier submissions left
+ * the texture in; the states a list leaves its textures in are recorded here and
+ * applied by the device at Submit.
+ */
+class D3D12CommandList final : public ICommandList
+{
+public:
+    /** `debugName` names the native list and its allocator both; empty leaves them unnamed. */
+    D3D12CommandList(D3D12Device& device, QueueType queue, D3D12_COMMAND_LIST_TYPE type,
+                     const std::string& debugName);
+
+    void Begin() override;
+    void End() override;
+
+    BarrierCounts Barrier(std::span<const TextureBarrier> barriers) override;
+    BarrierCounts Barrier(const TextureBarrier& barrier) override;
+
+    void BeginRendering(const RenderingDesc& desc) override;
+    void EndRendering() override;
+    void SetPipeline(GraphicsPipelineHandle pipeline) override;
+    void SetBindGroup(PipelineLayoutHandle layout, uint32_t slot, BindGroupHandle group) override;
+    void SetPipeline(ComputePipelineHandle pipeline) override;
+    void SetComputeBindGroup(PipelineLayoutHandle layout, uint32_t slot,
+                             BindGroupHandle group) override;
+    void PushConstants(PipelineLayoutHandle layout, ShaderStage stages, uint32_t offset,
+                       std::span<const std::byte> data) override;
+    void Dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) override;
+    void SetVertexBuffer(uint32_t slot, BufferHandle buffer, uint64_t offset) override;
+    void SetIndexBuffer(BufferHandle buffer, IndexFormat format, uint64_t offset) override;
+    void DrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
+                     int32_t vertexOffset, uint32_t firstInstance) override;
+    void SetViewport(const Viewport& viewport) override;
+    void SetScissor(const Rect2D& rect) override;
+
+    void CopyBuffer(BufferHandle source, BufferHandle destination,
+                    const BufferCopyRegion& region) override;
+    void CopyBufferToTexture(BufferHandle source, TextureHandle destination,
+                             const BufferTextureCopyRegion& region) override;
+    void CopyTextureToBuffer(TextureHandle source, BufferHandle destination,
+                             const BufferTextureCopyRegion& region) override;
+
+    /** Makes the list recordable again; its allocator's memory is reused. */
+    void ResetAllocator();
+
+    QueueType Queue() const { return m_Queue; }
+    ID3D12CommandList* Native() const { return m_List.Get(); }
+    D3D12_COMMAND_LIST_TYPE Type() const { return m_Type; }
+
+    /**
+     * The list, for something that records into it directly. What that records is
+     * invisible here, so the list forgets its root signatures, pipeline and vertex
+     * buffers, and sets each again when next given one.
+     */
+    ID3D12GraphicsCommandList* NativeForRecording();
+
+    /** The whole-texture states this list leaves behind, in recording order. */
+    const std::vector<std::pair<TextureHandle, D3D12_RESOURCE_STATES>>& Transitions() const
+    {
+        return m_Transitions;
+    }
+
+    /** Textures a copy list touched, which decay to COMMON once it has executed. */
+    const std::vector<TextureHandle>& CopiedTextures() const { return m_CopiedTextures; }
+
+private:
+    void CopyTextureLayers(TextureHandle texture, BufferHandle buffer,
+                           const BufferTextureCopyRegion& region, bool bToTexture);
+
+    BarrierCounts EnhancedBarrier(std::span<const TextureBarrier> barriers);
+    BarrierCounts LegacyBarrier(std::span<const TextureBarrier> barriers);
+
+    /**
+     * Makes `layout` the list's graphics or compute root signature, unless it already
+     * is. Only a change is recorded, because setting a different root signature makes
+     * every earlier binding stale while setting the same one again keeps them (*Using a
+     * Root Signature*) — which is what lets a bound group survive a SetPipeline whose
+     * layout is the same, as the seam promises.
+     */
+    const D3D12PipelineLayout& UseLayout(PipelineLayoutHandle layout, bool bCompute);
+
+    /** Makes the next root signature, pipeline and vertex buffers be set rather than skipped. */
+    void ForgetBoundState();
+
+    void BindGroupTables(PipelineLayoutHandle layout, uint32_t slot, BindGroupHandle group,
+                         bool bCompute);
+
+    /**
+     * Binds the vertex buffers set since the last draw, with the bound pipeline's
+     * strides: D3D12 takes a stride with the buffer, where Vulkan took it with the
+     * pipeline, so a buffer set before its pipeline is bound at the draw.
+     */
+    void FlushVertexBuffers();
+
+    D3D12Device& m_Device;
+    QueueType m_Queue;
+    D3D12_COMMAND_LIST_TYPE m_Type;
+
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_Allocator;
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_List;
+
+    /** The same list, where the device records enhanced barriers; null where it records legacy. */
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> m_List7;
+
+    std::vector<std::pair<TextureHandle, D3D12_RESOURCE_STATES>> m_Transitions;
+    std::vector<TextureHandle> m_CopiedTextures;
+
+    /** What this recording has bound so far; reset by Begin, as Reset resets the list. */
+    PipelineLayoutHandle m_GraphicsLayout{};
+    PipelineLayoutHandle m_ComputeLayout{};
+    GraphicsPipelineHandle m_GraphicsPipeline{};
+
+    struct VertexBufferBinding
+    {
+        BufferHandle Buffer{};
+        uint64_t Offset = 0u;
+    };
+
+    std::array<VertexBufferBinding, D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT> m_VertexBuffers{};
+    bool m_bVertexBuffersDirty = false;
+};
+} // namespace Hikari::Rhi::D3D12

@@ -15,14 +15,18 @@
 #include <platform/InputScript.h>
 #include <platform/Paths.h>
 
+#include <rhi/Backend.h>
+#include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/IDevice.h>
 
-#include <editor/VulkanUiBackend.h>
+#include <editor/CreateUiBackend.h>
 
 #include <engine/IEngine.h>
+#include <engine/IUiBackend.h>
 
 #include "ImageCompare.h"
+#include "TestBackend.h"
 #include "TestEnvironment.h"
 #include "TestPaths.h"
 
@@ -44,13 +48,6 @@ constexpr uint32_t kHeight = 360u;
 /** Enough to get past the first frame's one-off costs and wrap the frames in flight. */
 constexpr uint64_t kFrames = 3u;
 
-/**
- * Whether this machine can create a device at all, probed once.
- *
- * Without it a machine with no Vulkan ICD reports every case as a failure, which
- * is indistinguishable from a real one. The probe device is destroyed
- * immediately; each case builds its own through the engine.
- */
 /** The reason no device could be created, empty while one could. */
 std::string& DeviceFailureReason()
 {
@@ -58,21 +55,31 @@ std::string& DeviceFailureReason()
     return reason;
 }
 
+/**
+ * Whether this machine can create a device at all, probed once, on the backend and
+ * adapter this registration names.
+ *
+ * Without it a machine with no Vulkan ICD reports every case as a failure, which
+ * is indistinguishable from a real one. The probe device is destroyed
+ * immediately; each case builds its own through the engine.
+ */
 bool HasUsableDevice()
 {
     static const bool bUsable = []
     {
+        Rhi::DeviceDesc desc;
+        desc.ApplicationName = "HikariEngine scene tests";
+        desc.Backend = RhiTest::TestBackend();
+        desc.Gpu = RhiTest::TestGpu();
+        desc.bEnableValidation = false;
+        desc.Requirements.bPresent = false;
+
         try
         {
             Rhi::Diagnostics::Desc diagnosticsDesc;
             diagnosticsDesc.Policy = Rhi::ValidationPolicy::Ignore;
             Rhi::Diagnostics diagnostics(diagnosticsDesc);
-
-            Rhi::DeviceDesc desc;
-            desc.ApplicationName = "HikariEngine scene tests";
-            desc.bEnableValidation = false;
             desc.pDiagnostics = &diagnostics;
-            desc.Requirements.bPresent = false;
 
             return Rhi::CreateDevice(desc) != nullptr;
         }
@@ -100,9 +107,9 @@ void RequireDevice()
     if (HasUsableDevice())
         return;
 
-    const std::string reason =
-        DeviceFailureReason().empty() ? "No usable Vulkan device"
-                                      : "No usable Vulkan device: " + DeviceFailureReason();
+    const std::string reason = "No usable " + std::string(Rhi::ToString(RhiTest::TestBackend())) +
+                               " device" +
+                               (DeviceFailureReason().empty() ? "" : ": " + DeviceFailureReason());
 
     if (TestEnvironment::DeviceRequired())
         FAIL(reason);
@@ -156,7 +163,8 @@ constexpr const char* kNullDevice = "/dev/null";
 Engine::RunResult RunScene(const std::string& contentRoot, const std::string& scenePath)
 {
     HeadlessPlatform platform(WindowDesc{.Width = kWidth, .Height = kHeight});
-    Editor::VulkanUiBackend uiBackend;
+    const std::unique_ptr<Engine::IUiBackend> uiBackend =
+        Editor::CreateUiBackend(RhiTest::TestBackend());
 
     // Counted rather than fail-fast: a failing assertion that names the count is
     // more useful here than an abort inside the driver.
@@ -177,8 +185,12 @@ Engine::RunResult RunScene(const std::string& contentRoot, const std::string& sc
     // run produced no validation errors, and a release build with no layer
     // loaded reports zero trivially. Setting it here makes the same eleven cases
     // assert the same thing in every configuration, rather than being theatre in
-    // three of them.
+    // three of them. D3D12's GPU-based validation runs in full for the same
+    // reason: the default leaves out the resource-state checks.
     spec.bValidationEnabled = true;
+    spec.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+    spec.Backend = RhiTest::TestBackend();
+    spec.Gpu = RhiTest::TestGpu();
     spec.ScenePath = scenePath;
     spec.Frames = kFrames;
     spec.bFixedDt = true;
@@ -192,17 +204,36 @@ Engine::RunResult RunScene(const std::string& contentRoot, const std::string& sc
     // the panel prints the frame time and the FPS, which no two runs agree on.
     spec.bNoUi = true;
 
-    const std::unique_ptr<Engine::IEngine> engine = Engine::CreateEngine(
-        Engine::EngineDesc{.pPlatform = &platform,
-                           .pPaths = &paths,
-                           .pJobSystem = &jobSystem,
-                           .pDiagnostics = &diagnostics,
-                           .pUiBackend = &uiBackend,
-                           .Spec = spec,
-                           .Config = Engine::EngineConfig{},
-                           .ProcessStart = std::chrono::steady_clock::now()});
+    const std::unique_ptr<Engine::IEngine> engine =
+        Engine::CreateEngine(Engine::EngineDesc{.pPlatform = &platform,
+                                                .pPaths = &paths,
+                                                .pJobSystem = &jobSystem,
+                                                .pDiagnostics = &diagnostics,
+                                                .pUiBackend = uiBackend.get(),
+                                                .Spec = spec,
+                                                .Config = Engine::EngineConfig{},
+                                                .ProcessStart = std::chrono::steady_clock::now()});
 
     return engine->Run();
+}
+
+/**
+ * The backend and adapter this registration names, as the headless binary's flags,
+ * so a launched run is the same kind of run as an in-process one — D3D12's GPU-based
+ * validation in full included.
+ */
+std::string BackendArguments()
+{
+    const Rhi::Backend backend = RhiTest::TestBackend();
+    std::string arguments = " --backend " + std::string(Rhi::ToString(backend));
+
+    if (const std::string gpu = RhiTest::TestGpu(); !gpu.empty())
+        arguments += " --gpu \"" + gpu + "\"";
+
+    if (backend == Rhi::Backend::D3D12)
+        arguments += " --d3d12-gpu-based-validation full";
+
+    return arguments;
 }
 
 /** What a scene's geometry must come out as, derived from the scene itself. */
@@ -269,8 +300,7 @@ void CheckScene(const SceneExpectation& expected)
         const std::string prefix =
             "comparison_failures/" + std::filesystem::path(expected.Scene).stem().string() + "_";
         TestSupport::WriteComparisonImages(second.Capture.Pixels, second.Capture.Extent,
-                                           first.Capture.Pixels, first.Capture.Extent,
-                                           TestSupport::ImageTolerance{}, prefix);
+                                           first.Capture.Pixels, first.Capture.Extent, prefix);
         WARN("comparison images written with prefix " << prefix);
     }
 }
@@ -304,6 +334,18 @@ TEST_CASE("Two materials cannot merge into one batch", "[scene]")
 {
     CheckScene(
         {.Scene = "scenes/two_materials.map", .DrawCalls = 2u, .Batches = 2u, .Instances = 2u});
+}
+
+TEST_CASE("Single- and two-sided materials draw in one pass, switching pipeline between them",
+          "[scene]")
+{
+    // Cull mode is a pipeline property, so the opaque pass binds one of two pipelines
+    // per batch; the groups bound before the switch have to survive it, since both
+    // pipelines share a layout. Any mistake there is a validation error on the draw.
+    CheckScene({.Scene = "scenes/mixed_sidedness.map",
+                .DrawCalls = 2u,
+                .Batches = 2u,
+                .Instances = 2u});
 }
 
 TEST_CASE("Two entities of one model merge into a single instanced batch", "[scene]")
@@ -348,12 +390,11 @@ TEST_CASE("The headless binary runs a scene and writes what it was asked for", "
 
     // --strict-validation is what makes the exit code carry the validation
     // result: without it a run with errors still exits 0.
-    const std::string command = std::string("\"") + HIKARI_HEADLESS_BINARY + "\"" +
-                                " --content \"" + TestDataDir() + "\"" +
-                                " --scene scenes/single_cube.map --frames 3 --fixed-dt" +
-                                " --resolution 320x180 --no-ui --strict-validation" +
-                                " --screenshot \"" + screenshot.string() + "\"" + " --report \"" +
-                                report.string() + "\"";
+    const std::string command =
+        std::string("\"") + HIKARI_HEADLESS_BINARY + "\"" + BackendArguments() + " --content \"" +
+        TestDataDir() + "\"" + " --scene scenes/single_cube.map --frames 3 --fixed-dt" +
+        " --resolution 320x180 --no-ui --strict-validation" + " --screenshot \"" +
+        screenshot.string() + "\"" + " --report \"" + report.string() + "\"";
 
     INFO("command: " << command);
     REQUIRE(RunCommand(command) == 0);
@@ -380,7 +421,8 @@ TEST_CASE("A scripted run replays input, resizes and captures where it was told 
     platform.SetInputScript(
         InputScript::Load(std::string(TestDataDir()) + "input/scripted_replay.txt"));
 
-    Editor::VulkanUiBackend uiBackend;
+    const std::unique_ptr<Engine::IUiBackend> uiBackend =
+        Editor::CreateUiBackend(RhiTest::TestBackend());
 
     Rhi::Diagnostics::Desc diagnosticsDesc;
     diagnosticsDesc.Policy = Rhi::ValidationPolicy::Count;
@@ -391,6 +433,9 @@ TEST_CASE("A scripted run replays input, resizes and captures where it was told 
     Paths paths(TestDataDir());
 
     Engine::RunSpec spec;
+    spec.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+    spec.Backend = RhiTest::TestBackend();
+    spec.Gpu = RhiTest::TestGpu();
     spec.ScenePath = "scenes/single_cube.map";
     spec.bFixedDt = true;
     spec.bNoUi = true;
@@ -401,15 +446,15 @@ TEST_CASE("A scripted run replays input, resizes and captures where it was told 
     // whole point of the case.
     spec.Frames = 0u;
 
-    const std::unique_ptr<Engine::IEngine> engine = Engine::CreateEngine(
-        Engine::EngineDesc{.pPlatform = &platform,
-                           .pPaths = &paths,
-                           .pJobSystem = &jobSystem,
-                           .pDiagnostics = &diagnostics,
-                           .pUiBackend = &uiBackend,
-                           .Spec = spec,
-                           .Config = Engine::EngineConfig{},
-                           .ProcessStart = std::chrono::steady_clock::now()});
+    const std::unique_ptr<Engine::IEngine> engine =
+        Engine::CreateEngine(Engine::EngineDesc{.pPlatform = &platform,
+                                                .pPaths = &paths,
+                                                .pJobSystem = &jobSystem,
+                                                .pDiagnostics = &diagnostics,
+                                                .pUiBackend = uiBackend.get(),
+                                                .Spec = spec,
+                                                .Config = Engine::EngineConfig{},
+                                                .ProcessStart = std::chrono::steady_clock::now()});
 
     const Engine::RunResult result = engine->Run();
 
@@ -445,12 +490,11 @@ TEST_CASE("The headless binary replays a script and needs no frame count", "[sce
     const std::filesystem::path report = outputDir / "scripted.json";
     std::filesystem::remove(report);
 
-    const std::string command = std::string("\"") + HIKARI_HEADLESS_BINARY + "\"" +
-                                " --content \"" + TestDataDir() + "\"" +
-                                " --scene scenes/single_cube.map --fixed-dt --no-ui" +
-                                " --strict-validation --input \"" + TestDataDir() +
-                                "input/scripted_replay.txt\"" + " --report \"" + report.string() +
-                                "\"";
+    const std::string command =
+        std::string("\"") + HIKARI_HEADLESS_BINARY + "\"" + BackendArguments() + " --content \"" +
+        TestDataDir() + "\"" + " --scene scenes/single_cube.map --fixed-dt --no-ui" +
+        " --strict-validation --input \"" + TestDataDir() + "input/scripted_replay.txt\"" +
+        " --report \"" + report.string() + "\"";
 
     INFO("command: " << command);
     REQUIRE(RunCommand(command) == 0);

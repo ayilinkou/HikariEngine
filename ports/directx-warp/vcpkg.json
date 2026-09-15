@@ -1,0 +1,8 @@
+{
+  "name": "directx-warp",
+  "version": "1.0.20",
+  "description": "WARP, the Direct3D 12 software rasterizer, as Microsoft publishes it on NuGet",
+  "homepage": "https://www.nuget.org/packages/Microsoft.Direct3D.WARP",
+  "license": null,
+  "supports": "windows & !uwp & !xbox & !arm32"
+}

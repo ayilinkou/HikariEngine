@@ -112,11 +112,9 @@ public:
     CreatePresentTarget(const PresentTargetDesc& desc) override;
 
     /**
-     * Binary semaphores, for the present path only — IDevice deliberately does
-     * not expose these (see SemaphoreHandle in <rhi/Handles.h>). SwapchainTarget
-     * creates them through the device rather than owning vk::raii::Semaphore
-     * itself so that a handle can be resolved from outside the module, which is
-     * what lets the application keep recording its own submit.
+     * Binary semaphores, for the present targets only — IDevice exposes none, and
+     * a submission names the image it writes instead. The targets create them
+     * through the device so that Submit can resolve the handles a target hands it.
      */
     SemaphoreHandle CreateSemaphore(std::string_view debugName);
     void Destroy(SemaphoreHandle handle);
@@ -225,7 +223,7 @@ private:
     void CreateInstance(const DeviceDesc& desc);
     void SetupDebugMessenger(const DeviceDesc& desc);
     void CreateSurface(const DeviceRequirements& requirements);
-    void PickPhysicalDevice(const DeviceRequirements& requirements);
+    void PickPhysicalDevice(const DeviceDesc& desc);
     void SelectOptionalExtensions(const DeviceDesc& desc);
     void FindQueueFamilies(const DeviceDesc& desc);
     void FillDeviceInfo();

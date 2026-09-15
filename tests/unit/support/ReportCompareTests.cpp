@@ -10,6 +10,7 @@
 #include <platform/IPlatform.h>
 
 #include <rhi/Backend.h>
+#include <rhi/DeviceDesc.h>
 #include <rhi/RhiTypes.h>
 
 #include "ReportCompare.h"
@@ -34,7 +35,8 @@ Engine::RunReport MakeReport()
     report.Counters.Frame.BarrierCalls = 9u;
     report.Counters.Run.ValidationErrors = 0u;
     report.Counters.Run.ValidationWarnings = 0u;
-    report.Counters.Run.UploadSubmissions = 4u;
+    report.Counters.Run.UploadBatches = 4u;
+    report.Counters.Run.UploadSubmissions = 8u;
 
     report.Timings.StartupMs = 512.25f;
     report.Timings.FirstFrame.FrameMs = 33.5f;
@@ -68,6 +70,8 @@ Engine::RunReport MakeReport()
     report.System.ApiVersion = "1.4.354";
     report.System.Os = "Linux";
     report.System.Arch = "x86_64";
+    report.System.VendorId = 0x1002u;
+    report.System.DeviceId = 0x67DFu;
 
     return report;
 }
@@ -251,6 +255,29 @@ TEST_CASE("Fields that must never gate do not", "[support][report]")
         CHECK(Mentions(result.Skips, "counters: run.headless differs"));
         CHECK_FALSE(Mentions(result.Skips, "pixels:"));
     }
+
+    SECTION("D3D12's barrier path gates nothing, since both paths must agree on both signals")
+    {
+        Engine::RunReport legacy = MakeReport();
+        legacy.System.Backend = Rhi::Backend::D3D12;
+        legacy.Run.bSyncValidation = false;
+        legacy.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+        legacy.Run.D3D12Barriers = Rhi::BarrierPath::Legacy;
+
+        Engine::RunReport enhanced = legacy;
+        enhanced.Run.D3D12Barriers = Rhi::BarrierPath::Enhanced;
+
+        const TestSupport::ReportComparison matching =
+            TestSupport::CompareReports(Json(enhanced), Json(legacy));
+        CHECK(matching.Outcome == ReportOutcome::Matched);
+        CHECK(matching.bComparePixels);
+
+        enhanced.Counters.Frame.Barriers = 15u;
+        const TestSupport::ReportComparison moved =
+            TestSupport::CompareReports(Json(enhanced), Json(legacy));
+        CHECK(moved.Outcome == ReportOutcome::Moved);
+        CHECK(Mentions(moved.Differences, "counters.frame.barriers: 15 vs 14"));
+    }
 }
 
 TEST_CASE("A missing field is provisional and still compares the rest", "[support][report]")
@@ -316,13 +343,33 @@ TEST_CASE("A report that will not parse gives no verdict", "[support][report]")
 TEST_CASE("Describe names what the comparison established", "[support][report]")
 {
     Engine::RunReport moved = MakeReport();
-    moved.Counters.Run.UploadSubmissions = 40u;
+    moved.Counters.Run.UploadBatches = 40u;
 
     const std::string text =
         TestSupport::Describe(TestSupport::CompareReports(Json(moved), Json(MakeReport())));
 
     CHECK(text.find("a compared signal moved") != std::string::npos);
-    CHECK(text.find("counters.run.uploadSubmissions: 40 vs 4") != std::string::npos);
+    CHECK(text.find("counters.run.uploadBatches: 40 vs 4") != std::string::npos);
+}
+
+TEST_CASE("Upload submissions never move a comparison, and upload batches do", "[support][report]")
+{
+    // The same batches cost a second submission each on a Vulkan device that hands
+    // uploads back from a copy queue, and none on D3D12, so only the batches are the
+    // engine's decision.
+    Engine::RunReport handedBack = MakeReport();
+    handedBack.Counters.Run.UploadSubmissions = 4u;
+
+    CHECK(TestSupport::CompareReports(Json(handedBack), Json(MakeReport())).Outcome ==
+          ReportOutcome::Matched);
+
+    Engine::RunReport unbatched = MakeReport();
+    unbatched.Counters.Run.UploadBatches = 22u;
+
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(unbatched), Json(MakeReport()));
+    CHECK(result.Outcome == ReportOutcome::Moved);
+    CHECK(Mentions(result.Differences, "counters.run.uploadBatches: 22 vs 4"));
 }
 
 TEST_CASE("What answered never gates the counters", "[support][report]")
@@ -345,24 +392,255 @@ TEST_CASE("What answered never gates the counters", "[support][report]")
     CHECK_FALSE(result.bComparePixels);
 }
 
-TEST_CASE("A differing backend skips pixels and not counters", "[support][report]")
+TEST_CASE("Two backends on one adapter compare pixels within the cross-backend tolerance",
+          "[support][report]")
+{
+    // The same card as MakeReport's, described in D3D12's own words: the PCI
+    // identifiers, OS and architecture agree, and the name, driver and API version
+    // are whatever each API reports.
+    Engine::RunReport d3d12 = MakeReport();
+    d3d12.System.Backend = Rhi::Backend::D3D12;
+    d3d12.System.Gpu = "Test GPU 9000 Series";
+    d3d12.System.Driver = "31.0.21925.1001";
+    d3d12.System.ApiVersion = "12_1";
+    d3d12.Run.bSyncValidation = false;
+    d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+
+    Engine::RunReport vulkan = MakeReport();
+
+    const auto comparesWithin = [&](const TestSupport::ImageTolerance& tolerance)
+    {
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(d3d12), Json(vulkan));
+
+        INFO(TestSupport::Describe(result));
+        CHECK(result.Outcome == ReportOutcome::Matched);
+        CHECK(result.Skips.empty());
+        CHECK(result.bComparePixels);
+        CHECK(result.PixelTolerance.MaxChannelDelta == tolerance.MaxChannelDelta);
+        CHECK(result.PixelTolerance.MaxDifferingFraction == tolerance.MaxDifferingFraction);
+    };
+
+    SECTION("a debug pair takes debug's tolerance")
+    {
+        comparesWithin(TestSupport::kCrossBackendToleranceDebug);
+    }
+
+    SECTION("an ASan pair takes debug's too, since its shaders are compiled alike")
+    {
+        d3d12.Run.BuildConfig = "debug+asan";
+        vulkan.Run.BuildConfig = "debug+asan";
+        comparesWithin(TestSupport::kCrossBackendToleranceDebug);
+    }
+
+    SECTION("a release pair takes release's")
+    {
+        d3d12.Run.BuildConfig = "release";
+        vulkan.Run.BuildConfig = "release";
+        comparesWithin(TestSupport::kCrossBackendToleranceRelease);
+    }
+}
+
+TEST_CASE("Across backends a build type with no measured tolerance skips pixels",
+          "[support][report]")
+{
+    Engine::RunReport d3d12 = MakeReport();
+    d3d12.System.Backend = Rhi::Backend::D3D12;
+    d3d12.Run.bSyncValidation = false;
+    d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+    d3d12.Run.BuildConfig = "relwithdebinfo";
+
+    Engine::RunReport vulkan = MakeReport();
+    vulkan.Run.BuildConfig = "relwithdebinfo";
+
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(d3d12), Json(vulkan));
+
+    CHECK(result.Outcome == ReportOutcome::Skipped);
+    CHECK(Mentions(result.Skips, "pixels: run.buildConfig is \"relwithdebinfo\""));
+    CHECK_FALSE(Mentions(result.Skips, "counters:"));
+    CHECK_FALSE(result.bComparePixels);
+}
+
+TEST_CASE("Across backends a different adapter, OS or architecture still skips pixels",
+          "[support][report]")
+{
+    Engine::RunReport d3d12 = MakeReport();
+    d3d12.System.Backend = Rhi::Backend::D3D12;
+    d3d12.Run.bSyncValidation = false;
+    d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+
+    const auto skipsPixelsFor = [](const Engine::RunReport& other, std::string_view field)
+    {
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(other), Json(MakeReport()));
+
+        INFO(TestSupport::Describe(result));
+        CHECK(result.Outcome == ReportOutcome::Skipped);
+        CHECK(Mentions(result.Skips, std::string("pixels: ") + std::string(field) + " differs"));
+        CHECK_FALSE(Mentions(result.Skips, "counters:"));
+        CHECK_FALSE(result.bComparePixels);
+    };
+
+    SECTION("another vendor, as WARP against lavapipe would be")
+    {
+        d3d12.System.VendorId = 0x1414u;
+        skipsPixelsFor(d3d12, "system.vendorId");
+    }
+
+    SECTION("another chip from the same vendor")
+    {
+        d3d12.System.DeviceId = 0x687Fu;
+        skipsPixelsFor(d3d12, "system.deviceId");
+    }
+
+    SECTION("another OS")
+    {
+        d3d12.System.Os = "Windows";
+        skipsPixelsFor(d3d12, "system.os");
+    }
+
+    SECTION("another architecture")
+    {
+        d3d12.System.Arch = "arm64";
+        skipsPixelsFor(d3d12, "system.arch");
+    }
+}
+
+TEST_CASE("Within a backend the driver and API version still gate pixels", "[support][report]")
+{
+    // Across backends they are each API's own spelling; within one they say the
+    // rasterizer changed underneath the same adapter.
+    Engine::RunReport other = MakeReport();
+
+    SECTION("the driver")
+    {
+        other.System.Driver = "testdrv 1.2.4";
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(other), Json(MakeReport()));
+        CHECK(Mentions(result.Skips, "pixels: system.driver differs"));
+        CHECK_FALSE(result.bComparePixels);
+    }
+
+    SECTION("the API version")
+    {
+        other.System.ApiVersion = "1.4.355";
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(other), Json(MakeReport()));
+        CHECK(Mentions(result.Skips, "pixels: system.apiVersion differs"));
+        CHECK_FALSE(result.bComparePixels);
+    }
+}
+
+TEST_CASE("Across backends each validation sub-mode is read from its own backend's report",
+          "[support][report]")
+{
+    Engine::RunReport d3d12 = MakeReport();
+    d3d12.System.Backend = Rhi::Backend::D3D12;
+    d3d12.Run.bSyncValidation = false;
+    d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+
+    SECTION("both on their own backend: the counters are compared")
+    {
+        d3d12.Counters.Frame.DrawCalls = 99u;
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(d3d12), Json(MakeReport()));
+
+        CHECK(result.Outcome == ReportOutcome::Moved);
+        CHECK(Mentions(result.Differences, "counters.frame.drawCalls: 99 vs 22"));
+    }
+
+    SECTION("GPU-based validation of descriptors alone in the D3D12 run: the counters are skipped")
+    {
+        d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Descriptors;
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(d3d12), Json(MakeReport()));
+
+        CHECK(result.Outcome == ReportOutcome::Skipped);
+        CHECK(
+            Mentions(result.Skips,
+                     "counters: run.d3d12GpuBasedValidation is \"descriptors\" in the D3D12 run"));
+    }
+
+    SECTION("sync validation off in the Vulkan run, on either side: the counters are skipped")
+    {
+        Engine::RunReport vulkan = MakeReport();
+        vulkan.Run.bSyncValidation = false;
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(vulkan), Json(d3d12));
+
+        CHECK(result.Outcome == ReportOutcome::Skipped);
+        CHECK(Mentions(result.Skips, "counters: run.vkSyncValidation is false in the Vulkan run"));
+    }
+}
+
+TEST_CASE("Within a backend a validation sub-mode still gates the counters", "[support][report]")
 {
     Engine::RunReport other = MakeReport();
-    other.System.Backend = Rhi::Backend::D3D12;
+    other.Run.bSyncValidation = false;
+    other.Counters.Run.ValidationErrors = 3u;
 
     const TestSupport::ReportComparison result =
         TestSupport::CompareReports(Json(other), Json(MakeReport()));
 
     CHECK(result.Outcome == ReportOutcome::Skipped);
-    CHECK(Mentions(result.Skips, "pixels: system.backend differs"));
-    CHECK_FALSE(Mentions(result.Skips, "counters:"));
+    CHECK(Mentions(result.Skips, "counters: run.vkSyncValidation differs"));
+    CHECK(result.Differences.empty());
+}
+
+TEST_CASE("Across backends validation counts must be zero in both reports", "[support][report]")
+{
+    Engine::RunReport d3d12 = MakeReport();
+    d3d12.System.Backend = Rhi::Backend::D3D12;
+    d3d12.Run.bSyncValidation = false;
+    d3d12.Run.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
+
+    SECTION("equal and non-zero is not agreement")
+    {
+        // One message from each validator, which need not be about the same thing.
+        Engine::RunReport vulkan = MakeReport();
+        vulkan.Counters.Run.ValidationWarnings = 1u;
+        d3d12.Counters.Run.ValidationWarnings = 1u;
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(d3d12), Json(vulkan));
+
+        CHECK(result.Outcome == ReportOutcome::Moved);
+        CHECK(Mentions(result.Differences, "counters.run.validationWarnings: 1 vs 1 (across "
+                                           "backends both must be zero)"));
+    }
+
+    SECTION("a count on one side alone moves the comparison")
+    {
+        d3d12.Counters.Run.ValidationErrors = 2u;
+
+        const TestSupport::ReportComparison result =
+            TestSupport::CompareReports(Json(d3d12), Json(MakeReport()));
+
+        CHECK(result.Outcome == ReportOutcome::Moved);
+        CHECK(Mentions(result.Differences, "counters.run.validationErrors: 2 vs 0"));
+    }
+
+    SECTION("within a backend, equal non-zero counts still match")
+    {
+        Engine::RunReport vulkan = MakeReport();
+        vulkan.Counters.Run.ValidationWarnings = 1u;
+
+        CHECK(TestSupport::CompareReports(Json(vulkan), Json(vulkan)).Outcome ==
+              ReportOutcome::Matched);
+    }
 }
 
 TEST_CASE("A baseline without the system block is provisional, not a failure", "[support][report]")
 {
-    // What step 6 itself produces: the committed baseline predates the block, so
-    // every field of it is missing. The comparison still looks at everything
-    // else, which is the evidence that promoting the baseline is safe.
+    // A baseline captured before the system block existed, so every field of it
+    // is missing at once. The comparison still looks at everything else, which
+    // is what makes promoting such a baseline safe rather than a leap.
     std::string older = Json(MakeReport());
     for (const char* field :
          {"\"backend\"", "\"gpu\"", "\"driver\"", "\"apiVersion\"", "\"os\"", "\"arch\""})
@@ -370,7 +648,8 @@ TEST_CASE("A baseline without the system block is provisional, not a failure", "
         older = WithoutLine(std::move(older), field);
     }
 
-    // Removing every member leaves "system": {}, which is still valid JSON.
+    // What remains is the PCI identifiers, which came later and close the block,
+    // so the JSON stays valid.
     const TestSupport::ReportComparison result =
         TestSupport::CompareReports(Json(MakeReport()), older);
 
@@ -378,6 +657,33 @@ TEST_CASE("A baseline without the system block is provisional, not a failure", "
     CHECK(result.bProvisional);
     CHECK(result.Problems.empty());
     CHECK(result.MissingFields.size() == 6u);
+    CHECK(result.Differences.empty());
+}
+
+TEST_CASE("A baseline predating the PCI identifiers and GPU-based validation is provisional",
+          "[support][report]")
+{
+    // What a report from before the D3D12 backend looks like: no PCI identifiers
+    // and no GPU-based-validation mode. Their absence has to read as "not
+    // established" rather than as a difference, or refreshing a baseline across
+    // a report change would look like a regression.
+    std::string older = WithoutLine(Json(MakeReport()), "\"d3d12GpuBasedValidation\"");
+
+    // The two identifiers close the system block, so they go with the comma that
+    // precedes them rather than line by line.
+    const size_t from = older.find(",\n    \"vendorId\"");
+    REQUIRE(from != std::string::npos);
+    const size_t to = older.find('\n', older.find("\"deviceId\""));
+    REQUIRE(to != std::string::npos);
+    older.erase(from, to - from);
+
+    const TestSupport::ReportComparison result =
+        TestSupport::CompareReports(Json(MakeReport()), older);
+
+    CHECK(result.Outcome == ReportOutcome::NoVerdict);
+    CHECK(result.bProvisional);
+    CHECK(result.Problems.empty());
+    CHECK(result.MissingFields.size() == 3u);
     CHECK(result.Differences.empty());
 }
 

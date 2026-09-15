@@ -70,7 +70,7 @@ target_compile_definitions(
 # Pinning it (plan D21) is the one reason a test reaches in.
 target_include_directories(engine_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/engine/src)
 
-engine_test(rhi_tests SOURCES unit/rhi/BackendTests.cpp
+engine_test(rhi_tests SOURCES unit/rhi/AdapterNameTests.cpp unit/rhi/BackendTests.cpp
   unit/rhi/ConversionTests.cpp
   unit/rhi/DiagnosticsTests.cpp unit/rhi/FormatTests.cpp
   unit/rhi/OwnershipTransferTests.cpp unit/rhi/QueueFamilyTests.cpp
@@ -84,13 +84,35 @@ engine_test(rhi_tests SOURCES unit/rhi/BackendTests.cpp
 target_include_directories(rhi_tests
                            PRIVATE ${CMAKE_SOURCE_DIR}/engine/rhi/src)
 
+# The D3D12 tables, built only where the backend is.
+if(WIN32)
+  target_sources(rhi_tests PRIVATE unit/rhi/D3D12ConversionTests.cpp)
+  set_source_files_properties(unit/rhi/D3D12ConversionTests.cpp
+                              PROPERTIES COMPILE_DEFINITIONS "WIN32_LEAN_AND_MEAN;NOMINMAX")
+endif()
+
 # Needs a real GPU, so it is labelled "gpu" and left out of the "unit" run that
 # CI performs: on a machine with no Vulkan ICD every case here skips, and a run
 # of nothing but skips looks identical to a run of tests that were passing
 # vacuously. tests/scripts/run_gpu_tests.sh is what executes them.
-engine_test(rhi_gpu_tests SOURCES gpu/rhi/DeviceTests.cpp
-  gpu/rhi/PresentTargetTests.cpp gpu/rhi/UploadRoundTripTests.cpp
-  gpu/rhi/ValidationCoverageTests.cpp support/RhiDeviceListener.cpp LIBS Engine::RHI LABEL gpu)
+#
+# Registered once per backend. A case tagged [vulkan] or [d3d12] is about that
+# backend alone; everything else is neutral and runs under both — except that
+# D3D12's spec names what its backend implements so far rather than excluding
+# what it does not, so a neutral case joins D3D12's run in the step that makes
+# it passable there rather than failing until then. [queues] is left out until
+# D3D12 has queues to collapse.
+engine_test(
+  rhi_gpu_tests
+  SOURCES gpu/rhi/BindGroupTests.cpp gpu/rhi/DeviceTests.cpp gpu/rhi/EnginePipelineTests.cpp
+          gpu/rhi/PresentTargetTests.cpp
+          gpu/rhi/RenderingScopeTests.cpp gpu/rhi/ResourceTests.cpp
+          gpu/rhi/UploadRoundTripTests.cpp
+          gpu/rhi/ValidationCoverageTests.cpp
+          support/RhiDeviceListener.cpp
+  LIBS Engine::RHI
+  LABEL gpu
+  BACKEND_SPECS Vulkan "~[d3d12]" D3D12 "[device]~[vulkan],[resources],[upload],[rendering],[bindgroups],[pipelines],[present],[d3d12]")
 
 # The same reach into the module's own sources that rhi_tests makes, plus the
 # shared fixture: submitting a command list needs a queue, and the RHI hands out
@@ -98,18 +120,48 @@ engine_test(rhi_gpu_tests SOURCES gpu/rhi/DeviceTests.cpp
 target_include_directories(
   rhi_gpu_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support
                         ${CMAKE_SOURCE_DIR}/engine/rhi/src)
+hikari_deploy_d3d12(rhi_gpu_tests)
+
+# One case creates the renderer's pipelines from the shaders the build compiled,
+# which is the first place a backend meets the engine's layout table, vertex
+# tables and constant blocks together. Those are the module's private sources,
+# reached as engine_tests reaches them; Engine::Engine is linked for the
+# definitions those headers compile under, and nothing here calls into it.
+target_link_libraries(rhi_gpu_tests PRIVATE Engine::Engine)
+target_include_directories(rhi_gpu_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/engine/src)
+add_dependencies(rhi_gpu_tests CompileShadersTarget)
+target_compile_definitions(rhi_gpu_tests PRIVATE HIKARI_SHADER_DIR="${HIKARI_EXE_DIR}/shaders")
+
+# The D3D12 backend's own cases, which reach its device through the module's
+# private headers as the Vulkan cases reach theirs through VulkanNative.h.
+if(WIN32)
+  target_sources(rhi_gpu_tests PRIVATE gpu/rhi/D3D12DeviceTests.cpp)
+  set_source_files_properties(gpu/rhi/D3D12DeviceTests.cpp
+                              PROPERTIES COMPILE_DEFINITIONS "WIN32_LEAN_AND_MEAN;NOMINMAX")
+  target_link_libraries(rhi_gpu_tests PRIVATE Microsoft::DirectX-Headers
+                                              Microsoft::DirectX-Guids d3d12.lib dxgi.lib)
+endif()
 
 # The scene matrix: real runs of the engine, headless, asserting on the RunReport
 # they return. Labelled "scene" rather than "gpu" so that ctest -L gpu keeps its
 # under-a-minute meaning and a red step says which kind of thing broke.
-engine_test(scene_tests SOURCES scene/SceneLaunchTests.cpp LIBS Engine::Engine
-            Engine::Editor TestSupport LABEL scene)
+#
+# Registered once per backend, as the GPU suite is, and every case runs under both:
+# a scene is the engine's, not a backend's. The two specs differ only because
+# each registration of one binary needs its own.
+engine_test(
+  scene_tests
+  SOURCES scene/SceneLaunchTests.cpp
+  LIBS Engine::Engine Engine::Editor TestSupport
+  LABEL scene
+  BACKEND_SPECS Vulkan "~[d3d12]" D3D12 "~[vulkan]")
 
 # Beside the shaders rather than in tests/: the engine loads them from its own
 # directory, so a test that runs the engine has to live where a binary does.
 set_target_properties(scene_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                              ${HIKARI_EXE_DIR})
 add_dependencies(scene_tests CompileShadersTarget)
+hikari_deploy_d3d12(scene_tests)
 
 target_include_directories(scene_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 

@@ -40,7 +40,7 @@ using namespace Hikari::Rhi;
  * ordering: if this is reported, synchronization validation is genuinely
  * tracking hazards across submissions.
  */
-TEST_CASE("Synchronization validation detects a cross-submit hazard", "[rhi][gpu][validation]")
+TEST_CASE("Synchronization validation detects a cross-submit hazard", "[rhi][gpu][validation][vulkan]")
 {
     IDevice& device = RhiTest::RequireDevice();
     Diagnostics& diagnostics = device.GetDiagnostics();

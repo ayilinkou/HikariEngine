@@ -1,0 +1,20 @@
+get_filename_component(_warp_root "${CMAKE_CURRENT_LIST_FILE}" PATH)
+get_filename_component(_warp_root "${_warp_root}" PATH)
+get_filename_component(_warp_root "${_warp_root}" PATH)
+
+if(EXISTS "${_warp_root}/bin/d3d10warp.dll")
+    # Nothing links against WARP: DXGI loads it by name when a software
+    # adapter is enumerated, from beside the executable if a copy is there. So
+    # this is a location to copy from rather than a library to link.
+    add_library(Microsoft::DirectX-WARP SHARED IMPORTED)
+    set_target_properties(Microsoft::DirectX-WARP PROPERTIES
+        IMPORTED_LOCATION_RELEASE "${_warp_root}/bin/d3d10warp.dll"
+        IMPORTED_LOCATION_DEBUG "${_warp_root}/debug/bin/d3d10warp.dll"
+        IMPORTED_CONFIGURATIONS "Debug;Release")
+
+    set(directx-warp_FOUND TRUE)
+else()
+    set(directx-warp_FOUND FALSE)
+endif()
+
+unset(_warp_root)

@@ -72,6 +72,7 @@ find_package(Stb REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(pugixml CONFIG REQUIRED)
+include(cmake/D3D12.cmake)
 
 include(FetchContent)
 FetchContent_Declare(

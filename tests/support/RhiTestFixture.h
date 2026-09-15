@@ -1,16 +1,21 @@
 #pragma once
 
+#include "TestBackend.h"
 #include "TestEnvironment.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <exception>
 #include <map>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <rhi/Backend.h>
 #include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
 #include <rhi/IDevice.h>
@@ -26,10 +31,14 @@
  * creates, and ValidationGuard resets the counters it reads, so a case still
  * starts from a known state.
  *
- * A machine with no Vulkan ICD is not a failure. Nothing here can run there, so
- * the cases skip with the reason attached rather than failing, which is why
+ * A machine with no usable device is not a failure. Nothing here can run there,
+ * so the cases skip with the reason attached rather than failing, which is why
  * these are labelled "gpu" and kept out of the run CI performs — see
  * cmake/Testing.cmake.
+ *
+ * Which backend the device comes from is the process's to say, through
+ * HIKARI_TEST_BACKEND, which CTest sets on each registration of the binary. A
+ * binary run by hand without it runs on Vulkan, the default everywhere else too.
  *
  * The devices are torn down by a Catch2 listener (RhiDeviceListener.cpp) rather
  * than by the static that holds them. Leaving it to static destruction aborts
@@ -44,9 +53,10 @@ namespace RhiTest
  *
  * The last three are unreachable on any one machine without a lever, and that
  * is the point: whichever of them this GPU is, the other two are the ones most
- * hardware in the field takes. The extension names are Vulkan's because
- * DeviceDesc::DisabledOptionalExtensions is neutral in type and backend-specific
- * in content; a second backend's fixture would name its own.
+ * hardware in the field takes. The two ownership-transfer arrangements are
+ * Vulkan's alone — D3D12 has no ownership transfer, since a resource reaches a
+ * copy queue by being in its common state — so a backend's own list is
+ * AllDeviceConfigs(), not every enumerator.
  */
 enum class DeviceConfig : uint8_t
 {
@@ -75,6 +85,15 @@ enum class DeviceConfig : uint8_t
      * nothing to hand over. What an integrated GPU exposes.
      */
     SingleQueue,
+
+    /**
+     * D3D12's two arrangements on its legacy barrier path, whatever the adapter
+     * supports. Default and SingleQueue take the adapter's best path — enhanced
+     * wherever it has them — so these are what run the legacy path on the same
+     * adapter as well, and a difference between the two shows up in one run.
+     */
+    LegacyBarriers,
+    SingleQueueLegacyBarriers,
 };
 
 /**
@@ -94,6 +113,8 @@ inline Hikari::Rhi::DeviceDesc MakeDesc(DeviceConfig config, Hikari::Rhi::Diagno
 {
     Hikari::Rhi::DeviceDesc desc;
     desc.ApplicationName = "HikariEngine RHI GPU tests";
+    desc.Backend = TestBackend();
+    desc.Gpu = TestGpu();
 
     // The whole reason these tests exist is to be the place a validation error
     // is noticed, so they pay for the layer. Count rather than FailFast: a
@@ -101,6 +122,11 @@ inline Hikari::Rhi::DeviceDesc MakeDesc(DeviceConfig config, Hikari::Rhi::Diagno
     // than an abort inside the driver.
     desc.bEnableValidation = true;
     desc.pDiagnostics = &diagnostics;
+
+    // Full rather than the default, for the same reason: the resource-state checks
+    // are what a backend's own state tracking is caught by, and a test's timings
+    // are not what it asserts on.
+    desc.GpuBasedValidation = Hikari::Rhi::GpuBasedValidation::Full;
 
     // No window exists in a test binary, and none is needed: nothing here
     // presents.
@@ -118,6 +144,13 @@ inline Hikari::Rhi::DeviceDesc MakeDesc(DeviceConfig config, Hikari::Rhi::Diagno
             break;
         case DeviceConfig::SingleQueue:
             desc.bForceSingleQueue = true;
+            break;
+        case DeviceConfig::LegacyBarriers:
+            desc.BarrierPath = Hikari::Rhi::BarrierPath::Legacy;
+            break;
+        case DeviceConfig::SingleQueueLegacyBarriers:
+            desc.bForceSingleQueue = true;
+            desc.BarrierPath = Hikari::Rhi::BarrierPath::Legacy;
             break;
     }
 
@@ -185,7 +218,8 @@ inline Hikari::Rhi::IDevice& RequireDevice(DeviceConfig config = DeviceConfig::D
     DeviceInstance* pInstance = TryGetDevice(config);
     if (pInstance == nullptr)
     {
-        const std::string reason = "No usable Vulkan device: " + Detail::Slots()[config].FailureReason;
+        const std::string reason = "No usable " + std::string(Hikari::Rhi::ToString(TestBackend())) +
+                                   " device: " + Detail::Slots()[config].FailureReason;
         if (TestEnvironment::DeviceRequired())
             FAIL(reason);
 
@@ -215,13 +249,39 @@ inline void ShutDownDevices()
     Detail::Slots().clear();
 }
 
-/** Every configuration, for the cases that have to pass under all of them. */
-inline constexpr std::array kAllDeviceConfigs{
+/** Every configuration Vulkan has. */
+inline constexpr std::array kVulkanDeviceConfigs{
     DeviceConfig::Default,
     DeviceConfig::OwnershipTransfer,
     DeviceConfig::OwnershipTransferAllStages,
     DeviceConfig::SingleQueue,
 };
+
+/**
+ * Every configuration D3D12 has: no ownership transfer to force, and each arrangement
+ * crossed with the barrier path — on an adapter without enhanced barriers the two
+ * crossings are the same device twice.
+ */
+inline constexpr std::array kD3D12DeviceConfigs{
+    DeviceConfig::Default,
+    DeviceConfig::SingleQueue,
+    DeviceConfig::LegacyBarriers,
+    DeviceConfig::SingleQueueLegacyBarriers,
+};
+
+/** Every configuration this process's backend has, for the cases that have to pass under all of them. */
+inline std::span<const DeviceConfig> AllDeviceConfigs()
+{
+    switch (TestBackend())
+    {
+        case Hikari::Rhi::Backend::Vulkan:
+            return kVulkanDeviceConfigs;
+        case Hikari::Rhi::Backend::D3D12:
+            return kD3D12DeviceConfigs;
+    }
+
+    return {};
+}
 
 inline const char* Describe(DeviceConfig config)
 {
@@ -235,6 +295,10 @@ inline const char* Describe(DeviceConfig config)
             return "ownership transfer, all stages";
         case DeviceConfig::SingleQueue:
             return "single queue";
+        case DeviceConfig::LegacyBarriers:
+            return "legacy barriers";
+        case DeviceConfig::SingleQueueLegacyBarriers:
+            return "single queue, legacy barriers";
     }
 
     return "unknown";

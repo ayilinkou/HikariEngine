@@ -28,19 +28,27 @@ struct Vertex
         return {{{.Location = 0,
                   .Slot = 0,
                   .AttributeFormat = Hikari::Rhi::Format::RGB32Float,
-                  .Offset = offsetof(Vertex, Pos)},
+                  .Offset = offsetof(Vertex, Pos),
+                  .SemanticName = "POSITION",
+                  .SemanticIndex = 0},
                  {.Location = 1,
                   .Slot = 0,
                   .AttributeFormat = Hikari::Rhi::Format::RG32Float,
-                  .Offset = offsetof(Vertex, TexCoord)},
+                  .Offset = offsetof(Vertex, TexCoord),
+                  .SemanticName = "TEXCOORD",
+                  .SemanticIndex = 0},
                  {.Location = 2,
                   .Slot = 0,
                   .AttributeFormat = Hikari::Rhi::Format::RGB32Float,
-                  .Offset = offsetof(Vertex, Normal)},
+                  .Offset = offsetof(Vertex, Normal),
+                  .SemanticName = "NORMAL",
+                  .SemanticIndex = 0},
                  {.Location = 3,
                   .Slot = 0,
                   .AttributeFormat = Hikari::Rhi::Format::RGBA32Float,
-                  .Offset = offsetof(Vertex, Tangent)}}};
+                  .Offset = offsetof(Vertex, Tangent),
+                  .SemanticName = "TANGENT",
+                  .SemanticIndex = 0}}};
     }
 
     constexpr bool operator==(const Vertex& other) const
@@ -69,11 +77,15 @@ struct QuadVertex
         return {{{.Location = 0,
                   .Slot = 0,
                   .AttributeFormat = Hikari::Rhi::Format::RG32Float,
-                  .Offset = offsetof(QuadVertex, Pos)},
+                  .Offset = offsetof(QuadVertex, Pos),
+                  .SemanticName = "POSITION",
+                  .SemanticIndex = 0},
                  {.Location = 1,
                   .Slot = 0,
                   .AttributeFormat = Hikari::Rhi::Format::RG32Float,
-                  .Offset = offsetof(QuadVertex, TexCoord)}}};
+                  .Offset = offsetof(QuadVertex, TexCoord),
+                  .SemanticName = "TEXCOORD",
+                  .SemanticIndex = 0}}};
     }
 };
 

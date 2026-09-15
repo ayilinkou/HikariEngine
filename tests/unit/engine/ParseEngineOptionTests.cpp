@@ -8,6 +8,7 @@
 #include <platform/CommandLine.h>
 
 #include <rhi/Backend.h>
+#include <rhi/DeviceDesc.h>
 
 #include <engine/EngineConfig.h>
 #include <engine/ParseEngineOptions.h>
@@ -16,6 +17,8 @@
 using namespace Hikari::Engine;
 using namespace Hikari::Platform;
 using Hikari::Rhi::Backend;
+using Hikari::Rhi::BarrierPath;
+using Hikari::Rhi::GpuBasedValidation;
 using Hikari::Rhi::ValidationPolicy;
 
 namespace
@@ -229,6 +232,127 @@ TEST_CASE("Synchronization validation is on unless asked otherwise", "[ParseEngi
 
     REQUIRE(ParseEngineOption(Option("--vk-sync-validation", "on"), spec, config));
     CHECK(spec.bVulkanSyncValidation);
+}
+
+TEST_CASE("GPU-based validation checks descriptors unless asked otherwise", "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+
+    // Descriptors by default: D3D12's only check of what a shader reads, without the
+    // resource-state tracking that costs a debug frame several times over.
+    CHECK(spec.D3D12GpuBasedValidation == GpuBasedValidation::Descriptors);
+
+    REQUIRE(ParseEngineOption(Option("--d3d12-gpu-based-validation", "off"), spec, config));
+    CHECK(spec.D3D12GpuBasedValidation == GpuBasedValidation::Off);
+
+    REQUIRE(ParseEngineOption(Option("--d3d12-gpu-based-validation", "full"), spec, config));
+    CHECK(spec.D3D12GpuBasedValidation == GpuBasedValidation::Full);
+
+    REQUIRE(ParseEngineOption(Option("--d3d12-gpu-based-validation", "descriptors"), spec, config));
+    CHECK(spec.D3D12GpuBasedValidation == GpuBasedValidation::Descriptors);
+
+    // With three levels, on would not say which.
+    CHECK_THROWS_AS(ParseEngineOption(Option("--d3d12-gpu-based-validation", "on"), spec, config),
+                    CommandLineError);
+    CHECK_THROWS_AS(
+        ParseEngineOption(Option("--d3d12-gpu-based-validation", "maybe"), spec, config),
+        CommandLineError);
+}
+
+TEST_CASE("The --gpu flag names an adapter, and needs a name to do it", "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+
+    // Empty means each backend's own rule, so that is what a spec starts with.
+    CHECK(spec.Gpu.empty());
+
+    REQUIRE(ParseEngineOption(Option("--gpu", "Basic Render"), spec, config));
+    CHECK(spec.Gpu == "Basic Render");
+
+    CHECK_THROWS_AS(ParseEngineOption(Option("--gpu"), spec, config), CommandLineError);
+}
+
+TEST_CASE("The single-queue lever is neutral, and its Vulkan spelling is gone", "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+
+    REQUIRE(ParseEngineOption(Option("--force-single-queue"), spec, config));
+    CHECK(spec.bForceSingleQueue);
+
+    // Both backends honour it, so the flag carries no backend prefix. The old
+    // spelling is declined rather than kept as an alias, so it reads as an unknown
+    // flag instead of quietly working.
+    RunSpec renamed;
+    CHECK_FALSE(ParseEngineOption(Option("--vk-force-single-queue"), renamed, config));
+    CHECK_FALSE(renamed.bForceSingleQueue);
+}
+
+TEST_CASE("Disabling a Vulkan extension is refused on D3D12, and only there",
+          "[ParseEngineOption]")
+{
+    // Checked on the spec rather than through --backend, so the case holds on a
+    // build without D3D12, where the flag itself would refuse the backend first.
+    RunSpec spec;
+    spec.DisabledVulkanExtensions = {"VK_KHR_maintenance9"};
+
+    spec.Backend = Backend::D3D12;
+    CHECK_THROWS_AS(RejectContradictoryOptions(spec), CommandLineError);
+
+    spec.Backend = Backend::Vulkan;
+    CHECK_NOTHROW(RejectContradictoryOptions(spec));
+
+    // D3D12 on its own is not a contradiction.
+    RunSpec d3d12;
+    d3d12.Backend = Backend::D3D12;
+    CHECK_NOTHROW(RejectContradictoryOptions(d3d12));
+}
+
+TEST_CASE("The D3D12 barrier path is auto unless named, and takes exactly three words",
+          "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+
+    CHECK(spec.D3D12Barriers == BarrierPath::Auto);
+
+    REQUIRE(ParseEngineOption(Option("--d3d12-barriers", "legacy"), spec, config));
+    CHECK(spec.D3D12Barriers == BarrierPath::Legacy);
+
+    REQUIRE(ParseEngineOption(Option("--d3d12-barriers", "enhanced"), spec, config));
+    CHECK(spec.D3D12Barriers == BarrierPath::Enhanced);
+
+    REQUIRE(ParseEngineOption(Option("--d3d12-barriers", "auto"), spec, config));
+    CHECK(spec.D3D12Barriers == BarrierPath::Auto);
+
+    CHECK_THROWS_AS(ParseEngineOption(Option("--d3d12-barriers", "on"), spec, config),
+                    CommandLineError);
+    CHECK_THROWS_AS(ParseEngineOption(Option("--d3d12-barriers"), spec, config), CommandLineError);
+}
+
+TEST_CASE("A named barrier path is refused off D3D12, and auto never is", "[ParseEngineOption]")
+{
+    // On the spec rather than through --backend, as above, so the case holds on a
+    // build without D3D12.
+    for (const BarrierPath path : {BarrierPath::Legacy, BarrierPath::Enhanced})
+    {
+        INFO("path: " << Hikari::Rhi::ToString(path));
+
+        RunSpec spec;
+        spec.D3D12Barriers = path;
+
+        spec.Backend = Backend::Vulkan;
+        CHECK_THROWS_AS(RejectContradictoryOptions(spec), CommandLineError);
+
+        spec.Backend = Backend::D3D12;
+        CHECK_NOTHROW(RejectContradictoryOptions(spec));
+    }
+
+    RunSpec leftAlone;
+    leftAlone.Backend = Backend::Vulkan;
+    CHECK_NOTHROW(RejectContradictoryOptions(leftAlone));
 }
 
 TEST_CASE("Contradictory validation options are refused", "[ParseEngineOption]")

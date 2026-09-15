@@ -97,11 +97,6 @@ void VulkanCommandList::SetIndexBuffer(BufferHandle buffer, IndexFormat format, 
                                                         : vk::IndexType::eUint32);
 }
 
-void VulkanCommandList::SetCullMode(CullMode mode)
-{
-    m_Cmd.setCullMode(ToVk(mode));
-}
-
 void VulkanCommandList::DrawIndexed(uint32_t indexCount, uint32_t instanceCount,
                                     uint32_t firstIndex, int32_t vertexOffset,
                                     uint32_t firstInstance)

@@ -40,7 +40,6 @@ public:
     void Dispatch(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ) override;
     void SetVertexBuffer(uint32_t slot, BufferHandle buffer, uint64_t offset) override;
     void SetIndexBuffer(BufferHandle buffer, IndexFormat format, uint64_t offset) override;
-    void SetCullMode(CullMode mode) override;
     void DrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
                      int32_t vertexOffset, uint32_t firstInstance) override;
     void SetBindGroup(PipelineLayoutHandle layout, uint32_t slot, BindGroupHandle group) override;

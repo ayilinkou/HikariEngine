@@ -15,36 +15,13 @@ architecture, and prefer them over inventing a design:
 - `docs/suggested_work.md` — the code review that motivated the plan; open it for
   the *why* behind a known defect. Its P0–P3 scale is *severity*, a different axis from the
   backlog's priorities.
-- `docs/rhi_extraction_plan.md` — **retained past Stage 5, which it drove.** Replaced Part IV
-  steps 24–34 with a 17-step sequence (R1–R17) that made the RHI's public API backend-neutral
-  so a D3D12 backend is possible later, and records the design decisions (D0–D13) behind that.
-  Stage 5 is complete, so R1–R17 are history; the **decisions remain live**, because they
-  govern what the RHI's public seam is allowed to say and Part IV's own §10 predates them —
-  **except D7 and D8, superseded by Stage 7.5's D14 and D15.** Read it before touching
-  anything under `engine/rhi/include/`. **It and the backend readiness plan retire together**,
-  into one permanent `docs/rhi.md` holding the whole D-series and no step lists — decided at
-  Stage 7.5's step 12, along with the decision not to do it yet. Its §10 is the outline for that
-  merge.
-- `docs/backend_readiness_plan.md` — **retained, like the RHI plan and for the same reason.**
-  Stage 7.5: the four seams a second backend needs and Stage 5 did not build — submission and
-  command-list ownership, rendering scope, bind groups, pipelines, and draw/dispatch recording
-  — as twelve steps, plus the decisions (D14–D46) behind them. It **supersedes D7 and D8**,
-  deferring bindless until after D3D12 and neutralising the binding model instead, and it
-  reorders Part IV's Stage 8. Its D-numbers continue the RHI plan's series deliberately: both
-  govern the same seam. It also defines **Stage 7.6** (what the backend needs around the seam —
-  two of its six items widen `IDevice` deliberately) and **Stage 7.7** (the D3D12 backend itself).
-  Grilled on 6 September 2026; its §0 records what that changed, which was substantial. **Stage
-  7.6's own interview ran on 11 and 12 September 2026 and is finished**: §4.1–§4.4 are its output —
-  the comparison tool, the shader build, the twelve-step sequence and the decisions behind them —
-  with nothing left open. **Stage 7.7's interview ran on 13 September 2026 and is finished**, on
-  Linux and then on this project's Windows install, where the measurements only that machine could
-  take were made. Its seam decisions are **D36–D46**, with amendments made in place to **D15, D26,
-  D32 and D35**; **§5 is the stage's plan** — §5.1 what the interview changed, §5.2 scope and the
-  obligations binding it, §5.3 the machine and every measurement, §5.4 the decisions about the stage
-  rather than the seam, and §5.5 the ten steps, the gate each passes, and the conditions and triggers
-  that come due along the way. The throwaway measurement programs live outside the repository, at
-  `C:\Dev\d3d12-probe`. Retires together with the RHI extraction plan into a single `docs/rhi.md` —
-  see that document's §10.
+- `docs/rhi.md` — **permanent.** What the RHI's public seam is allowed to say, and the whole
+  **D-series (D0–D46)** behind it — the decisions the code cites by number. It replaced
+  `rhi_extraction_plan.md` and `backend_readiness_plan.md`, which drove Stages 5, 7.5, 7.6 and
+  7.7 and were deleted with them on 15 September 2026: their step lists are history, their
+  decisions are not. **Read it before touching anything under `engine/rhi/include/`.** D7 and
+  D8 survive as redirects to D14 and D15, which superseded them, because the code still cites
+  both. Its §13 is the list of what is deferred and what would reopen each one.
 
 ---
 
@@ -54,8 +31,7 @@ architecture, and prefer them over inventing a design:
 running application. Do not start work outside the current stage, and do not combine steps,
 without asking first. Stage 5 is complete, so Part IV is the work order again — but where
 the **D-series** and Part IV disagree about the RHI's public seam, **the D-series wins**. It
-spans two documents: `docs/rhi_extraction_plan.md` holds D0–D13 and
-`docs/backend_readiness_plan.md` holds D14–D46, which supersede D7 and D8. Part IV was
+lives in `docs/rhi.md`, D0–D46, with D14 and D15 superseding D7 and D8. Part IV was
 written before the seam was neutralised, so its later stages still spell interfaces in raw
 Vulkan; §10.2 is one such place. Re-express rather than copy, and amend Part IV as you go.
 
@@ -137,14 +113,23 @@ Synchronization validation is off by *Vulkan's* default and on in this project, 
 measured on a release build of the test scene at 1.035 ms/frame against 0.802 with it off and 0.337
 with no validation at all — so `--vk-sync-validation on|off` exists for the one case that needs it:
 a release run that validates *and* whose timings still mean something. Vulkan-only, as the prefix
-says; D3D12 has no synchronization validator. Best-practices validation is the one currently
-switched off, for a layer crash — see `backlog.md`.
+says; D3D12 has no synchronization validator. Its counterpart is
+`--d3d12-gpu-based-validation off|descriptors|full`: the debug layer's GPU-side checks, the only
+ones that see what a shader reads. **The default is `descriptors`, and every test asks for `full`.**
+Resource-state tracking, which only `full` adds, is nearly all of the cost — a debug frame of the
+test scene on the RX 580 is 1.3 ms off, 3.8 ms at `descriptors`, 22.8 ms at `full` (D40, amended) —
+so an interactive run skips it and the GPU fixture, the scene suite and `backend_compare` keep it.
+**D3D12 has two barrier paths** (D37, D38): `--d3d12-barriers auto` records enhanced barriers where
+the adapter supports them — NuGet WARP does, the RX 580 does not — and legacy transitions elsewhere;
+`legacy` and `enhanced` force one, `enhanced` is refused where unsupported, and the GPU fixture
+crosses its D3D12 arrangements with both. The enhanced path is the stricter checker of the two: the
+debug layer holds each barrier's sync, access and layout to the Enhanced Barriers rules, which no
+legacy transition carries, so a barrier sequence Vulkan and legacy accept can still fail there.
+Best-practices validation is the one currently switched off, for a layer crash — see `backlog.md`.
 `grep`ping this repo for prior art is also not a source. Known-wrong places to copy from
 today: `ModelData::Init` (`suggested_work.md` §1.6 — a live P0 that dereferences a null
-material), `WriteScreenshot`'s hardcoded BGRA swizzle, `ChooseSwapchainFormat`'s fallback
-(it can hand `FromNativeFormat` a format the neutral list cannot name), and
-`Drawable::operator<`, which orders by pointer value and so is not reproducible across
-processes.
+material), and `Drawable::operator<`, which orders by pointer value and so is not reproducible
+across processes.
 
 **Never run git commands that change state.** No commits, branches, stashes, or pushes —
 even when a task feels finished. Reading (`git status`, `git log`, `git diff`) is fine.
@@ -164,7 +149,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 7 — Engine shell + DI | 40b, 41–47 | ✅ done (`engine/engine` + `engine/asset` + `engine/editor`, `HikariEditor` + `HikariHeadless`, injected subsystems, the event seam, and headless scene tests in CI) |
 | 7.5 — Backend readiness | 1–12 | ✅ done (`ICommandAllocator`, submission and fences, rendering scope, bind groups, pipelines, draw and dispatch recording — the transitional area is 2 headers from 4 sites, down from 7 from 18) |
 | 7.6 — Backend prerequisites | 1–12 | ✅ done (`HikariCompare` and the gating table, `--backend` and `rhi/Backend.h`, `DeviceInfo` and the report's `system` block, per-stage blobs with DXIL and its signature gate, `ShaderTypes.h` shared with the shaders and its layout pinned, `--validation` and `--vk-sync-validation`) |
-| **7.7 — D3D12 backend** | 1–10 | **next** — grilled 13 September 2026 (D36–D46, `backend_readiness_plan.md` §5). Headless first, legacy barriers then enhanced, seam changes interleaved and gated on Vulkan within each step; Vulkan stays the default, and it owns the Windows GPU CI job (D28) |
+| 7.7 — D3D12 backend | 1–10 | ✅ done (pixel parity: the cloud and composite passes no longer assume Vulkan's clip-space Y, D3D12 samplers ask for a valid anisotropy, the cross-backend pixel rule on PCI identity, and a measured, explained tolerance per build type; the editor under D3D12 on a flip-model DXGI swapchain, presenting in Mailbox; enhanced barriers beside the legacy path, chosen by `--d3d12-barriers legacy|enhanced|auto` and compared on WARP at zero tolerance; the first headless D3D12 scene: a submit names the image it writes and semaphores left the seam, the D3D12 offscreen target, draw and dispatch recording, `D3D12UiBackend` behind `Editor::CreateUiBackend`, the scene suite per backend, `backend_compare` and the cross-backend validation rules; D3D12 pipelines, with cull mode moved into the pipeline and vertex semantics on the attribute tables; bind groups on two persistent heaps and root signatures; command lists, submission, legacy barriers, uploads and rendering scope; buffers, textures, views and samplers; per-backend GPU test registration and the D3D12 half of the boundary check; before that, the Agility SDK and WARP deployed beside each executable, the D3D12 device, `--gpu`, `--d3d12-gpu-based-validation`; and the Linux baseline refreshed on the Linux boot, where RADV moved no pixel). Grilled 13 September 2026 (D36–D46, now in `docs/rhi.md`). Headless first, legacy barriers then enhanced, seam changes interleaved and gated on Vulkan within each step; Vulkan stays the default, and it owns the Windows GPU CI job (D28) |
 | 8+ — Frame graph, DOD, scalability | 49–76 | not started; 49–56 partly superseded by Stage 7.5. Step 48 landed at 7.6 step 11 |
 
 Update this table when a stage completes.
@@ -217,7 +202,8 @@ cmake --workflow --preset ninja-debug-linux   # what build.sh wraps
 
 tests/scripts/build_tests.sh        # build every test target
 tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
-tests/scripts/run_gpu_tests.sh      # ctest -L gpu --output-on-failure (needs a Vulkan ICD)
+tests/scripts/run_gpu_tests.sh      # ctest -L gpu --output-on-failure (every backend; a device, or skips)
+tests/scripts/backend_compare.sh    # the test scene under Vulkan and D3D12, counters and pixels compared (Windows)
 tests/scripts/header_check.sh       # compile every header standalone, no PCH
 tests/scripts/rhi_boundary_check.sh # the RHI seam: neutral headers, and who may bypass them
 tests/scripts/namespace_check.sh    # every engine header opens its module's namespace
@@ -246,6 +232,17 @@ in all three Linux jobs too**, because `RunScene` asks for validation explicitly
 inheriting it from the build — the same eleven cases assert the same thing in every
 configuration. Before that a release run reported zero validation errors trivially, which made
 the headline assertion theatre.
+
+**The GPU and scene suites are registered once per backend the build contains.** `engine_test`'s
+`BACKEND_SPECS` gives each backend a Catch2 test spec and sets `HIKARI_TEST_BACKEND` on its
+registration; Vulkan keeps the bare label and D3D12's is suffixed — `gpu-d3d12`, `scene-d3d12` —
+so `ctest -L gpu` runs both and `-L gpu-d3d12` runs D3D12 alone. A case tagged `[vulkan]` or
+`[d3d12]` belongs to that backend; D3D12's GPU spec names what its backend implements so far, and
+grows step by step through Stage 7.7, while every scene case runs under both. `HIKARI_TEST_GPU`
+names the adapter, as `--gpu` does for the apps — `"Basic Render"` runs D3D12's suites on WARP on a
+machine with a GPU, and the scene suite passes it on to the `HikariHeadless` it launches. **Windows
+CI runs `-L gpu-d3d12` and `-L scene-d3d12` on WARP in all three jobs**, ASan included, since a
+runner has no GPU and no Vulkan ICD.
 
 Everything that *verifies* the tree lives in `tests/scripts/`; `scripts/` holds the things
 that build or change it (`build.sh` at the root, `format.sh`, `precommit.sh`, and the
@@ -320,8 +317,9 @@ fails the build if the report gains a field the table does not classify.
 
 **On a pixel failure the tool writes `comparison_actual.png`, `comparison_expected.png` and an
 amplified `comparison_diff.png`** beside the capture, so a reader can see *where* an image moved
-rather than only by how much. The diff is scaled so that the tolerance ceiling is full
-brightness; within one backend the tolerance is zero, so every differing pixel is fully bright.
+and by how much. The diff scales to the worst delta it found, on a logarithmic curve, so the worst
+pixel is full white and no differing pixel is dimmer than 32 — across backends most differ by 1
+beside a worst of 120, and a straight line would draw those black.
 CI cannot retrieve those files yet — `ci.yml` has no artefact step — which is a `backlog.md` row.
 
 **`--update` promotes the run into `tests/baseline/`, and refuses more often than it accepts.**
@@ -337,9 +335,23 @@ Read the two report signals differently, which is why they sit in separate block
 - **`counters`** are expectations that must match exactly. `counters.frame` — `drawCalls`,
   `batches`, `instances`, `barriers`, `barrierCalls` — describes the last frame drawn, which is
   the frame a capture shows. `counters.run` — `validationErrors`, `validationWarnings`,
-  `uploadSubmissions` — accumulates over the whole run. `uploadSubmissions` is what guards the
-  asset layer's batching from a distance: one scene's textures loaded inside one load scope is a
-  handful of submissions, and a number that tracks the texture count means the scoping broke.
+  `uploadBatches`, `uploadSubmissions` — accumulates over the whole run. `uploadBatches` is what
+  guards the asset layer's batching from a distance: one scene's textures loaded inside one load
+  scope is a handful of batches, and a number that tracks the texture count means the scoping
+  broke. **`uploadSubmissions` is the one exception, a measurement the comparison never diffs**:
+  how many submissions a batch takes is the backend's and the driver's (a Vulkan copy queue without
+  `VK_KHR_maintenance9` hands each batch back in a second one; D3D12 never does).
+- **Across backends the validation counts must be zero in both reports rather than equal**, and
+  the counters are compared only if each run had its own backend's validation sub-mode on —
+  `vkSyncValidation` in the Vulkan report, `d3d12GpuBasedValidation` in the D3D12 one (D26,
+  amended). **Pixels are compared across backends only on one adapter** — `system.vendorId`,
+  `deviceId`, `os` and `arch` must match, while the GPU name, driver and API version, which each
+  API spells its own way, stop gating (D35, amended) — and then within the tolerance measured for
+  `run.buildConfig`, committed beside its explanation in `tests/support/ImageCompare.h`: a worst
+  delta of 120 and 11,434 pixels in a debug or ASan build, 11,438 in release, with no headroom.
+  Raising either is changing an expected result. `tests/scripts/backend_compare.sh` runs the test
+  scene under both backends on this machine and compares reports and captures; its passing
+  verdict is exit 0.
 - **`timings`** — `startupMs`, `firstFrame`, and `mean`/`p99`/`min`/`max` for both `frameMs`
   (wall clock) and `cpuMs` (the same minus what the frame spent blocked) — are measurements, not
   expectations. The comparison never diffs them; read them for drift. `frameMs` is bounded below
@@ -384,10 +396,10 @@ engine/asset/   # Engine::Asset static lib — AssetCache, PNG encoding
 engine/rhi/      # Engine::RHI static lib — the graphics abstraction.
                  #   include/rhi/         backend-neutral: IDevice, ICommandList, barriers,
                  #                        handles, descs, IUploadContext, IPipelineCache
-                 #   include/rhi/vulkan/  the transitional area that may expose Vulkan —
-                 #                        the native escape hatch plus what Stages 6-8 have
-                 #                        not taken over yet. Frozen; see below.
-                 #   src/vulkan/          the backend. Invisible outside the module.
+                 #   include/rhi/vulkan/  what may expose Vulkan: the native escape hatch
+                 #                        and SwapchainUtil.h. Frozen; see below.
+                 #   include/rhi/d3d12/   D3D12's native escape hatch, Windows only. Frozen.
+                 #   src/vulkan/, src/d3d12/  the backends. Invisible outside the module.
 engine/engine/   # Engine::Engine static lib — the engine, and everything not yet split out.
                  #   include/engine/      what an app sees: IEngine, RunApp, RunSpec,
                  #                        EngineConfig, RunReport, IUiBackend
@@ -396,10 +408,14 @@ engine/engine/   # Engine::Engine static lib — the engine, and everything not 
                  #                        Render and Scene modules of their own
                  #   src/shaders/         Slang source (.slang, .slangh); compiled to
                  #                        <exe dir>/shaders/*.spv
-engine/editor/   # Engine::Editor static lib — the UI stack. Above Engine: an app builds
-                 #   VulkanUiBackend and hands it over as an IUiBackend
+engine/editor/   # Engine::Editor static lib — the UI stack. Above Engine: an app asks
+                 #   CreateUiBackend for its backend's ImGui glue (VulkanUiBackend,
+                 #   D3D12UiBackend) and hands it over as an IUiBackend
 cmake/           # EngineModule.cmake (engine_module), Testing.cmake (engine_test),
-                 #   HeaderSelfContainment.cmake, Warnings.cmake
+                 #   HeaderSelfContainment.cmake, Warnings.cmake, D3D12.cmake
+                 #   (hikari_deploy_d3d12 — every executable that can create a
+                 #   D3D12 device calls it, or it runs on the wrong runtime)
+ports/           # vcpkg overlay ports: directx-warp, NuGet WARP, which vcpkg lacks
 tests/unit/      # Catch2 tests, CTest label "unit" — no GPU, run by CI
 tests/gpu/       # Catch2 tests needing a real device, CTest label "gpu" — run by CI on
                  #   Linux against lavapipe
@@ -426,7 +442,8 @@ Source lists are explicit, not globbed — a new `.cpp` will silently not build 
   `tests/CMakeLists.txt` — `core_tests` for `unit/core/`, `platform_tests` for
   `unit/platform/`, `rhi_tests` for `unit/rhi/`.
 - `tests/gpu/**/*.cpp` → append to `rhi_gpu_tests` in the same file. `engine_test` takes a
-  `LABEL` naming the CTest label its cases get; it defaults to `unit`, and these pass `gpu`.
+  `LABEL` naming the CTest label its cases get; it defaults to `unit`, and these pass `gpu`
+  with `BACKEND_SPECS`. A D3D12-only source goes in the `if(WIN32)` block below it.
 
 Headers *are* globbed (into the header checks and the format targets), so a new header is
 checked automatically.
@@ -463,17 +480,18 @@ Two non-obvious rules that the whole test strategy rests on:
   build inputs by hand.
 
 **The RHI's public API is backend-neutral, and that is checked rather than trusted.** Nothing
-under `engine/rhi/include/rhi/` may name a Vulkan or VMA type; the backend lives in
-`engine/rhi/src/vulkan/`, where nothing outside the module can reach it. **And nothing in
-`engine/` or `apps/` outside that module may name Vulkan at all** — checked on names rather
+under `engine/rhi/include/rhi/` may name a Vulkan, VMA, D3D12 or D3D12MA type; the backends live
+in `engine/rhi/src/vulkan/` and `src/d3d12/`, where nothing outside the module can reach them,
+and inside it each names only its own API. **And nothing in `engine/` or `apps/` outside that
+module may name either API at all** — checked on names rather
 than includes, because a precompiled header once put the whole API in scope for a module with
-no include and no allowlist entry to show for it. One file is exempt and it is listed: the ImGui
-backend, permanently. A second entry would be a question about which neutral call is missing —
-that is what the last temporary one turned out to be. The one exception is
-`engine/rhi/include/rhi/vulkan/`, which is *frozen*: seven headers covering what Stages 6–8
-have not taken over yet, and eighteen allowlisted include sites outside the module. Adding
-either fails `rhi_boundary_check`, and so does leaving an allowlist entry behind after its
-include goes — the list is meant to shrink to nothing. New entries are argued for in
+no include and no allowlist entry to show for it. One file per backend is exempt and it is
+listed: that backend's ImGui glue, permanently. A second entry would be a question about which
+neutral call is missing — that is what the last temporary one turned out to be. The exceptions
+are `engine/rhi/include/rhi/vulkan/` and `engine/rhi/include/rhi/d3d12/`, which are *frozen*:
+three headers — each backend's native escape hatch, and `SwapchainUtil.h` — used from four
+allowlisted include sites outside the module. Adding either fails `rhi_boundary_check`, and so
+does leaving an allowlist entry behind after its include goes. New entries are argued for in
 `cmake/RhiBoundaryCheck.cmake`, next to the reason each existing one is still there.
 
 Full target table, per-module header lists and directory layout: architecture plan §8–§9.
@@ -526,9 +544,9 @@ Other rules:
 
 - **One class per file, filename == class name.**
 - **Every header must be self-contained** — `#pragma once` and include what it uses.
-  `HeaderSelfContainment` compiles each `src/*.h` and each engine module's public headers
-  standalone with no PCH, one target per layer, and CI fails on breakage. `src/pch.h` is
-  deliberately exempt. Note that a local pass proves less than it looks: libstdc++ supplies
+  `HeaderSelfContainment` compiles each `engine/engine/src/*.h` and each engine module's
+  public headers standalone with no PCH, one target per layer, and CI fails on breakage.
+  `engine/engine/src/pch.h` is deliberately exempt. Note that a local pass proves less than it looks: libstdc++ supplies
   `<cstdint>`, `<string>` and friends transitively, so a header missing them still compiles
   here and fails on MSVC or a newer libstdc++. Include what you use rather than relying on
   the check.
@@ -557,7 +575,14 @@ Other rules:
   that a Vulkan term appearing in an interface reads as a mistake rather than as normal. Where
   only one API has the concept at all, its term stands. Utility headers under `rhi/vulkan/`
   take a uniform `Util` suffix (`BufferUtil.h`, `CommandListUtil.h`). Rationale and the full
-  list: RHI plan D13.
+  list: `rhi.md` D13.
+- **A command-line option only one backend can honour takes that backend's prefix** —
+  `--vk-sync-validation`, `--vk-disable-extension`, `--d3d12-barriers`,
+  `--d3d12-gpu-based-validation` — in the same `--kebab-case` as every other flag. It is the
+  only thing that tells a reader which options stop meaning anything under the other backend,
+  and the parser refuses a prefixed flag on the wrong backend rather than ignoring it. An
+  option both backends can honour carries no prefix, even when only one implements it today:
+  `--force-single-queue` lost its `vk-` when D3D12 gained a copy queue (`rhi.md` D44).
 - **`[[nodiscard]]` only where discarding causes real harm** — a leak, a bug, or wasted work.
   Returning a loaded resource, a RAII handle that would be destroyed immediately, or an owning
   pointer qualifies; a plain getter does not. `engine/core` and `engine/platform` have none, and
@@ -604,8 +629,8 @@ Other rules:
   `Paths::Shader()` rather than the content root. They are a build output, not content: the
   same sources compile with different flags per configuration, and a shared output directory
   had debug and release silently overwriting each other. Dependencies come from `slangc
-  -depfile`, so a header edit rebuilds only the shaders that include it — `src/Common.h`
-  included. Vertex/fragment entry points are `vertMain`/`fragMain`; compute is `main`, keyed
+  -depfile`, so a header edit rebuilds only the shaders that include it — `common.slangh` and
+  `ShaderTypes.h` included. Vertex/fragment entry points are `vertMain`/`fragMain`; compute is `main`, keyed
   off the `.comp.slang` suffix.
 - **GPU struct layouts are declared twice by hand** — once in C++, once in Slang — with no
   `static_assert` linking them. Changing one without the other produces silent corruption.

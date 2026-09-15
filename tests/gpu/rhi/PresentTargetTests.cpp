@@ -5,17 +5,16 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <vector>
-
-#include "vulkan/vulkan_raii.hpp"
 
 #include <rhi/BarrierPresets.h>
 #include <rhi/ICommandList.h>
 #include <rhi/IDevice.h>
 #include <rhi/IPresentTarget.h>
 #include <rhi/RhiTypes.h>
-
-#include "vulkan/OffscreenTarget.h"
+#include <rhi/Submit.h>
+#include <rhi/UniqueHandle.h>
 
 #include "GpuReadback.h"
 #include "RhiTestFixture.h"
@@ -25,7 +24,7 @@
  * The headless half of the presentation seam.
  *
  * A device created without presentation support has no surface, so
- * CreatePresentTarget hands back an OffscreenTarget instead of a swapchain.
+ * CreatePresentTarget hands back an offscreen target instead of a swapchain.
  * That is the only way these cases reach it — the target's type is deliberately
  * not nameable from outside the module, which is also what makes these tests
  * worth having: they exercise the offscreen path through exactly the interface
@@ -157,41 +156,54 @@ void RecordClearFrame(ICommandList* list, const AcquiredImage& acquired,
 }
 
 /**
- * Submits `list` with the waits the acquire asked for and the signal the target
- * requires before Present will accept the image.
+ * Submits frames as the renderer does — naming the acquired image, and signalling
+ * a frame fence — and hands back the value each one signalled, which is what a
+ * read of its image waits for.
+ *
+ * Declared after everything a frame uses, so that it is destroyed first: its
+ * destructor waits for the last frame, and the fence, the target and the
+ * allocators may not go while a submission still uses them.
  */
-void SubmitFrame(IDevice& device, ICommandList& list, std::span<const SemaphoreHandle> waitOn,
-                 SemaphoreHandle signalOnComplete)
+class FrameSubmitter
 {
-    ICommandList* pList = &list;
-    device.Submit(SubmitDesc{.Queue = QueueType::Graphics,
-                             .CommandLists = {&pList, 1u},
-                             .WaitSemaphores = waitOn,
-                             .SignalSemaphores = {&signalOnComplete, 1u}});
-}
+public:
+    explicit FrameSubmitter(IDevice& device)
+        : m_Device(device),
+          m_Fence(device, device.CreateFence(
+                              FenceDesc{.InitialValue = 0u, .DebugName = "Present Test Frames"}))
+    {
+    }
+
+    ~FrameSubmitter() { m_Device.WaitForFence(m_Fence.Get(), m_Value); }
+
+    FrameSubmitter(const FrameSubmitter&) = delete;
+    FrameSubmitter& operator=(const FrameSubmitter&) = delete;
+
+    FenceOperation Submit(ICommandList& list, IPresentTarget& target, uint32_t index)
+    {
+        ICommandList* pList = &list;
+        const FenceOperation signal{.Fence = m_Fence.Get(), .Value = m_Value + 1u};
+        m_Device.Submit(SubmitDesc{.Queue = QueueType::Graphics,
+                                   .CommandLists = {&pList, 1u},
+                                   .WaitFences = {},
+                                   .SignalFences = {&signal, 1u},
+                                   .PresentImage = {.pTarget = &target, .Index = index}});
+        m_Value = signal.Value;
+        return signal;
+    }
+
+private:
+    IDevice& m_Device;
+    UniqueHandle<FenceHandle> m_Fence;
+    uint64_t m_Value = 0u;
+};
 
 /**
  * The bytes a clear to `color` leaves in memory, in `format`'s channel order.
  * Written out rather than assumed, because getting it wrong is precisely the
  * mistake a readback is meant to catch — the renderer's screenshot writer has a
  * hardcoded BGRA swizzle for exactly this reason.
- * The target the device hands back, as the concrete type TakePendingSignal lives on.
- *
- * A downcast rather than a member on IPresentTarget: reading an image outside a
- * frame is a question only a target that owns its images can answer, so the
- * interface deliberately does not ask it (architecture plan §10.2). Doing it
- * through dynamic_cast rather than by constructing an OffscreenTarget directly
- * keeps the device's own choice under test — a device that started handing back
- * something else would fail here rather than silently testing a target the
- * renderer would never be given.
  */
-Vulkan::OffscreenTarget& AsOffscreen(IPresentTarget& target)
-{
-    auto* pOffscreen = dynamic_cast<Vulkan::OffscreenTarget*>(&target);
-    REQUIRE(pOffscreen != nullptr);
-    return *pOffscreen;
-}
-
 std::array<std::byte, 4> ExpectedTexel(Format format, const std::array<float, 4>& color)
 {
     const auto quantize = [](float value)
@@ -247,11 +259,6 @@ TEST_CASE("An offscreen acquire always succeeds and cycles its images", "[rhi][g
         CHECK(acquired.Index == frame % 3u);
         CHECK(acquired.Texture.IsValid());
         CHECK(acquired.View.IsValid());
-
-        // Nothing has been submitted, so no image has a render-complete signal
-        // outstanding and there is nothing to wait on — including on the second
-        // pass over the images.
-        CHECK(acquired.WaitSemaphores.empty());
     }
 }
 
@@ -261,11 +268,10 @@ TEST_CASE("An offscreen acquire always succeeds and cycles its images", "[rhi][g
  * with the frames overlapping rather than being waited on one at a time.
  *
  * Two images and three frames is the smallest arrangement that reuses one, so
- * frame 2 has to wait on the render-complete semaphore frame 0 signalled. That
- * is both the real write-after-write dependency and the only thing that leaves
- * the semaphore unsignalled in time for frame 2 to signal it again — a target
- * that dropped it would fail here with a validation error rather than by
- * rendering something subtly wrong.
+ * frame 2's write has to be ordered after frame 0's. Each submission names only
+ * the image, so that ordering is the target's to establish — a target that
+ * dropped it would fail here with a validation error rather than by rendering
+ * something subtly wrong.
  */
 TEST_CASE("Three overlapping frames render into an offscreen target", "[rhi][gpu][present]")
 {
@@ -281,30 +287,29 @@ TEST_CASE("Three overlapping frames render into an offscreen target", "[rhi][gpu
     for (size_t i = 0; i < kFrameColors.size(); i++)
         frames.push_back(MakeFrameCommands(device));
 
+    FrameSubmitter submitter(device);
+
     std::array<TextureHandle, 2> imagesByIndex{};
+    std::array<FenceOperation, 2> lastWriteByIndex{};
 
     for (size_t frame = 0; frame < kFrameColors.size(); frame++)
     {
         const AcquiredImage acquired = target->Acquire();
         REQUIRE_FALSE(acquired.bNeedsRecreate);
 
-        // Only the third frame reuses an image, and only it has a previous
-        // write to wait for.
-        CHECK(acquired.WaitSemaphores.size() == (frame < 2u ? 0u : 1u));
-
         imagesByIndex[acquired.Index] = acquired.Texture;
 
         RecordClearFrame(frames[frame].List, acquired, kFrameColors[frame], kExtent);
-        SubmitFrame(device, *frames[frame].List, acquired.WaitSemaphores,
-                    target->GetRenderCompleteSemaphore(acquired.Index));
+        lastWriteByIndex[acquired.Index] =
+            submitter.Submit(*frames[frame].List, *target, acquired.Index);
 
         CHECK(target->Present(acquired.Index));
     }
 
-    // No WaitIdle: each read waits on the render-complete semaphore its frame
-    // signalled and fences its own copy, so the ordering it needs is ordering it
-    // establishes. A stray WaitIdle here would hide a read that established
-    // none — which is why the semaphore is passed in rather than looked up.
+    // No WaitIdle: each read waits for the fence value of the frame that last
+    // wrote its image and fences its own copy, so the ordering it needs is
+    // ordering it establishes. A stray WaitIdle here would hide a read that
+    // established none — which is why the value is passed in rather than implied.
 
     // Image 0 was written by frames 0 and 2, image 1 by frame 1, so what
     // survives is the last colour each of them was cleared to. Checking both
@@ -317,9 +322,9 @@ TEST_CASE("Three overlapping frames render into an offscreen target", "[rhi][gpu
         const std::array<std::byte, 4> expected =
             ExpectedTexel(target->GetFormat(), kFrameColors[lastFrameForImage[index]]);
 
-        const std::vector<std::byte> pixels = RhiTest::ReadRenderedTexture(
-            device, imagesByIndex[index], kExtent, target->GetFormat(),
-            TextureLayout::ShaderResource, AsOffscreen(*target).TakePendingSignal(index));
+        const std::vector<std::byte> pixels =
+            RhiTest::ReadRenderedTexture(device, imagesByIndex[index], kExtent, target->GetFormat(),
+                                         TextureLayout::ShaderResource, lastWriteByIndex[index]);
         REQUIRE(pixels.size() == static_cast<size_t>(kExtent.Width) * kExtent.Height * 4u);
 
         // Every texel, not a sample of them: a copy that got the row pitch
@@ -349,16 +354,17 @@ TEST_CASE("Recreating an offscreen target resizes it", "[rhi][gpu][present]")
     const std::unique_ptr<IPresentTarget> target =
         device.CreatePresentTarget(PresentTargetDesc{.Extent = kExtent, .FramesInFlight = 2u});
 
-    // A frame first, so the recreate below has a signalled render-complete
-    // semaphore and a live image to tear down rather than a pristine target.
+    const FrameCommands before = MakeFrameCommands(device);
+    const FrameCommands after = MakeFrameCommands(device);
+    FrameSubmitter submitter(device);
+
+    // A frame first, so the recreate below has a written image and its ordering
+    // to tear down rather than a pristine target.
     {
-        const FrameCommands frame = MakeFrameCommands(device);
         const AcquiredImage acquired = target->Acquire();
-        RecordClearFrame(frame.List, acquired, kFrameColors[0], kExtent);
-        SubmitFrame(device, *frame.List, acquired.WaitSemaphores,
-                    target->GetRenderCompleteSemaphore(acquired.Index));
+        RecordClearFrame(before.List, acquired, kFrameColors[0], kExtent);
+        submitter.Submit(*before.List, *target, acquired.Index);
         CHECK(target->Present(acquired.Index));
-        device.WaitIdle();
     }
 
     constexpr Extent2D kSmaller{64u, 200u};
@@ -366,18 +372,14 @@ TEST_CASE("Recreating an offscreen target resizes it", "[rhi][gpu][present]")
     CHECK(target->GetExtent() == kSmaller);
     CHECK(target->GetImageCount() == 2u);
 
-    // Rebuilt from scratch, so the first pass over the new images has nothing
-    // outstanding to wait on even though the old ones did.
+    // Rebuilt from scratch, so the first write to a new image has nothing to be
+    // ordered after even though an old one did: a target that carried the old
+    // ordering across would have this frame wait on something destroyed, which
+    // the validation guard reports.
     const AcquiredImage acquired = target->Acquire();
-    CHECK(acquired.WaitSemaphores.empty());
-
-    const FrameCommands frame = MakeFrameCommands(device);
-    RecordClearFrame(frame.List, acquired, kFrameColors[1], kSmaller);
-    SubmitFrame(device, *frame.List, acquired.WaitSemaphores,
-                target->GetRenderCompleteSemaphore(acquired.Index));
+    RecordClearFrame(after.List, acquired, kFrameColors[1], kSmaller);
+    submitter.Submit(*after.List, *target, acquired.Index);
     CHECK(target->Present(acquired.Index));
-
-    device.WaitIdle();
 }
 
 /**
@@ -459,16 +461,15 @@ TEST_CASE("Readback returns the exact pixels of a solid clear", "[rhi][gpu][pres
     constexpr std::array<float, 4> kColor{1.f, 0.f, 1.f, 1.f};
 
     const FrameCommands frame = MakeFrameCommands(device);
+    FrameSubmitter submitter(device);
     const AcquiredImage acquired = target->Acquire();
     RecordClearFrame(frame.List, acquired, kColor, kExtent);
-    SubmitFrame(device, *frame.List, acquired.WaitSemaphores,
-                target->GetRenderCompleteSemaphore(acquired.Index));
+    const FenceOperation written = submitter.Submit(*frame.List, *target, acquired.Index);
     REQUIRE(target->Present(acquired.Index));
 
     const std::vector<std::byte> pixels =
         RhiTest::ReadRenderedTexture(device, acquired.Texture, target->GetExtent(),
-                                     target->GetFormat(), TextureLayout::ShaderResource,
-                                     AsOffscreen(*target).TakePendingSignal(acquired.Index));
+                                     target->GetFormat(), TextureLayout::ShaderResource, written);
 
     const uint32_t bytesPerTexel = BytesPerTexel(target->GetFormat());
     REQUIRE(bytesPerTexel == 4u);
@@ -519,16 +520,15 @@ TEST_CASE("Readback packs a non-square, non-power-of-two extent tightly", "[rhi]
     };
 
     const FrameCommands frame = MakeFrameCommands(device);
+    FrameSubmitter submitter(device);
     const AcquiredImage acquired = target->Acquire();
     RecordClears(frame.List, acquired, clears);
-    SubmitFrame(device, *frame.List, acquired.WaitSemaphores,
-                target->GetRenderCompleteSemaphore(acquired.Index));
+    const FenceOperation written = submitter.Submit(*frame.List, *target, acquired.Index);
     REQUIRE(target->Present(acquired.Index));
 
     const std::vector<std::byte> pixels =
         RhiTest::ReadRenderedTexture(device, acquired.Texture, target->GetExtent(),
-                                     target->GetFormat(), TextureLayout::ShaderResource,
-                                     AsOffscreen(*target).TakePendingSignal(acquired.Index));
+                                     target->GetFormat(), TextureLayout::ShaderResource, written);
 
     const uint32_t bytesPerTexel = BytesPerTexel(target->GetFormat());
     REQUIRE(pixels.size() == static_cast<size_t>(kExtent.Width) * kExtent.Height * bytesPerTexel);
@@ -573,6 +573,8 @@ TEST_CASE("Readback leaves nothing behind on the device", "[rhi][gpu][present]")
     const std::unique_ptr<IPresentTarget> target =
         device.CreatePresentTarget(PresentTargetDesc{.Extent = kExtent, .FramesInFlight = 2u});
 
+    FrameSubmitter submitter(device);
+
     const uint32_t buffersBefore = device.GetLiveBufferCount();
 
     for (int capture = 0; capture < 3; capture++)
@@ -580,16 +582,76 @@ TEST_CASE("Readback leaves nothing behind on the device", "[rhi][gpu][present]")
         const FrameCommands frame = MakeFrameCommands(device);
         const AcquiredImage acquired = target->Acquire();
         RecordClearFrame(frame.List, acquired, kFrameColors[0], kExtent);
-        SubmitFrame(device, *frame.List, acquired.WaitSemaphores,
-                    target->GetRenderCompleteSemaphore(acquired.Index));
+        const FenceOperation written = submitter.Submit(*frame.List, *target, acquired.Index);
         REQUIRE(target->Present(acquired.Index));
 
-        const std::vector<std::byte> pixels =
-            RhiTest::ReadRenderedTexture(device, acquired.Texture, target->GetExtent(),
-                                     target->GetFormat(), TextureLayout::ShaderResource,
-                                     AsOffscreen(*target).TakePendingSignal(acquired.Index));
+        const std::vector<std::byte> pixels = RhiTest::ReadRenderedTexture(
+            device, acquired.Texture, target->GetExtent(), target->GetFormat(),
+            TextureLayout::ShaderResource, written);
         CHECK_FALSE(pixels.empty());
     }
 
     CHECK(device.GetLiveBufferCount() == buffersBefore);
+}
+
+/**
+ * A submission names the image it writes, and the target orders that write from
+ * then until Present. So the order is a contract: one submission per acquired
+ * image, before its Present. Presenting first would leave the image's next write
+ * ordered after one that never happens, and naming it twice would order two
+ * writes as one; both are refused rather than left to hang or corrupt a frame.
+ */
+TEST_CASE("An acquired image is written by one submission and presented after it",
+          "[rhi][gpu][present]")
+{
+    IDevice& device = RhiTest::RequireDevice();
+    const RhiTest::ValidationGuard guard(device);
+
+    const std::unique_ptr<IPresentTarget> target =
+        device.CreatePresentTarget(PresentTargetDesc{.Extent = kExtent, .FramesInFlight = 2u});
+
+    const FrameCommands first = MakeFrameCommands(device);
+    const FrameCommands second = MakeFrameCommands(device);
+    FrameSubmitter submitter(device);
+
+    const AcquiredImage acquired = target->Acquire();
+    CHECK_THROWS(target->Present(acquired.Index));
+
+    RecordClearFrame(first.List, acquired, kFrameColors[0], kExtent);
+    submitter.Submit(*first.List, *target, acquired.Index);
+
+    RecordClearFrame(second.List, acquired, kFrameColors[1], kExtent);
+    CHECK_THROWS(submitter.Submit(*second.List, *target, acquired.Index));
+
+    CHECK(target->Present(acquired.Index));
+}
+
+/**
+ * The device finds what orders a write through the target it is handed, so a
+ * target from another device would hand it objects it does not own.
+ */
+TEST_CASE("A submission naming another device's present target is refused", "[rhi][gpu][present]")
+{
+    IDevice& device = RhiTest::RequireDevice();
+    IDevice& other = RhiTest::RequireDevice(RhiTest::DeviceConfig::SingleQueue);
+    const RhiTest::ValidationGuard guard(device);
+    const RhiTest::ValidationGuard otherGuard(other);
+
+    const std::unique_ptr<IPresentTarget> target =
+        device.CreatePresentTarget(PresentTargetDesc{.Extent = kExtent, .FramesInFlight = 2u});
+    const AcquiredImage acquired = target->Acquire();
+
+    // Empty, since the image's handles mean nothing to the other device: the
+    // refusal is about the target alone.
+    const FrameCommands frame = MakeFrameCommands(other);
+    frame.List->Begin();
+    frame.List->End();
+
+    ICommandList* pList = frame.List;
+    CHECK_THROWS(other.Submit(
+        SubmitDesc{.Queue = QueueType::Graphics,
+                   .CommandLists = {&pList, 1u},
+                   .WaitFences = {},
+                   .SignalFences = {},
+                   .PresentImage = {.pTarget = target.get(), .Index = acquired.Index}}));
 }
