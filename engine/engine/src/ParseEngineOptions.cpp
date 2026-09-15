@@ -16,12 +16,6 @@ namespace Hikari::Engine
 namespace
 {
 
-/** What --scene loads when the flag is given with no value. */
-constexpr const char* kDefaultScene = "scenes/test_scene.map";
-
-/** What --frames means when the flag is given with no value. */
-constexpr uint64_t kDefaultFrames = 1000u;
-
 /** The backends this build has, spelled the way --backend accepts them. */
 std::string AvailableBackendNames()
 {
@@ -58,11 +52,11 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
     const std::string& flag = option.Flag;
 
     if (flag == "--scene")
-        spec.ScenePath = option.Value.value_or(kDefaultScene);
+        spec.ScenePath = option.RequireValue();
     else if (flag == "--content")
         spec.ContentRoot = option.RequireValue();
     else if (flag == "--frames")
-        spec.Frames = option.Value ? option.RequireUint64() : kDefaultFrames;
+        spec.Frames = option.RequireUint64();
     else if (flag == "--fixed-dt")
     {
         option.RequireNoValue();

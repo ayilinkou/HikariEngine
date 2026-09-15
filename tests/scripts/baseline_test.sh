@@ -56,7 +56,7 @@ CAPTURE="tests/screenshots/baseline.png"
 # did not move between runs. ImGui still initialises and its pass still records,
 # so the counters in the report are unaffected by the flag.
 ./build/$PRESET/HikariEditor --report "$REPORT" --screenshot "$CAPTURE" \
-    --frames --fixed-dt --scene --camera-preset 1 \
+    --frames 1000 --fixed-dt --scene scenes/test_scene.map --camera-preset 1 \
     --resolution 1920x1080 --borderless --no-ui
 
 echo
