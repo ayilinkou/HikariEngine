@@ -1,6 +1,6 @@
 # Guards the RHI's public seam. Five checks, in the order the boundary is built
-# up (rhi_extraction_plan.md D1, enforcement mechanism 2 in its §4, and
-# backend_readiness_plan.md D45 for the D3D12 half):
+# up (docs/rhi.md D1, the second enforcement mechanism in its §11, and D45
+# for the D3D12 half):
 #
 #   1. A neutral header in include/rhi/ must not depend on either backend's API.
 #   2. include/rhi/vulkan/ and include/rhi/d3d12/, the areas that may expose a

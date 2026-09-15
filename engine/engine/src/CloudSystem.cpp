@@ -42,7 +42,7 @@ void CloudSystem::Resize(uint32_t width, uint32_t height)
     CreateOutputTextures(width, height);
 
     // The groups name the output textures, and a bind group is immutable, so new
-    // targets mean new groups (RHI plan D20). Safe here because the caller
+    // targets mean new groups (rhi.md D20). Safe here because the caller
     // resizes only after waiting for the device to go idle.
     m_BindGroups.clear();
     CreateBindGroups();

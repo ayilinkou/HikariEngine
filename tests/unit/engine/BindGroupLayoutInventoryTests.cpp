@@ -5,7 +5,7 @@
 /**
  * Pins the renderer's bind group layouts to exactly the shapes it has.
  *
- * This is the enforcement half of RHI plan D21. The curated BindingType enum and
+ * This is the enforcement half of rhi.md D21. The curated BindingType enum and
  * its default-free switches keep the *vocabulary* honest -- a new kind fails the
  * build until every backend maps it -- but nothing in that stops the model
  * growing: a fifth layout, or a fourth texture on an existing one, compiles

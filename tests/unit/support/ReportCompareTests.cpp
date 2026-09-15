@@ -638,9 +638,9 @@ TEST_CASE("Across backends validation counts must be zero in both reports", "[su
 
 TEST_CASE("A baseline without the system block is provisional, not a failure", "[support][report]")
 {
-    // What step 6 itself produces: the committed baseline predates the block, so
-    // every field of it is missing. The comparison still looks at everything
-    // else, which is the evidence that promoting the baseline is safe.
+    // A baseline captured before the system block existed, so every field of it
+    // is missing at once. The comparison still looks at everything else, which
+    // is what makes promoting such a baseline safe rather than a leap.
     std::string older = Json(MakeReport());
     for (const char* field :
          {"\"backend\"", "\"gpu\"", "\"driver\"", "\"apiVersion\"", "\"os\"", "\"arch\""})
@@ -663,8 +663,10 @@ TEST_CASE("A baseline without the system block is provisional, not a failure", "
 TEST_CASE("A baseline predating the PCI identifiers and GPU-based validation is provisional",
           "[support][report]")
 {
-    // What a report from before the D3D12 backend looks like, and so what the
-    // committed baseline is until it is refreshed: the fields are simply absent.
+    // What a report from before the D3D12 backend looks like: no PCI identifiers
+    // and no GPU-based-validation mode. Their absence has to read as "not
+    // established" rather than as a difference, or refreshing a baseline across
+    // a report change would look like a regression.
     std::string older = WithoutLine(Json(MakeReport()), "\"d3d12GpuBasedValidation\"");
 
     // The two identifiers close the system block, so they go with the comma that

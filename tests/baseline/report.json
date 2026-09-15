@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-09-12T18:17:38Z",
+  "startedAt": "2026-09-15T19:53:58Z",
   "frames": 1000,
   "counters": {
     "frame": {
@@ -12,14 +12,15 @@
     "run": {
       "validationErrors": 0,
       "validationWarnings": 0,
+      "uploadBatches": 4,
       "uploadSubmissions": 4
     }
   },
   "timings": {
-    "startupMs": 2383.8779,
-    "firstFrame": { "frameMs": 6.1207, "cpuMs": 6.0007 },
-    "frameMs": { "mean": 1.6843, "p99": 2.6039, "min": 1.1427, "max": 9.7453 },
-    "cpuMs": { "mean": 1.4972, "p99": 2.2600, "min": 0.9595, "max": 9.6228 }
+    "startupMs": 2436.3433,
+    "firstFrame": { "frameMs": 6.6627, "cpuMs": 6.5426 },
+    "frameMs": { "mean": 1.6275, "p99": 2.3605, "min": 1.1811, "max": 6.8443 },
+    "cpuMs": { "mean": 1.4408, "p99": 2.0679, "min": 1.0153, "max": 6.7153 }
   },
   "run": {
     "fixedDt": true,
@@ -37,6 +38,8 @@
     "validationEnabled": true,
     "validationPolicy": "count",
     "vkSyncValidation": true,
+    "d3d12GpuBasedValidation": "off",
+    "d3d12Barriers": null,
     "vkDisabledExtensions": [],
     "forceSingleQueue": false,
     "framesInFlight": 2,
@@ -48,6 +51,8 @@
     "driver": "radv Mesa 26.2.2-arch1.1",
     "apiVersion": "1.4.354",
     "os": "Linux",
-    "arch": "x86_64"
+    "arch": "x86_64",
+    "vendorId": "0x1002",
+    "deviceId": "0x67DF"
   }
 }

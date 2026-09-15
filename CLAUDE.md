@@ -15,36 +15,13 @@ architecture, and prefer them over inventing a design:
 - `docs/suggested_work.md` — the code review that motivated the plan; open it for
   the *why* behind a known defect. Its P0–P3 scale is *severity*, a different axis from the
   backlog's priorities.
-- `docs/rhi_extraction_plan.md` — **retained past Stage 5, which it drove.** Replaced Part IV
-  steps 24–34 with a 17-step sequence (R1–R17) that made the RHI's public API backend-neutral
-  so a D3D12 backend is possible later, and records the design decisions (D0–D13) behind that.
-  Stage 5 is complete, so R1–R17 are history; the **decisions remain live**, because they
-  govern what the RHI's public seam is allowed to say and Part IV's own §10 predates them —
-  **except D7 and D8, superseded by Stage 7.5's D14 and D15.** Read it before touching
-  anything under `engine/rhi/include/`. **It and the backend readiness plan retire together**,
-  into one permanent `docs/rhi.md` holding the whole D-series and no step lists — decided at
-  Stage 7.5's step 12, along with the decision not to do it yet. Its §10 is the outline for that
-  merge.
-- `docs/backend_readiness_plan.md` — **retained, like the RHI plan and for the same reason.**
-  Stage 7.5: the four seams a second backend needs and Stage 5 did not build — submission and
-  command-list ownership, rendering scope, bind groups, pipelines, and draw/dispatch recording
-  — as twelve steps, plus the decisions (D14–D46) behind them. It **supersedes D7 and D8**,
-  deferring bindless until after D3D12 and neutralising the binding model instead, and it
-  reorders Part IV's Stage 8. Its D-numbers continue the RHI plan's series deliberately: both
-  govern the same seam. It also defines **Stage 7.6** (what the backend needs around the seam —
-  two of its six items widen `IDevice` deliberately) and **Stage 7.7** (the D3D12 backend itself).
-  Grilled on 6 September 2026; its §0 records what that changed, which was substantial. **Stage
-  7.6's own interview ran on 11 and 12 September 2026 and is finished**: §4.1–§4.4 are its output —
-  the comparison tool, the shader build, the twelve-step sequence and the decisions behind them —
-  with nothing left open. **Stage 7.7's interview ran on 13 September 2026 and is finished**, on
-  Linux and then on this project's Windows install, where the measurements only that machine could
-  take were made. Its seam decisions are **D36–D46**, with amendments made in place to **D15, D26,
-  D32 and D35**; **§5 is the stage's plan** — §5.1 what the interview changed, §5.2 scope and the
-  obligations binding it, §5.3 the machine and every measurement, §5.4 the decisions about the stage
-  rather than the seam, and §5.5 the ten steps, the gate each passes, and the conditions and triggers
-  that come due along the way. The throwaway measurement programs live outside the repository, at
-  `C:\Dev\d3d12-probe`. Retires together with the RHI extraction plan into a single `docs/rhi.md` —
-  see that document's §10.
+- `docs/rhi.md` — **permanent.** What the RHI's public seam is allowed to say, and the whole
+  **D-series (D0–D46)** behind it — the decisions the code cites by number. It replaced
+  `rhi_extraction_plan.md` and `backend_readiness_plan.md`, which drove Stages 5, 7.5, 7.6 and
+  7.7 and were deleted with them on 15 September 2026: their step lists are history, their
+  decisions are not. **Read it before touching anything under `engine/rhi/include/`.** D7 and
+  D8 survive as redirects to D14 and D15, which superseded them, because the code still cites
+  both. Its §13 is the list of what is deferred and what would reopen each one.
 
 ---
 
@@ -54,8 +31,7 @@ architecture, and prefer them over inventing a design:
 running application. Do not start work outside the current stage, and do not combine steps,
 without asking first. Stage 5 is complete, so Part IV is the work order again — but where
 the **D-series** and Part IV disagree about the RHI's public seam, **the D-series wins**. It
-spans two documents: `docs/rhi_extraction_plan.md` holds D0–D13 and
-`docs/backend_readiness_plan.md` holds D14–D46, which supersede D7 and D8. Part IV was
+lives in `docs/rhi.md`, D0–D46, with D14 and D15 superseding D7 and D8. Part IV was
 written before the seam was neutralised, so its later stages still spell interfaces in raw
 Vulkan; §10.2 is one such place. Re-express rather than copy, and amend Part IV as you go.
 
@@ -152,10 +128,8 @@ legacy transition carries, so a barrier sequence Vulkan and legacy accept can st
 Best-practices validation is the one currently switched off, for a layer crash — see `backlog.md`.
 `grep`ping this repo for prior art is also not a source. Known-wrong places to copy from
 today: `ModelData::Init` (`suggested_work.md` §1.6 — a live P0 that dereferences a null
-material), `WriteScreenshot`'s hardcoded BGRA swizzle, `ChooseSwapchainFormat`'s fallback
-(it can hand `FromNativeFormat` a format the neutral list cannot name), and
-`Drawable::operator<`, which orders by pointer value and so is not reproducible across
-processes.
+material), and `Drawable::operator<`, which orders by pointer value and so is not reproducible
+across processes.
 
 **Never run git commands that change state.** No commits, branches, stashes, or pushes —
 even when a task feels finished. Reading (`git status`, `git log`, `git diff`) is fine.
@@ -175,7 +149,7 @@ even when a task feels finished. Reading (`git status`, `git log`, `git diff`) i
 | 7 — Engine shell + DI | 40b, 41–47 | ✅ done (`engine/engine` + `engine/asset` + `engine/editor`, `HikariEditor` + `HikariHeadless`, injected subsystems, the event seam, and headless scene tests in CI) |
 | 7.5 — Backend readiness | 1–12 | ✅ done (`ICommandAllocator`, submission and fences, rendering scope, bind groups, pipelines, draw and dispatch recording — the transitional area is 2 headers from 4 sites, down from 7 from 18) |
 | 7.6 — Backend prerequisites | 1–12 | ✅ done (`HikariCompare` and the gating table, `--backend` and `rhi/Backend.h`, `DeviceInfo` and the report's `system` block, per-stage blobs with DXIL and its signature gate, `ShaderTypes.h` shared with the shaders and its layout pinned, `--validation` and `--vk-sync-validation`) |
-| **7.7 — D3D12 backend** | 1–10 | **in progress** — steps 1–10 done, the Linux baseline refresh outstanding as a commit of its own on the Linux boot (pixel parity: the cloud and composite passes no longer assume Vulkan's clip-space Y, D3D12 samplers ask for a valid anisotropy, the cross-backend pixel rule on PCI identity, and a measured, explained tolerance per build type; the editor under D3D12 on a flip-model DXGI swapchain, presenting in Mailbox; enhanced barriers beside the legacy path, chosen by `--d3d12-barriers legacy|enhanced|auto` and compared on WARP at zero tolerance; the first headless D3D12 scene: a submit names the image it writes and semaphores left the seam, the D3D12 offscreen target, draw and dispatch recording, `D3D12UiBackend` behind `Editor::CreateUiBackend`, the scene suite per backend, `backend_compare` and the cross-backend validation rules; D3D12 pipelines, with cull mode moved into the pipeline and vertex semantics on the attribute tables; bind groups on two persistent heaps and root signatures; command lists, submission, legacy barriers, uploads and rendering scope; buffers, textures, views and samplers; per-backend GPU test registration and the D3D12 half of the boundary check; before that, the Agility SDK and WARP deployed beside each executable, the D3D12 device, `--gpu`, `--d3d12-gpu-based-validation`). Grilled 13 September 2026 (D36–D46, `backend_readiness_plan.md` §5). Headless first, legacy barriers then enhanced, seam changes interleaved and gated on Vulkan within each step; Vulkan stays the default, and it owns the Windows GPU CI job (D28) |
+| 7.7 — D3D12 backend | 1–10 | ✅ done (pixel parity: the cloud and composite passes no longer assume Vulkan's clip-space Y, D3D12 samplers ask for a valid anisotropy, the cross-backend pixel rule on PCI identity, and a measured, explained tolerance per build type; the editor under D3D12 on a flip-model DXGI swapchain, presenting in Mailbox; enhanced barriers beside the legacy path, chosen by `--d3d12-barriers legacy|enhanced|auto` and compared on WARP at zero tolerance; the first headless D3D12 scene: a submit names the image it writes and semaphores left the seam, the D3D12 offscreen target, draw and dispatch recording, `D3D12UiBackend` behind `Editor::CreateUiBackend`, the scene suite per backend, `backend_compare` and the cross-backend validation rules; D3D12 pipelines, with cull mode moved into the pipeline and vertex semantics on the attribute tables; bind groups on two persistent heaps and root signatures; command lists, submission, legacy barriers, uploads and rendering scope; buffers, textures, views and samplers; per-backend GPU test registration and the D3D12 half of the boundary check; before that, the Agility SDK and WARP deployed beside each executable, the D3D12 device, `--gpu`, `--d3d12-gpu-based-validation`; and the Linux baseline refreshed on the Linux boot, where RADV moved no pixel). Grilled 13 September 2026 (D36–D46, now in `docs/rhi.md`). Headless first, legacy barriers then enhanced, seam changes interleaved and gated on Vulkan within each step; Vulkan stays the default, and it owns the Windows GPU CI job (D28) |
 | 8+ — Frame graph, DOD, scalability | 49–76 | not started; 49–56 partly superseded by Stage 7.5. Step 48 landed at 7.6 step 11 |
 
 Update this table when a stage completes.
@@ -570,9 +544,9 @@ Other rules:
 
 - **One class per file, filename == class name.**
 - **Every header must be self-contained** — `#pragma once` and include what it uses.
-  `HeaderSelfContainment` compiles each `src/*.h` and each engine module's public headers
-  standalone with no PCH, one target per layer, and CI fails on breakage. `src/pch.h` is
-  deliberately exempt. Note that a local pass proves less than it looks: libstdc++ supplies
+  `HeaderSelfContainment` compiles each `engine/engine/src/*.h` and each engine module's
+  public headers standalone with no PCH, one target per layer, and CI fails on breakage.
+  `engine/engine/src/pch.h` is deliberately exempt. Note that a local pass proves less than it looks: libstdc++ supplies
   `<cstdint>`, `<string>` and friends transitively, so a header missing them still compiles
   here and fails on MSVC or a newer libstdc++. Include what you use rather than relying on
   the check.
@@ -601,7 +575,14 @@ Other rules:
   that a Vulkan term appearing in an interface reads as a mistake rather than as normal. Where
   only one API has the concept at all, its term stands. Utility headers under `rhi/vulkan/`
   take a uniform `Util` suffix (`BufferUtil.h`, `CommandListUtil.h`). Rationale and the full
-  list: RHI plan D13.
+  list: `rhi.md` D13.
+- **A command-line option only one backend can honour takes that backend's prefix** —
+  `--vk-sync-validation`, `--vk-disable-extension`, `--d3d12-barriers`,
+  `--d3d12-gpu-based-validation` — in the same `--kebab-case` as every other flag. It is the
+  only thing that tells a reader which options stop meaning anything under the other backend,
+  and the parser refuses a prefixed flag on the wrong backend rather than ignoring it. An
+  option both backends can honour carries no prefix, even when only one implements it today:
+  `--force-single-queue` lost its `vk-` when D3D12 gained a copy queue (`rhi.md` D44).
 - **`[[nodiscard]]` only where discarding causes real harm** — a leak, a bug, or wasted work.
   Returning a loaded resource, a RAII handle that would be destroyed immediately, or an owning
   pointer qualifies; a plain getter does not. `engine/core` and `engine/platform` have none, and
@@ -648,8 +629,8 @@ Other rules:
   `Paths::Shader()` rather than the content root. They are a build output, not content: the
   same sources compile with different flags per configuration, and a shared output directory
   had debug and release silently overwriting each other. Dependencies come from `slangc
-  -depfile`, so a header edit rebuilds only the shaders that include it — `src/Common.h`
-  included. Vertex/fragment entry points are `vertMain`/`fragMain`; compute is `main`, keyed
+  -depfile`, so a header edit rebuilds only the shaders that include it — `common.slangh` and
+  `ShaderTypes.h` included. Vertex/fragment entry points are `vertMain`/`fragMain`; compute is `main`, keyed
   off the `.comp.slang` suffix.
 - **GPU struct layouts are declared twice by hand** — once in C++, once in Slang — with no
   `static_assert` linking them. Changing one without the other produces silent corruption.
