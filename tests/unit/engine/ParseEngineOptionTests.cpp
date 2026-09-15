@@ -53,17 +53,22 @@ TEST_CASE("A flag the engine does not know is declined and changes nothing", "[P
     REQUIRE_FALSE(spec.bCaptureFinalFrame);
 }
 
-TEST_CASE("A valueless --frames means the default rather than zero", "[ParseEngineOption]")
+TEST_CASE("The flags that carry a value refuse to stand in for one", "[ParseEngineOption]")
 {
     RunSpec spec;
     EngineConfig config;
 
-    REQUIRE(ParseEngineOption(Option("--frames"), spec, config));
-    REQUIRE(spec.Frames == 1000u);
+    // Both used to substitute a default when given no value, which meant a run
+    // that was missing an argument went ahead as a different run than the one
+    // asked for — and said so nowhere except the report nobody reads on a pass.
+    REQUIRE_THROWS_AS(ParseEngineOption(Option("--frames"), spec, config), CommandLineError);
+    REQUIRE_THROWS_AS(ParseEngineOption(Option("--scene"), spec, config), CommandLineError);
 
-    RunSpec explicitSpec;
-    REQUIRE(ParseEngineOption(Option("--frames", "30"), explicitSpec, config));
-    REQUIRE(explicitSpec.Frames == 30u);
+    REQUIRE(spec.Frames == 0u);
+    REQUIRE(spec.ScenePath.empty());
+
+    REQUIRE(ParseEngineOption(Option("--frames", "30"), spec, config));
+    REQUIRE(spec.Frames == 30u);
 }
 
 TEST_CASE("The --validation-policy names map to the policy, and nothing else does",
