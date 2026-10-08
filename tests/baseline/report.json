@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-09-15T19:53:58Z",
+  "startedAt": "2026-10-08T20:37:10Z",
   "frames": 1000,
   "counters": {
     "frame": {
@@ -17,10 +17,10 @@
     }
   },
   "timings": {
-    "startupMs": 2436.3433,
-    "firstFrame": { "frameMs": 6.6627, "cpuMs": 6.5426 },
-    "frameMs": { "mean": 1.6275, "p99": 2.3605, "min": 1.1811, "max": 6.8443 },
-    "cpuMs": { "mean": 1.4408, "p99": 2.0679, "min": 1.0153, "max": 6.7153 }
+    "startupMs": 2520.8391,
+    "firstFrame": { "frameMs": 15.9145, "cpuMs": 15.6647 },
+    "frameMs": { "mean": 1.6287, "p99": 2.4845, "min": 1.1258, "max": 33.8123 },
+    "cpuMs": { "mean": 1.4354, "p99": 2.1160, "min": 0.9662, "max": 33.6803 }
   },
   "run": {
     "fixedDt": true,
@@ -48,7 +48,7 @@
   "system": {
     "backend": "Vulkan",
     "gpu": "AMD Radeon RX 580 Series (RADV POLARIS10)",
-    "driver": "radv Mesa 26.2.2-arch1.1",
+    "driver": "radv Mesa 26.2.4-arch1.1",
     "apiVersion": "1.4.354",
     "os": "Linux",
     "arch": "x86_64",
