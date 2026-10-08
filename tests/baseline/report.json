@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-10-08T20:37:10Z",
+  "startedAt": "2026-10-08T21:51:25Z",
   "frames": 1000,
   "counters": {
     "frame": {
@@ -17,10 +17,10 @@
     }
   },
   "timings": {
-    "startupMs": 2520.8391,
-    "firstFrame": { "frameMs": 15.9145, "cpuMs": 15.6647 },
-    "frameMs": { "mean": 1.6287, "p99": 2.4845, "min": 1.1258, "max": 33.8123 },
-    "cpuMs": { "mean": 1.4354, "p99": 2.1160, "min": 0.9662, "max": 33.6803 }
+    "startupMs": 2344.4680,
+    "firstFrame": { "frameMs": 6.4680, "cpuMs": 6.3569 },
+    "frameMs": { "mean": 1.6037, "p99": 2.3993, "min": 1.0968, "max": 9.6664 },
+    "cpuMs": { "mean": 1.4129, "p99": 2.0354, "min": 0.9339, "max": 9.5372 }
   },
   "run": {
     "fixedDt": true,
@@ -29,7 +29,7 @@
     "width": 1920,
     "height": 1080,
     "jobCount": 15,
-    "presentMode": "mailbox",
+    "presentMode": "immediate",
     "buildConfig": "debug",
     "scene": "scenes/test_scene.map",
     "cameraPreset": 1,
