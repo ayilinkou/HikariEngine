@@ -57,7 +57,7 @@ REM did not move between runs. ImGui still initialises and its pass still record
 REM so the counters in the report are unaffected by the flag.
 build\%PRESET%\HikariEditor.exe --report "%REPORT%" --screenshot "%CAPTURE%" ^
     --frames 1000 --fixed-dt --scene scenes/test_scene.map --camera-preset 1 ^
-    --resolution 1920x1080 --borderless --no-ui
+    --resolution 1920x1080 --borderless --no-ui --present-mode immediate
 if errorlevel 1 exit /b %errorlevel%
 
 echo.
