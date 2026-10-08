@@ -96,5 +96,6 @@ private:
     uint32_t m_AcquireIndex = 0u;
 
     uint32_t m_FramesInFlight = 0u;
+    std::optional<PresentMode> m_RequestedPresentMode;
 };
 } // namespace Hikari::Rhi::Vulkan

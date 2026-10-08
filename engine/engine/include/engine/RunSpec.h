@@ -8,6 +8,7 @@
 #include <rhi/Backend.h>
 #include <rhi/DeviceDesc.h>
 #include <rhi/Diagnostics.h>
+#include <rhi/RhiTypes.h>
 
 namespace Hikari::Engine
 {
@@ -152,6 +153,9 @@ struct RunSpec
 
     /** Behave as though the device exposed one queue family. */
     bool bForceSingleQueue = false;
+
+    /** An explicit request must not silently change the mode being measured. */
+    std::optional<Rhi::PresentMode> PresentMode;
 };
 
 } // namespace Hikari::Engine

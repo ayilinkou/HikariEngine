@@ -20,7 +20,8 @@ namespace Hikari::Rhi::Vulkan
 {
 constexpr Core::LogCategory LogRhi("RHI");
 SwapchainTarget::SwapchainTarget(VulkanDevice& device, const PresentTargetDesc& desc)
-    : m_Device(device), m_FramesInFlight(desc.FramesInFlight)
+    : m_Device(device), m_FramesInFlight(desc.FramesInFlight),
+      m_RequestedPresentMode(desc.PresentMode)
 {
     if (m_FramesInFlight == 0u)
         throw std::runtime_error("PresentTargetDesc::FramesInFlight must be at least 1.");
@@ -51,7 +52,8 @@ void SwapchainTarget::Create(Core::Extent2D extent)
     // Kept rather than passed straight into the create info: the default is a
     // preference, so which mode the surface actually offered is a fact about
     // this target, and the run report carries it.
-    m_PresentMode = ChoosePresentMode(physicalDevice.getSurfacePresentModesKHR(surface));
+    m_PresentMode = ChoosePresentMode(physicalDevice.getSurfacePresentModesKHR(surface),
+                                      m_RequestedPresentMode);
 
     const vk::SwapchainCreateInfoKHR createInfo{
         .surface = *surface,
@@ -109,8 +111,8 @@ void SwapchainTarget::Create(Core::Extent2D extent)
 
     m_AcquireIndex = 0u;
 
-    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Swapchain: {}x{}, {} images", m_Extent.width,
-                 m_Extent.height, m_Images.size());
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Swapchain: {}x{}, {} images, {}", m_Extent.width,
+                 m_Extent.height, m_Images.size(), ToString(FromVk(m_PresentMode)));
 }
 
 void SwapchainTarget::Destroy()

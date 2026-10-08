@@ -1840,6 +1840,13 @@ std::unique_ptr<IPresentTarget> D3D12Device::CreatePresentTarget(const PresentTa
     if (m_bWindowed)
         return std::make_unique<D3D12SwapchainTarget>(*this, m_pNativeWindow, desc);
 
+    if (desc.PresentMode)
+    {
+        throw std::runtime_error(
+            std::format("Cannot request present mode '{}' for an offscreen target.",
+                        ToString(*desc.PresentMode)));
+    }
+
     return std::make_unique<D3D12OffscreenTarget>(*this, desc);
 }
 

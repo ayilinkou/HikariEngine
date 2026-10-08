@@ -24,7 +24,6 @@ git history is the record.
 | P1 | Correctness fixes from `suggested_work.md` §1.6 and §3.1 — §3.2 (batched uploads) is done | various | S–M each | |
 | P1 | Restore `validate_best_practices` in `VulkanDevice.cpp`, commented out on 2026-09-05. vulkan-validationlayers 1.4.357.0 reads an image's last-used queue family in a maintenance9-gated branch of `BestPractices::ValidateImageInQueue` without checking it against `VK_QUEUE_FAMILY_IGNORED`, so the first use of any image in a submit segfaults inside the layer — every Debug run and two GPU tests. Fixed upstream by Vulkan-ValidationLayers PR #12922, merged after the 1.4.357.0 tag was cut, so no version vcpkg offers yet contains it — still 1.4.357.0 when last checked on 2026-09-12. **Not a one-line uncomment when the day comes.** Best practices emits performance *warnings*, so `counters.run.validationWarnings` moves off zero and the baseline has to be recaptured deliberately; nothing here has ever run with it on, so budget a triage pass over what it says and expect more `message_id_filter` entries beside the one already kept for it. Decide at the same time whether it is unconditional as sync validation is, or gets `--vk-best-practices on|off` beside Stage 7.6's `--vk-sync-validation` — and if it is flagged it needs a `run` report field and a gating-table entry, or the comparison tool compares `validationWarnings` across runs that differ in it | `VulkanDevice.cpp`, `vcpkg-configuration.json`, `tests/baseline/` | S | a vcpkg baseline offering vulkan-validationlayers newer than 1.4.357.0 |
 | P2 | One capture per run, and a name that cannot hold two. `DrawFrame` stages a capture only while `m_bScreenshotBufferReady` is false, so a script asking for `screenshot` twice gets one file and no warning about the other; `Engine::Run` returns a single `CapturedFrame` and the app writes it once. The naming compounds it: `GenerateTimestamp()` is second-resolution and the PNG and the report share one stamp, so two runs a second apart overwrite each other, and per-capture files would collide the moment more than one is written. Wants a captures list keyed by frame, a name that includes the frame, and a dropped request that says so | `Engine.cpp`, `RunApp.cpp` | M | |
-| P2 | `--present-mode <immediate\|mailbox\|fifo\|fifo-relaxed>`, defaulting to the preference chain; an explicit mode that the surface does not offer is a hard error | `rhi/IPresentTarget.h`, `SwapchainUtil.h`, `RunSpec` | S | |
 | P2 | Document the matrix convention once and apply it consistently | `opaque.slang` header comment | S | |
 | P2 | `.map` format `version` attribute | `XmlParser` | XS | |
 | P2 | A Debug build cannot start where `VK_LAYER_KHRONOS_validation` is not installed: validation goes into `requiredLayers`, so `VulkanDevice.cpp:604` throws `Required layer not supported` at instance creation rather than logging and continuing without it. Distinct from `--validation`, which landed in Stage 7.6 step 12 and decides whether the layer is *asked for* — this is what should happen when one that was asked for is simply absent, as it is on a fresh clone without the SDK's layers | `VulkanDevice.cpp` | S | |
@@ -52,48 +51,3 @@ git history is the record.
 | P2 | `tests/scripts/build_tests.sh` and its `.bat` build four of the seven test targets — `core_tests`, `platform_tests`, `rhi_tests`, `rhi_gpu_tests` — and miss `asset_tests`, `engine_tests` and `scene_tests`, although `CLAUDE.md` describes the script as building every test target. `scripts/precommit.sh` is unaffected only because `build.sh` has already built everything by the time it runs. On its own, the script leaves those three binaries as they were, so `run_scene_tests.sh` afterwards runs a stale `scene_tests` — or, if it was never built, finds no tests and exits 0, because `ctest` reports "No tests were found!!!" as success. An explicit list goes stale whenever a test target is added, so this wants something a new `engine_test` joins automatically rather than three more names; and the run scripts should treat finding no tests as a failure | `tests/scripts/`, `cmake/Testing.cmake` | XS | |
 | P3 | CI throws away the evidence when a comparison fails. Stage 7.6's `TestSupport` writes actual, expected and an amplified diff PNG on a pixel mismatch, and `ci.yml` has no `upload-artifact` step at all, so on a runner those three files die with the job and a red scene test is readable only as text. Wants them uploaded from the Linux debug and ASan jobs when `ctest -L scene` fails | `.github/workflows/ci.yml` | S | nothing — Stage 7.6 step 2 writes the images |
 | P1 | Rewrite `README.md` in more detail, and update the GitHub repository description to match. Today the README covers requirements and building only. It says nothing about running the engine — `HikariEditor` and `HikariHeadless`, the content root, input scripts, captures and reports — and nothing about backends at all: which exist on which platform, that Vulkan is the default, how `--backend` and `--gpu` choose, and anything D3D12 needs that Vulkan does not. Two things go stale with the stage and want catching in the same pass: the badge row names only the six build jobs, which misses the Windows GPU job Stage 7.7 adds (D28); and the repository description, "A cross-platform Vulkan renderer for Windows and Linux with PBR materials and volumetric clouds", stops being true once there is a second backend. The description is a repository setting rather than a file, so it changes through GitHub's settings or `gh repo edit --description`, not through a commit | `README.md`, repository settings | S | nothing — Stage 7.7 is complete |
-
-One of these is worth expanding on, because it carries a decision:
-
-- **`--present-mode`, and why the two failure policies differ.** The default stays what it is
-  today: the chain in `ChoosePresentMode` — mailbox, then immediate, then FIFO. **An explicitly
-  requested mode that the surface does not offer is a hard error naming what was asked for and
-  listing what is available** — never a silent downgrade. The whole reason to pass the flag is
-  to test a specific mode, and a run that quietly measured a different one is worse than a run
-  that refused: it produces a number that looks valid and is not.
-
-  That is deliberately the opposite policy from `DeviceDesc::DisabledOptionalExtensions`,
-  which reports and ignores a name it does not recognise. The cases differ: disabling an
-  extension that was never present still achieves the intent, whereas asking for immediate
-  and getting FIFO means the measurement is of something else.
-
-  Two constraints on the implementation. **The default must stay a preference**, because only
-  FIFO is guaranteed by the spec — mailbox is not, and a strict default would refuse to launch
-  on a surface without it. And the *mode* is neutral vocabulary under D13 ("where only one API
-  has the concept at all, its term stands"): Vulkan names these, D3D12 spells the same
-  behaviour as `SyncInterval` plus `ALLOW_TEARING`, so this is `--present-mode` rather than
-  `--vk-present-mode`. On D3D12 it is also what builds the tearing path: `D3D12SwapchainTarget`
-  always presents in Mailbox, which the flip model always offers, so asking DXGI for
-  `DXGI_FEATURE_PRESENT_ALLOW_TEARING` and creating the swapchain with it waits for a request
-  for Immediate.
-
-  Reject `--present-mode` together with `--headless`, alongside the borderless/fullscreen
-  check step 40a adds — an offscreen target does not present, so there is no mode to choose.
-
-  **Log the mode that was actually chosen**, so a fallback is visible rather than inferred.
-  The place for it is the existing one-line summary at the end of `SwapchainTarget::Create` —
-  `"Swapchain: {}x{}, {} images"` — which becomes `"Swapchain: {}x{}, {} images, {}"`. Not
-  surface creation: the surface exists before any mode is chosen, and `ChoosePresentMode` runs
-  against `getSurfacePresentModesKHR` during swapchain creation, so the surface has nothing to
-  report yet. `Create` is also called from `Recreate`, so the line already fires on every
-  resize and fullscreen toggle and already carries an extent that changes each time — the mode
-  rides along at no extra noise, and a mode that changed across a recreate shows up without a
-  second log site or a "did it change" comparison.
-
-  That one line covers both paths. An explicit mode that is unavailable throws before this
-  point, naming what the surface offers; the default path cannot throw, so printing what it
-  settled on is the only way a mailbox→FIFO fallback is ever visible.
-
-  Worth pairing with the frame-time fix above: once the report carries real wall-clock
-  timings, it should also carry the present mode, because two reports taken under different
-  modes are not comparable.

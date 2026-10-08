@@ -19,6 +19,7 @@ using namespace Hikari::Platform;
 using Hikari::Rhi::Backend;
 using Hikari::Rhi::BarrierPath;
 using Hikari::Rhi::GpuBasedValidation;
+using Hikari::Rhi::PresentMode;
 using Hikari::Rhi::ValidationPolicy;
 
 namespace
@@ -69,6 +70,26 @@ TEST_CASE("The flags that carry a value refuse to stand in for one", "[ParseEngi
 
     REQUIRE(ParseEngineOption(Option("--frames", "30"), spec, config));
     REQUIRE(spec.Frames == 30u);
+}
+
+TEST_CASE("The present-mode flag requires one of the three presentation modes",
+          "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+    CHECK_FALSE(spec.PresentMode.has_value());
+
+    REQUIRE(ParseEngineOption(Option("--present-mode", "immediate"), spec, config));
+    CHECK(spec.PresentMode == PresentMode::Immediate);
+    REQUIRE(ParseEngineOption(Option("--present-mode", "mailbox"), spec, config));
+    CHECK(spec.PresentMode == PresentMode::Mailbox);
+    REQUIRE(ParseEngineOption(Option("--present-mode", "fifo"), spec, config));
+    CHECK(spec.PresentMode == PresentMode::Fifo);
+
+    CHECK_THROWS_AS(ParseEngineOption(Option("--present-mode"), spec, config), CommandLineError);
+    CHECK_THROWS_AS(ParseEngineOption(Option("--present-mode", "adaptive"), spec, config),
+                    CommandLineError);
+    CHECK(spec.PresentMode == PresentMode::Fifo);
 }
 
 TEST_CASE("The --validation-policy names map to the policy, and nothing else does",

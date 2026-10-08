@@ -90,6 +90,7 @@ Both the editor and headless binaries take the same options, except where the wi
 | `--backend <name>` | which backend to run on; `--help` lists what the build contains (default `Vulkan`) |
 | `--gpu <name>` | first suitable adapter whose name contains `<name>`, case-insensitively |
 | `--force-single-queue` | behave as though one queue served every role, as an integrated GPU does |
+| `--present-mode <immediate\|mailbox\|fifo>` | Require this presentation mode. Without the flag, prefer mailbox, then immediate, then FIFO |
 | `--vk-disable-extension <name>` | Vulkan only. Pretend an optional extension is missing, to exercise the fallback |
 | `--d3d12-barriers <legacy\|enhanced\|auto>` | D3D12 only. Barrier model; `auto` takes enhanced where the adapter supports it (default `auto`) |
 

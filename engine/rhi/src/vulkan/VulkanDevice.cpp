@@ -541,7 +541,16 @@ std::unique_ptr<IPresentTarget> VulkanDevice::CreatePresentTarget(const PresentT
     // That is the whole seam — everything above this line is written once and
     // runs both ways.
     if (*m_Surface == nullptr)
+    {
+        if (desc.PresentMode)
+        {
+            throw std::runtime_error(
+                std::format("Cannot request present mode '{}' for an offscreen target.",
+                            ToString(*desc.PresentMode)));
+        }
+
         return std::make_unique<OffscreenTarget>(*this, desc);
+    }
 
     return std::make_unique<SwapchainTarget>(*this, desc);
 }
