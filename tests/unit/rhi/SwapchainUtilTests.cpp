@@ -5,6 +5,7 @@
 
 #include <limits>
 
+using Hikari::Rhi::PresentMode;
 using namespace Hikari::Rhi::Vulkan;
 
 /**
@@ -140,23 +141,11 @@ TEST_CASE("Mailbox wins when the surface offers it", "[swapchain]")
 
 TEST_CASE("Immediate is taken when the surface has no mailbox", "[swapchain]")
 {
-    // Exactly what the AMD proprietary Windows driver reports for a Win32
-    // surface. Falling through to FIFO here paced the whole engine to the
-    // display's refresh rate, on a machine with several times the headroom.
-    const std::vector modes{vk::PresentModeKHR::eImmediate, vk::PresentModeKHR::eFifo,
-                            vk::PresentModeKHR::eFifoRelaxed};
+    // A Win32 surface with no mailbox. Falling through to FIFO paced the engine
+    // to the display's refresh rate, on a machine with several times the headroom.
+    const std::vector modes{vk::PresentModeKHR::eImmediate, vk::PresentModeKHR::eFifo};
 
     CHECK(ChoosePresentMode(modes) == vk::PresentModeKHR::eImmediate);
-}
-
-TEST_CASE("FIFO relaxed does not stand in for an uncapped mode", "[swapchain]")
-{
-    // It skips the wait only for a frame that was already late, so it paces a
-    // fast application exactly as FIFO does — which is why it is not in the
-    // chain and why the choice here is FIFO rather than the relaxed variant.
-    const std::vector modes{vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eFifoRelaxed};
-
-    CHECK(ChoosePresentMode(modes) == vk::PresentModeKHR::eFifo);
 }
 
 TEST_CASE("A surface offering only what the spec guarantees gets FIFO", "[swapchain]")
@@ -169,4 +158,31 @@ TEST_CASE("A surface offering only what the spec guarantees gets FIFO", "[swapch
 TEST_CASE("A surface with no present modes at all fails", "[swapchain]")
 {
     CHECK_THROWS(ChoosePresentMode({}));
+}
+
+TEST_CASE("An explicit present mode overrides the default preference", "[swapchain]")
+{
+    const std::vector modes{vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eMailbox,
+                            vk::PresentModeKHR::eImmediate};
+
+    CHECK(ChoosePresentMode(modes, PresentMode::Immediate) == vk::PresentModeKHR::eImmediate);
+    CHECK(ChoosePresentMode(modes, PresentMode::Mailbox) == vk::PresentModeKHR::eMailbox);
+    CHECK(ChoosePresentMode(modes, PresentMode::Fifo) == vk::PresentModeKHR::eFifo);
+}
+
+TEST_CASE("An unavailable explicit mode fails with the request and available choices",
+          "[swapchain]")
+{
+    const std::vector noMailbox{vk::PresentModeKHR::eImmediate, vk::PresentModeKHR::eFifo};
+    CHECK_THROWS_WITH(
+        ChoosePresentMode(noMailbox, PresentMode::Mailbox),
+        "Requested present mode 'mailbox' is unavailable. Available: immediate, fifo.");
+
+    const std::vector noImmediate{vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eMailbox};
+    CHECK_THROWS_WITH(
+        ChoosePresentMode(noImmediate, PresentMode::Immediate),
+        "Requested present mode 'immediate' is unavailable. Available: mailbox, fifo.");
+
+    CHECK_THROWS_WITH(ChoosePresentMode({}, PresentMode::Fifo),
+                      "Requested present mode 'fifo' is unavailable. Available: none.");
 }

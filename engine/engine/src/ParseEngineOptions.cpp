@@ -157,6 +157,17 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
         option.RequireNoValue();
         spec.bForceSingleQueue = true;
     }
+    else if (flag == "--present-mode")
+    {
+        const std::string value = option.RequireValue();
+        const std::optional<Rhi::PresentMode> mode = Rhi::PresentModeFromString(value);
+        if (!mode)
+        {
+            throw Platform::CommandLineError(
+                "--present-mode expects immediate, mailbox or fifo, got: " + value);
+        }
+        spec.PresentMode = *mode;
+    }
     else
         return false;
 

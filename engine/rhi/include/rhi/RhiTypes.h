@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
+#include <string_view>
 #include <type_traits>
 
 /**
@@ -338,14 +340,41 @@ enum class PresentMode : uint8_t
     Immediate,
     Mailbox,
     Fifo,
-    FifoRelaxed,
 };
+
+constexpr std::string_view ToString(PresentMode mode)
+{
+    switch (mode)
+    {
+        case PresentMode::Immediate:
+            return "immediate";
+        case PresentMode::Mailbox:
+            return "mailbox";
+        case PresentMode::Fifo:
+            return "fifo";
+    }
+
+    return "unknown";
+}
+
+constexpr std::optional<PresentMode> PresentModeFromString(std::string_view name)
+{
+    if (name == "immediate")
+        return PresentMode::Immediate;
+
+    if (name == "mailbox")
+        return PresentMode::Mailbox;
+
+    if (name == "fifo")
+        return PresentMode::Fifo;
+
+    return std::nullopt;
+}
 
 inline constexpr std::array kAllPresentModes{
     PresentMode::Immediate,
     PresentMode::Mailbox,
     PresentMode::Fifo,
-    PresentMode::FifoRelaxed,
 };
 
 /**

@@ -22,22 +22,7 @@ namespace
  */
 std::string PresentModeJson(std::optional<Rhi::PresentMode> mode)
 {
-    if (!mode)
-        return "null";
-
-    switch (*mode)
-    {
-        case Rhi::PresentMode::Immediate:
-            return "\"immediate\"";
-        case Rhi::PresentMode::Mailbox:
-            return "\"mailbox\"";
-        case Rhi::PresentMode::Fifo:
-            return "\"fifo\"";
-        case Rhi::PresentMode::FifoRelaxed:
-            return "\"fifo-relaxed\"";
-    }
-
-    return "null";
+    return mode ? "\"" + std::string(Rhi::ToString(*mode)) + "\"" : "null";
 }
 
 /** A string as a JSON value, or null where there is none to name. */

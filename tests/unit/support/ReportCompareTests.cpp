@@ -109,6 +109,22 @@ bool Mentions(const std::vector<std::string>& lines, std::string_view needle)
 }
 } // namespace
 
+TEST_CASE("Run reports name each presentation mode and use null for offscreen runs",
+          "[support][report]")
+{
+    Engine::RunReport report = MakeReport();
+    for (const Rhi::PresentMode mode : Rhi::kAllPresentModes)
+    {
+        report.Run.PresentMode = mode;
+        CHECK(Json(report).find("\"presentMode\": \"" + std::string(Rhi::ToString(mode)) + "\"") !=
+              std::string::npos);
+    }
+
+    report.Run.bHeadless = true;
+    report.Run.PresentMode.reset();
+    CHECK(Json(report).find("\"presentMode\": null") != std::string::npos);
+}
+
 TEST_CASE("Every field the report emits is classified", "[support][report]")
 {
     const std::vector<std::string> paths = TestSupport::FieldPaths(Json(MakeReport()));

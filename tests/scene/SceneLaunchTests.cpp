@@ -512,6 +512,29 @@ TEST_CASE("The headless binary replays a script and needs no frame count", "[sce
     CHECK(contents.find("\"validationErrors\": 0") != std::string::npos);
 }
 
+TEST_CASE("The headless binary refuses presentation modes before creating a device", "[scene]")
+{
+    const std::filesystem::path outputDir =
+        std::filesystem::temp_directory_path() / "hikari_scene_tests";
+    std::filesystem::create_directories(outputDir);
+    const std::filesystem::path log = outputDir / "present_mode_rejected.log";
+
+    for (const Rhi::PresentMode mode : Rhi::kAllPresentModes)
+    {
+        INFO("mode: " << Rhi::ToString(mode));
+        const std::string command = std::string("\"") + HIKARI_HEADLESS_BINARY + "\"" +
+                                    BackendArguments() + " --frames 1 --present-mode " +
+                                    std::string(Rhi::ToString(mode)) + " > \"" + log.string() +
+                                    "\" 2>&1";
+        REQUIRE(RunCommand(command) != 0);
+
+        std::ifstream output(log);
+        const std::string contents((std::istreambuf_iterator<char>(output)),
+                                   std::istreambuf_iterator<char>());
+        CHECK(contents.find("--present-mode is only valid for HikariEditor") != std::string::npos);
+    }
+}
+
 TEST_CASE("The headless binary refuses a script it cannot run", "[scene]")
 {
     // No device needed: both refusals happen while parsing, before anything asks

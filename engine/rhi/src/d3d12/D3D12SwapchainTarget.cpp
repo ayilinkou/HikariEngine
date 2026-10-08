@@ -12,6 +12,7 @@
 
 #include "d3d12/D3D12Conversions.h"
 #include "d3d12/D3D12Device.h"
+#include "d3d12/D3D12PresentMode.h"
 
 namespace Hikari::Rhi::D3D12
 {
@@ -52,12 +53,26 @@ D3D12SwapchainTarget::D3D12SwapchainTarget(D3D12Device& device, void* pWindow,
             "Rhi::IDevice::CreatePresentTarget: the window has no HWND ({}).", SDL_GetError()));
     }
 
-    // Mailbox, the Vulkan target's first preference, which DXGI's flip model always
-    // offers; Immediate would need tearing support asked of the factory, and only a
-    // request for a particular mode would reach it.
     IDXGIFactory4& factory = m_Device.GetFactory();
-    m_PresentMode = PresentMode::Mailbox;
-    m_SwapChainFlags = 0u;
+    BOOL bAllowTearing = FALSE;
+    if (desc.PresentMode == PresentMode::Immediate)
+    {
+        ComPtr<IDXGIFactory5> factory5;
+        if (SUCCEEDED(factory.QueryInterface(IID_PPV_ARGS(&factory5))))
+        {
+            const HRESULT hr = factory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+                                                             &bAllowTearing, sizeof(bAllowTearing));
+            if (FAILED(hr))
+            {
+                throw std::runtime_error(
+                    std::format("Querying DXGI tearing support failed ({}).", HexResult(hr)));
+            }
+        }
+    }
+
+    m_PresentMode = ChoosePresentMode(desc.PresentMode, bAllowTearing != FALSE);
+    m_SwapChainFlags =
+        m_PresentMode == PresentMode::Immediate ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u;
 
     // Two buffers at least, which the flip model requires, and one per frame in flight
     // beyond that, as the offscreen target makes one per frame in flight.
@@ -132,8 +147,9 @@ void D3D12SwapchainTarget::CreateImages()
         m_Images.push_back(image);
     }
 
-    Core::LogMsg(Core::LogSeverity::Info, LogRhi, "Swapchain: {}x{}, {} images, sync interval {}{}",
-                 m_Extent.Width, m_Extent.Height, m_Images.size(),
+    Core::LogMsg(Core::LogSeverity::Info, LogRhi,
+                 "Swapchain: {}x{}, {} images, {}, sync interval {}{}", m_Extent.Width,
+                 m_Extent.Height, m_Images.size(), ToString(m_PresentMode),
                  m_PresentMode == PresentMode::Fifo ? 1 : 0,
                  m_PresentMode == PresentMode::Immediate ? ", tearing" : "");
 }

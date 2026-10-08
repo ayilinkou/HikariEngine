@@ -32,10 +32,8 @@ class D3D12Device;
  * The present modes are the Vulkan ones, by behaviour: Mailbox is sync interval 0,
  * where DXGI's flip model discards a queued frame for a newer one and nothing tears;
  * Immediate is sync interval 0 with tearing allowed; Fifo is sync interval 1.
- * FifoRelaxed has no DXGI counterpart and is never offered. The preference is the
- * Vulkan target's, Mailbox first, and the flip model always offers Mailbox, so that is
- * the mode a D3D12 swapchain runs in — named as a Vulkan one would name the same
- * behaviour, which is what lets a report's presentMode mean one thing on both.
+ * The default is Mailbox, which the flip model always offers. An explicit mode
+ * is required rather than preferred: Immediate fails where tearing is unsupported.
  */
 class D3D12SwapchainTarget final : public D3D12PresentTarget
 {

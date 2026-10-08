@@ -161,6 +161,18 @@ TEST_CASE("Every PresentMode round-trips", "[RhiConversions]")
     RequireRoundTrips(kAllPresentModes);
 }
 
+TEST_CASE("Presentation mode names describe exactly three choices", "[RhiConversions]")
+{
+    REQUIRE(kAllPresentModes.size() == 3u);
+    CHECK(ToString(PresentMode::Immediate) == "immediate");
+    CHECK(ToString(PresentMode::Mailbox) == "mailbox");
+    CHECK(ToString(PresentMode::Fifo) == "fifo");
+    for (const PresentMode mode : kAllPresentModes)
+        CHECK(PresentModeFromString(ToString(mode)) == mode);
+    CHECK_FALSE(PresentModeFromString("").has_value());
+    CHECK_FALSE(PresentModeFromString("adaptive").has_value());
+}
+
 TEST_CASE("SampleCount values are the sample counts themselves", "[RhiConversions]")
 {
     // The enum's numeric values are load-bearing: they are the sample counts,

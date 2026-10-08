@@ -16,9 +16,8 @@ namespace Hikari::Rhi
  * tell which it has.
  *
  * This is the seam that makes a headless run possible, so it is deliberately
- * narrower than a swapchain: no present mode, no colour space, no surface
- * capabilities. Anything a caller could only use by knowing it holds a
- * swapchain does not belong here.
+ * narrower than a swapchain: no colour space or surface capabilities. A mode
+ * may be requested for a displayed run; an offscreen target rejects it.
  */
 
 struct PresentTargetDesc
@@ -35,6 +34,12 @@ struct PresentTargetDesc
      * chooses and reports through GetImageCount().
      */
     uint32_t FramesInFlight = 2u;
+
+    /**
+     * Explicit requests are strict so measurements cannot silently use another
+     * mode. Empty uses the backend's preference; offscreen targets reject a request.
+     */
+    std::optional<Rhi::PresentMode> PresentMode = std::nullopt;
 };
 
 struct AcquiredImage
@@ -70,8 +75,8 @@ public:
      * present — an offscreen target has no display to pace against.
      *
      * Worth reporting rather than assuming: the default is a preference, so a
-     * surface without Mailbox silently yields Fifo, and two runs measured under
-     * different modes are not comparable.
+     * surface without Mailbox may yield Immediate or Fifo, and two runs measured
+     * under different modes are not comparable.
      */
     virtual std::optional<PresentMode> GetPresentMode() const = 0;
 

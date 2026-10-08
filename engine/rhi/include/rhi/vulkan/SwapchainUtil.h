@@ -5,10 +5,14 @@
 #include <cstdint>
 #include <format>
 #include <limits>
+#include <optional>
 #include <ranges>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include <rhi/RhiTypes.h>
 
 #include "vulkan/vulkan.hpp"
 
@@ -88,8 +92,8 @@ inline vk::SurfaceFormatKHR ChooseSwapchainFormat(const std::vector<vk::SurfaceF
 }
 
 /**
- * Chooses the present mode from an ordered preference: mailbox, then immediate,
- * then FIFO.
+ * Honours an explicit mode or fails, naming the request and available choices.
+ * With no request, prefers mailbox, then immediate, then FIFO.
  *
  * The order is about pacing, not pixels — every mode here presents the same
  * image. Mailbox is first because it is the only one that is uncapped *and*
@@ -98,34 +102,49 @@ inline vk::SurfaceFormatKHR ChooseSwapchainFormat(const std::vector<vk::SurfaceF
  * display will never show costs the loop nothing and never blocks it.
  *
  * Immediate is second, and is not a hypothetical fallback. The AMD proprietary
- * Windows driver offers only IMMEDIATE, FIFO and FIFO_RELAXED on a Win32
- * surface, so "mailbox, else FIFO" meant vsync on every run there: frame times
- * pinned to the refresh interval, which is exactly what hides a change that
- * costs a millisecond until it costs seven. Immediate may tear, and that is the
- * price of measuring what a frame actually cost.
- *
- * FIFO_RELAXED is deliberately absent. It skips the wait only when a blanking
- * period has already passed since the last update — a frame that was late
- * anyway — so it paces an application faster than the display exactly as FIFO
- * does. It would buy the tearing without buying the measurement.
+ * Windows driver does not offer mailbox on a Win32 surface, so "mailbox, else
+ * FIFO" meant vsync on every run there: frame times pinned to the refresh
+ * interval, which is exactly what hides a change that costs a millisecond until
+ * it costs seven. Immediate may tear, and that is the price of measuring what
+ * a frame actually cost.
  *
  * FIFO is last because it is "the only value of presentMode that is required to
  * be supported" (VkPresentModeKHR), so it is the one branch that cannot fail.
  */
-inline vk::PresentModeKHR ChoosePresentMode(const std::vector<vk::PresentModeKHR>& modes)
+inline vk::PresentModeKHR ChoosePresentMode(const std::vector<vk::PresentModeKHR>& modes,
+                                            std::optional<PresentMode> requestedMode = std::nullopt)
 {
-    if (modes.empty())
-        throw std::runtime_error("No swapchain presentation modes available!");
+    constexpr std::array kPreferred{
+        std::pair{PresentMode::Mailbox, vk::PresentModeKHR::eMailbox},
+        std::pair{PresentMode::Immediate, vk::PresentModeKHR::eImmediate},
+        std::pair{PresentMode::Fifo, vk::PresentModeKHR::eFifo}};
 
-    constexpr std::array kPreferred{vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eImmediate};
-
-    for (const vk::PresentModeKHR preferred : kPreferred)
+    for (const auto& [mode, native] : kPreferred)
     {
-        if (std::ranges::find(modes, preferred) != modes.end())
-            return preferred;
+        if ((!requestedMode || mode == *requestedMode) &&
+            std::ranges::find(modes, native) != modes.end())
+            return native;
     }
 
-    return vk::PresentModeKHR::eFifo;
+    if (requestedMode)
+    {
+        std::string available;
+        for (const auto& [mode, native] : kPreferred)
+        {
+            if (std::ranges::find(modes, native) != modes.end())
+            {
+                if (!available.empty())
+                    available += ", ";
+                available += ToString(mode);
+            }
+        }
+
+        throw std::runtime_error(
+            std::format("Requested present mode '{}' is unavailable. Available: {}.",
+                        ToString(*requestedMode), available.empty() ? "none" : available));
+    }
+
+    throw std::runtime_error("No swapchain presentation modes available!");
 }
 
 /**

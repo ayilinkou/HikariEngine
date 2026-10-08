@@ -485,7 +485,8 @@ private:
         const Extent2D framebufferExtent = m_Platform.GetFramebufferExtent();
         m_PresentTarget = m_RhiDevice->CreatePresentTarget(
             Rhi::PresentTargetDesc{.Extent = {framebufferExtent.Width, framebufferExtent.Height},
-                                   .FramesInFlight = m_Config.FramesInFlight});
+                                   .FramesInFlight = m_Config.FramesInFlight,
+                                   .PresentMode = m_Spec.PresentMode});
 
         CreateDepthResources();
         CreateBindGroupLayouts();

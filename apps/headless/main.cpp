@@ -137,6 +137,12 @@ HeadlessOptions ParseArgs(int argc, char** argv)
                 ExitWithUsage(EXIT_FAILURE);
             }
         }
+
+        if (run.Spec.PresentMode)
+        {
+            throw CommandLineError("--present-mode is only valid for HikariEditor: an offscreen "
+                                   "target does not present");
+        }
     }
     catch (const CommandLineError& e)
     {

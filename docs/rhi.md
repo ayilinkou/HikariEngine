@@ -412,6 +412,18 @@ runtime `dxcompiler.dll`, with a mismatch found only when a pipeline fails.
 
 ## 8. Choosing and describing a device
 
+**Presentation modes.** `PresentTargetDesc::PresentMode` is an optional, strict request:
+`Immediate`, `Mailbox` or `Fifo`. An unavailable explicit mode fails, naming the request and
+available choices. With no request Vulkan prefers mailbox, then immediate, then FIFO; D3D12
+defaults to mailbox, which its flip model offers. D3D12 immediate requires a successful
+`DXGI_FEATURE_PRESENT_ALLOW_TEARING` query, creates the swapchain with
+`DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING`, and presents with interval 0 and
+`DXGI_PRESENT_ALLOW_TEARING`; FIFO uses interval 1 and mailbox interval 0 without tearing.
+The chosen mode is logged at creation and recreation and reported as `run.presentMode`.
+An offscreen target rejects any requested mode and reports no mode. The editor exposes the
+choice through `--present-mode`; the headless binary rejects it before device creation.
+The request belongs to the present target, rather than device selection.
+
 **D25 — The backend is selected at run time, and Vulkan is always the default.** `--backend
 Vulkan|D3D12`; a value the build does not contain is a **hard error** naming what was asked for
 and listing what is available, because a run that quietly measured something else is worse than a

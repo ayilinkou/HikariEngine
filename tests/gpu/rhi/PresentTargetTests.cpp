@@ -1,8 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -237,6 +239,22 @@ TEST_CASE("A device with no surface hands back an offscreen present target", "[r
     // Undefined would mean the target had no format it could name, which the
     // renderer would then hand to pipeline creation.
     CHECK(target->GetFormat() != Format::Undefined);
+    CHECK_FALSE(target->GetPresentMode().has_value());
+}
+
+TEST_CASE("An offscreen target refuses a requested presentation mode", "[rhi][gpu][present]")
+{
+    IDevice& device = RhiTest::RequireDevice();
+    const RhiTest::ValidationGuard guard(device);
+
+    for (const PresentMode mode : kAllPresentModes)
+    {
+        INFO("mode: " << ToString(mode));
+        CHECK_THROWS_WITH(
+            device.CreatePresentTarget(PresentTargetDesc{.Extent = kExtent, .PresentMode = mode}),
+            std::format("Cannot request present mode '{}' for an offscreen target.",
+                        ToString(mode)));
+    }
 }
 
 TEST_CASE("An offscreen acquire always succeeds and cycles its images", "[rhi][gpu][present]")

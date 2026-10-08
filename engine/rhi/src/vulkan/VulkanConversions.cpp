@@ -372,8 +372,6 @@ vk::PresentModeKHR ToVk(PresentMode mode)
             return vk::PresentModeKHR::eMailbox;
         case PresentMode::Fifo:
             return vk::PresentModeKHR::eFifo;
-        case PresentMode::FifoRelaxed:
-            return vk::PresentModeKHR::eFifoRelaxed;
     }
 
     throw std::runtime_error("Rhi::Vulkan::ToVk(PresentMode): unhandled enumerator.");
