@@ -10,10 +10,11 @@ supports (a) headless + automated runtime testing, (b) data-oriented performance
 (c) scalability as features are added.
 
 **Status:** Stages 0 to 7 are complete, and so are the inserted Stages 7.5, 7.6 and 7.7 —
-the D3D12 backend landed on 15 September 2026; `docs/rhi.md` holds its decisions. **Next:
-Stage 8** — Passes & frame graph — whose steps 49–56 those three stages partly superseded, and
-step 48 of which landed at 7.6. Read the note at the head of that section before starting, and
-grill the stage first, as the working rules require.
+the D3D12 backend landed on 15 September 2026; `docs/rhi.md` holds its decisions.
+**Next: Stage 7.8 — Texture cooking & mipmaps**, inserted before Stage 8. Its agreed design
+and incremental steps live in [texture_cooking.md](texture_cooking.md); start with TC1's
+dependency/capability gate. Stage 8 follows, with steps 49–56 partly
+superseded by the RHI stages and step 48 already completed at 7.6.
 
 > Companion document: `suggested_work.md` covers *correctness bugs* and
 > localised fixes. This document deliberately does **not** repeat them. Where a bug is
@@ -60,10 +61,11 @@ grill the stage first, as the working rules require.
 29. [Stage 5 — RHI extraction](#stage-5--rhi-extraction-steps-2434)
 30. [Stage 6 — Headless capability](#stage-6--headless-capability-steps-3540a)
 31. [Stage 7 — Engine shell & dependency injection](#stage-7--engine-shell--dependency-injection-steps-40b47)
-32. [Stage 8 — Passes & frame graph](#stage-8--passes--frame-graph-steps-4856)
-33. [Stage 9 — Data-oriented rewrite](#stage-9--data-oriented-rewrite-steps-5768)
-34. [Stage 10 — Scalability features](#stage-10--scalability-features-steps-6976)
-35. [Dependency summary](#dependency-summary)
+32. [Stage 7.8 — Texture cooking & mipmaps](#stage-78--texture-cooking--mipmaps)
+33. [Stage 8 — Passes & frame graph](#stage-8--passes--frame-graph-steps-4856)
+34. [Stage 9 — Data-oriented rewrite](#stage-9--data-oriented-rewrite-steps-5768)
+35. [Stage 10 — Scalability features](#stage-10--scalability-features-steps-6976)
+36. [Dependency summary](#dependency-summary)
 
 **Appendices**
 21. [Appendix A — File relocation table](#appendix-a--file-relocation-table)
@@ -1767,6 +1769,7 @@ document.
 | 5 | 24–34 | `RHI` library, batched uploads, growable descriptors | ~2 weeks |
 | 6 | 35–40 | **Headless device + offscreen rendering + readback** | ~1 week |
 | 7 | 41–47 | **`--headless --frames N` in CI. Stated goal met.** | ~1.5 weeks |
+| 7.8 | TC1–TC16; see [texture_cooking.md](texture_cooking.md) | Native-BC KTX2, incremental offline/on-demand cooking and mip sampling on both backends | L–XL |
 | 8 | 48–56 | Passes as classes, frame graph, automatic barriers | ~2.5 weeks |
 | 9 | 57–68 | Handles, snapshots, radix sort, culling, ECS | ~3 weeks |
 | 10 | 69–76 | Bindless, mega-buffers, async loading, indirect | open-ended |
@@ -2801,6 +2804,27 @@ and a real-content one.
 
 ---
 
+## Stage 7.8 — Texture cooking & mipmaps
+
+**Status: design interview complete; implementation not started.** Stage 7.7 is complete. Run this stage next,
+before Stage 8, using the stage-local TC1–TC16 work order in
+[texture_cooking.md](texture_cooking.md). That document owns the numbered design decisions, per-step changes, dependencies and
+verification; do not duplicate them here.
+
+Purpose: cook filesystem textures to native-BC KTX2 with correct mips and source-adjacent
+settings, preserve compressed DDS payloads, and load/sample the cooked assets on Vulkan
+and D3D12. Offline and synchronous on-demand cooking share settings and incremental checks.
+
+Each step must leave a building, running application. Keep the existing source loader until
+cooked loading is ready. Compression, normal decoding and mip sampling deliberately change
+pixels; identify those changes and obtain approval before promoting expected baselines.
+The stage completion gate covers both backends; Linux-only success does not finish it.
+
+Stage 8's structural module moves remain Stage 8 work. This stage adds texture facilities
+without opportunistically moving the asset registry or splitting rendering passes.
+
+---
+
 ## Stage 8 — Passes & frame graph (steps 48–56)
 
 > **Stages 7.5 to 7.7 came first, and changed this stage.** Stage 7.5
@@ -3009,6 +3033,9 @@ The chain continues past the CI goal into **Stage 7.5**, which
 is the serial run-up to a second backend. Step 47 is a genuine prerequisite rather than a
 convenient predecessor: it is the instrument that tells you whether the D3D12 backend renders
 what the Vulkan one does, and without it every B-step is verified by eye.
+
+Stage 7.7 → **Stage 7.8 texture cooking (TC1–TC16)** → Stage 8. The detailed texture
+work order is in [texture_cooking.md](texture_cooking.md).
 
 The spine starts much further along than it reads: **35, 37, 38 and 39 are all done**, so
 the next link in the chain is 41. Step 40a is off the spine entirely — 46 needs it, and
