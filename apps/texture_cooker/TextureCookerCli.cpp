@@ -1,7 +1,6 @@
 #include "TextureCookerCli.h"
 
 #include <cmath>
-#include <cstdlib>
 #include <exception>
 #include <format>
 #include <optional>
@@ -10,6 +9,8 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <SDL3/SDL_stdinc.h>
 
 #include <asset/TextureCooker.h>
 #include <platform/CommandLine.h>
@@ -210,7 +211,7 @@ int RunTextureCooker(int argc, const char* const* argv,
 
         Platform::ContentRootCandidates candidates;
         candidates.CommandLineOverride = sourceRoot;
-        if (const char* environmentRoot = std::getenv("HIKARI_CONTENT"))
+        if (const char* environmentRoot = SDL_getenv("HIKARI_CONTENT"))
             candidates.EnvironmentOverride = environmentRoot;
         candidates.ExecutableRelative = fs::absolute(argv[0]).parent_path() / "content";
         candidates.SourceRelative = fallbackSourceRoot;

@@ -8,6 +8,9 @@ function(run)
   if(NOT result STREQUAL "0")
     message(FATAL_ERROR "Texture tool probe failed (${result}): ${ARGV}\n${output}\n${error}")
   endif()
+  if("${output}${error}" MATCHES "CPU will be used")
+    message(FATAL_ERROR "Texture tool probe fell back to the legacy CPU encoder: ${ARGV}\n${output}\n${error}")
+  endif()
 endfunction()
 
 execute_process(COMMAND "${CLI}" -version RESULT_VARIABLE result
@@ -29,6 +32,9 @@ if(old_outputs)
 endif()
 run("${PROBE}" generate "${WORK}")
 
+# HPC is Compressonator's CPU host encoder. In 4.5.52 the legacy CPU BC2/BC3
+# reader indexes partial rows with their width instead of the 4x4 block stride.
+# HPC reads and pads edge blocks with the correct stride.
 foreach(extent IN ITEMS 1x1 2x2 4x4 7x5 8x4)
   string(REPLACE "x" ";" dimensions "${extent}")
   list(GET dimensions 0 width)
@@ -36,7 +42,7 @@ foreach(extent IN ITEMS 1x1 2x2 4x4 7x5 8x4)
   foreach(format IN ITEMS BC1 BC2 BC3 BC4 BC4_S BC5 BC5_S BC7)
     set(encoded "${WORK}/${extent}-${format}.dds")
     set(decoded "${WORK}/${extent}-${format}-decoded.dds")
-    run("${CLI}" -fd "${format}" -EncodeWith CPU -NumThreads 2 -nomipmap
+    run("${CLI}" -fd "${format}" -EncodeWith HPC -NumThreads 2 -nomipmap
         "${WORK}/${extent}.png" "${encoded}")
     run("${PROBE}" encoded "${encoded}" "${format}" "${width}" "${height}" 1)
     # Linux's PNG writer fails on decoded images; uncompressed DDS works on
@@ -48,14 +54,14 @@ endforeach()
 
 # Exercise JPEG decoding without making the test runner depend on another image
 # library. The committed synthetic fixture has the same constant RGB values.
-run("${CLI}" -fd BC7 -EncodeWith CPU -NumThreads 2 -nomipmap
+run("${CLI}" -fd BC7 -EncodeWith HPC -NumThreads 2 -nomipmap
     "${JPEG}" "${WORK}/jpeg.dds")
 run("${PROBE}" encoded "${WORK}/jpeg.dds" BC7 4 4 1)
 run("${CLI}" -fd ARGB_8888 -nomipmap "${WORK}/jpeg.dds" "${WORK}/jpeg-decoded.dds")
 run("${PROBE}" decoded "${WORK}/jpeg-decoded.dds" BC7 4 4)
 
 foreach(format IN ITEMS BC1 BC2 BC3 BC4 BC4_S BC5 BC5_S BC7)
-  run("${CLI}" -fd "${format}" -EncodeWith CPU -NumThreads 2 -miplevels 3
+  run("${CLI}" -fd "${format}" -EncodeWith HPC -NumThreads 2 -miplevels 3
       "${WORK}/4x4.png" "${WORK}/${format}-mips.dds")
   run("${PROBE}" encoded "${WORK}/${format}-mips.dds" "${format}" 4 4 3)
 endforeach()
@@ -68,11 +74,11 @@ run("${PROBE}" filter "${WORK}/gamma-mips.dds" gamma)
 run("${CLI}" -fd ARGB_8888 -miplevels 3 "${WORK}/normal.png" "${WORK}/normal-mips.dds")
 run("${PROBE}" filter "${WORK}/normal-mips.dds" normal)
 
-run("${CLI}" -fd BC1 -EncodeWith CPU -NumThreads 2 -AlphaThreshold 128 -nomipmap
+run("${CLI}" -fd BC1 -EncodeWith HPC -NumThreads 2 -AlphaThreshold 128 -nomipmap
     "${WORK}/mask.png" "${WORK}/mask.dds")
 run("${CLI}" -fd ARGB_8888 -nomipmap "${WORK}/mask.dds" "${WORK}/mask-decoded.dds")
 run("${PROBE}" alpha "${WORK}/mask-decoded.dds" binary)
-run("${CLI}" -fd BC7 -EncodeWith CPU -NumThreads 2 -nomipmap
+run("${CLI}" -fd BC7 -EncodeWith HPC -NumThreads 2 -nomipmap
     "${WORK}/mask.png" "${WORK}/rgba.dds")
 run("${CLI}" -fd ARGB_8888 -nomipmap "${WORK}/rgba.dds" "${WORK}/rgba-decoded.dds")
 run("${PROBE}" alpha "${WORK}/rgba-decoded.dds" varying)
