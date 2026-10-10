@@ -48,6 +48,22 @@ engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
 engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
   unit/asset/ImageReaderTests.cpp LIBS Engine::Asset)
 
+# A CPU-only dependency gate. CMake drives child processes and the helper checks
+# actual pixels, native format metadata and libktx block round trips. Neither
+# target links the renderer or initializes a graphics API.
+add_executable(texture_tool_probe tools/texture/TextureToolProbe.cpp)
+target_link_libraries(texture_tool_probe PRIVATE Engine::Asset KTX::ktx
+                                                Vulkan::Headers SanitizerShims)
+engine_set_warnings(texture_tool_probe)
+add_test(NAME texture_tool_capabilities
+  COMMAND ${CMAKE_COMMAND}
+    "-DCLI=${Compressonator_EXECUTABLE}"
+    "-DPROBE=$<TARGET_FILE:texture_tool_probe>"
+    "-DWORK=${CMAKE_CURRENT_BINARY_DIR}/texture tool probe/$<CONFIG>"
+    "-DJPEG=${CMAKE_CURRENT_SOURCE_DIR}/data/textures/constant.jpg"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/scripts/texture_tool_probe.cmake")
+set_tests_properties(texture_tool_capabilities PROPERTIES LABELS "unit;texture-tools" TIMEOUT 180)
+
 engine_test(engine_tests SOURCES unit/engine/ParseEngineOptionTests.cpp
   unit/engine/BindGroupLayoutInventoryTests.cpp unit/engine/ShaderLayoutTests.cpp
   LIBS Engine::Engine)
