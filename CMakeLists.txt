@@ -177,7 +177,7 @@ endif()
 # The engine module's private headers — the renderer, scene and asset types that
 # moved out of src/ at step 46. engine_module() checks a module's *public*
 # headers, so without this they would leave the check when they left src/.
-file(GLOB_RECURSE ENGINE_PRIVATE_HEADERS CONFIGURE_DEPENDS
+file(GLOB_RECURSE ENGINE_PRIVATE_HEADERS
      ${CMAKE_SOURCE_DIR}/engine/engine/src/*.h)
 
 # pch.h is deliberately excluded — it exists specifically to be force-included

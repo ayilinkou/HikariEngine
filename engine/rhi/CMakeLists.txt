@@ -204,7 +204,7 @@ endif()
 # include path is found regardless of what a target links, which on some
 # distributions covers Vulkan. tests/scripts/rhi_boundary_check.sh exists
 # because of that hole, not as a duplicate of this.
-file(GLOB neutral_headers CONFIGURE_DEPENDS
+file(GLOB neutral_headers
      ${CMAKE_CURRENT_SOURCE_DIR}/include/rhi/*.h)
 
 engine_header_self_containment(
