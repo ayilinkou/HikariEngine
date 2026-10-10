@@ -17,7 +17,7 @@ namespace
 {
 constexpr Core::LogCategory LogImageReader("Image Reader");
 
-/** What a capture is: four 8-bit channels, no padding between rows. */
+// What a capture is: four 8-bit channels, no padding between rows.
 constexpr int kBytesPerPixel = 4;
 } // namespace
 
@@ -46,6 +46,20 @@ std::optional<Image> ReadPng(const std::string& path)
 
     stbi_image_free(pixels);
     return image;
+}
+
+std::optional<ImageInfo> ReadImageInfo(const std::string& path, std::string& error)
+{
+    error.clear();
+    int width = 0, height = 0, channels = 0;
+    if (!stbi_info(path.c_str(), &width, &height, &channels) || width <= 0 || height <= 0 ||
+        channels < 1 || channels > 4)
+    {
+        error = std::format("{}: Failed to read supported 8-bit image metadata", path);
+        return std::nullopt;
+    }
+    return ImageInfo{{static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+                     static_cast<uint32_t>(channels)};
 }
 
 } // namespace Hikari::Asset

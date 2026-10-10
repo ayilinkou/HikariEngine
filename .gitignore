@@ -1,5 +1,6 @@
 compile_commands.json
 build/
+/cooked/
 *.spv
 imgui.ini
 content/models/sponza/**

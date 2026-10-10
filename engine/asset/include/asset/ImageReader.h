@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include <asset/ImageInfo.h>
 #include <core/Extent2D.h>
 
 namespace Hikari::Asset
@@ -32,5 +33,8 @@ struct Image
  * underneath them. Returns nothing and logs on failure.
  */
 [[nodiscard]] std::optional<Image> ReadPng(const std::string& path);
+
+// Inspect PNG/JPG dimensions and original channels; report failure through error.
+std::optional<ImageInfo> ReadImageInfo(const std::string& path, std::string& error);
 
 } // namespace Hikari::Asset

@@ -5,10 +5,11 @@
 #include <cctype>
 #include <cmath>
 #include <format>
-#include <unordered_set>
 #include <utility>
 
 #include <nlohmann/json.hpp>
+
+#include "SettingsJson.h"
 
 namespace Hikari::Asset
 {
@@ -151,6 +152,31 @@ std::string_view ToString(TextureCompression value)
 {
     return Name(value, kFormats);
 }
+std::string_view ToDisplayString(TextureCompression value)
+{
+    switch (value)
+    {
+        case TextureCompression::Auto:
+            return "auto";
+        case TextureCompression::BC1:
+            return "BC1";
+        case TextureCompression::BC2:
+            return "BC2";
+        case TextureCompression::BC3:
+            return "BC3";
+        case TextureCompression::BC4:
+            return "BC4";
+        case TextureCompression::BC4Signed:
+            return "BC4_S";
+        case TextureCompression::BC5:
+            return "BC5";
+        case TextureCompression::BC5Signed:
+            return "BC5_S";
+        case TextureCompression::BC7:
+            return "BC7";
+    }
+    return {};
+}
 std::string_view ToString(TextureColorSpace value)
 {
     return Name(value, kColorSpaces);
@@ -163,128 +189,85 @@ std::string_view ToString(TextureAlphaMode value)
 std::optional<TextureSettings>
 ParseTextureSettings(std::string_view text, std::string_view settingsPath, std::string& error)
 {
-    error.clear();
-    std::string currentField;
-    try
+    const auto parsedDocument = ParseSettingsJson(text, settingsPath, error);
+    if (!parsedDocument)
+        return std::nullopt;
+    const Json& document = *parsedDocument;
+    for (const auto& [key, value] : document.items())
     {
-        // json's default object parser replaces duplicate keys. Reject them so
-        // two conflicting settings cannot silently pick the last occurrence.
-        std::vector<std::unordered_set<std::string>> keys;
-        std::string duplicate;
-        const auto callback = [&](int, Json::parse_event_t event, Json& value)
+        (void)value;
+        if (std::find(kFields.begin(), kFields.end(), key) == kFields.end())
         {
-            if (event == Json::parse_event_t::object_start)
-                keys.emplace_back();
-            else if (event == Json::parse_event_t::object_end)
-                keys.pop_back();
-            else if (event == Json::parse_event_t::key)
-            {
-                const auto key = value.get<std::string>();
-                currentField = key;
-                if (!keys.back().insert(key).second && duplicate.empty())
-                    duplicate = key;
-            }
-            return true;
-        };
-        const Json document = Json::parse(text, callback);
-        if (!duplicate.empty())
-        {
-            error = FieldError(settingsPath, duplicate, "Duplicate field");
+            error = FieldError(settingsPath, key, "Unknown field");
             return std::nullopt;
         }
-        if (!document.is_object())
-        {
-            error = std::format("{}: Texture settings must be a JSON object", settingsPath);
-            return std::nullopt;
-        }
-        for (const auto& [key, value] : document.items())
-        {
-            (void)value;
-            if (std::find(kFields.begin(), kFields.end(), key) == kFields.end())
-            {
-                error = FieldError(settingsPath, key, "Unknown field");
-                return std::nullopt;
-            }
-        }
-        if (!document.contains("version") || !document.at("version").is_number_integer())
-        {
-            error = FieldError(settingsPath, "version", "Required integer schema version 1");
-            return std::nullopt;
-        }
-        if (document.at("version") != 1)
-        {
-            error = FieldError(settingsPath, "version",
-                               std::format("Unsupported schema version {}; expected 1",
-                                           document.at("version").dump()));
-            return std::nullopt;
-        }
-
-        TextureSettings settings;
-        const auto readEnum =
-            [&](std::string_view field, auto parse, auto& target, std::string_view expected)
-        {
-            const auto found = document.find(std::string(field));
-            if (found == document.end())
-                return true;
-            const auto parsed =
-                found->is_string() ? parse(found->get<std::string>()) : std::nullopt;
-            if (!parsed)
-            {
-                error = FieldError(settingsPath, field, expected);
-                return false;
-            }
-            target = *parsed;
-            return true;
-        };
-        if (!readEnum("usage", ParseTextureUsage, settings.Usage,
-                      "Expected color, normal, scalar or packed") ||
-            !readEnum("format", ParseTextureCompression, settings.Format,
-                      "Expected auto, bc1, bc2, bc3, bc4, bc4_s, bc5, bc5_s or bc7") ||
-            !readEnum("colorSpace", ParseTextureColorSpace, settings.ColorSpace,
-                      "Expected auto, linear or srgb") ||
-            !readEnum("alphaMode", ParseTextureAlphaMode, settings.AlphaMode,
-                      "Expected opaque or mask"))
-            return std::nullopt;
-
-        const auto readBool = [&](std::string_view field, bool& target)
-        {
-            const auto found = document.find(std::string(field));
-            if (found == document.end())
-                return true;
-            if (!found->is_boolean())
-            {
-                error = FieldError(settingsPath, field, "Expected true or false");
-                return false;
-            }
-            target = found->get<bool>();
-            return true;
-        };
-        if (!readBool("mipmaps", settings.bMipmaps) ||
-            !readBool("flipNormalY", settings.bFlipNormalY))
-            return std::nullopt;
-        if (document.contains("alphaCutoff"))
-        {
-            if (!document.at("alphaCutoff").is_number())
-            {
-                error =
-                    FieldError(settingsPath, "alphaCutoff", "Expected a finite number in [0, 1]");
-                return std::nullopt;
-            }
-            settings.AlphaCutoff = document.at("alphaCutoff").get<double>();
-        }
-        if (!ValidateSchema(settings, settingsPath, error))
-            return std::nullopt;
-        return settings;
     }
-    catch (const Json::exception& exception)
+    if (!document.contains("version") || !document.at("version").is_number_integer())
     {
-        if (exception.id == 406 && !currentField.empty())
-            error = FieldError(settingsPath, currentField,
-                               "Number is outside the supported finite range");
-        else
-            error = std::format("{}: Invalid JSON: {}", settingsPath, exception.what());
+        error = FieldError(settingsPath, "version", "Required integer schema version 1");
         return std::nullopt;
     }
+    if (document.at("version") != 1)
+    {
+        error = FieldError(settingsPath, "version",
+                           std::format("Unsupported schema version {}; expected 1",
+                                       document.at("version").dump()));
+        return std::nullopt;
+    }
+
+    TextureSettings settings;
+    const auto readEnum =
+        [&](std::string_view field, auto parse, auto& target, std::string_view expected)
+    {
+        const auto found = document.find(std::string(field));
+        if (found == document.end())
+            return true;
+        const auto parsed = found->is_string() ? parse(found->get<std::string>()) : std::nullopt;
+        if (!parsed)
+        {
+            error = FieldError(settingsPath, field, expected);
+            return false;
+        }
+        target = *parsed;
+        return true;
+    };
+    if (!readEnum("usage", ParseTextureUsage, settings.Usage,
+                  "Expected color, normal, scalar or packed") ||
+        !readEnum("format", ParseTextureCompression, settings.Format,
+                  "Expected auto, BC1, BC2, BC3, BC4, BC4_S, BC5, BC5_S or BC7") ||
+        !readEnum("colorSpace", ParseTextureColorSpace, settings.ColorSpace,
+                  "Expected auto, linear or srgb") ||
+        !readEnum("alphaMode", ParseTextureAlphaMode, settings.AlphaMode,
+                  "Expected opaque or mask"))
+        return std::nullopt;
+
+    const auto readBool = [&](std::string_view field, bool& target)
+    {
+        const auto found = document.find(std::string(field));
+        if (found == document.end())
+            return true;
+        if (!found->is_boolean())
+        {
+            error = FieldError(settingsPath, field, "Expected true or false");
+            return false;
+        }
+        target = found->get<bool>();
+        return true;
+    };
+    if (!readBool("mipmaps", settings.bMipmaps) || !readBool("flipNormalY", settings.bFlipNormalY))
+        return std::nullopt;
+    if (document.contains("alphaCutoff"))
+    {
+        if (!document.at("alphaCutoff").is_number())
+        {
+            error = FieldError(settingsPath, "alphaCutoff", "Expected a finite number in [0, 1]");
+            return std::nullopt;
+        }
+        settings.AlphaCutoff = document.at("alphaCutoff").get<double>();
+    }
+    if (!ValidateSchema(settings, settingsPath, error))
+        return std::nullopt;
+    return settings;
 }
 
 std::optional<std::string> SerializeTextureSettings(const TextureSettings& settings,
@@ -388,7 +371,7 @@ ResolveTextureSettings(const TextureSettings& saved, const TextureSettingsOverri
         (resolved.Format == TextureCompression::BC2 || resolved.Format == TextureCompression::BC3 ||
          resolved.Format == TextureCompression::BC4Signed ||
          resolved.Format == TextureCompression::BC5Signed))
-        return fail("format", "New image encoding supports bc1, bc4, bc5 and bc7; bc2/bc3 and "
+        return fail("format", "New image encoding supports BC1, BC4, BC5 and BC7; BC2/BC3 and "
                               "signed formats require compressed DDS input");
     if (authored.Usage == TextureUsage::Normal)
     {
@@ -421,7 +404,7 @@ ResolveTextureSettings(const TextureSettings& saved, const TextureSettingsOverri
                                        settingsPath, message));
     };
     if (source.bSettingsMissing && !overrides.Usage)
-        warn("No saved usage: assuming color. Usage is never inferred from pixels.");
+        warn("No saved usage: assuming color.");
     if (source.bDds && !source.NativeColorSpace && authored.ColorSpace == TextureColorSpace::Auto)
         warn(std::format("DDS has no explicit colour-space metadata; assuming {} from usage {}.",
                          ToString(resolved.ColorSpace), ToString(authored.Usage)));
@@ -441,14 +424,14 @@ ResolveTextureSettings(const TextureSettings& saved, const TextureSettingsOverri
         warn(std::format(
             "Format {} stores {} colour/data channels; remaining source colour/data channels "
             "will be discarded.",
-            ToString(resolved.Format), StoredColorChannels(resolved.Format)));
+            ToDisplayString(resolved.Format), StoredColorChannels(resolved.Format)));
     const bool bSourceHasAlpha = source.NativeFormat ? HasAlpha(*source.NativeFormat)
                                                      : source.Channels == 2 || source.Channels == 4;
     if (bProcessesPixels && bSourceHasAlpha &&
         (!HasAlpha(resolved.Format) || (resolved.Format == TextureCompression::BC1 &&
                                         resolved.AlphaMode == TextureAlphaMode::Opaque)))
         warn(std::format("Format {} with alphaMode {} discards the source alpha channel.",
-                         ToString(resolved.Format), ToString(resolved.AlphaMode)));
+                         ToDisplayString(resolved.Format), ToString(resolved.AlphaMode)));
     if ((authored.Usage == TextureUsage::Scalar || authored.Usage == TextureUsage::Packed) &&
         resolved.ColorSpace == TextureColorSpace::Srgb)
         warn("Material data is configured as sRGB; check whether colorSpace should be linear.");

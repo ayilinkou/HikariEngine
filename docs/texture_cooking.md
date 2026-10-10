@@ -1,7 +1,7 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC2 implemented; Linux verification complete, native Windows verification
-pending the manual Windows boot. TC3 is next.** Runs after the
+**Stage 7.8 — TC1–TC3 implemented; Linux verification complete, native Windows verification
+pending the manual Windows boot. TC4 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -320,6 +320,11 @@ Implemented and verified on Linux. Native Windows verification is pending manual
 - **Size:** M · **Needs:** TC1; TC-D14.
 
 ### TC3. Cooker service, paths and CLI shell
+
+Implemented and verified on Linux. Native Windows verification is pending manual testing.
+`--dry-run` previews validated image/cubemap requests without writes. Encoding, DDS metadata
+reading and recursive batch cooking remain the later steps' work; the CLI reports failure
+for these operations until available.
 
 - **Do:** Add CPU-only cooking service contracts in the asset/tool layer and a standalone
   `HikariTextureCooker` entry point. Implement single-file path mapping, source-root

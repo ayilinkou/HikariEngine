@@ -23,3 +23,18 @@ foreach(app_name IN ITEMS HikariEditor HikariHeadless)
   hikari_deploy_d3d12(${app_name})
   add_dependencies(${app_name} CompileShadersTarget)
 endforeach()
+
+# CLI parsing is shared with its tests; the asset service remains independent
+# of Platform, and neither target links the engine, editor, RHI or shader build.
+add_library(TextureCookerCli STATIC texture_cooker/TextureCookerCli.cpp)
+target_include_directories(TextureCookerCli PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/texture_cooker)
+target_link_libraries(TextureCookerCli PUBLIC Engine::Asset Engine::Platform)
+engine_set_warnings(TextureCookerCli)
+
+add_executable(HikariTextureCooker texture_cooker/main.cpp)
+target_link_libraries(HikariTextureCooker PRIVATE TextureCookerCli SanitizerShims)
+set_target_properties(HikariTextureCooker PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${HIKARI_EXE_DIR})
+target_compile_definitions(HikariTextureCooker PRIVATE
+  HIKARI_COOKER_CONTENT_DIR="${CMAKE_SOURCE_DIR}/content")
+engine_set_warnings(HikariTextureCooker)
+hikari_apply_build_options(HikariTextureCooker)

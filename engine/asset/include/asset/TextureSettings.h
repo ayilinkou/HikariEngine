@@ -70,6 +70,8 @@ std::optional<TextureAlphaMode> ParseTextureAlphaMode(std::string_view value);
 
 std::string_view ToString(TextureUsage value);
 std::string_view ToString(TextureCompression value);
+// Display BC names in uppercase while keeping canonical settings tokens unchanged.
+std::string_view ToDisplayString(TextureCompression value);
 std::string_view ToString(TextureColorSpace value);
 std::string_view ToString(TextureAlphaMode value);
 

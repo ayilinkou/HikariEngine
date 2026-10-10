@@ -46,9 +46,20 @@ engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
   LIBS Engine::Platform)
 
 engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
-  unit/asset/ImageReaderTests.cpp unit/asset/TextureSettingsTests.cpp LIBS Engine::Asset)
+  unit/asset/ImageReaderTests.cpp unit/asset/TextureSettingsTests.cpp
+  unit/asset/TextureCookerTests.cpp LIBS Engine::Asset)
+target_include_directories(asset_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 target_compile_definitions(asset_tests PRIVATE
   HIKARI_TEXTURE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/textures/")
+
+engine_test(texture_cooker_cli_tests SOURCES unit/asset/TextureCookerCliTests.cpp
+  LIBS TextureCookerCli)
+target_include_directories(texture_cooker_cli_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
+add_dependencies(texture_cooker_cli_tests HikariTextureCooker)
+add_test(NAME texture_cooker_help COMMAND HikariTextureCooker --help)
+set_tests_properties(texture_cooker_help PROPERTIES LABELS "unit"
+  PASS_REGULAR_EXPRESSION "Usage: HikariTextureCooker"
+  ENVIRONMENT "DISPLAY=;WAYLAND_DISPLAY=;VK_DRIVER_FILES=${CMAKE_CURRENT_BINARY_DIR}/no-cooker-driver.json")
 
 # A CPU-only dependency gate. CMake drives child processes and the helper checks
 # actual pixels, native format metadata and libktx block round trips. Neither
