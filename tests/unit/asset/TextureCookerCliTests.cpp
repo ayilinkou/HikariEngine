@@ -197,7 +197,7 @@ TEST_CASE("CLI cubemaps use descriptor identity and explicit face labels", "[tex
     CHECK(Run({"cooker", "cook", "sky/sky.cubemap.json", "--source-root",
                fixture.Content().string(), "--dry-run"},
               fixture.Content(), output, error) == 0);
-    CHECK(Contains(output, (fixture.Cooked() / "sky/sky.cubemap.ktx2").string()));
+    CHECK(Contains(output, (fixture.Cooked() / "sky/sky.cubemap.ktx2").make_preferred().string()));
     CHECK(Contains(output, "positiveX: " + fixture.Source("sky/right.png").string()));
     CHECK(Contains(output, "negativeZ: " + fixture.Source("sky/front.png").string()));
     CHECK(TextureCookFixture::ReadText(descriptor) == before);

@@ -26,6 +26,8 @@ public:
                      ("hikari cooker test " + std::to_string(random()));
             if (std::filesystem::create_directory(m_Root))
             {
+                // The cooker canonicalizes aliases such as Windows short names and symlinks.
+                m_Root = std::filesystem::canonical(m_Root);
                 std::filesystem::create_directory(Content());
                 return;
             }
@@ -46,7 +48,10 @@ public:
     const std::filesystem::path& Root() const { return m_Root; }
     std::filesystem::path Content() const { return m_Root / "content"; }
     std::filesystem::path Cooked() const { return m_Root / "cooked"; }
-    std::filesystem::path Source(std::string_view path) const { return Content() / path; }
+    std::filesystem::path Source(std::string_view path) const
+    {
+        return (Content() / path).make_preferred();
+    }
     Hikari::Asset::TextureCooker Cooker() const { return Hikari::Asset::TextureCooker(Content()); }
 
     std::filesystem::path WriteImage(std::string_view name, uint32_t width = 4,
