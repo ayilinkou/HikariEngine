@@ -139,7 +139,6 @@ function(add_slang_shader_target target)
       # so editing one header rebuilds only the shaders that include it.
       add_custom_command(
         OUTPUT ${output_file}
-        COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${output_rel}"
         COMMAND ${CMAKE_COMMAND} -E make_directory ${shaders_out_dir}
         COMMAND ${CMAKE_COMMAND} -E make_directory
           ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>
@@ -173,7 +172,6 @@ function(add_slang_shader_target target)
 
       add_custom_command(
         OUTPUT ${dxil_file}
-        COMMAND ${CMAKE_COMMAND} -E echo "Compiling ${base_path}${stage_suffix}.dxil"
         COMMAND ${CMAKE_COMMAND} -E make_directory ${shaders_out_dir}
         COMMAND ${CMAKE_COMMAND} -E make_directory
           ${CMAKE_CURRENT_BINARY_DIR}/shader_deps/$<CONFIG>
@@ -202,7 +200,7 @@ function(add_slang_shader_target target)
   add_custom_target(${target} ALL DEPENDS ${spv_outputs})
 endfunction()
 
-file(GLOB_RECURSE shader_slang_sources CONFIGURE_DEPENDS
+file(GLOB_RECURSE shader_slang_sources
      ${CMAKE_SOURCE_DIR}/engine/engine/src/shaders/*.slang)
 
 add_slang_shader_target(CompileShadersTarget SOURCES ${shader_slang_sources})
