@@ -31,7 +31,7 @@ endif()
 project(
   HikariEngine
   VERSION 1.0
-  LANGUAGES CXX)
+  LANGUAGES C CXX)
 
 option(ENGINE_BUILD_TESTS "Build unit tests" ON)
 option(ENABLE_SANITIZERS "Enable ASan (and UBSan when available)" OFF)
@@ -74,6 +74,7 @@ find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(pugixml CONFIG REQUIRED)
 include(cmake/D3D12.cmake)
+include(cmake/TextureTools.cmake)
 
 include(FetchContent)
 FetchContent_Declare(

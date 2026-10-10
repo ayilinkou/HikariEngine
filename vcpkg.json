@@ -66,6 +66,11 @@
       "host": true
     },
     "catch2",
-    "nlohmann-json"
+    "nlohmann-json",
+    "ktx",
+    {
+      "name": "compressonator",
+      "host": true
+    }
   ]
 }

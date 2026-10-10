@@ -1,6 +1,7 @@
 # Texture cooking
 
-**Stage 7.8 — design interview complete; implementation not started.** Runs after the
+**Stage 7.8 — TC1 implemented; Linux verification complete, native Windows verification
+pending the manual Windows boot. TC2 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -17,9 +18,7 @@ the agreed scope. Stage-local TC numbers do not renumber the architecture plan's
 
 ## 1. Design decisions
 
-Decision identifiers TC-D1–TC-D14 are stable references for the tasks below. TC-D13
-includes an acquisition/capability investigation; it does not claim those dependencies are
-verified.
+Decision identifiers TC-D1–TC-D14 are stable references for the tasks below.
 
 **TC-D1 — Native BC KTX2 through the neutral RHI.**
 
@@ -294,11 +293,14 @@ requires explicit approval, even though rendering changes are expected in this s
 
 ### TC1. Resolve tool capabilities and dependency acquisition
 
-- **Do:** Pin libktx and Compressonator, automate host-tool acquisition/build on Windows
+Implemented and verified on Linux. Native Windows verification is pending manual testing.
+
+- **Do:** Use libktx from the pinned vcpkg baseline and pin Compressonator; automate
+  host-tool acquisition/build on Windows
   and Linux as part of normal project setup, and establish CPU encode/decode coverage for
   the selected BC formats. Probe mip filtering, signed formats, supported dimensions and
-  alpha handling. Record exact versions, licenses, acquisition and any gaps requiring our
-  own filtering. Keep tools out of the RHI.
+  alpha handling. Keep capability constraints in the relevant tests and code. Keep tools
+  out of the RHI.
 - **Verify:** Clean dependency setup on both hosts; cook/decode tiny representative
   fixtures without starting the engine or initializing graphics. Existing application
   unchanged.

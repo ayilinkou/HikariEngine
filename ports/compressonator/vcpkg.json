@@ -1,0 +1,8 @@
+{
+  "name": "compressonator",
+  "version": "4.5.52",
+  "description": "Pinned CPU texture encoder/decoder host tool from AMD's official release archives",
+  "homepage": "https://github.com/GPUOpen-Tools/compressonator",
+  "license": "MIT",
+  "supports": "x64 & (windows | linux) & !uwp"
+}
