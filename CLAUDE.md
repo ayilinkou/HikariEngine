@@ -52,7 +52,10 @@ document taken a decision that now conflicts with one of its own. It may end in 
 proceed" **only if all four come back clean**. If any of them moved, grill whatever they
 touched properly rather than noting it in a commit message.
 
-**Verify every change with `scripts/precommit.sh`** (configure + build + build tests +
+**Documentation-only changes do not require `scripts/precommit.sh`.** Review the text and
+links and run `git diff --check` instead.
+
+**Verify all other changes with `scripts/precommit.sh`** (configure + build + build tests +
 `ctest -L unit` + `ctest -L gpu` + format-check) before reporting a change as done. It is a
 superset of CI: everything CI enforces, plus the GPU tests, which CI's runners cannot run
 because they have no Vulkan ICD. The GPU tests skip
