@@ -1,7 +1,7 @@
 # Texture cooking
 
-**Stage 7.8 — TC1 implemented; Linux verification complete, native Windows verification
-pending the manual Windows boot. TC2 is next.** Runs after the
+**Stage 7.8 — TC1–TC2 implemented; Linux verification complete, native Windows verification
+pending the manual Windows boot. TC3 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -307,6 +307,8 @@ Implemented and verified on Linux. Native Windows verification is pending manual
 - **Size:** M · **Needs:** TC-D13 investigation.
 
 ### TC2. Texture settings schema and validation
+
+Implemented and verified on Linux. Native Windows verification is pending manual testing.
 
 - **Do:** Add versioned settings parsing, effective-default resolution, independent
   overrides, persistent positive-only flip semantics and actionable warnings/errors.

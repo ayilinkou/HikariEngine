@@ -46,7 +46,9 @@ engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
   LIBS Engine::Platform)
 
 engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
-  unit/asset/ImageReaderTests.cpp LIBS Engine::Asset)
+  unit/asset/ImageReaderTests.cpp unit/asset/TextureSettingsTests.cpp LIBS Engine::Asset)
+target_compile_definitions(asset_tests PRIVATE
+  HIKARI_TEXTURE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/textures/")
 
 # A CPU-only dependency gate. CMake drives child processes and the helper checks
 # actual pixels, native format metadata and libktx block round trips. Neither
@@ -70,8 +72,8 @@ engine_test(engine_tests SOURCES unit/engine/ParseEngineOptionTests.cpp
 
 # The layout test reads what Slang reflected out of the compiles that shipped,
 # so the shaders have to be built before it runs, and it needs to be told where
-# the JSON went. nlohmann-json is the same test-only dependency the comparison
-# uses.
+# the JSON went. It uses the same JSON library as texture settings and the
+# report comparison tool.
 target_link_libraries(engine_tests PRIVATE nlohmann_json::nlohmann_json)
 add_dependencies(engine_tests CompileShadersTarget)
 target_compile_definitions(

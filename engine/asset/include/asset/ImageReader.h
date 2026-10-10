@@ -19,13 +19,15 @@ struct Image
 {
     std::vector<uint8_t> Pixels;
     Core::Extent2D Extent;
+    // Original file channels, retained before forcing decoded pixels to RGBA.
+    uint32_t SourceChannels = 0;
 };
 
 /**
  * Decodes a PNG to 8-bit RGBA, whatever channel count the file itself carries.
  *
- * Forced to four channels rather than reporting the file's own: every caller
- * either compares against WritePng's output or re-encodes through it, and both
+ * Forced to four pixel channels: every caller either compares against
+ * WritePng's output or re-encodes through it, and both
  * are always RGBA, so a three-channel decode would silently change the stride
  * underneath them. Returns nothing and logs on failure.
  */

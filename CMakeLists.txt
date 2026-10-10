@@ -73,6 +73,7 @@ find_package(Stb REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(pugixml CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 include(cmake/D3D12.cmake)
 include(cmake/TextureTools.cmake)
 
@@ -165,12 +166,6 @@ if(ENGINE_BUILD_TESTS)
   enable_testing()
   find_package(Catch2 CONFIG REQUIRED)
 
-  # Test-only, like Catch2: the comparison tool reads run reports with it. Its
-  # at() throws and names the missing key, where rapidjson's operator[] asserts
-  # through RAPIDJSON_ASSERT — which is assert, and therefore gone in a release
-  # build, leaving the unsafe path as the default one in the configuration
-  # nothing would catch it in.
-  find_package(nlohmann_json CONFIG REQUIRED)
   include(cmake/Testing.cmake)
   add_subdirectory(tests)
 endif()

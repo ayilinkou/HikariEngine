@@ -41,7 +41,8 @@ std::optional<Image> ReadPng(const std::string& path)
         static_cast<size_t>(width) * static_cast<size_t>(height) * kBytesPerPixel;
 
     Image image{.Pixels = std::vector<uint8_t>(pixels, pixels + byteCount),
-                .Extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)}};
+                .Extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)},
+                .SourceChannels = static_cast<uint32_t>(channelsInFile)};
 
     stbi_image_free(pixels);
     return image;
