@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <exception>
 #include <format>
 #include <system_error>
 #include <utility>
@@ -9,6 +10,10 @@
 #include <asset/ImageReader.h>
 
 #include "CookFileUtil.h"
+#include "CookHash.h"
+#include "CookLock.h"
+#include "CookPublication.h"
+#include "CookRecord.h"
 
 namespace Hikari::Asset
 {
@@ -223,17 +228,98 @@ bool TextureCooker::SaveSettings(const PreparedTextureCook& prepared, std::strin
 
 TextureCookResult TextureCooker::Cook(const TextureCookRequest& request) const
 {
+    return Cook(request, TextureCookEncoder{});
+}
+
+TextureCookResult TextureCooker::Cook(const TextureCookRequest& request,
+                                      const TextureCookEncoder& encoder) const
+{
     TextureCookResult result;
-    const auto prepared = Prepare(request, result.Error, result.Warnings);
+    auto prepared = Prepare(request, result.Error, result.Warnings);
     if (!prepared)
         return result;
     result.Output = prepared->Paths.CookedPath;
-    if (!CheckCookOutputDirectory(result.Output.parent_path(), result.Error) ||
-        !SaveSettings(*prepared, result.Error))
+    if (!CheckCookOutputDirectory(result.Output.parent_path(), result.Error))
         return result;
-    // Only encoding/publication may report Cooked or Skipped. Preparing settings
-    // does not establish that a usable KTX2 exists or that an old asset is fresh.
-    result.Error = "Texture encoding is not available yet; no cooked output was produced";
+    const auto lock = CookLock::Acquire(result.Output, result.Error);
+    if (!lock || !CookPublication::Recover(prepared->Paths, result.Error))
+        return result;
+    // A waiter must reread settings after acquiring the lock: another request
+    // may have just persisted overrides and published this very output.
+    prepared = Prepare(request, result.Error, result.Warnings);
+    if (!prepared || !SaveSettings(*prepared, result.Error))
+        return result;
+    const auto warnings = result.Warnings;
+    auto persistedRequest = request;
+    persistedRequest.Overrides = {};
+    prepared = Prepare(persistedRequest, result.Error, result.Warnings);
+    result.Warnings = warnings;
+    if (!prepared)
+        return result;
+    const auto fingerprint = FingerprintTextureCook(*prepared, encoder.Versions, result.Error);
+    if (!fingerprint)
+        return result;
+    if (!request.bForce &&
+        IsCookCurrent(result.Output, prepared->Paths.RecordPath, *fingerprint, encoder.Versions))
+    {
+        result.Status = TextureCookStatus::Skipped;
+        return result;
+    }
+    if (!encoder.Encode)
+    {
+        result.Error = "Texture encoding is not available yet; no cooked output was produced";
+        return result;
+    }
+    const auto publication = CookPublication::Begin(prepared->Paths, result.Error);
+    if (!publication)
+        return result;
+    try
+    {
+        if (!encoder.Encode(*prepared, publication->OutputPath(), result.Error))
+        {
+            if (result.Error.empty())
+                result.Error = "Texture encoder failed; previous cooked output was retained";
+            return result;
+        }
+    }
+    catch (const std::exception& exception)
+    {
+        result.Error = std::format("Texture encoder failed: {}", exception.what());
+        return result;
+    }
+    if (!ValidateCookOutput(*prepared, publication->OutputPath(), result.Error))
+        return result;
+    // Never publish under a fingerprint computed before intervening edits.
+    std::vector<std::string> ignoredWarnings;
+    const auto latest = Prepare(persistedRequest, result.Error, ignoredWarnings);
+    if (!latest)
+        return result;
+    const auto latestFingerprint = FingerprintTextureCook(*latest, encoder.Versions, result.Error);
+    if (!latestFingerprint)
+        return result;
+    if (*latestFingerprint != *fingerprint)
+    {
+        result.Error = std::format("{}: Inputs or settings changed during cooking; retry cooking",
+                                   prepared->Paths.SourcePath.string());
+        return result;
+    }
+    const auto outputHash = HashCookFile(publication->OutputPath(), result.Error);
+    if (!outputHash ||
+        !publication->Stage({*fingerprint, *outputHash, encoder.Versions}, result.Error))
+        return result;
+    if (!publication->PublishOutput(result.Error) || !publication->PublishRecord(result.Error))
+    {
+        std::string recoveryError;
+        if (!CookPublication::Recover(prepared->Paths, recoveryError))
+            result.Error += " Recovery pending: " + recoveryError;
+        return result;
+    }
+    // The record is the commit marker. Cleanup failure can be retried on the
+    // next request without misreporting an intact committed asset as failed.
+    std::string cleanupError;
+    if (!CookPublication::Recover(prepared->Paths, cleanupError))
+        result.Warnings.push_back(cleanupError);
+    result.Status = TextureCookStatus::Cooked;
     return result;
 }
 

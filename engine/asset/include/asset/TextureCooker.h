@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <asset/PreparedTextureCook.h>
+#include <asset/TextureCookEncoder.h>
 #include <asset/TextureCookRequest.h>
 #include <asset/TextureCookResult.h>
 
@@ -25,6 +26,8 @@ public:
     // Check for authored edits since preparation before publishing validated settings.
     bool SaveSettings(const PreparedTextureCook& prepared, std::string& error) const;
     TextureCookResult Cook(const TextureCookRequest& request) const;
+    TextureCookResult Cook(const TextureCookRequest& request,
+                           const TextureCookEncoder& encoder) const;
 
 private:
     std::filesystem::path m_SourceRoot;

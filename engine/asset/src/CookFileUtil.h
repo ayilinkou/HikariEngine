@@ -14,5 +14,10 @@ std::optional<std::filesystem::path> RelativeCookPath(const std::filesystem::pat
 std::optional<std::string> ReadCookText(const std::filesystem::path& path, std::string& error);
 bool WriteCookText(const std::filesystem::path& path, std::string_view text, std::string& error);
 bool CheckCookOutputDirectory(const std::filesystem::path& directory, std::string& error);
+// Flush file bytes before publication, then atomically replace a file on the
+// same filesystem. Windows needs explicit replacement semantics.
+bool FlushCookFile(const std::filesystem::path& path, std::string& error);
+bool ReplaceCookFile(const std::filesystem::path& temporary,
+                     const std::filesystem::path& destination, std::string& error);
 
 } // namespace Hikari::Asset

@@ -47,10 +47,21 @@ engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
 
 engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
   unit/asset/ImageReaderTests.cpp unit/asset/TextureSettingsTests.cpp
-  unit/asset/TextureCookerTests.cpp LIBS Engine::Asset)
+  unit/asset/TextureCookerTests.cpp unit/asset/TextureCookIncrementalTests.cpp
+  LIBS Engine::Asset KTX::ktx Vulkan::Headers nlohmann_json::nlohmann_json)
 target_include_directories(asset_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
+target_include_directories(asset_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/asset/src)
 target_compile_definitions(asset_tests PRIVATE
-  HIKARI_TEXTURE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/textures/")
+  HIKARI_TEXTURE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/textures/"
+  HIKARI_TEXTURE_COOK_WORKER="$<TARGET_FILE:texture_cook_worker>")
+
+add_executable(texture_cook_worker tools/texture/TextureCookWorker.cpp)
+target_link_libraries(texture_cook_worker PRIVATE Engine::Asset KTX::ktx
+  Vulkan::Headers SanitizerShims)
+target_include_directories(texture_cook_worker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support
+  ${CMAKE_SOURCE_DIR}/engine/asset/src)
+engine_set_warnings(texture_cook_worker)
+add_dependencies(asset_tests texture_cook_worker)
 
 engine_test(texture_cooker_cli_tests SOURCES unit/asset/TextureCookerCliTests.cpp
   LIBS TextureCookerCli)

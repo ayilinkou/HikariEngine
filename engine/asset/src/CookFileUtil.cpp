@@ -7,6 +7,16 @@
 #include <system_error>
 #include <vector>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 namespace Hikari::Asset
 {
 
@@ -93,13 +103,7 @@ bool WriteCookText(const std::filesystem::path& path, std::string_view text, std
                                 path.string());
         else
         {
-            std::error_code ec;
-            // std::filesystem::rename replaces an existing file with POSIX
-            // rename semantics, including on MSVC; never truncate authored JSON.
-            std::filesystem::rename(temporary, path, ec);
-            bPublished = !ec;
-            if (ec)
-                error = std::format("{}: Cannot replace settings: {}", path.string(), ec.message());
+            bPublished = FlushCookFile(temporary, error) && ReplaceCookFile(temporary, path, error);
         }
     }
     std::error_code ignored;
@@ -128,6 +132,63 @@ bool CheckCookOutputDirectory(const std::filesystem::path& directory, std::strin
     if (ec)
     {
         error = std::format("{}: Cannot remove cooking scratch directory: {}", scratch->string(),
+                            ec.message());
+        return false;
+    }
+    return true;
+}
+
+bool FlushCookFile(const std::filesystem::path& path, std::string& error)
+{
+#ifdef _WIN32
+    const auto handle = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        error = std::format("{}: Cannot open file for flushing (Windows error {})", path.string(),
+                            GetLastError());
+        return false;
+    }
+    const bool success = FlushFileBuffers(handle) != 0;
+    const auto code = GetLastError();
+    CloseHandle(handle);
+#else
+    const int handle = open(path.c_str(), O_WRONLY | O_CLOEXEC);
+    if (handle < 0)
+    {
+        error = std::format("{}: Cannot open file for flushing: {}", path.string(),
+                            std::error_code(errno, std::generic_category()).message());
+        return false;
+    }
+    int status;
+    do
+        status = fsync(handle);
+    while (status < 0 && errno == EINTR);
+    const bool success = status == 0;
+    const int code = errno;
+    close(handle);
+#endif
+    if (!success)
+        error =
+            std::format("{}: Cannot flush file: {}", path.string(),
+                        std::error_code(static_cast<int>(code), std::system_category()).message());
+    return success;
+}
+
+bool ReplaceCookFile(const std::filesystem::path& temporary,
+                     const std::filesystem::path& destination, std::string& error)
+{
+    std::error_code ec;
+#ifdef _WIN32
+    if (!MoveFileExW(temporary.c_str(), destination.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+#else
+    std::filesystem::rename(temporary, destination, ec);
+#endif
+    if (ec)
+    {
+        error = std::format("{}: Cannot atomically replace file: {}", destination.string(),
                             ec.message());
         return false;
     }

@@ -1,7 +1,7 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC3 implemented; Linux verification complete, native Windows verification
-pending the manual Windows boot. TC4 is next.** Runs after the
+**Stage 7.8 — TC1–TC4 implemented; Linux verification complete, native Windows verification
+pending the manual Windows boot. TC5 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -337,6 +337,39 @@ for these operations until available.
 - **Size:** M · **Needs:** TC2; TC-D8, TC-D12.
 
 ### TC4. Fingerprints, cook records and safe publication
+
+Implemented and verified on Linux. Native Windows verification is pending manual testing.
+The CPU-only service now accepts a `TextureCookEncoder` that writes a temporary KTX2;
+TC5–TC9 supply the production encoding/repackaging implementations. Without one, the CLI
+still reports encoding unavailable for requests requiring new output. Source loading
+remains active.
+
+Fingerprints use streaming SHA-256 over source bytes, canonical effective settings, the
+pipeline version, Compressonator/libktx package versions and the actual stb decoder/writer
+header identities. Cubemap inputs include all six content hashes and their ordered,
+source-relative face assignments. Authored `auto` and equivalent explicit defaults share
+a fingerprint. Force/thread options, source timestamps and JSON layout are excluded.
+Cook records store the fingerprint, output hash and dependency identities; missing,
+invalid or mismatched records/outputs trigger recooking. Inputs/settings are checked again
+after encoding so intervening edits cannot publish under an earlier fingerprint.
+
+Each output has a persistent `.ktx2.lock` file, locked by the OS across threads/processes
+and automatically released on process termination. Do not delete lock files while cooking
+requests may be running. An adjacent `.ktx2.transaction/` holds temporary output, the new
+record, previous-file backups and a journal. Reopen temporary KTX2 with libktx and verify
+native format, dimensions, faces, mips and block footprints before publication. Flush staged
+files, replace output atomically, then replace the record as the commit marker. Recovery
+under the same lock retains a fully committed pair or restores both previous files;
+interrupted first publication removes the uncommitted output. Journal retirement precedes
+cleanup so cleanup interruption is recoverable too. These tests cover abrupt process
+termination; power-loss/filesystem durability guarantees are outside this verification.
+
+The tests use real native-block KTX2 fixtures and independent cooker processes, covering
+each publication boundary, failed replacements, simultaneous requests, damaged assets,
+invalidation and preservation of the previous successful files after failed encoding.
+Linux precommit passes (347 unit, 30 GPU and 13 scene tests). The 11 incremental cases also
+pass with display access disabled and an invalid Vulkan driver path. The existing rendering
+baseline comparison reports matching reports and identical pixels.
 
 - **Do:** Hash source bytes, canonical effective settings and tool/pipeline versions.
   Implement output verification, forced recooking, per-output locking, temporary-file
