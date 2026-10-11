@@ -305,6 +305,15 @@ EncodeTextureBlocks(const Image& image, TextureCompression format, uint32_t thre
                             padded->Pixels.data() + (size_t(y) * storage.Width + x) * 4);
             }
     }
+    if (format == TextureCompression::BC1 && alphaCutoff == 0)
+    {
+        // Every alpha meets a zero cutoff. The pinned CLI only accepts integer
+        // thresholds 1..255, so make this case opaque before invoking it.
+        if (!padded)
+            padded = image;
+        for (size_t pixel = 3; pixel < padded->Pixels.size(); pixel += 4)
+            padded->Pixels[pixel] = 255;
+    }
     const auto& pixels = padded ? *padded : image;
     if (!WritePng(pixels.Pixels, storage, input.string()))
     {
@@ -324,8 +333,13 @@ EncodeTextureBlocks(const Image& image, TextureCompression format, uint32_t thre
     }
     if (format == TextureCompression::BC1)
     {
+        // Compare normalized byte values directly: rounding cutoff * 255 can
+        // keep a texel below the cutoff, and multiplying can drift at equality.
+        int threshold = 1;
+        while (threshold < 255 && threshold / 255.0 < alphaCutoff)
+            ++threshold;
         arguments.push_back("-AlphaThreshold");
-        arguments.push_back(std::to_string(std::lround(alphaCutoff * 255)));
+        arguments.push_back(std::to_string(threshold));
     }
     arguments.push_back(CookPathUtf8(input));
     arguments.push_back(CookPathUtf8(output));

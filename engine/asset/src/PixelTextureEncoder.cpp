@@ -72,12 +72,6 @@ bool EncodeTexturePixels(const PreparedTextureCook& prepared, const std::filesys
     const bool bNormal = settings.Authored.Usage == TextureUsage::Normal;
     const bool bCompressed = prepared.Dds && prepared.Dds->IsCompressed();
     const bool bRetain = bCompressed && !settings.bRecompressExistingMips;
-    if (settings.AlphaMode == TextureAlphaMode::Mask && !bCompressed)
-    {
-        error = "Masked pixel encoding is not available yet (TC9); native DDS repackaging remains "
-                "supported";
-        return false;
-    }
     const auto extent = prepared.ImageMetadata.front().Extent;
     const uint32_t faces = prepared.Dds ? prepared.Dds->Faces : prepared.Descriptor ? 6 : 1;
     const uint32_t levels = settings.Authored.bMipmaps ? FullTextureMipCount(extent) : 1;

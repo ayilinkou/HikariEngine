@@ -1,5 +1,6 @@
 #include "CookKtxMetadata.h"
 
+#include <format>
 #include <string_view>
 
 #include <KHR/khr_df.h>
@@ -23,6 +24,16 @@ bool SetCookKtxMetadata(ktxTexture2* texture, const ResolvedTextureSettings& set
     if (!metadata(KTX_ORIENTATION_KEY, "rd") ||
         !metadata("HikariTextureUsage", ToString(settings.Authored.Usage)))
         return false;
+    // The cooking policy is separate from DDS alpha representation. Omit it
+    // when usage is unresolved rather than publishing an opaque assumption.
+    if (settings.bAlphaUsageKnown)
+    {
+        if (!metadata("HikariTextureAlphaMode", ToString(settings.AlphaMode)))
+            return false;
+        if (settings.AlphaMode == TextureAlphaMode::Mask &&
+            !metadata("HikariTextureAlphaCutoff", std::format("{}", settings.Authored.AlphaCutoff)))
+            return false;
+    }
     if (settings.Authored.Usage == TextureUsage::Normal)
     {
         // Signed BC5 samples XY directly; UNORM requires remapping to [-1, 1].

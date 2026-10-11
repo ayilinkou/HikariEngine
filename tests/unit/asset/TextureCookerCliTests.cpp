@@ -195,6 +195,36 @@ TEST_CASE("CLI masked options validate together before any settings or output wr
     CHECK_FALSE(fs::exists(fixture.Cooked()));
 }
 
+TEST_CASE("CLI masked cooking persists cutoff and no-mips through unchanged requests",
+          "[texture-cooker-cli][masked-cook]")
+{
+    TextureCookFixture fixture;
+    fixture.WriteImage("mask.png");
+    std::string output, error;
+    CHECK(Run({"cooker", "cook", "mask.png", "--source-root", fixture.Content().string(),
+               "--alpha-mode=mask", "--alpha-cutoff=0.75", "--format=bc1", "--no-mips",
+               "--threads=2"},
+              fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Cooked: "));
+    CHECK(fs::exists(fixture.Cooked() / "mask.png.ktx2"));
+    const auto settingsText = TextureCookFixture::ReadText(fixture.Source("mask.png.json"));
+    std::string parseError;
+    const auto saved =
+        Hikari::Asset::ParseTextureSettings(settingsText, "mask.png.json", parseError);
+    REQUIRE(saved);
+    CHECK(saved->AlphaMode == Hikari::Asset::TextureAlphaMode::Mask);
+    CHECK(saved->AlphaCutoff == 0.75);
+    CHECK_FALSE(saved->bMipmaps);
+    CHECK(Run({"cooker", "cook", "mask.png", "--source-root", fixture.Content().string()},
+              fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Unchanged: "));
+    CHECK(TextureCookFixture::ReadText(fixture.Source("mask.png.json")) == settingsText);
+    CHECK(Run({"cooker", "cook", "mask.png", "--source-root", fixture.Content().string(),
+               "--alpha-cutoff=0.5", "--threads=2"},
+              fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Cooked: "));
+}
+
 TEST_CASE("CLI cubemaps use descriptor identity and explicit face labels", "[texture-cooker-cli]")
 {
     TextureCookFixture fixture;

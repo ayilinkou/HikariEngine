@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC8 implemented. TC9 is next.** Runs after the
+**Stage 7.8 — TC1–TC9 implemented. TC10 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -143,10 +143,14 @@ without requiring source files or cook records.
 Support new PNG/JPG encoding to BC1, BC4, BC5 and BC7. BC1 is a manual storage/quality
 tradeoff, not the colour default. Explicit `alphaMode: mask` / `--alpha-mode mask` enables
 binary-alpha BC1 encoding, with `alphaCutoff` / `--alpha-cutoff` defaulting to 0.5.
+Texels whose normalized alpha meets the cutoff are opaque, including equality and the
+0/1 endpoints. BC7 retains varying alpha. KTX2 records known alpha policy and masked
+cutoff; unresolved DDS alpha usage remains unspecified.
 `--no-mips` persists `mipmaps: false` and outputs only the base level, including for DDS.
 Until the alpha-mask follow-up lands, reject requests to generate masked mips, explaining
 `--no-mips`; supplied DDS mips may be preserved. BC7 RGBA storage is supported, but
 coverage-preserving mip processing and explicit material cutoff integration are deferred.
+The current renderer uses a fixed `0.01` alpha-test cutoff independently of cooking settings.
 
 **TC-D8 — Explicit cubemap descriptors and cross-face mip filtering.**
 
@@ -327,7 +331,7 @@ Implemented.
 Implemented.
 `--dry-run` previews validated image/cubemap requests without writes. TC5 adds DDS metadata
 reading and native repackaging; TC6 adds colour/material-data pixel encoding and TC7 adds
-normal encoding. Mask encoding and recursive batch cooking remain later steps' work.
+normal encoding. TC9 adds masked encoding; recursive batch cooking remains later work.
 
 - **Do:** Add CPU-only cooking service contracts in the asset/tool layer and a standalone
   `HikariTextureCooker` entry point. Implement single-file path mapping, source-root
@@ -384,9 +388,8 @@ footprints include odd edges and chains continue through 1×1 without resizing.
 
 Pixel DDS supports common RGB/BGR/RGBA/BGRA/RGBX/BGRX layouts with bounded byte/DWORD row
 packing. Supplied pixel levels are encoded as authored; missing 2D levels use the shared
-filter. TC8 adds cross-face filtering for generated cubemap mips. Masked encoding remains
-TC9 work. Higher precision/HDR,
-unusual layouts and pixel dimensions above 16,384 are rejected.
+filter. TC8 adds cross-face filtering for generated cubemap mips and TC9 adds masked
+encoding. Higher precision/HDR, unusual layouts and pixel dimensions above 16,384 are rejected.
 
 - **Do:** Encode PNG/JPG to BC1/BC4/BC5/BC7 as allowed by usage/settings. Establish scalar
   channel mapping, packed-channel retention, linear-light colour mip filtering and
@@ -440,7 +443,12 @@ is rejected; unresolved alpha uses ordinary filtering with a coverage-risk warni
   unchanged and the coverage-risk warning identifies the affected asset/settings.
 - **Size:** M–L · **Needs:** TC5–TC7; TC-D8, TC-D11.
 
-### TC9. Base-only masked texture cooking — NEXT
+### TC9. Base-only masked texture cooking
+
+Implemented. Masked pixels encode to base-only BC1 binary alpha or BC7 varying alpha.
+Known policy and masked cutoff are stored as `HikariTextureAlphaMode` and
+`HikariTextureAlphaCutoff`; unknown DDS alpha policy is omitted. Generated masked mips
+and material-cutoff integration remain follow-ups.
 
 - **Do:** Implement explicit opaque/mask modes, cutoff validation, BC1 binary-alpha
   encoding and `--no-mips`. Keep BC7 varying-alpha storage. Identify material-cutoff
@@ -449,7 +457,7 @@ is rejected; unresolved alpha uses ordinary filtering with a coverage-risk warni
   alpha loss warns/errors as specified; requests to generate masked mips fail clearly.
 - **Size:** S–M · **Needs:** TC6, TC8.
 
-### TC10. Recursive batch cooking and CMake target
+### TC10. Recursive batch cooking and CMake target — NEXT
 
 - **Do:** Discover supported source files recursively, preserve each settings file or
   create defaults, check fingerprints and cook serially. Exclude generated roots,
