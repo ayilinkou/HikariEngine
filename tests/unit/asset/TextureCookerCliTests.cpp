@@ -276,3 +276,29 @@ TEST_CASE("CLI incomplete DDS chains report mip generation limits and allow base
     CHECK(Run(args, fixture.Content(), output, error) == 0);
     CHECK(Contains(output, "Cooked: "));
 }
+
+TEST_CASE("CLI color and scalar images cook real full and base-only KTX2 outputs",
+          "[texture-cooker-cli]")
+{
+    TextureCookFixture fixture;
+    fixture.WriteImage("color.png", 7, 5);
+    std::string output, error;
+    std::vector<std::string> args{
+        "cooker", "cook", "color.png", "--source-root", fixture.Content().string(), "--threads=2"};
+    CHECK(Run(args, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Cooked: "));
+    CHECK(fs::exists(fixture.Cooked() / "color.png.ktx2"));
+    CHECK(Run(args, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Unchanged: "));
+    args.push_back("--usage=scalar");
+    args.push_back("--no-mips");
+    CHECK(Run(args, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Cooked: "));
+    std::string parseError;
+    const auto saved = Hikari::Asset::ParseTextureSettings(
+        TextureCookFixture::ReadText(fixture.Source("color.png.json")), "color.png.json",
+        parseError);
+    REQUIRE(saved);
+    CHECK(saved->Usage == Hikari::Asset::TextureUsage::Scalar);
+    CHECK_FALSE(saved->bMipmaps);
+}

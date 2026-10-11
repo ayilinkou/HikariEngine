@@ -462,10 +462,10 @@ TEST_CASE("DDS rejects malformed and unsupported headers before saving settings 
         dds.SetWord(128, 95);
         expected = "HDR";
     }
-    SECTION("8-bit DDS")
+    SECTION("truncated 8-bit DDS")
     {
         dds.SetWord(128, 28);
-        expected = "TC6";
+        expected = "payload";
     }
     SECTION("unknown format")
     {

@@ -358,7 +358,7 @@ TEST_CASE("Cooker failures preserve files and never claim preparation is a cooke
     }
     SECTION("encoder unavailable")
     {
-        const auto result = fixture.Cooker().Cook({.Source = "image.png"});
+        const auto result = fixture.Cooker().Cook({.Source = "image.png"}, TextureCookEncoder{});
         CHECK(result.Status == TextureCookStatus::Failed);
         CHECK(Contains(result.Error, "Texture encoding is not available"));
         CHECK(fs::exists(fixture.Source("image.png.json")));

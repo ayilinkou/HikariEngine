@@ -4,6 +4,8 @@ build/
 *.spv
 imgui.ini
 content/models/sponza/**
+content/models/bistro/**
+content/models/san_miguel/**
 .cache/
 tests/screenshots/
 tests/reports/

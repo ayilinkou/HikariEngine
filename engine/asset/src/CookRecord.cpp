@@ -17,7 +17,7 @@ namespace Hikari::Asset
 
 TextureCookVersions DefaultTextureCookVersions()
 {
-    return {"tc5-1", HIKARI_COOK_COMPRESSONATOR_VERSION, HIKARI_COOK_KTX_VERSION,
+    return {"tc6-1", HIKARI_COOK_COMPRESSONATOR_VERSION, HIKARI_COOK_KTX_VERSION,
             HIKARI_COOK_STB_IDENTITY};
 }
 

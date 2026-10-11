@@ -4,14 +4,13 @@
 #include <fstream>
 #include <limits>
 #include <memory>
-#include <string_view>
 #include <vector>
 
-#include <KHR/khr_df.h>
 #include <ktx.h>
 
 #include <asset/DdsReader.h>
 
+#include "CookKtxMetadata.h"
 #include "KtxFormat.h"
 
 namespace Hikari::Asset
@@ -86,39 +85,8 @@ bool RepackageDds(const std::filesystem::path& source, const DdsTextureInfo& inf
                                                  subresource.Face, blocks.data(), blocks.size())))
             return false;
     }
-    const auto metadata = [&](const char* key, std::string_view value)
-    {
-        const std::string terminated(value);
-        return check(ktxHashList_AddKVPair(&texture->kvDataHead, key,
-                                           static_cast<unsigned int>(terminated.size() + 1),
-                                           terminated.c_str()));
-    };
-    // DDS and KTX2 agree on +X, -X, +Y, -Y, +Z, -Z and top-left origin.
-    if (!metadata(KTX_ORIENTATION_KEY, "rd") ||
-        !metadata("HikariTextureUsage", ToString(settings.Authored.Usage)))
+    if (!SetCookKtxMetadata(texture, settings, info.AlphaMode, error))
         return false;
-    std::string_view alpha;
-    switch (info.AlphaMode)
-    {
-        case DdsAlphaMode::Unknown:
-            break;
-        case DdsAlphaMode::Straight:
-            alpha = "straight";
-            break;
-        case DdsAlphaMode::Premultiplied:
-            alpha = "premultiplied";
-            break;
-        case DdsAlphaMode::Opaque:
-            alpha = "opaque";
-            break;
-        case DdsAlphaMode::Custom:
-            alpha = "custom";
-            break;
-    }
-    if (!alpha.empty() && !metadata("HikariDdsAlphaMode", alpha))
-        return false;
-    if (info.AlphaMode == DdsAlphaMode::Premultiplied)
-        KHR_DFDSETVAL(texture->pDfd + 1, FLAGS, KHR_DF_FLAG_ALPHA_PREMULTIPLIED);
     return check(ktxTexture2_WriteToNamedFile(texture, output.string().c_str()));
 }
 

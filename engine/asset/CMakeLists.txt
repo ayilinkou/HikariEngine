@@ -6,6 +6,8 @@ engine_module(Asset SOURCES src/ImageReader.cpp src/ImageWriter.cpp
               src/TextureCookPaths.cpp src/CookFileUtil.cpp src/TextureCooker.cpp
               src/CookHash.cpp src/CookLock.cpp src/CookRecord.cpp src/CookPublication.cpp
               src/DdsReader.cpp src/DdsKtxWriter.cpp
+              src/CookProcess.cpp src/CookKtxMetadata.cpp src/TexturePixelFilter.cpp
+              src/PixelTextureEncoder.cpp
               LINK_LIBRARIES Engine::Core)
 target_link_libraries(Asset PRIVATE nlohmann_json::nlohmann_json KTX::ktx)
 
@@ -18,6 +20,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 target_compile_definitions(Asset PRIVATE
   HIKARI_COOK_COMPRESSONATOR_VERSION="${Compressonator_VERSION}"
   HIKARI_COOK_KTX_VERSION="${Ktx_VERSION}"
+  HIKARI_COOK_ENCODER_PATH="${Compressonator_EXECUTABLE}"
   HIKARI_COOK_STB_IDENTITY="${stb_image_identity}:${stb_write_identity}")
 
 # SYSTEM, so that stb's own warnings are not this module's problem: both

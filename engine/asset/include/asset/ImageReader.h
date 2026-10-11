@@ -36,5 +36,7 @@ struct Image
 
 // Inspect PNG/JPG dimensions and original channels; report failure through error.
 std::optional<ImageInfo> ReadImageInfo(const std::string& path, std::string& error);
+// Strict 8-bit PNG/JPG input for cooking, reporting errors without renderer/log dependencies.
+std::optional<Image> ReadTextureImage(const std::string& path, std::string& error);
 
 } // namespace Hikari::Asset

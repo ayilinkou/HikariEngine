@@ -16,6 +16,7 @@
 #include "CookPublication.h"
 #include "CookRecord.h"
 #include "DdsKtxWriter.h"
+#include "PixelTextureEncoder.h"
 
 namespace Hikari::Asset
 {
@@ -89,7 +90,16 @@ std::optional<PreparedTextureCook> TextureCooker::Prepare(const TextureCookReque
             return std::nullopt;
         prepared.Settings = *resolved;
         prepared.Inputs.push_back(paths->SourcePath);
-        prepared.ImageMetadata.push_back({prepared.Dds->Extent, 0});
+        if (!prepared.Dds->IsCompressed() &&
+            (prepared.Dds->Extent.Width > 16384 || prepared.Dds->Extent.Height > 16384))
+        {
+            error = std::format("{}: Pixel cooking supports desktop 2D dimensions up to 16384; no "
+                                "resizing is performed",
+                                paths->SourcePath.string());
+            return std::nullopt;
+        }
+        prepared.ImageMetadata.push_back(
+            {prepared.Dds->Extent, DdsPixelChannels(prepared.Dds->PixelLayout)});
         prepared.bWriteSettings = !bSettingsExist || !request.Overrides.IsEmpty();
         return prepared;
     }
@@ -134,6 +144,13 @@ std::optional<PreparedTextureCook> TextureCooker::Prepare(const TextureCookReque
             if (prepared.Descriptor)
                 error = std::format("{}: Field 'faces.{}': {}", paths->SourcePath.string(),
                                     kCubemapFaceNames[i], error);
+            return std::nullopt;
+        }
+        if (metadata->Extent.Width > 16384 || metadata->Extent.Height > 16384)
+        {
+            error = std::format("{}: Pixel cooking supports desktop 2D dimensions up to 16384; no "
+                                "resizing is performed",
+                                prepared.Inputs[i].string());
             return std::nullopt;
         }
         if (prepared.Descriptor && (metadata->Extent.Width != metadata->Extent.Height ||
@@ -258,11 +275,8 @@ TextureCookResult TextureCooker::Cook(const TextureCookRequest& request) const
     encoder.Encode = [](const PreparedTextureCook& prepared, const std::filesystem::path& output,
                         std::string& error)
     {
-        if (!prepared.Dds)
-        {
-            error = "Texture encoding is not available yet; no cooked output was produced";
-            return false;
-        }
+        if (!prepared.Dds || !prepared.Dds->IsCompressed())
+            return EncodeTexturePixels(prepared, output, error);
         if (prepared.Settings.bRecompressExistingMips)
         {
             error = std::format("{}: DDS pixel/format conversion is not available yet (TC8); "

@@ -1,7 +1,7 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC5 implemented; Linux verification complete, native Windows verification
-pending the manual Windows boot. TC6 is next.** Runs after the
+**Stage 7.8 — TC1–TC6 implemented; Linux verification complete, native Windows verification
+pending the manual Windows boot. TC7 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -323,8 +323,8 @@ Implemented and verified on Linux. Native Windows verification is pending manual
 
 Implemented and verified on Linux. Native Windows verification is pending manual testing.
 `--dry-run` previews validated image/cubemap requests without writes. TC5 adds DDS metadata
-reading and native repackaging. Pixel encoding and recursive batch cooking remain the later
-steps' work; the CLI reports failure for these operations until available.
+reading and native repackaging; TC6 adds colour/material-data pixel encoding. Normal/mask
+encoding and recursive batch cooking remain later steps' work.
 
 - **Do:** Add CPU-only cooking service contracts in the asset/tool layer and a standalone
   `HikariTextureCooker` entry point. Implement single-file path mapping, source-root
@@ -340,9 +340,9 @@ steps' work; the CLI reports failure for these operations until available.
 
 Implemented and verified on Linux. Native Windows verification is pending manual testing.
 The CPU-only service now accepts a `TextureCookEncoder` that writes a temporary KTX2;
-TC5 adds the default native DDS repackager; TC6–TC9 supply pixel encoding and conversion.
-The CLI reports encoding unavailable for image requests requiring new output. Source
-loading remains active.
+TC5 adds the default native DDS repackager; TC6 adds colour/material-data pixel encoding.
+TC7–TC9 supply normal preparation, conversion and masked encoding. Source loading remains
+active.
 
 Fingerprints use streaming SHA-256 over source bytes, canonical effective settings, the
 pipeline version, Compressonator/libktx package versions and the actual stb decoder/writer
@@ -396,7 +396,7 @@ single square cubemaps, preserving DDS face order. It checks header sizes, dimen
 mip counts, block-size overflow and every declared subresource against the file length
 before allocating payloads. Arrays, volumes, partial cubemaps, typeless formats, HDR/BC6H,
 reserved/contradictory flags, truncated payloads and trailing bytes fail explicitly.
-Uncompressed 8-bit DDS enters through TC6. Advisory flags/pitch values that common writers
+TC6 now handles uncompressed 8-bit DDS. Advisory flags/pitch values that common writers
 omit or misreport do not determine compressed payload sizes.
 
 DX10 colour space is preserved unless explicitly overridden; legacy interpretation resolves
@@ -447,6 +447,58 @@ cubemaps have not yet been verified. Cubemap coverage currently uses synthetic b
 
 ### TC6. Opaque colour and material-data encoding
 
+Implemented and verified on Linux. Native Windows verification is pending manual testing.
+The CLI/service encodes 8-bit PNG/JPG and supported pixel DDS into native BC1,
+BC4, BC5 or BC7 KTX2 using the pinned Compressonator HPC CPU encoder. Requests remain
+synchronous on the caller; encoder threads use the existing 1–128 limit. Each prepared
+face/mip is encoded with `-nomipmap` so the tool cannot substitute its own filtering.
+Arguments pass directly to `posix_spawn`/`CreateProcessW` without a shell, with output
+captured in transaction-local logs. Missing tools, failed processes, legacy-CPU fallback,
+missing/malformed output and changed format/dimensions are cooking failures.
+
+BC4 stores canonical R, BC5 stores R/G, and BC7 retains RGBA. Grayscale input expands gray
+into RGB with alpha kept separately; selecting BC4/BC5 discards that alpha with the existing
+warning. Opaque BC1 explicitly prepares alpha 255. BC7 varying-alpha storage remains valid;
+ordinary filtering does not claim alpha-test coverage preservation. There is no pixel-based
+usage inference. Scalar/data channels average numerically. Resolved sRGB RGB channels decode
+with the standard piecewise transfer function, filter in linear light, then encode back;
+alpha always averages numerically. Area-weighted footprints retain odd final rows/columns,
+with chains continuing through 1×1 and logical source dimensions unchanged.
+
+The DDS reader now accepts legacy RGB/BGR 24-bit and RGBA/BGRA/RGBX/BGRX 32-bit masks, plus
+typed DX10 RGBA/BGRA/BGRX linear/sRGB formats. It honors explicit base row pitch and accepts
+bounded byte/DWORD packing for lower mips, selecting a layout only when the complete file
+length agrees. Row padding and unused X bytes are skipped when decoding into canonical
+RGBA. Supplied pixel levels are encoded as authored; missing 2D levels filter from the last
+supplied level. Full uncompressed cubemap chains and base-only cubemaps share this path;
+descriptor/base-only inputs retain +X, -X, +Y, -Y, +Z, -Z order. Newly generated cubemap mips
+remain TC8 work and fail with `--no-mips` guidance. Normal pixel preparation remains TC7,
+masked pixel encoding TC9, and compressed DDS completion/conversion TC8.
+
+Unusual masks/packing, higher precision/HDR and dimensions above the desktop 16,384 limit
+fail explicitly without resizing. Actual device-format limits remain TC11 work. The pipeline
+fingerprint version is `tc6-1`. Filtering/pitch rules follow the
+[sRGB transfer specification](https://registry.khronos.org/DataFormat/specs/1.4/dataformat.1.4.html),
+[DDS programming guide](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dx-graphics-dds-pguide),
+[legacy DWORD pitch reference](https://github.com/microsoft/DirectXTex/wiki/ComputePitch)
+and [desktop texture dimension limit](https://learn.microsoft.com/en-us/windows/win32/direct3d12/constants).
+
+Verification: 15 pixel cases pass 2,872 assertions with display access disabled and an invalid
+Vulkan driver path. Tests decode actual encoder blocks and check channel values, sRGB
+averages near 188 for equal black/white footprints (linear data near 128), odd edges, full
+chains, DDS channel orders/row padding and supplied cubemap levels. Process tests cover
+literal argument boundaries, failed/missing tools, bounded diagnostics and legacy fallback;
+failed encoding retains the previous output/record. CLI cases cover actual colour/scalar
+cooks and warm skips. Linux precommit passes (377 unit, 30 GPU, 13 scene tests), and the
+rendering baseline reports matching reports and identical pixels.
+
+A copied shipped 2048×2048 colour PNG cooked without graphics into BC7 sRGB with 12 levels
+and skipped on the next request. A real Compressonator-decoded BGRA DDS entered the pixel
+path and produced a complete three-level chain. The independently authored Bistro
+`Bistro_Sign_Main_BaseColor.dds` was also compared with its user-cooked KTX2: all 2,097,152
+retained mip-zero bytes were identical and the output hash matched its cook record. That
+request's saved `mipmaps: false` intentionally omitted the other eleven supplied levels.
+
 - **Do:** Encode PNG/JPG to BC1/BC4/BC5/BC7 as allowed by usage/settings. Establish scalar
   channel mapping, packed-channel retention, linear-light colour mip filtering and
   complete chains through 1×1. Use Compressonator where verified; prepare mips ourselves
@@ -459,6 +511,11 @@ cubemaps have not yet been verified. Cubemap coverage currently uses synthetic b
 - **Size:** M–L · **Needs:** TC4; TC-D13, TC-D14.
 
 ### TC7. Normal preparation, filtering and encoding
+
+Real-input compatibility check: some downloaded Bistro normal DDS files carry the legacy
+NVTT `0x80000000` normal-map pixel flag. The strict reader currently rejects that extra
+flag. Handle it explicitly in this step's DDS normal metadata work without inferring or
+overwriting authored texture usage; retain the supplied native blocks.
 
 - **Do:** Implement the agreed normal representation, optional Y flip, normal-aware mip
   generation and compression overrides. Establish cooked metadata for correct shader

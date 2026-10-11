@@ -527,7 +527,7 @@ TEST_CASE("An interrupted first publication leaves no output claiming a successf
     fixture.WriteImage("image.png");
     CHECK(RunWorker(fixture, "interrupt-output") != 0);
     REQUIRE(fs::exists(fixture.Cooked() / "image.png.ktx2"));
-    const auto result = fixture.Cooker().Cook({.Source = "image.png"});
+    const auto result = fixture.Cooker().Cook({.Source = "image.png"}, TextureCookEncoder{});
     CHECK(result.Status == TextureCookStatus::Failed);
     CHECK_FALSE(fs::exists(fixture.Cooked() / "image.png.ktx2"));
     CHECK_FALSE(fs::exists(fixture.Cooked() / "image.png.cook.json"));
