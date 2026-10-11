@@ -92,11 +92,11 @@ DdsFixture EncodeDds(const TextureCookFixture& fixture, TextureCompression forma
             MakeImage(std::max(width >> sub.Level, 1u), std::max(height >> sub.Level, 1u),
                       [&](uint32_t x, uint32_t y) { return pixel(sub.Face, sub.Level, x, y); });
         std::string error;
-        const auto blocks =
-            EncodeTextureBlocks(image, format, 2, 0.5,
-                                fixture.Root() / std::string("fixture ") /
-                                    std::to_string(sub.Face) / std::to_string(sub.Level),
-                                ConfiguredTextureEncoder(), error);
+        // Exercise spaces in paths without a Windows-invalid trailing space.
+        const auto blocks = EncodeTextureBlocks(
+            image, format, 2, 0.5,
+            fixture.Root() / "fixture data" / std::to_string(sub.Face) / std::to_string(sub.Level),
+            ConfiguredTextureEncoder(), error);
         INFO(error);
         REQUIRE(blocks);
         REQUIRE(blocks->size() == sub.Size);
