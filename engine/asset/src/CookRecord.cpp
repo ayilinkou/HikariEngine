@@ -17,7 +17,7 @@ namespace Hikari::Asset
 
 TextureCookVersions DefaultTextureCookVersions()
 {
-    return {"tc4-1", HIKARI_COOK_COMPRESSONATOR_VERSION, HIKARI_COOK_KTX_VERSION,
+    return {"tc5-1", HIKARI_COOK_COMPRESSONATOR_VERSION, HIKARI_COOK_KTX_VERSION,
             HIKARI_COOK_STB_IDENTITY};
 }
 
@@ -42,32 +42,16 @@ bool IsDigest(std::string_view value)
 
 bool MatchesFormat(uint32_t format, const ResolvedTextureSettings& settings)
 {
+    const auto expected = NativeKtxFormat(settings.Format, settings.ColorSpace);
+    if (!expected)
+        return false;
     const auto native = static_cast<KtxFormat>(format);
+    if (native == *expected)
+        return true;
     const bool srgb = settings.ColorSpace == TextureColorSpace::Srgb;
-    switch (settings.Format)
-    {
-        case TextureCompression::BC1:
-            return native == (srgb ? KtxFormat::BC1RgbaSrgb : KtxFormat::BC1RgbaUnorm) ||
-                   (settings.AlphaMode == TextureAlphaMode::Opaque &&
-                    native == (srgb ? KtxFormat::BC1RgbSrgb : KtxFormat::BC1RgbUnorm));
-        case TextureCompression::BC2:
-            return native == (srgb ? KtxFormat::BC2Srgb : KtxFormat::BC2Unorm);
-        case TextureCompression::BC3:
-            return native == (srgb ? KtxFormat::BC3Srgb : KtxFormat::BC3Unorm);
-        case TextureCompression::BC4:
-            return !srgb && native == KtxFormat::BC4Unorm;
-        case TextureCompression::BC4Signed:
-            return !srgb && native == KtxFormat::BC4Snorm;
-        case TextureCompression::BC5:
-            return !srgb && native == KtxFormat::BC5Unorm;
-        case TextureCompression::BC5Signed:
-            return !srgb && native == KtxFormat::BC5Snorm;
-        case TextureCompression::BC7:
-            return native == (srgb ? KtxFormat::BC7Srgb : KtxFormat::BC7Unorm);
-        case TextureCompression::Auto:
-            return false;
-    }
-    return false;
+    return settings.Format == TextureCompression::BC1 &&
+           settings.AlphaMode == TextureAlphaMode::Opaque &&
+           native == (srgb ? KtxFormat::BC1RgbSrgb : KtxFormat::BC1RgbUnorm);
 }
 } // namespace
 
@@ -84,7 +68,9 @@ std::optional<std::string> FingerprintTextureCook(const PreparedTextureCook& pre
     const auto& settings = prepared.Settings;
     Json document{
         {"versions", VersionJson(versions)},
-        {"kind", prepared.Descriptor ? "cubemap" : "2d"},
+        {"kind", prepared.Dds          ? (prepared.Dds->Faces == 6 ? "dds-cubemap" : "dds-2d")
+                 : prepared.Descriptor ? "cubemap"
+                                       : "2d"},
         {"settings",
          {{"version", settings.Authored.Version},
           {"usage", ToString(settings.Authored.Usage)},
@@ -189,7 +175,10 @@ bool ValidateCookOutput(const PreparedTextureCook& prepared, const std::filesyst
     if (!MatchesFormat(texture->vkFormat, prepared.Settings) || texture->numDimensions != 2 ||
         texture->baseWidth != extent.Width || texture->baseHeight != extent.Height ||
         texture->baseDepth != 1 || texture->numLevels != levels || texture->numLayers != 1 ||
-        texture->isArray || texture->numFaces != (prepared.Descriptor ? 6u : 1u) ||
+        texture->isArray ||
+        texture->numFaces != (prepared.Dds          ? prepared.Dds->Faces
+                              : prepared.Descriptor ? 6u
+                                                    : 1u) ||
         texture->supercompressionScheme != KTX_SS_NONE || !texture->pData)
     {
         error = std::format("{}: Temporary KTX2 format, shape or mip chain does not match the "

@@ -1,7 +1,7 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC4 implemented; Linux verification complete, native Windows verification
-pending the manual Windows boot. TC5 is next.** Runs after the
+**Stage 7.8 — TC1–TC5 implemented; Linux verification complete, native Windows verification
+pending the manual Windows boot. TC6 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -322,9 +322,9 @@ Implemented and verified on Linux. Native Windows verification is pending manual
 ### TC3. Cooker service, paths and CLI shell
 
 Implemented and verified on Linux. Native Windows verification is pending manual testing.
-`--dry-run` previews validated image/cubemap requests without writes. Encoding, DDS metadata
-reading and recursive batch cooking remain the later steps' work; the CLI reports failure
-for these operations until available.
+`--dry-run` previews validated image/cubemap requests without writes. TC5 adds DDS metadata
+reading and native repackaging. Pixel encoding and recursive batch cooking remain the later
+steps' work; the CLI reports failure for these operations until available.
 
 - **Do:** Add CPU-only cooking service contracts in the asset/tool layer and a standalone
   `HikariTextureCooker` entry point. Implement single-file path mapping, source-root
@@ -340,9 +340,9 @@ for these operations until available.
 
 Implemented and verified on Linux. Native Windows verification is pending manual testing.
 The CPU-only service now accepts a `TextureCookEncoder` that writes a temporary KTX2;
-TC5–TC9 supply the production encoding/repackaging implementations. Without one, the CLI
-still reports encoding unavailable for requests requiring new output. Source loading
-remains active.
+TC5 adds the default native DDS repackager; TC6–TC9 supply pixel encoding and conversion.
+The CLI reports encoding unavailable for image requests requiring new output. Source
+loading remains active.
 
 Fingerprints use streaming SHA-256 over source bytes, canonical effective settings, the
 pipeline version, Compressonator/libktx package versions and the actual stb decoder/writer
@@ -383,6 +383,58 @@ baseline comparison reports matching reports and identical pixels.
 - **Size:** M · **Needs:** TC3; TC-D12.
 
 ### TC5. DDS parsing and lossless KTX2 repackaging
+
+Implemented and verified on Linux. Native Windows verification is pending manual testing.
+Single-file CLI/service requests now cook supported native compressed DDS without
+launching Compressonator or initializing graphics. `--dry-run` exposes the native format,
+colour interpretation, supplied mip count and face count. Warm requests use TC4 records;
+`--force`, settings persistence and publication recovery use the same service path.
+
+The bounded reader accepts legacy DXT1–DXT5, ATI1/ATI2, BC4U/BC4S and BC5U/BC5S plus typed
+DX10 BC1/BC2/BC3/BC4/BC5/BC7 UNORM, SNORM and sRGB variants. It accepts 2D textures and
+single square cubemaps, preserving DDS face order. It checks header sizes, dimensions,
+mip counts, block-size overflow and every declared subresource against the file length
+before allocating payloads. Arrays, volumes, partial cubemaps, typeless formats, HDR/BC6H,
+reserved/contradictory flags, truncated payloads and trailing bytes fail explicitly.
+Uncompressed 8-bit DDS enters through TC6. Advisory flags/pitch values that common writers
+omit or misreport do not determine compressed payload sizes.
+
+DX10 colour space is preserved unless explicitly overridden; legacy interpretation resolves
+from saved usage and warns as agreed. Signed formats remain signed. Native blocks pass
+directly to libktx, including whole blocks for tiny/odd mip dimensions. Explicit alpha
+representation is preserved in `HikariDdsAlphaMode` metadata (`straight`, `premultiplied`,
+`opaque`, `custom`), with the DFD premultiplied-alpha flag set when appropriate; absent alpha
+metadata stays absent. `HikariTextureUsage` records authoritative usage, and
+`KTXorientation` is `rd`. Straight/premultiplied representation does not establish masked
+versus blended usage; explicit opaque/custom alpha establishes that alpha-test coverage
+processing is unnecessary, while authored alpha settings still take precedence.
+These conventions follow the [DDS header reference](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-header),
+[DX10 metadata reference](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-header-dxt10)
+and [KTX2 specification](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html).
+
+Complete supplied chains cook normally. `--no-mips` retains only mip zero for every face.
+The repackaging helper can retain partial supplied chains, but ordinary cooking fails
+until TC8 can complete missing levels; it recommends `--no-mips`. Explicit mask requests
+with missing levels fail before settings writes. Pixel-changing conversions/flips are
+diagnosed as TC8 work and preserve the previous cooked output/record. Colour-only
+reinterpretation and usage-only changes retain blocks. The pipeline fingerprint version
+is now `tc5-1`.
+
+Verification covers 23 legacy/DX10 format variants in both 2D and cubemap shapes, with
+byte comparisons for every retained face/mip on full-chain and base-only outputs. The 12
+DDS cases pass 8,328 assertions with display access disabled and an invalid Vulkan driver
+path; CLI tests cover preview, actual cooking, incremental skips, force and partial-chain
+diagnostics. Linux precommit passes (361 unit, 30 GPU and 13 scene tests), and the existing
+rendering baseline reports matching reports and identical pixels.
+
+The CPU dependency probe also sends 51 actual Compressonator-produced DDS files through
+the production cooker, independently compares every retained block and verifies warm skips.
+This covers the eight probed BC variants across 1×1, 2×2, 4×4, 7×5 and 8×4 base levels,
+complete mip chains, JPEG-derived blocks and BC1/BC7 alpha payloads. These are real encoder
+outputs from generated images. A manual check also encoded the shipped 2048×2048
+`pbr_case/textures/13_-_Default_baseColor.png` as BC7 DDS and verified production repackaging,
+byte preservation and a warm skip. Independently authored DDS files and encoder-produced
+cubemaps have not yet been verified. Cubemap coverage currently uses synthetic block fixtures.
 
 - **Do:** Parse supported legacy/DX10 DDS headers and bounded subresource payloads, map
   native formats/metadata and write KTX2 with libktx. Reject unsupported or ambiguous

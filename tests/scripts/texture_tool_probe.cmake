@@ -45,6 +45,7 @@ foreach(extent IN ITEMS 1x1 2x2 4x4 7x5 8x4)
     run("${CLI}" -fd "${format}" -EncodeWith HPC -NumThreads 2 -nomipmap
         "${WORK}/${extent}.png" "${encoded}")
     run("${PROBE}" encoded "${encoded}" "${format}" "${width}" "${height}" 1)
+    run("${PROBE}" cooked "${encoded}" "${format}" "${width}" "${height}" 1)
     # Linux's PNG writer fails on decoded images; uncompressed DDS works on
     # both hosts and preserves signed components for missing-mip filtering.
     run("${CLI}" -fd ARGB_8888 -nomipmap "${encoded}" "${decoded}")
@@ -57,6 +58,7 @@ endforeach()
 run("${CLI}" -fd BC7 -EncodeWith HPC -NumThreads 2 -nomipmap
     "${JPEG}" "${WORK}/jpeg.dds")
 run("${PROBE}" encoded "${WORK}/jpeg.dds" BC7 4 4 1)
+run("${PROBE}" cooked "${WORK}/jpeg.dds" BC7 4 4 1)
 run("${CLI}" -fd ARGB_8888 -nomipmap "${WORK}/jpeg.dds" "${WORK}/jpeg-decoded.dds")
 run("${PROBE}" decoded "${WORK}/jpeg-decoded.dds" BC7 4 4)
 
@@ -64,6 +66,7 @@ foreach(format IN ITEMS BC1 BC2 BC3 BC4 BC4_S BC5 BC5_S BC7)
   run("${CLI}" -fd "${format}" -EncodeWith HPC -NumThreads 2 -miplevels 3
       "${WORK}/4x4.png" "${WORK}/${format}-mips.dds")
   run("${PROBE}" encoded "${WORK}/${format}-mips.dds" "${format}" 4 4 3)
+  run("${PROBE}" cooked "${WORK}/${format}-mips.dds" "${format}" 4 4 3)
 endforeach()
 
 run("${CLI}" -fd ARGB_8888 -miplevels 3 "${WORK}/bw.png" "${WORK}/bw-mips.dds")
@@ -78,9 +81,12 @@ run("${CLI}" -fd BC1 -EncodeWith HPC -NumThreads 2 -AlphaThreshold 128 -nomipmap
     "${WORK}/mask.png" "${WORK}/mask.dds")
 run("${CLI}" -fd ARGB_8888 -nomipmap "${WORK}/mask.dds" "${WORK}/mask-decoded.dds")
 run("${PROBE}" alpha "${WORK}/mask-decoded.dds" binary)
+run("${PROBE}" cooked "${WORK}/mask.dds" BC1 4 4 1)
 run("${CLI}" -fd BC7 -EncodeWith HPC -NumThreads 2 -nomipmap
     "${WORK}/mask.png" "${WORK}/rgba.dds")
 run("${CLI}" -fd ARGB_8888 -nomipmap "${WORK}/rgba.dds" "${WORK}/rgba-decoded.dds")
 run("${PROBE}" alpha "${WORK}/rgba-decoded.dds" varying)
+run("${PROBE}" cooked "${WORK}/rgba.dds" BC7 4 4 1)
 
 message(STATUS "Compressonator CPU formats, signed decode, dimensions, mips and alpha; libktx block round trips passed")
+message(STATUS "51 real Compressonator DDS files passed production cooking, byte preservation and warm-skip checks")

@@ -226,7 +226,7 @@ TEST_CASE("Cooker defaults cannot silently convert DDS before reading native met
     TextureCookFixture::WriteText(fixture.Source("native.dds"), "DDS placeholder");
     const auto result = fixture.Cooker().Cook({.Source = "native.dds"});
     CHECK(result.Status == TextureCookStatus::Failed);
-    CHECK(Contains(result.Error, "DDS metadata reading is not available"));
+    CHECK(Contains(result.Error, "DDS header: Truncated header"));
     CHECK_FALSE(fs::exists(fixture.Source("native.dds.json")));
     CHECK_FALSE(fs::exists(fixture.Cooked()));
 }

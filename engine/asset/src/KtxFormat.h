@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
+
+#include <asset/TextureSettings.h>
 
 namespace Hikari::Asset
 {
@@ -25,5 +28,42 @@ enum class KtxFormat : uint32_t
     BC7Unorm = 145,
     BC7Srgb = 146
 };
+
+inline std::optional<KtxFormat> NativeKtxFormat(TextureCompression format, TextureColorSpace color)
+{
+    const bool srgb = color == TextureColorSpace::Srgb;
+    if (color == TextureColorSpace::Auto)
+        return std::nullopt;
+    switch (format)
+    {
+        case TextureCompression::BC1:
+            return srgb ? KtxFormat::BC1RgbaSrgb : KtxFormat::BC1RgbaUnorm;
+        case TextureCompression::BC2:
+            return srgb ? KtxFormat::BC2Srgb : KtxFormat::BC2Unorm;
+        case TextureCompression::BC3:
+            return srgb ? KtxFormat::BC3Srgb : KtxFormat::BC3Unorm;
+        case TextureCompression::BC7:
+            return srgb ? KtxFormat::BC7Srgb : KtxFormat::BC7Unorm;
+        case TextureCompression::BC4:
+            if (!srgb)
+                return KtxFormat::BC4Unorm;
+            break;
+        case TextureCompression::BC4Signed:
+            if (!srgb)
+                return KtxFormat::BC4Snorm;
+            break;
+        case TextureCompression::BC5:
+            if (!srgb)
+                return KtxFormat::BC5Unorm;
+            break;
+        case TextureCompression::BC5Signed:
+            if (!srgb)
+                return KtxFormat::BC5Snorm;
+            break;
+        case TextureCompression::Auto:
+            break;
+    }
+    return std::nullopt;
+}
 
 } // namespace Hikari::Asset

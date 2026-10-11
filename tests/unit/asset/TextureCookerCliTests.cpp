@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "DdsFixture.h"
 #include "TextureCookFixture.h"
 #include "TextureCookerCli.h"
 
@@ -221,4 +222,57 @@ TEST_CASE("CLI missing sources and blocked output roots return operational failu
               fixture.Content(), output, error) == 1);
     CHECK(Contains(error, "cooked-root"));
     CHECK_FALSE(fs::exists(fixture.Source("image.png.json")));
+}
+
+TEST_CASE("CLI DDS cooking and preview share native metadata and incremental records",
+          "[texture-cooker-cli][dds]")
+{
+    TextureCookFixture fixture;
+    const auto dds = MakeDdsFixture("DX10", 16, 4, 4, 3, 6, 99);
+    TextureCookFixture::WriteText(fixture.Source("sky.dds"), dds.Bytes);
+    std::vector<std::string> args{
+        "cooker", "cook", "sky.dds", "--source-root", fixture.Content().string(), "--dry-run"};
+    std::string output, error;
+    CHECK(Run(args, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Format: BC7"));
+    CHECK(Contains(output, "Color space: srgb"));
+    CHECK(Contains(output, "DDS mip levels: 3"));
+    CHECK(Contains(output, "DDS faces: 6"));
+    CHECK_FALSE(fs::exists(fixture.Cooked()));
+    CHECK_FALSE(fs::exists(fixture.Source("sky.dds.json")));
+    args.pop_back();
+    CHECK(Run(args, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Cooked: "));
+    CHECK(fs::exists(fixture.Cooked() / "sky.dds.ktx2"));
+    CHECK(fs::exists(fixture.Cooked() / "sky.dds.cook.json"));
+    CHECK(Run(args, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Unchanged: "));
+    args.push_back("--force");
+    CHECK(Run(args, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Cooked: "));
+    args.push_back("--no-mips");
+    CHECK(Run(args, fixture.Content(), output, error) == 0);
+    std::string parseError;
+    const auto saved = Hikari::Asset::ParseTextureSettings(
+        TextureCookFixture::ReadText(fixture.Source("sky.dds.json")), "sky.dds.json", parseError);
+    REQUIRE(saved);
+    CHECK_FALSE(saved->bMipmaps);
+}
+
+TEST_CASE("CLI incomplete DDS chains report mip generation limits and allow base-only preservation",
+          "[texture-cooker-cli][dds]")
+{
+    TextureCookFixture fixture;
+    TextureCookFixture::WriteText(fixture.Source("partial.dds"),
+                                  MakeDdsFixture("DXT5", 16, 8, 8, 2).Bytes);
+    std::vector<std::string> args{"cooker", "cook", "partial.dds", "--source-root",
+                                  fixture.Content().string()};
+    std::string output, error;
+    CHECK(Run(args, fixture.Content(), output, error) == 1);
+    CHECK(Contains(error, "Missing DDS mip generation"));
+    CHECK(Contains(error, "--no-mips"));
+    CHECK_FALSE(fs::exists(fixture.Cooked() / "partial.dds.ktx2"));
+    args.push_back("--no-mips");
+    CHECK(Run(args, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Cooked: "));
 }

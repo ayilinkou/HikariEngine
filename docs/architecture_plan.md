@@ -12,8 +12,8 @@ supports (a) headless + automated runtime testing, (b) data-oriented performance
 **Status:** Stages 0 to 7 are complete, and so are the inserted Stages 7.5, 7.6 and 7.7 —
 the D3D12 backend landed on 15 September 2026; `docs/rhi.md` holds its decisions.
 **Next: Stage 7.8 — Texture cooking & mipmaps**, inserted before Stage 8. Its agreed design
-and incremental steps live in [texture_cooking.md](texture_cooking.md); TC1–TC4 are
-implemented and TC5's DDS parsing/repackaging is next. Stage 8 follows, with steps 49–56 partly
+and incremental steps live in [texture_cooking.md](texture_cooking.md); TC1–TC5 are
+implemented and TC6's colour/material-data encoding is next. Stage 8 follows, with steps 49–56 partly
 superseded by the RHI stages and step 48 already completed at 7.6.
 
 > Companion document: `suggested_work.md` covers *correctness bugs* and

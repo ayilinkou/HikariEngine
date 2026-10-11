@@ -95,9 +95,14 @@ void PrintPrepared(const Asset::PreparedTextureCook& prepared, std::ostream& out
            << "Color space: " << Asset::ToString(prepared.Settings.ColorSpace) << '\n'
            << "Encoder threads: " << prepared.Request.EncoderThreads << '\n'
            << "Force: " << (prepared.Request.bForce ? "true" : "false") << '\n';
+    if (prepared.Dds)
+        output << "DDS mip levels: " << prepared.Dds->Levels << '\n'
+               << "DDS faces: " << prepared.Dds->Faces << '\n';
     for (size_t i = 0; i < prepared.Inputs.size(); ++i)
-        output << (prepared.Descriptor ? std::string(Asset::kCubemapFaceNames[i]) : "Image") << ": "
-               << prepared.Inputs[i].string() << '\n';
+        output << (prepared.Descriptor ? std::string(Asset::kCubemapFaceNames[i])
+                   : prepared.Dds      ? "DDS"
+                                       : "Image")
+               << ": " << prepared.Inputs[i].string() << '\n';
 }
 } // namespace
 

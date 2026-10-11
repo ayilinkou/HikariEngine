@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <asset/ImageWriter.h>
+#include <asset/TextureCooker.h>
 #include <ktx.h>
 #include <vulkan/vulkan_core.h>
 
@@ -179,6 +180,57 @@ void Encoded(const std::filesystem::path& path, std::string_view name, uint32_t 
     }
 }
 
+// Exercise the production DDS reader, settings resolution, writer, validation
+// and publication with actual encoder output, in addition to the container-only
+// round trip above. Expected payload boundaries come from the fixed probe
+// dimensions/format, independently of the production DDS subresource table.
+void Cooked(const std::filesystem::path& source, std::string_view name, uint32_t width,
+            uint32_t height, uint32_t levels)
+{
+    const auto bytes = Read(source);
+    const auto format = std::find_if(kFormats.begin(), kFormats.end(),
+                                     [&](const Format& entry) { return entry.Name == name; });
+    Require(format != kFormats.end(), "Unknown probe format");
+    Hikari::Asset::TextureCookRequest request{.Source = source.filename(), .bForce = true};
+    request.Overrides.Usage = Hikari::Asset::TextureUsage::Packed;
+    request.Overrides.bNoMips = levels == 1;
+    const Hikari::Asset::TextureCooker cooker(source.parent_path(),
+                                              source.parent_path() / "cooked");
+    const auto result = cooker.Cook(request);
+    Require(result.Status == Hikari::Asset::TextureCookStatus::Cooked, result.Error);
+    ktxTexture2* texture = nullptr;
+    CheckKtx(ktxTexture2_CreateFromNamedFile(result.Output.string().c_str(),
+                                             KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture));
+    const auto destroy = [](ktxTexture2* value) { ktxTexture_Destroy(ktxTexture(value)); };
+    const std::unique_ptr<ktxTexture2, decltype(destroy)> owner(texture, destroy);
+    Require(texture->vkFormat == format->KtxFormat && texture->baseWidth == width &&
+                texture->baseHeight == height && texture->numLevels == levels &&
+                texture->numFaces == 1 && texture->numLayers == 1 && !texture->isArray &&
+                texture->supercompressionScheme == KTX_SS_NONE,
+            "Production cooking changed encoder metadata");
+    size_t sourceOffset = name == "BC7" ? 148 : 128;
+    for (uint32_t level = 0; level < levels; ++level)
+    {
+        const size_t size = size_t((std::max(width >> level, 1u) + 3) / 4) *
+                            ((std::max(height >> level, 1u) + 3) / 4) * format->BlockBytes;
+        ktx_size_t offset = 0;
+        CheckKtx(ktxTexture_GetImageOffset(ktxTexture(texture), level, 0, 0, &offset));
+        Require(sourceOffset <= bytes.size() && size <= bytes.size() - sourceOffset &&
+                    offset <= texture->dataSize && size <= texture->dataSize - offset &&
+                    ktxTexture_GetImageSize(ktxTexture(texture), level) == size,
+                "Production cooking changed encoder block footprint");
+        Require(std::equal(bytes.begin() + sourceOffset, bytes.begin() + sourceOffset + size,
+                           texture->pData + offset),
+                "Production cooking changed real encoder blocks");
+        sourceOffset += size;
+    }
+    Require(sourceOffset == bytes.size(), "Unexpected encoder payload size");
+    request.bForce = false;
+    const auto warm = cooker.Cook(request);
+    Require(warm.Status == Hikari::Asset::TextureCookStatus::Skipped,
+            warm.Error.empty() ? "Real encoder output did not skip on a warm cook" : warm.Error);
+}
+
 /** Read channels using the decoder's masks; signed DDS uses a different layout. */
 std::array<int, 4> Pixel(const std::vector<uint8_t>& bytes, size_t offset)
 {
@@ -268,6 +320,8 @@ int main(int argc, char** argv)
         else if (mode == "encoded" && argc == 7)
             Encoded(argv[2], argv[3], std::stoul(argv[4]), std::stoul(argv[5]),
                     std::stoul(argv[6]));
+        else if (mode == "cooked" && argc == 7)
+            Cooked(argv[2], argv[3], std::stoul(argv[4]), std::stoul(argv[5]), std::stoul(argv[6]));
         else if (mode == "decoded" && argc == 6)
             Decoded(argv[2], argv[3], std::stoul(argv[4]), std::stoul(argv[5]));
         else if (mode == "filter" && argc == 4)

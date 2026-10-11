@@ -7,6 +7,7 @@
 #include <system_error>
 #include <utility>
 
+#include <asset/DdsReader.h>
 #include <asset/ImageReader.h>
 
 #include "CookFileUtil.h"
@@ -14,6 +15,7 @@
 #include "CookLock.h"
 #include "CookPublication.h"
 #include "CookRecord.h"
+#include "DdsKtxWriter.h"
 
 namespace Hikari::Asset
 {
@@ -77,11 +79,19 @@ std::optional<PreparedTextureCook> TextureCooker::Prepare(const TextureCookReque
     }
     if (paths->Kind == TextureCookSourceKind::Dds)
     {
-        // Resolving auto to image defaults here would silently convert native
-        // DDS blocks before the DDS metadata reader has supplied their format.
-        error = std::format("{}: DDS metadata reading is not available yet",
-                            paths->SourcePath.string());
-        return std::nullopt;
+        prepared.Dds = ReadDdsInfo(paths->SourcePath, error);
+        if (!prepared.Dds)
+            return std::nullopt;
+        const auto resolved = ResolveTextureSettings(
+            saved, request.Overrides, DdsSettingsSource(*prepared.Dds, !bSettingsExist),
+            paths->SettingsPath.string(), error, warnings);
+        if (!resolved)
+            return std::nullopt;
+        prepared.Settings = *resolved;
+        prepared.Inputs.push_back(paths->SourcePath);
+        prepared.ImageMetadata.push_back({prepared.Dds->Extent, 0});
+        prepared.bWriteSettings = !bSettingsExist || !request.Overrides.IsEmpty();
+        return prepared;
     }
     if (prepared.Descriptor)
     {
@@ -179,18 +189,34 @@ bool TextureCooker::SaveSettings(const PreparedTextureCook& prepared, std::strin
             error = "Prepared settings do not belong to this cooker";
         return false;
     }
-    if (paths->Kind == TextureCookSourceKind::Dds ||
+    if ((paths->Kind == TextureCookSourceKind::Dds) != prepared.Dds.has_value() ||
         (paths->Kind == TextureCookSourceKind::CubemapDescriptor) !=
             prepared.Descriptor.has_value())
     {
         error = "Settings require matching, fully validated source metadata";
         return false;
     }
+    if (prepared.Dds)
+    {
+        const auto current = ReadDdsInfo(paths->SourcePath, error);
+        if (!current)
+            return false;
+        if (*current != *prepared.Dds || prepared.ImageMetadata.front().Extent != current->Extent)
+        {
+            error = std::format("{}: DDS metadata changed since preparation; retry cooking",
+                                paths->SourcePath.string());
+            return false;
+        }
+    }
     for (const auto& image : prepared.ImageMetadata)
     {
-        TextureSettingsSource source;
-        source.Channels = image.Channels;
-        source.bNeedsMipGeneration = image.Extent.Width > 1 || image.Extent.Height > 1;
+        TextureSettingsSource source =
+            prepared.Dds ? DdsSettingsSource(*prepared.Dds) : TextureSettingsSource{};
+        if (!prepared.Dds)
+        {
+            source.Channels = image.Channels;
+            source.bNeedsMipGeneration = image.Extent.Width > 1 || image.Extent.Height > 1;
+        }
         std::vector<std::string> ignoredWarnings;
         if (!ResolveTextureSettings(prepared.Settings.Authored, {}, source,
                                     paths->SettingsPath.string(), error, ignoredWarnings))
@@ -228,7 +254,34 @@ bool TextureCooker::SaveSettings(const PreparedTextureCook& prepared, std::strin
 
 TextureCookResult TextureCooker::Cook(const TextureCookRequest& request) const
 {
-    return Cook(request, TextureCookEncoder{});
+    TextureCookEncoder encoder;
+    encoder.Encode = [](const PreparedTextureCook& prepared, const std::filesystem::path& output,
+                        std::string& error)
+    {
+        if (!prepared.Dds)
+        {
+            error = "Texture encoding is not available yet; no cooked output was produced";
+            return false;
+        }
+        if (prepared.Settings.bRecompressExistingMips)
+        {
+            error = std::format("{}: DDS pixel/format conversion is not available yet (TC8); "
+                                "no cooked output was replaced",
+                                prepared.Paths.SourcePath.string());
+            return false;
+        }
+        if (prepared.Settings.Authored.bMipmaps &&
+            prepared.Dds->Levels < FullTextureMipCount(prepared.Dds->Extent))
+        {
+            error = std::format("{}: Missing DDS mip generation is not available yet (TC8); "
+                                "use --no-mips to preserve the base level",
+                                prepared.Paths.SourcePath.string());
+            return false;
+        }
+        return RepackageDds(prepared.Paths.SourcePath, *prepared.Dds, prepared.Settings, output,
+                            error);
+    };
+    return Cook(request, encoder);
 }
 
 TextureCookResult TextureCooker::Cook(const TextureCookRequest& request,
