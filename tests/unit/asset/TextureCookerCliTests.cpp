@@ -139,15 +139,16 @@ TEST_CASE("CLI dry-run and code prepare identical requests without filesystem wr
     CHECK_FALSE(fs::exists(custom));
 }
 
-TEST_CASE("CLI saves valid options without reporting successful encoding", "[texture-cooker-cli]")
+TEST_CASE("CLI cooks normals and retains saved flips through unchanged and forced requests",
+          "[texture-cooker-cli]")
 {
     TextureCookFixture fixture;
     fixture.WriteImage("image.png");
     std::string output, error;
     CHECK(Run({"cooker", "cook", "image.png", "--source-root", fixture.Content().string(),
                "--usage=normal", "--flip-normal-y", "--no-mips"},
-              fixture.Content(), output, error) == 1);
-    CHECK(Contains(error, "Texture encoding is not available"));
+              fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Cooked"));
     std::string parseError;
     const auto saved = Hikari::Asset::ParseTextureSettings(
         TextureCookFixture::ReadText(fixture.Source("image.png.json")), "image.png.json",
@@ -156,11 +157,17 @@ TEST_CASE("CLI saves valid options without reporting successful encoding", "[tex
     CHECK(saved->Usage == Hikari::Asset::TextureUsage::Normal);
     CHECK(saved->bFlipNormalY);
     CHECK_FALSE(saved->bMipmaps);
-    CHECK_FALSE(fs::exists(fixture.Cooked() / "image.png.ktx2"));
+    CHECK(fs::exists(fixture.Cooked() / "image.png.ktx2"));
     const auto before = TextureCookFixture::ReadText(fixture.Source("image.png.json"));
+    const auto cooked = TextureCookFixture::ReadText(fixture.Cooked() / "image.png.ktx2");
+    CHECK(Run({"cooker", "cook", "image.png", "--source-root", fixture.Content().string()},
+              fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Unchanged"));
+    CHECK(TextureCookFixture::ReadText(fixture.Cooked() / "image.png.ktx2") == cooked);
     CHECK(
         Run({"cooker", "cook", "image.png", "--source-root", fixture.Content().string(), "--force"},
-            fixture.Content(), output, error) == 1);
+            fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Cooked"));
     CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.json")) == before);
 }
 

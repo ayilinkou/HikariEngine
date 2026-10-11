@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC6 implemented. TC7 is next.** Runs after the
+**Stage 7.8 — TC1–TC7 implemented. TC8 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -324,8 +324,8 @@ Implemented.
 
 Implemented.
 `--dry-run` previews validated image/cubemap requests without writes. TC5 adds DDS metadata
-reading and native repackaging; TC6 adds colour/material-data pixel encoding. Normal/mask
-encoding and recursive batch cooking remain later steps' work.
+reading and native repackaging; TC6 adds colour/material-data pixel encoding and TC7 adds
+normal encoding. Mask encoding and recursive batch cooking remain later steps' work.
 
 - **Do:** Add CPU-only cooking service contracts in the asset/tool layer and a standalone
   `HikariTextureCooker` entry point. Implement single-file path mapping, source-root
@@ -383,7 +383,7 @@ footprints include odd edges and chains continue through 1×1 without resizing.
 Pixel DDS supports common RGB/BGR/RGBA/BGRA/RGBX/BGRX layouts with bounded byte/DWORD row
 packing. Supplied pixel levels are encoded as authored; missing 2D levels use the shared
 filter. Cubemaps support supplied full chains or base-only output. Generated cubemap mips
-remain TC8 work, normal preparation TC7 and masked encoding TC9. Higher precision/HDR,
+remain TC8 work and masked encoding TC9. Higher precision/HDR,
 unusual layouts and pixel dimensions above 16,384 are rejected.
 
 - **Do:** Encode PNG/JPG to BC1/BC4/BC5/BC7 as allowed by usage/settings. Establish scalar
@@ -399,8 +399,15 @@ unusual layouts and pixel dimensions above 16,384 are rejected.
 
 ### TC7. Normal preparation, filtering and encoding
 
-Handle the legacy NVTT `0x80000000` normal-map pixel flag explicitly in DDS normal metadata
-without inferring or overwriting authored usage, or recompressing supplied blocks.
+Implemented. Normal pixels encode to linear BC5 XY by default or an explicit RGB format
+such as BC7 XYZ. BC5 preparation normalizes XYZ before packing XY; BC7 retains authored XYZ.
+Saved Y flipping applies once per source level.
+Generated 2D mips average signed vectors, normalize, and use `(0, 0, 1)` for near-zero
+averages. Alpha remains a numeric average. `HikariNormalEncoding` identifies decoding
+channels and signedness. Compressed DDS blocks retain signedness; the legacy NVTT normal
+flag and explicit A2XY/A2D5 swizzles are preserved as metadata
+without changing authored usage or block bytes.
+Compressed DDS conversion and cross-face mip generation remain TC8 work.
 
 - **Do:** Implement the agreed normal representation, optional Y flip, normal-aware mip
   generation and compression overrides. Establish cooked metadata for correct shader

@@ -47,12 +47,15 @@ std::optional<DdsTextureInfo> ParseHeader(std::span<const uint8_t> bytes, uint64
     if (info.Levels > FullTextureMipCount(info.Extent))
         return fail("mip count", "More mip levels than the source dimensions allow");
     const uint32_t pixelFlags = U32(bytes, 80);
+    // NVTT's DDPF_NORMAL describes the source; settings still own cooking usage.
+    constexpr uint32_t kNormalFlag = 0x80000000u;
+    info.bNormalMap = (pixelFlags & kNormalFlag) != 0;
     const bool fourCC = (pixelFlags & 4) != 0;
-    if (fourCC && (pixelFlags & ~(4u | 1u)))
+    if (fourCC && (pixelFlags & ~(4u | 1u | kNormalFlag)))
         return fail("pixel layout", "Unsupported or conflicting DDS_PIXELFORMAT flags");
     if (!fourCC)
     {
-        if (!(pixelFlags & 0x40) || (pixelFlags & ~(0x40u | 1u)))
+        if (!(pixelFlags & 0x40) || (pixelFlags & ~(0x40u | 1u | kNormalFlag)))
             return fail("pixel layout",
                         "Uncompressed DDS requires an 8-bit RGB/BGR/RGBA/BGRA layout");
         const auto bits = U32(bytes, 88), r = U32(bytes, 92), g = U32(bytes, 96);
@@ -200,6 +203,24 @@ std::optional<DdsTextureInfo> ParseHeader(std::span<const uint8_t> bytes, uint64
             default:
                 return fail("format", "Unsupported legacy FourCC; expected DXT1–DXT5, "
                                       "ATI1/ATI2, BC4U/BC4S, BC5U/BC5S or DX10");
+        }
+    }
+    // Old NVTT stores swizzle codes in dwRGBBitCount for legacy compressed DDS.
+    // https://github.com/nvpro-samples/nvpro_core/blob/master/fileformats/nv_dds.cpp
+    if (fourCC && code != 0x30315844)
+    {
+        const auto swizzle = U32(bytes, 88);
+        if (swizzle == 0x59583241u) // A2XY
+        {
+            if (info.Format != TextureCompression::BC5)
+                return fail("swizzle", "NVTT A2XY requires native BC5 UNORM blocks");
+            info.ChannelSwizzle = DdsChannelSwizzle::SwapRedGreen;
+        }
+        else if (swizzle == 0x35443241u) // A2D5
+        {
+            if (info.Format != TextureCompression::BC3)
+                return fail("swizzle", "NVTT A2D5 requires native BC3 blocks");
+            info.ChannelSwizzle = DdsChannelSwizzle::SwapRedAlpha;
         }
     }
     const uint32_t faceBits = caps2 & 0xfc00;

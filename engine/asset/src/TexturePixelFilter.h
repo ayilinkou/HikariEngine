@@ -9,9 +9,14 @@
 namespace Hikari::Asset
 {
 
-// Area-weighted box reduction, preserving every source row/column at odd extents.
-// sRGB RGB channels filter in linear light; alpha/data channels use numeric averages.
+/**
+ * Area-weighted box reduction, including odd edges. Normal RGB is decoded to
+ * signed XYZ, averaged, then normalized; alpha remains a numeric average.
+ */
 std::optional<Image> FilterTextureMip(const Image& source, TextureColorSpace color,
-                                      std::string& error);
+                                      std::string& error, TextureUsage usage = TextureUsage::Color);
+
+/** Normalize decoded XYZ before storing XY with positive-Z reconstruction. */
+std::optional<Image> PrepareNormalTextureXY(const Image& source, std::string& error);
 
 } // namespace Hikari::Asset

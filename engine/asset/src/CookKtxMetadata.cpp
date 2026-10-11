@@ -8,7 +8,7 @@ namespace Hikari::Asset
 {
 
 bool SetCookKtxMetadata(ktxTexture2* texture, const ResolvedTextureSettings& settings,
-                        DdsAlphaMode alpha, std::string& error)
+                        DdsAlphaMode alpha, std::string& error, const DdsTextureInfo* source)
 {
     const auto metadata = [&](const char* key, std::string_view value)
     {
@@ -22,6 +22,30 @@ bool SetCookKtxMetadata(ktxTexture2* texture, const ResolvedTextureSettings& set
     };
     if (!metadata(KTX_ORIENTATION_KEY, "rd") ||
         !metadata("HikariTextureUsage", ToString(settings.Authored.Usage)))
+        return false;
+    if (settings.Authored.Usage == TextureUsage::Normal)
+    {
+        // Signed BC5 samples XY directly; UNORM requires remapping to [-1, 1].
+        // Both reconstruct positive Z. RGB formats retain all three components.
+        std::string_view encoding =
+            settings.Format == TextureCompression::BC5Signed ? "xy-snorm-positive-z"
+            : settings.Format == TextureCompression::BC5     ? "xy-unorm-positive-z"
+                                                             : "xyz-unorm";
+        if (source && source->IsCompressed())
+        {
+            if (source->ChannelSwizzle == DdsChannelSwizzle::SwapRedGreen)
+                encoding = "yx-unorm-positive-z";
+            else if (source->ChannelSwizzle == DdsChannelSwizzle::SwapRedAlpha)
+                encoding = "ag-unorm-positive-z";
+        }
+        if (!metadata("HikariNormalEncoding", encoding))
+            return false;
+    }
+    if (source && source->bNormalMap && !metadata("HikariDdsNormalMap", "true"))
+        return false;
+    if (source && source->ChannelSwizzle != DdsChannelSwizzle::None &&
+        !metadata("HikariDdsSwizzle",
+                  source->ChannelSwizzle == DdsChannelSwizzle::SwapRedGreen ? "A2XY" : "A2D5"))
         return false;
     std::string_view name;
     switch (alpha)

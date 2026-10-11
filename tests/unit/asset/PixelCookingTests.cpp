@@ -1,9 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -91,7 +93,288 @@ void CheckColor(const Image& image, std::array<int, 4> color, int channels = 4, 
         for (int channel = 0; channel < channels; ++channel)
             CHECK(std::abs(int(image.Pixels[pixel + channel]) - color[channel]) <= tolerance);
 }
+
+std::optional<std::string> Metadata(ktxTexture2* texture, const char* key)
+{
+    unsigned int size = 0;
+    void* value = nullptr;
+    const auto status = ktxHashList_FindValue(&texture->kvDataHead, key, &size, &value);
+    if (status == KTX_NOT_FOUND)
+        return std::nullopt;
+    REQUIRE(status == KTX_SUCCESS);
+    REQUIRE(size > 0);
+    REQUIRE(static_cast<const char*>(value)[size - 1] == '\0');
+    return std::string(static_cast<const char*>(value), size - 1);
+}
+
+void CheckNormalDirection(const Image& image, std::array<double, 3> expected, bool bXY)
+{
+    for (size_t pixel = 0; pixel < image.Pixels.size(); pixel += 4)
+    {
+        const double x = image.Pixels[pixel] / 127.5 - 1;
+        const double y = image.Pixels[pixel + 1] / 127.5 - 1;
+        const double z =
+            bXY ? std::sqrt(std::max(0.0, 1 - x * x - y * y)) : image.Pixels[pixel + 2] / 127.5 - 1;
+        CHECK(std::abs(x - expected[0]) < 0.06);
+        CHECK(std::abs(y - expected[1]) < 0.06);
+        CHECK(std::abs(z - expected[2]) < 0.06);
+        CHECK(std::abs(std::sqrt(x * x + y * y + z * z) - 1) < 0.06);
+    }
+}
 } // namespace
+
+TEST_CASE("Normal mips average signed vectors before normalization and retain numeric alpha",
+          "[asset][pixel-cook][normal-cook]")
+{
+    auto image = Constant(2, 1, {255, 128, 128, 0});
+    image.Pixels[4] = 128;
+    image.Pixels[6] = 191;
+    image.Pixels[7] = 255;
+    std::string error;
+    const auto mip =
+        FilterTextureMip(image, TextureColorSpace::Linear, error, TextureUsage::Normal);
+    REQUIRE(mip);
+    // The shorter second source vector keeps its authored weight until averaging.
+    CheckColor(*mip, {242, 128, 184, 128}, 4, 1);
+    CheckNormalDirection(*mip, {0.895, 0.007, 0.446}, false);
+    const auto data = FilterTextureMip(image, TextureColorSpace::Linear, error);
+    REQUIRE(data);
+    CHECK(data->Pixels == std::vector<uint8_t>{192, 128, 160, 128});
+    CHECK_FALSE(FilterTextureMip(image, TextureColorSpace::Srgb, error, TextureUsage::Normal));
+    image.SourceChannels = 2;
+    CHECK_FALSE(FilterTextureMip(image, TextureColorSpace::Linear, error, TextureUsage::Normal));
+    image.SourceChannels = 4;
+    image.Pixels.pop_back();
+    CHECK_FALSE(FilterTextureMip(image, TextureColorSpace::Linear, error, TextureUsage::Normal));
+}
+
+TEST_CASE("Cancelled normals use a flat fallback and odd normal footprints retain edge vectors",
+          "[asset][pixel-cook][normal-cook]")
+{
+    auto image = Constant(2, 1, {255, 128, 128, 60});
+    image.Pixels[4] = 0;
+    image.Pixels[5] = image.Pixels[6] = 127;
+    image.Pixels[7] = 180;
+    std::string error;
+    const auto cancelled =
+        FilterTextureMip(image, TextureColorSpace::Linear, error, TextureUsage::Normal);
+    REQUIRE(cancelled);
+    CHECK(cancelled->Pixels == std::vector<uint8_t>{128, 128, 255, 120});
+    for (const uint8_t center : {uint8_t(127), uint8_t(128)})
+    {
+        const auto zero = FilterTextureMip(Constant(2, 2, {center, center, center, 73}),
+                                           TextureColorSpace::Linear, error, TextureUsage::Normal);
+        REQUIRE(zero);
+        CHECK(zero->Pixels == std::vector<uint8_t>{128, 128, 255, 73});
+    }
+    for (const auto extent : {Hikari::Core::Extent2D{3, 1}, {1, 3}, {3, 3}, {5, 3}})
+    {
+        auto odd = Constant(extent.Width, extent.Height, {128, 128, 255, 255});
+        for (uint32_t y = 0; y < extent.Height; ++y)
+            for (uint32_t x = 0; x < extent.Width; ++x)
+                if (x == extent.Width - 1 || y == extent.Height - 1)
+                {
+                    const auto offset = (size_t(y) * extent.Width + x) * 4;
+                    odd.Pixels[offset] = 255;
+                    odd.Pixels[offset + 2] = 128;
+                }
+        const auto mip =
+            FilterTextureMip(odd, TextureColorSpace::Linear, error, TextureUsage::Normal);
+        REQUIRE(mip);
+        CHECK(mip->Pixels[0] > 128);
+        CHECK(mip->Pixels[3] == 255);
+        for (size_t i = 0; i < mip->Pixels.size(); i += 4)
+        {
+            double lengthSquared = 0;
+            for (size_t c = 0; c < 3; ++c)
+            {
+                const double value = mip->Pixels[i + c] / 127.5 - 1;
+                lengthSquared += value * value;
+            }
+            CHECK(std::abs(lengthSquared - 1) < 0.015);
+        }
+    }
+}
+
+TEST_CASE("Real BC5 and BC7 encoders retain normal directions and decoding metadata",
+          "[asset][pixel-cook][normal-cook]")
+{
+    TextureCookFixture fixture;
+    for (const auto pixels : {std::array<uint8_t, 4>{128, 128, 255, 73}, {204, 204, 195, 73}})
+        for (const auto format : {TextureCompression::BC5, TextureCompression::BC7})
+            for (const bool bFlip : {false, true})
+            {
+                INFO("format " << ToString(format) << " flip " << bFlip);
+                const auto image = Constant(7, 5, pixels);
+                REQUIRE(
+                    WritePng(image.Pixels, image.Extent, fixture.Source("normal.png").string()));
+                fs::remove(fixture.Source("normal.png.json"));
+                TextureCookRequest request{.Source = "normal.png", .EncoderThreads = 2};
+                request.Overrides.Usage = TextureUsage::Normal;
+                request.Overrides.Format = format;
+                request.Overrides.bFlipNormalY = bFlip;
+                const auto result = fixture.Cooker().Cook(request);
+                RequireCooked(result);
+                const auto texture = Open(result.Output);
+                CHECK(texture->vkFormat == uint32_t(format == TextureCompression::BC5
+                                                        ? VK_FORMAT_BC5_UNORM_BLOCK
+                                                        : VK_FORMAT_BC7_UNORM_BLOCK));
+                CHECK(texture->numLevels == 3);
+                CHECK(Metadata(texture.get(), "HikariTextureUsage") == "normal");
+                CHECK(Metadata(texture.get(), "HikariNormalEncoding") ==
+                      (format == TextureCompression::BC5 ? "xy-unorm-positive-z" : "xyz-unorm"));
+                for (uint32_t level = 0; level < 3; ++level)
+                {
+                    const auto decoded = Decode(texture.get(), level, 0, fixture.Root());
+                    const std::array<double, 3> expected{
+                        pixels[0] / 127.5 - 1, (bFlip ? 255 - pixels[1] : pixels[1]) / 127.5 - 1,
+                        pixels[2] / 127.5 - 1};
+                    CheckNormalDirection(decoded, expected, format == TextureCompression::BC5);
+                    if (format == TextureCompression::BC7)
+                        CHECK(std::abs(int(decoded.Pixels[3]) - 73) <= 5);
+                }
+                request.Overrides = {};
+                CHECK(fixture.Cooker().Cook(request).Status == TextureCookStatus::Skipped);
+            }
+}
+
+TEST_CASE("Normal XY packing preserves non-unit directions and handles quantized zero",
+          "[asset][pixel-cook][normal-cook]")
+{
+    TextureCookFixture fixture;
+    const auto image = Constant(4, 4, {166, 166, 217, 73});
+    std::string error;
+    const auto prepared = PrepareNormalTextureXY(image, error);
+    REQUIRE(prepared);
+    CheckNormalDirection(*prepared, {0.368, 0.368, 0.854}, false);
+    CHECK(prepared->Pixels[3] == 73);
+    CHECK(image.Pixels[0] == 166);
+    const auto zero = PrepareNormalTextureXY(Constant(1, 1, {128, 128, 128, 73}), error);
+    REQUIRE(zero);
+    CHECK(zero->Pixels == std::vector<uint8_t>{128, 128, 255, 73});
+    auto invalid = image;
+    invalid.SourceChannels = 2;
+    CHECK_FALSE(PrepareNormalTextureXY(invalid, error));
+    invalid.SourceChannels = 4;
+    invalid.Pixels.pop_back();
+    CHECK_FALSE(PrepareNormalTextureXY(invalid, error));
+    REQUIRE(WritePng(image.Pixels, image.Extent, fixture.Source("normal.png").string()));
+    TextureCookRequest request{.Source = "normal.png", .EncoderThreads = 2};
+    request.Overrides.Usage = TextureUsage::Normal;
+    request.Overrides.bNoMips = true;
+    const auto result = fixture.Cooker().Cook(request);
+    RequireCooked(result);
+    const auto texture = Open(result.Output);
+    CheckNormalDirection(Decode(texture.get(), 0, 0, fixture.Root()), {0.368, 0.368, 0.854}, true);
+    request.Overrides.Format = TextureCompression::BC7;
+    const auto xyz = fixture.Cooker().Cook(request);
+    RequireCooked(xyz);
+    const auto rgb = Open(xyz.Output);
+    CheckColor(Decode(rgb.get(), 0, 0, fixture.Root()), {166, 166, 217, 73});
+}
+
+TEST_CASE("Unsupported negative-Z normal pixels retain the last successful asset",
+          "[asset][pixel-cook][normal-cook]")
+{
+    TextureCookFixture fixture;
+    const auto flat = Constant(4, 4, {128, 128, 255, 255});
+    REQUIRE(WritePng(flat.Pixels, flat.Extent, fixture.Source("normal.png").string()));
+    for (const auto format : {TextureCompression::BC5, TextureCompression::BC7})
+    {
+        REQUIRE(WritePng(flat.Pixels, flat.Extent, fixture.Source("normal.png").string()));
+        TextureCookRequest request{.Source = "normal.png", .EncoderThreads = 2};
+        request.Overrides.Usage = TextureUsage::Normal;
+        request.Overrides.Format = format;
+        const auto result = fixture.Cooker().Cook(request);
+        RequireCooked(result);
+        const auto output = TextureCookFixture::ReadText(result.Output);
+        const auto record = TextureCookFixture::ReadText(fixture.Cooked() / "normal.png.cook.json");
+        const auto negative = Constant(4, 4, {128, 128, 0, 255});
+        REQUIRE(WritePng(negative.Pixels, negative.Extent, fixture.Source("normal.png").string()));
+        const auto failed = fixture.Cooker().Cook(request);
+        CHECK(failed.Status == TextureCookStatus::Failed);
+        CHECK(failed.Error.find("positive-Z") != std::string::npos);
+        CHECK(TextureCookFixture::ReadText(result.Output) == output);
+        CHECK(TextureCookFixture::ReadText(fixture.Cooked() / "normal.png.cook.json") == record);
+        CHECK_FALSE(fs::exists(fixture.Cooked() / "normal.png.ktx2.transaction"));
+        std::string error;
+        CHECK_FALSE(PrepareNormalTextureXY(negative, error));
+    }
+}
+
+TEST_CASE("Generated normal mips retain a saved Y flip exactly once and settings edits recook",
+          "[asset][pixel-cook][normal-cook]")
+{
+    TextureCookFixture fixture;
+    auto image = Constant(4, 4, {230, 128, 204, 0});
+    for (size_t i = 0; i < image.Pixels.size(); i += 4)
+        if ((i / 4) % 2)
+        {
+            image.Pixels[i] = 128;
+            image.Pixels[i + 1] = 230;
+            image.Pixels[i + 3] = 255;
+        }
+    REQUIRE(WritePng(image.Pixels, image.Extent, fixture.Source("normal.png").string()));
+    for (const auto format : {TextureCompression::BC5, TextureCompression::BC7})
+    {
+        fs::remove(fixture.Source("normal.png.json"));
+        TextureCookRequest request{.Source = "normal.png", .EncoderThreads = 2};
+        request.Overrides.Usage = TextureUsage::Normal;
+        request.Overrides.Format = format;
+        request.Overrides.bFlipNormalY = true;
+        const auto result = fixture.Cooker().Cook(request);
+        RequireCooked(result);
+        const auto texture = Open(result.Output);
+        for (uint32_t level : {1u, 2u})
+            CheckNormalDirection(Decode(texture.get(), level, 0, fixture.Root()),
+                                 {0.487, -0.487, 0.725}, format == TextureCompression::BC5);
+        request.Overrides = {};
+        CHECK(fixture.Cooker().Cook(request).Status == TextureCookStatus::Skipped);
+        std::string error;
+        auto settings =
+            ParseTextureSettings(TextureCookFixture::ReadText(fixture.Source("normal.png.json")),
+                                 "normal.png.json", error);
+        REQUIRE(settings);
+        REQUIRE(settings->bFlipNormalY);
+        settings->bFlipNormalY = false;
+        const auto json = SerializeTextureSettings(*settings, "normal.png.json", error);
+        REQUIRE(json);
+        TextureCookFixture::WriteText(fixture.Source("normal.png.json"), *json);
+        const auto unflipped = fixture.Cooker().Cook(request);
+        RequireCooked(unflipped);
+        const auto updated = Open(unflipped.Output);
+        CheckNormalDirection(Decode(updated.get(), 2, 0, fixture.Root()), {0.487, 0.487, 0.725},
+                             format == TextureCompression::BC5);
+    }
+}
+
+TEST_CASE("Pixel DDS normals retain supplied XYZ levels and generate only absent vector mips",
+          "[asset][pixel-cook][normal-cook]")
+{
+    TextureCookFixture fixture;
+    const auto pixel = [](uint32_t, uint32_t level, uint32_t, uint32_t)
+    {
+        return level ? std::array<uint8_t, 4>{128, 204, 230, 75}
+                     : std::array<uint8_t, 4>{204, 204, 195, 75};
+    };
+    auto dds = MakePixelDdsFixture(DdsPixelLayout::RGBA8, 8, 4, 2, 1, true, 4, pixel);
+    dds.SetWord(80, 0x80000041u);
+    TextureCookFixture::WriteText(fixture.Source("normal.dds"), dds.Bytes);
+    TextureCookRequest request{.Source = "normal.dds", .EncoderThreads = 2};
+    request.Overrides.Usage = TextureUsage::Normal;
+    request.Overrides.Format = TextureCompression::BC7;
+    request.Overrides.bFlipNormalY = true;
+    const auto result = fixture.Cooker().Cook(request);
+    RequireCooked(result);
+    const auto texture = Open(result.Output);
+    CHECK(texture->numLevels == 4);
+    CHECK(Metadata(texture.get(), "HikariNormalEncoding") == "xyz-unorm");
+    CHECK(Metadata(texture.get(), "HikariDdsNormalMap") == "true");
+    CheckColor(Decode(texture.get(), 0, 0, fixture.Root()), {204, 51, 195, 75});
+    for (uint32_t level = 1; level < 4; ++level)
+        CheckNormalDirection(Decode(texture.get(), level, 0, fixture.Root()), {0.004, -0.6, 0.804},
+                             false);
+}
 
 TEST_CASE("Pixel mips filter sRGB in linear light and data numerically", "[asset][pixel-cook]")
 {

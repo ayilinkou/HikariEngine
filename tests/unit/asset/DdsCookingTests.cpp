@@ -287,6 +287,90 @@ TEST_CASE("Partial DDS chains are bounded and repackaged but cooking waits for m
     }
 }
 
+TEST_CASE("Native normal DDS preserves signedness, all blocks and normal decoding metadata",
+          "[asset][dds][normal-cook]")
+{
+    TextureCookFixture fixture;
+    for (const auto dxgi : {83u, 84u, 98u})
+        for (const auto faces : {1u, 6u})
+        {
+            auto dds = MakeDdsFixture("DX10", 16, 4, 4, 3, faces, dxgi);
+            dds.SetWord(80, 0x80000004u);
+            TextureCookFixture::WriteText(fixture.Source("normal.dds"), dds.Bytes);
+            fs::remove(fixture.Source("normal.dds.json"));
+            TextureCookRequest request{.Source = "normal.dds"};
+            request.Overrides.Usage = TextureUsage::Normal;
+            const auto result = fixture.Cooker().Cook(request);
+            RequireStatus(result, TextureCookStatus::Cooked);
+            const auto texture = OpenKtx(result.Output);
+            CHECK(texture->vkFormat == uint32_t(dxgi == 83   ? VK_FORMAT_BC5_UNORM_BLOCK
+                                                : dxgi == 84 ? VK_FORMAT_BC5_SNORM_BLOCK
+                                                             : VK_FORMAT_BC7_UNORM_BLOCK));
+            CHECK(Metadata(texture.get(), "HikariTextureUsage") == "normal");
+            CHECK(Metadata(texture.get(), "HikariNormalEncoding") ==
+                  (dxgi == 83   ? "xy-unorm-positive-z"
+                   : dxgi == 84 ? "xy-snorm-positive-z"
+                                : "xyz-unorm"));
+            CHECK(Metadata(texture.get(), "HikariDdsNormalMap") == "true");
+            CheckPayloads(texture.get(), dds);
+        }
+}
+
+TEST_CASE("Legacy normal-map metadata never overrides authored DDS usage or accepts unknown flags",
+          "[asset][dds][normal-cook]")
+{
+    TextureCookFixture fixture;
+    auto dds = MakeDdsFixture("ATI2", 16, 4, 4, 3);
+    dds.SetWord(80, 0x80000004u);
+    const auto source = fixture.Source("data.dds");
+    TextureCookFixture::WriteText(source, dds.Bytes);
+    std::string error;
+    const auto info = ReadDdsInfo(source, error);
+    REQUIRE(info);
+    CHECK(info->bNormalMap);
+    TextureCookRequest request{.Source = "data.dds"};
+    request.Overrides.Usage = TextureUsage::Packed;
+    const auto result = fixture.Cooker().Cook(request);
+    RequireStatus(result, TextureCookStatus::Cooked);
+    const auto texture = OpenKtx(result.Output);
+    CHECK(Metadata(texture.get(), "HikariTextureUsage") == "packed");
+    CHECK(Metadata(texture.get(), "HikariDdsNormalMap") == "true");
+    CHECK_FALSE(Metadata(texture.get(), "HikariNormalEncoding"));
+    CheckPayloads(texture.get(), dds);
+    dds.SetWord(80, 0x80000044u);
+    TextureCookFixture::WriteText(source, dds.Bytes);
+    CHECK_FALSE(ReadDdsInfo(source, error));
+    CHECK(error.find("flags") != std::string::npos);
+}
+
+TEST_CASE("Explicit NVTT swizzles retain blocks and identify their normal decoding channels",
+          "[asset][dds][normal-cook]")
+{
+    TextureCookFixture fixture;
+    for (const bool bSwapAlpha : {false, true})
+    {
+        auto dds = MakeDdsFixture(bSwapAlpha ? "DXT5" : "ATI2", 16, 4, 4, 3);
+        dds.SetWord(80, 0x80000004u);
+        dds.SetWord(88, bSwapAlpha ? 0x35443241u : 0x59583241u);
+        TextureCookFixture::WriteText(fixture.Source("normal.dds"), dds.Bytes);
+        fs::remove(fixture.Source("normal.dds.json"));
+        TextureCookRequest request{.Source = "normal.dds"};
+        request.Overrides.Usage = TextureUsage::Normal;
+        const auto result = fixture.Cooker().Cook(request);
+        RequireStatus(result, TextureCookStatus::Cooked);
+        const auto texture = OpenKtx(result.Output);
+        CHECK(Metadata(texture.get(), "HikariNormalEncoding") ==
+              (bSwapAlpha ? "ag-unorm-positive-z" : "yx-unorm-positive-z"));
+        CHECK(Metadata(texture.get(), "HikariDdsSwizzle") == (bSwapAlpha ? "A2D5" : "A2XY"));
+        CheckPayloads(texture.get(), dds);
+        dds.SetWord(88, bSwapAlpha ? 0x59583241u : 0x35443241u);
+        TextureCookFixture::WriteText(fixture.Source("normal.dds"), dds.Bytes);
+        std::string error;
+        CHECK_FALSE(ReadDdsInfo(fixture.Source("normal.dds"), error));
+        CHECK(error.find("swizzle") != std::string::npos);
+    }
+}
+
 TEST_CASE("DDS masks preserve supplied levels and reject generated masked mips", "[asset][dds]")
 {
     TextureCookFixture fixture;

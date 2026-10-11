@@ -30,12 +30,7 @@ bool EncodeTexturePixels(const PreparedTextureCook& prepared, const std::filesys
 {
     error.clear();
     const auto& settings = prepared.Settings;
-    if (settings.Authored.Usage == TextureUsage::Normal)
-    {
-        error = "Texture encoding is not available yet for normal usage (TC7); no cooked output "
-                "was replaced";
-        return false;
-    }
+    const bool bNormal = settings.Authored.Usage == TextureUsage::Normal;
     if (settings.AlphaMode == TextureAlphaMode::Mask)
     {
         error = "Masked pixel encoding is not available yet (TC9); native DDS repackaging remains "
@@ -94,14 +89,29 @@ bool EncodeTexturePixels(const PreparedTextureCook& prepared, const std::filesys
         std::optional<Image> image;
         for (uint32_t level = 0; level < levels; ++level)
         {
+            const bool bSourceLevel = !level || (prepared.Dds && level < supplied);
             if (prepared.Dds && level < supplied)
                 image = ReadDdsPixels(prepared.Paths.SourcePath, *prepared.Dds, level, face, error);
             else if (!level)
                 image = ReadTextureImage(prepared.Inputs[face].string(), error);
             else
-                image = FilterTextureMip(*image, settings.ColorSpace, error);
+                image =
+                    FilterTextureMip(*image, settings.ColorSpace, error, settings.Authored.Usage);
             if (!image)
                 return false;
+            if (bNormal && bSourceLevel)
+                for (size_t i = 2; i < image->Pixels.size(); i += 4)
+                    if (image->Pixels[i] < 127)
+                    {
+                        error = "Normal pixel inputs require positive-Z tangent-space XYZ; "
+                                "negative-Z normals are unsupported";
+                        return false;
+                    }
+            // Flip each authored level once. Generated mips already carry the flip;
+            // preserve authored XYZ and normalize only newly filtered levels.
+            if (bNormal && bSourceLevel && settings.Authored.bFlipNormalY)
+                for (size_t i = 1; i < image->Pixels.size(); i += 4)
+                    image->Pixels[i] = static_cast<uint8_t>(255 - image->Pixels[i]);
             const Core::Extent2D expected{std::max(extent.Width >> level, 1u),
                                           std::max(extent.Height >> level, 1u)};
             if (image->Extent != expected)
@@ -116,7 +126,17 @@ bool EncodeTexturePixels(const PreparedTextureCook& prepared, const std::filesys
                     image->Pixels[i] = 255;
             const auto stem = std::format("face-{}-mip-{}", face, level);
             const auto png = scratch / (stem + ".png"), dds = scratch / (stem + ".dds");
-            if (!WritePng(image->Pixels, image->Extent, png.string()))
+            // Keep source vectors for mip averaging. BC5's reconstructed Z needs
+            // unit XYZ at packing time; BC7 retains authored XYZ for shader normalization.
+            std::optional<Image> preparedNormal;
+            if (bNormal && settings.Format == TextureCompression::BC5)
+            {
+                preparedNormal = PrepareNormalTextureXY(*image, error);
+                if (!preparedNormal)
+                    return false;
+            }
+            const auto& pixels = preparedNormal ? *preparedNormal : *image;
+            if (!WritePng(pixels.Pixels, pixels.Extent, png.string()))
             {
                 error = std::format("{}: Cannot write prepared mip pixels", png.string());
                 return false;
@@ -154,7 +174,8 @@ bool EncodeTexturePixels(const PreparedTextureCook& prepared, const std::filesys
         }
     }
     if (!SetCookKtxMetadata(texture, settings,
-                            prepared.Dds ? prepared.Dds->AlphaMode : DdsAlphaMode::Unknown, error))
+                            prepared.Dds ? prepared.Dds->AlphaMode : DdsAlphaMode::Unknown, error,
+                            prepared.Dds ? &*prepared.Dds : nullptr))
         return false;
     return check(ktxTexture2_WriteToNamedFile(texture, output.string().c_str()));
 }

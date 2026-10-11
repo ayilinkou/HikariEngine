@@ -32,6 +32,14 @@ enum class DdsPixelLayout : uint8_t
     BGRX8
 };
 
+/** Explicit NVTT channel transforms, separate from authored texture usage. */
+enum class DdsChannelSwizzle : uint8_t
+{
+    None,
+    SwapRedGreen,
+    SwapRedAlpha
+};
+
 struct DdsSubresource
 {
     uint32_t Level = 0;
@@ -50,6 +58,9 @@ struct DdsTextureInfo
     DdsPixelLayout PixelLayout = DdsPixelLayout::Compressed;
     std::optional<TextureColorSpace> ColorSpace;
     DdsAlphaMode AlphaMode = DdsAlphaMode::Unknown;
+    /** NVTT's explicit normal-map flag; never establishes authored usage. */
+    bool bNormalMap = false;
+    DdsChannelSwizzle ChannelSwizzle = DdsChannelSwizzle::None;
     uint32_t Levels = 1;
     uint32_t Faces = 1;
     // DDS order: all mips of +X, then -X, +Y, -Y, +Z, -Z.

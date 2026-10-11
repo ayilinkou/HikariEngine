@@ -85,7 +85,7 @@ bool RepackageDds(const std::filesystem::path& source, const DdsTextureInfo& inf
                                                  subresource.Face, blocks.data(), blocks.size())))
             return false;
     }
-    if (!SetCookKtxMetadata(texture, settings, info.AlphaMode, error))
+    if (!SetCookKtxMetadata(texture, settings, info.AlphaMode, error, &info))
         return false;
     return check(ktxTexture2_WriteToNamedFile(texture, output.string().c_str()));
 }
