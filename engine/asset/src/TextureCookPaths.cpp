@@ -121,9 +121,12 @@ std::optional<TextureCookPaths> MapTextureCookPaths(const std::filesystem::path&
     paths.CookedPath += ".ktx2";
     paths.RecordPath = paths.CookedRoot / stem;
     paths.RecordPath += ".cook.json";
+    paths.LockPath = paths.CookedRoot / ".locks" / stem;
+    paths.LockPath += ".ktx2.lock";
     for (const auto& [path, root] : {std::pair{paths.SettingsPath, paths.SourceRoot},
                                      std::pair{paths.CookedPath, paths.CookedRoot},
-                                     std::pair{paths.RecordPath, paths.CookedRoot}})
+                                     std::pair{paths.RecordPath, paths.CookedRoot},
+                                     std::pair{paths.LockPath, paths.CookedRoot}})
     {
         const auto resolved = fs::weakly_canonical(path, ec);
         if (ec || !RelativeCookPath(resolved, root))

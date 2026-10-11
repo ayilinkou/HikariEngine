@@ -80,6 +80,56 @@ TEST_CASE("Cook paths reject missing inputs, unsupported types and sources outsi
     CHECK_FALSE(fs::exists(fixture.Cooked()));
 }
 
+TEST_CASE("Cook lock paths mirror output identities beneath each cooked root",
+          "[asset][texture-cooker]")
+{
+    TextureCookFixture fixture;
+    fixture.WriteImage("textures/brick.png");
+    fs::copy_file(HIKARI_TEXTURE_TEST_DATA_DIR "constant.jpg",
+                  fixture.Source("textures/brick.jpg"));
+    fixture.WriteCubemap();
+    std::string error;
+    for (const auto& root : {fixture.Cooked(), fixture.Root() / "custom cooked"})
+    {
+        const auto png = MapTextureCookPaths(fixture.Content(), root, "textures/brick.png", error);
+        const auto jpg = MapTextureCookPaths(fixture.Content(), root, "textures/brick.jpg", error);
+        const auto cube =
+            MapTextureCookPaths(fixture.Content(), root, "sky/sky.cubemap.json", error);
+        REQUIRE(png);
+        REQUIRE(jpg);
+        REQUIRE(cube);
+        CHECK(png->LockPath == root / ".locks/textures/brick.png.ktx2.lock");
+        CHECK(jpg->LockPath == root / ".locks/textures/brick.jpg.ktx2.lock");
+        CHECK(cube->LockPath == root / ".locks/sky/sky.cubemap.ktx2.lock");
+        CHECK_FALSE(fs::exists(root));
+    }
+}
+
+TEST_CASE("Unsafe or blocked lock directories fail before settings publication",
+          "[asset][texture-cooker]")
+{
+    TextureCookFixture fixture;
+    fixture.WriteImage("image.png");
+    fs::create_directory(fixture.Cooked());
+    SECTION("blocked")
+    {
+        TextureCookFixture::WriteText(fixture.Cooked() / ".locks", "retain this file");
+    }
+    SECTION("outside cooked root")
+    {
+        fs::create_directory(fixture.Root() / "outside");
+        std::error_code ec;
+        fs::create_directory_symlink(fixture.Root() / "outside", fixture.Cooked() / ".locks", ec);
+        if (ec)
+            SKIP("Symlink creation unavailable: " + ec.message());
+    }
+    const auto result = fixture.Cooker().Cook({.Source = "image.png"});
+    CHECK(result.Status == TextureCookStatus::Failed);
+    CHECK_FALSE(result.Error.empty());
+    CHECK_FALSE(fs::exists(fixture.Source("image.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Cooked() / "image.png.ktx2"));
+}
+
 TEST_CASE("Cook path symlinks cannot escape source or generated roots", "[asset][texture-cooker]")
 {
     TextureCookFixture fixture;

@@ -56,7 +56,7 @@ int main(int argc, char** argv)
         return 1;
     }
     std::filesystem::create_directories(prepared->Paths.CookedPath.parent_path());
-    const auto lock = CookLock::Acquire(prepared->Paths.CookedPath, error);
+    const auto lock = CookLock::Acquire(prepared->Paths, error);
     if (!lock || !CookPublication::Recover(prepared->Paths, error))
         return 1;
     encoder.Versions.Pipeline += "-replacement";

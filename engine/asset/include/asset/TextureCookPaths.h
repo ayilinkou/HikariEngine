@@ -23,6 +23,8 @@ struct TextureCookPaths
     std::filesystem::path SettingsPath;
     std::filesystem::path CookedPath;
     std::filesystem::path RecordPath;
+    /** Mirrored output identity beneath cooked/.locks/, outside asset directories. */
+    std::filesystem::path LockPath;
     TextureCookSourceKind Kind = TextureCookSourceKind::Image;
 };
 

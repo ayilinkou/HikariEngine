@@ -80,6 +80,25 @@ fs::path TransactionPath(const TextureCookFixture& fixture)
 }
 } // namespace
 
+TEST_CASE("Cooking retains locks in the dedicated tree through warm skips",
+          "[asset][texture-cooker][incremental]")
+{
+    TextureCookFixture fixture;
+    fixture.WriteImage("nested/image.png");
+    const TextureCooker cooker(fixture.Content(), fixture.Root() / "custom cooked");
+    const TextureCookRequest request{.Source = "nested/image.png"};
+    const auto encoder = TextureCookFixtureEncoder();
+    RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Cooked);
+    const auto root = fixture.Root() / "custom cooked";
+    const auto lock = root / ".locks/nested/image.png.ktx2.lock";
+    REQUIRE(fs::is_regular_file(lock));
+    CHECK(fs::file_size(lock) == 0);
+    CHECK_FALSE(fs::exists(root / "nested/image.png.ktx2.lock"));
+    RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Skipped);
+    CHECK(fs::is_regular_file(lock));
+    CHECK_FALSE(fs::exists(root / "nested/image.png.ktx2.lock"));
+}
+
 TEST_CASE("Cook content hashes match SHA-256 vectors across streaming block boundaries",
           "[asset][texture-cooker][incremental]")
 {
@@ -497,7 +516,7 @@ TEST_CASE(
     const auto prepared = cooker.Prepare(request, error, warnings);
     REQUIRE(prepared);
     {
-        const auto lock = CookLock::Acquire(output, error);
+        const auto lock = CookLock::Acquire(prepared->Paths, error);
         REQUIRE(lock);
         REQUIRE(CookPublication::Recover(prepared->Paths, error));
     }
@@ -553,7 +572,7 @@ TEST_CASE("Publication failures restore both previous files and recovery is idem
     std::vector<std::string> warnings;
     const auto prepared = cooker.Prepare(request, error, warnings);
     REQUIRE(prepared);
-    const auto lock = CookLock::Acquire(output, error);
+    const auto lock = CookLock::Acquire(prepared->Paths, error);
     REQUIRE(lock);
     const auto publication = CookPublication::Begin(prepared->Paths, error);
     REQUIRE(publication);

@@ -17,12 +17,19 @@
 namespace Hikari::Asset
 {
 
-std::unique_ptr<CookLock> CookLock::Acquire(const std::filesystem::path& output, std::string& error)
+std::unique_ptr<CookLock> CookLock::Acquire(const TextureCookPaths& paths, std::string& error)
 {
-    auto path = output;
-    path += ".lock";
-    std::unique_ptr<CookLock> lock(new CookLock);
+    const auto& path = paths.LockPath;
     std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    if (ec)
+    {
+        error = std::format(
+            "{}: Cannot create cooking lock directory: {}. Choose a writable --cooked-root.",
+            path.parent_path().string(), ec.message());
+        return nullptr;
+    }
+    std::unique_ptr<CookLock> lock(new CookLock);
 #ifdef _WIN32
     lock->m_Handle =
         CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,

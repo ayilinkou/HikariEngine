@@ -4,6 +4,8 @@
 #include <memory>
 #include <string>
 
+#include <asset/TextureCookPaths.h>
+
 namespace Hikari::Asset
 {
 
@@ -12,8 +14,7 @@ namespace Hikari::Asset
 class CookLock
 {
 public:
-    static std::unique_ptr<CookLock> Acquire(const std::filesystem::path& output,
-                                             std::string& error);
+    static std::unique_ptr<CookLock> Acquire(const TextureCookPaths& paths, std::string& error);
     ~CookLock();
     CookLock(const CookLock&) = delete;
     CookLock& operator=(const CookLock&) = delete;

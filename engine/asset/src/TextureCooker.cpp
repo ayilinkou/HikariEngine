@@ -308,7 +308,7 @@ TextureCookResult TextureCooker::Cook(const TextureCookRequest& request,
     result.Output = prepared->Paths.CookedPath;
     if (!CheckCookOutputDirectory(result.Output.parent_path(), result.Error))
         return result;
-    const auto lock = CookLock::Acquire(result.Output, result.Error);
+    const auto lock = CookLock::Acquire(prepared->Paths, result.Error);
     if (!lock || !CookPublication::Recover(prepared->Paths, result.Error))
         return result;
     // A waiter must reread settings after acquiring the lock: another request
