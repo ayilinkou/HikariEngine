@@ -18,6 +18,7 @@
 
 #include "DdsFixture.h"
 #include "DdsKtxWriter.h"
+#include "PixelTextureEncoder.h"
 #include "TextureCookFixture.h"
 
 using namespace Hikari::Asset;
@@ -248,8 +249,7 @@ TEST_CASE("DDS colour reinterpretation and usage changes preserve native payload
     CheckPayloads(texture.get(), dds);
 }
 
-TEST_CASE("Partial DDS chains are bounded and repackaged but cooking waits for mip completion",
-          "[asset][dds]")
+TEST_CASE("Partial DDS chains are bounded, completed and preserve supplied levels", "[asset][dds]")
 {
     TextureCookFixture fixture;
     for (const uint32_t faces : {1u, 6u})
@@ -270,8 +270,11 @@ TEST_CASE("Partial DDS chains are bounded and repackaged but cooking waits for m
         CHECK(texture->numFaces == faces);
         CheckPayloads(texture.get(), dds);
         const auto result = fixture.Cooker().Cook({.Source = "partial.dds"});
-        CHECK(result.Status == TextureCookStatus::Failed);
-        CHECK(result.Error.find("Missing DDS mip generation") != std::string::npos);
+        RequireStatus(result, TextureCookStatus::Cooked);
+        const auto completed = OpenKtx(result.Output);
+        CHECK(completed->numLevels == 4);
+        CHECK(completed->numFaces == faces);
+        CheckPayloads(completed.get(), dds);
         bool warned = false;
         for (const auto& warning : result.Warnings)
             warned |= warning.find("does not preserve alpha-test coverage") != std::string::npos;
@@ -391,7 +394,7 @@ TEST_CASE("DDS masks preserve supplied levels and reject generated masked mips",
     CHECK(TextureCookFixture::ReadText(result.Output) == original);
 }
 
-TEST_CASE("DDS conversions stay explicit and unavailable operations retain successful files",
+TEST_CASE("DDS conversions stay explicit and failed conversions retain successful files",
           "[asset][dds]")
 {
     TextureCookFixture fixture;
@@ -412,15 +415,29 @@ TEST_CASE("DDS conversions stay explicit and unavailable operations retain succe
     {
         request.Overrides.bFlipNormalY = true;
     }
-    const auto failure = fixture.Cooker().Cook(request);
-    CHECK(failure.Status == TextureCookStatus::Failed);
-    CHECK(failure.Error.find("conversion is not available") != std::string::npos);
+    const auto conversion = fixture.Cooker().Cook(request);
+    RequireStatus(conversion, TextureCookStatus::Cooked);
+    const auto converted = OpenKtx(conversion.Output);
+    CHECK(converted->vkFormat == uint32_t(request.Overrides.Format == TextureCompression::BC7
+                                              ? VK_FORMAT_BC7_UNORM_BLOCK
+                                              : VK_FORMAT_BC5_UNORM_BLOCK));
     bool warned = false;
-    for (const auto& warning : failure.Warnings)
+    for (const auto& warning : conversion.Warnings)
         warned |= warning.find("byte preservation no longer applies") != std::string::npos;
     CHECK(warned);
-    CHECK(TextureCookFixture::ReadText(result.Output) == output);
-    CHECK(TextureCookFixture::ReadText(recordPath) == record);
+    const auto convertedOutput = TextureCookFixture::ReadText(result.Output);
+    const auto convertedRecord = TextureCookFixture::ReadText(recordPath);
+    CHECK(convertedOutput != output);
+    CHECK(convertedRecord != record);
+    request.bForce = true;
+    TextureCookEncoder unavailable;
+    unavailable.Encode = [&](const auto& prepared, const auto& temporary, auto& error)
+    { return EncodeTexturePixels(prepared, temporary, error, fixture.Root() / "missing tool"); };
+    const auto failure = fixture.Cooker().Cook(request, unavailable);
+    CHECK(failure.Status == TextureCookStatus::Failed);
+    CHECK_FALSE(failure.Error.empty());
+    CHECK(TextureCookFixture::ReadText(result.Output) == convertedOutput);
+    CHECK(TextureCookFixture::ReadText(recordPath) == convertedRecord);
 }
 
 TEST_CASE("DDS rejects malformed and unsupported headers before saving settings or output",

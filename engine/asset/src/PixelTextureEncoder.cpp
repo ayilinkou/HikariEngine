@@ -1,24 +1,63 @@
 #include "PixelTextureEncoder.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <format>
-#include <fstream>
 #include <memory>
-#include <system_error>
-#include <vector>
 
 #include <ktx.h>
 
 #include <asset/DdsReader.h>
-#include <asset/ImageWriter.h>
 
 #include "CookKtxMetadata.h"
-#include "CookProcess.h"
 #include "KtxFormat.h"
+#include "TextureBlockCodec.h"
 #include "TexturePixelFilter.h"
 
 namespace Hikari::Asset
 {
+namespace
+{
+void DecodeNormalChannels(Image& image, const DdsTextureInfo& source)
+{
+    const bool bXY = source.Format == TextureCompression::BC5 ||
+                     source.Format == TextureCompression::BC5Signed ||
+                     source.ChannelSwizzle != DdsChannelSwizzle::None;
+    for (size_t pixel = 0; pixel < image.Pixels.size(); pixel += 4)
+    {
+        if (source.ChannelSwizzle == DdsChannelSwizzle::SwapRedGreen)
+            std::swap(image.Pixels[pixel], image.Pixels[pixel + 1]);
+        else if (source.ChannelSwizzle == DdsChannelSwizzle::SwapRedAlpha)
+            std::swap(image.Pixels[pixel], image.Pixels[pixel + 3]);
+        if (bXY)
+        {
+            const double x = image.Pixels[pixel] / 127.5 - 1;
+            const double y = image.Pixels[pixel + 1] / 127.5 - 1;
+            const double z = std::sqrt(std::max(0.0, 1 - x * x - y * y));
+            image.Pixels[pixel + 2] = static_cast<uint8_t>(std::lround((z * 0.5 + 0.5) * 255));
+            image.Pixels[pixel + 3] = 255;
+        }
+    }
+    image.SourceChannels = bXY ? 3u : 4u;
+}
+
+bool PrepareSourceNormal(Image& image, bool bFlip, std::string& error)
+{
+    for (size_t pixel = 0; pixel < image.Pixels.size(); pixel += 4)
+    {
+        if (image.Pixels[pixel + 2] < 127)
+        {
+            error = "Normal pixel inputs require positive-Z tangent-space XYZ; negative-Z normals "
+                    "are unsupported";
+            return false;
+        }
+        if (bFlip)
+            image.Pixels[pixel + 1] = static_cast<uint8_t>(255 - image.Pixels[pixel + 1]);
+    }
+    return true;
+}
+} // namespace
 
 std::filesystem::path ConfiguredTextureEncoder()
 {
@@ -31,7 +70,9 @@ bool EncodeTexturePixels(const PreparedTextureCook& prepared, const std::filesys
     error.clear();
     const auto& settings = prepared.Settings;
     const bool bNormal = settings.Authored.Usage == TextureUsage::Normal;
-    if (settings.AlphaMode == TextureAlphaMode::Mask)
+    const bool bCompressed = prepared.Dds && prepared.Dds->IsCompressed();
+    const bool bRetain = bCompressed && !settings.bRecompressExistingMips;
+    if (settings.AlphaMode == TextureAlphaMode::Mask && !bCompressed)
     {
         error = "Masked pixel encoding is not available yet (TC9); native DDS repackaging remains "
                 "supported";
@@ -41,18 +82,15 @@ bool EncodeTexturePixels(const PreparedTextureCook& prepared, const std::filesys
     const uint32_t faces = prepared.Dds ? prepared.Dds->Faces : prepared.Descriptor ? 6 : 1;
     const uint32_t levels = settings.Authored.bMipmaps ? FullTextureMipCount(extent) : 1;
     const uint32_t supplied = prepared.Dds ? prepared.Dds->Levels : 1;
-    if (faces == 6 && levels > supplied)
+    if (settings.AlphaMode == TextureAlphaMode::Mask && levels > supplied)
     {
-        error = "Generated cubemap mips require cross-face filtering (TC8); use --no-mips or "
-                "supplied DDS levels";
+        error = "Generated masked mips are not supported; use --no-mips or supplied DDS levels";
         return false;
     }
     const auto format = NativeKtxFormat(settings.Format, settings.ColorSpace);
-    if (!format ||
-        (settings.Format != TextureCompression::BC1 && settings.Format != TextureCompression::BC4 &&
-         settings.Format != TextureCompression::BC5 && settings.Format != TextureCompression::BC7))
+    if (!format)
     {
-        error = "Pixel encoding supports BC1, BC4, BC5 and BC7";
+        error = "Pixel encoding requires a supported native BC format and colour space";
         return false;
     }
     const auto check = [&](KTX_error_code status)
@@ -76,108 +114,129 @@ bool EncodeTexturePixels(const PreparedTextureCook& prepared, const std::filesys
     const auto destroy = [](ktxTexture2* value) { ktxTexture_Destroy(ktxTexture(value)); };
     const std::unique_ptr<ktxTexture2, decltype(destroy)> owner(texture, destroy);
     const auto scratch = output.parent_path() / "encoding";
-    std::error_code ec;
-    std::filesystem::create_directories(scratch, ec);
-    if (ec)
+    std::array<Image, 6> images;
+    for (uint32_t level = 0; level < levels; ++level)
     {
-        error =
-            std::format("{}: Cannot create encoding directory: {}", scratch.string(), ec.message());
-        return false;
-    }
-    for (uint32_t face = 0; face < faces; ++face)
-    {
-        std::optional<Image> image;
-        for (uint32_t level = 0; level < levels; ++level)
+        const bool bSourceLevel = level < supplied;
+        if (!bSourceLevel)
         {
-            const bool bSourceLevel = !level || (prepared.Dds && level < supplied);
-            if (prepared.Dds && level < supplied)
-                image = ReadDdsPixels(prepared.Paths.SourcePath, *prepared.Dds, level, face, error);
-            else if (!level)
-                image = ReadTextureImage(prepared.Inputs[face].string(), error);
+            if (faces == 6)
+            {
+                auto filtered =
+                    FilterCubemapMip(images, settings.ColorSpace, settings.Authored.Usage, error);
+                if (!filtered)
+                    return false;
+                images = std::move(*filtered);
+            }
             else
-                image =
-                    FilterTextureMip(*image, settings.ColorSpace, error, settings.Authored.Usage);
-            if (!image)
-                return false;
-            if (bNormal && bSourceLevel)
-                for (size_t i = 2; i < image->Pixels.size(); i += 4)
-                    if (image->Pixels[i] < 127)
-                    {
-                        error = "Normal pixel inputs require positive-Z tangent-space XYZ; "
-                                "negative-Z normals are unsupported";
+            {
+                auto filtered = FilterTextureMip(images[0], settings.ColorSpace, error,
+                                                 settings.Authored.Usage);
+                if (!filtered)
+                    return false;
+                images[0] = std::move(*filtered);
+            }
+        }
+        const Core::Extent2D expected{std::max(extent.Width >> level, 1u),
+                                      std::max(extent.Height >> level, 1u)};
+        for (uint32_t face = 0; face < faces; ++face)
+        {
+            const auto directory = scratch / std::format("face-{}-mip-{}", face, level);
+            auto& image = images[face];
+            if (bSourceLevel)
+            {
+                std::optional<Image> decoded;
+                if (bCompressed)
+                {
+                    const auto blocks = ReadTextureBlocks(prepared.Paths.SourcePath, *prepared.Dds,
+                                                          level, face, error);
+                    if (!blocks)
                         return false;
+                    if (bRetain)
+                    {
+                        if (!check(ktxTexture_SetImageFromMemory(ktxTexture(texture), level, 0,
+                                                                 face, blocks->data(),
+                                                                 blocks->size())))
+                            return false;
+                        // Only the last supplied level feeds missing mips. Every
+                        // retained block bypasses encoding, including cubemap faces.
+                        if (level + 1 != supplied || levels <= supplied)
+                            continue;
                     }
-            // Flip each authored level once. Generated mips already carry the flip;
-            // preserve authored XYZ and normalize only newly filtered levels.
-            if (bNormal && bSourceLevel && settings.Authored.bFlipNormalY)
-                for (size_t i = 1; i < image->Pixels.size(); i += 4)
-                    image->Pixels[i] = static_cast<uint8_t>(255 - image->Pixels[i]);
-            const Core::Extent2D expected{std::max(extent.Width >> level, 1u),
-                                          std::max(extent.Height >> level, 1u)};
-            if (image->Extent != expected)
+                    decoded = DecodeTextureBlocks(*blocks, expected, prepared.Dds->Format,
+                                                  directory, executable, error);
+                    if (decoded && bNormal)
+                        DecodeNormalChannels(*decoded, *prepared.Dds);
+                }
+                else if (prepared.Dds)
+                    decoded =
+                        ReadDdsPixels(prepared.Paths.SourcePath, *prepared.Dds, level, face, error);
+                else
+                    decoded = ReadTextureImage(prepared.Inputs[face].string(), error);
+                if (!decoded)
+                    return false;
+                image = std::move(*decoded);
+                if (bNormal &&
+                    !PrepareSourceNormal(image, !bRetain && settings.Authored.bFlipNormalY, error))
+                    return false;
+            }
+            if (image.Extent != expected)
             {
                 error = "Source dimensions changed during pixel cooking; retry cooking";
                 return false;
             }
-            // BC1 opaque storage must never accidentally select binary alpha.
-            // BC4 maps canonical R, BC5 maps R/G, BC7 retains all RGBA channels.
-            if (settings.Format == TextureCompression::BC1)
-                for (size_t i = 3; i < image->Pixels.size(); i += 4)
-                    image->Pixels[i] = 255;
-            const auto stem = std::format("face-{}-mip-{}", face, level);
-            const auto png = scratch / (stem + ".png"), dds = scratch / (stem + ".dds");
-            // Keep source vectors for mip averaging. BC5's reconstructed Z needs
-            // unit XYZ at packing time; BC7 retains authored XYZ for shader normalization.
-            std::optional<Image> preparedNormal;
-            if (bNormal && settings.Format == TextureCompression::BC5)
+            if (bRetain && bSourceLevel)
+                continue;
+            std::optional<Image> normalized;
+            const auto swizzle = bRetain ? prepared.Dds->ChannelSwizzle : DdsChannelSwizzle::None;
+            if (bNormal && (settings.Format == TextureCompression::BC5 ||
+                            settings.Format == TextureCompression::BC5Signed ||
+                            swizzle != DdsChannelSwizzle::None))
             {
-                preparedNormal = PrepareNormalTextureXY(*image, error);
-                if (!preparedNormal)
+                normalized = PrepareNormalTextureXY(image, error);
+                if (!normalized)
                     return false;
             }
-            const auto& pixels = preparedNormal ? *preparedNormal : *image;
-            if (!WritePng(pixels.Pixels, pixels.Extent, png.string()))
-            {
-                error = std::format("{}: Cannot write prepared mip pixels", png.string());
+            // Packing must not alter the working vectors used by the next mip.
+            Image packed = normalized ? std::move(*normalized) : image;
+            if (bNormal && swizzle != DdsChannelSwizzle::None)
+                for (size_t pixel = 0; pixel < packed.Pixels.size(); pixel += 4)
+                {
+                    if (swizzle == DdsChannelSwizzle::SwapRedGreen)
+                        std::swap(packed.Pixels[pixel], packed.Pixels[pixel + 1]);
+                    else
+                    {
+                        packed.Pixels[pixel + 3] = packed.Pixels[pixel];
+                        packed.Pixels[pixel] = packed.Pixels[pixel + 2] = 0;
+                    }
+                }
+            // Unknown DDS alpha needs ordinary filtering with its coverage-risk
+            // warning. Explicit opaque BC1 and new opaque images discard alpha.
+            if (settings.Format == TextureCompression::BC1 &&
+                settings.AlphaMode == TextureAlphaMode::Opaque &&
+                (!bCompressed || settings.bAlphaUsageKnown))
+                for (size_t pixel = 3; pixel < packed.Pixels.size(); pixel += 4)
+                    packed.Pixels[pixel] = 255;
+            const auto blocks =
+                EncodeTextureBlocks(packed, settings.Format, prepared.Request.EncoderThreads,
+                                    settings.Authored.AlphaCutoff, directory, executable, error);
+            if (!blocks || !check(ktxTexture_SetImageFromMemory(ktxTexture(texture), level, 0, face,
+                                                                blocks->data(), blocks->size())))
                 return false;
-            }
-            if (!RunCookProcess(executable,
-                                {"-fd", std::string(ToDisplayString(settings.Format)),
-                                 "-EncodeWith", "HPC", "-NumThreads",
-                                 std::to_string(prepared.Request.EncoderThreads), "-nomipmap",
-                                 CookPathUtf8(png), CookPathUtf8(dds)},
-                                scratch / "encoder.log", error))
-                return false;
-            const auto encoded = ReadDdsInfo(dds, error);
-            if (!encoded)
-                return false;
-            if (!encoded->IsCompressed() || encoded->Extent != expected ||
-                encoded->Format != settings.Format || encoded->Faces != 1 || encoded->Levels != 1)
-            {
-                error = "CPU encoder changed the requested format, dimensions or mip count; no "
-                        "resizing is permitted";
-                return false;
-            }
-            const auto& sub = encoded->Subresources.front();
-            std::vector<uint8_t> blocks(static_cast<size_t>(sub.Size));
-            std::ifstream file(dds, std::ios::binary);
-            file.seekg(static_cast<std::streamoff>(sub.Offset));
-            file.read(reinterpret_cast<char*>(blocks.data()),
-                      static_cast<std::streamsize>(blocks.size()));
-            if (!file || !check(ktxTexture_SetImageFromMemory(ktxTexture(texture), level, 0, face,
-                                                              blocks.data(), blocks.size())))
-            {
-                if (error.empty())
-                    error = "Cannot read encoded mip blocks";
-                return false;
-            }
         }
     }
+    auto sourceMetadata = prepared.Dds;
+    if (sourceMetadata && settings.bRecompressExistingMips)
+    {
+        // Conversion produces canonical output channels; the old native swizzle
+        // must not describe newly encoded blocks or influence shader decoding.
+        sourceMetadata->ChannelSwizzle = DdsChannelSwizzle::None;
+        sourceMetadata->Format = settings.Format;
+    }
     if (!SetCookKtxMetadata(texture, settings,
-                            prepared.Dds ? prepared.Dds->AlphaMode : DdsAlphaMode::Unknown, error,
-                            prepared.Dds ? &*prepared.Dds : nullptr))
+                            sourceMetadata ? sourceMetadata->AlphaMode : DdsAlphaMode::Unknown,
+                            error, sourceMetadata ? &*sourceMetadata : nullptr))
         return false;
     return check(ktxTexture2_WriteToNamedFile(texture, output.string().c_str()));
 }
-
 } // namespace Hikari::Asset

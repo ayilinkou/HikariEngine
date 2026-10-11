@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC7 implemented. TC8 is next.** Runs after the
+**Stage 7.8 — TC1–TC8 implemented. TC9 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -198,6 +198,8 @@ UNORM XY: interpret source RGB in [0, 1] as signed XYZ in [-1, 1], filter and no
 vectors when generating mips, and encode XY back to UNORM. At sampling, unpack XY and
 reconstruct `Z = sqrt(max(0, 1 - X*X - Y*Y))`; normalize the resulting direction as
 needed. An explicit BC7 normal override retains XYZ and uses three-channel unpacking.
+Implement normal unpacking and positive-Z reconstruction in one shared shader header,
+included by each shader that needs normal decoding; do not duplicate the decoding logic.
 Preserve signed BC5 DDS as SNORM, sampling signed XY without the UNORM remap before
 reconstructing Z. Object-space and negative-Z normal representations are outside this
 stage's scope.
@@ -361,7 +363,7 @@ Finish requests from older cooker versions before switching from adjacent lock f
 
 Implemented. Native BC DDS blocks pass directly to KTX2, preserving supplied levels,
 face order, signedness and explicit colour/alpha metadata. `--no-mips` retains mip zero.
-Incomplete compressed chains and pixel-changing conversions remain TC8 work; arrays,
+TC8 completes compressed chains and performs explicit pixel conversions; arrays,
 volumes, typeless formats and HDR/BC6H are rejected.
 
 - **Do:** Parse supported legacy/DX10 DDS headers and bounded subresource payloads, map
@@ -382,8 +384,8 @@ footprints include odd edges and chains continue through 1×1 without resizing.
 
 Pixel DDS supports common RGB/BGR/RGBA/BGRA/RGBX/BGRX layouts with bounded byte/DWORD row
 packing. Supplied pixel levels are encoded as authored; missing 2D levels use the shared
-filter. Cubemaps support supplied full chains or base-only output. Generated cubemap mips
-remain TC8 work and masked encoding TC9. Higher precision/HDR,
+filter. TC8 adds cross-face filtering for generated cubemap mips. Masked encoding remains
+TC9 work. Higher precision/HDR,
 unusual layouts and pixel dimensions above 16,384 are rejected.
 
 - **Do:** Encode PNG/JPG to BC1/BC4/BC5/BC7 as allowed by usage/settings. Establish scalar
@@ -407,7 +409,7 @@ averages. Alpha remains a numeric average. `HikariNormalEncoding` identifies dec
 channels and signedness. Compressed DDS blocks retain signedness; the legacy NVTT normal
 flag and explicit A2XY/A2D5 swizzles are preserved as metadata
 without changing authored usage or block bytes.
-Compressed DDS conversion and cross-face mip generation remain TC8 work.
+TC8 handles compressed DDS conversion and cross-face mip generation.
 
 - **Do:** Implement the agreed normal representation, optional Y flip, normal-aware mip
   generation and compression overrides. Establish cooked metadata for correct shader
@@ -418,6 +420,12 @@ Compressed DDS conversion and cross-face mip generation remain TC8 work.
 - **Size:** M · **Needs:** TC6; TC-D10.
 
 ### TC8. DDS missing-mip completion and explicit conversion
+
+Implemented. Missing DDS levels encode in the native format while supplied blocks remain
+unchanged. Explicit format conversion and Y flipping recompress supplied levels with a
+warning. Cubemap mips gather adjacent faces and three-face corners using shared colour,
+data and normal filtering. Logical dimensions remain unchanged. Masked mip generation
+is rejected; unresolved alpha uses ordinary filtering with a coverage-risk warning.
 
 - **Do:** Generate only absent mip levels in the native source format, including BC2/BC3;
   retain supplied levels, including all six cubemap faces. Implement cross-face filtering
@@ -432,7 +440,7 @@ Compressed DDS conversion and cross-face mip generation remain TC8 work.
   unchanged and the coverage-risk warning identifies the affected asset/settings.
 - **Size:** M–L · **Needs:** TC5–TC7; TC-D8, TC-D11.
 
-### TC9. Base-only masked texture cooking
+### TC9. Base-only masked texture cooking — NEXT
 
 - **Do:** Implement explicit opaque/mask modes, cutoff validation, BC1 binary-alpha
   encoding and `--no-mips`. Keep BC7 varying-alpha storage. Identify material-cutoff

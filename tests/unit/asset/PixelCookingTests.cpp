@@ -561,15 +561,20 @@ TEST_CASE("Uncompressed DDS cooks supplied cubemap mips without overwriting thei
                        {int(30 + face * 25), level ? 180 : 60, 120, 255});
 }
 
-TEST_CASE("Cubemap descriptors encode base faces and defer cross-face generation",
+TEST_CASE("Cubemap descriptors generate cross-face mip chains and retain base faces",
           "[asset][pixel-cook]")
 {
     TextureCookFixture fixture;
     fixture.WriteCubemap();
     TextureCookRequest request{.Source = "sky/sky.cubemap.json", .EncoderThreads = 2};
-    const auto unsupported = fixture.Cooker().Cook(request);
-    CHECK(unsupported.Status == TextureCookStatus::Failed);
-    CHECK(unsupported.Error.find("cross-face") != std::string::npos);
+    const auto complete = fixture.Cooker().Cook(request);
+    RequireCooked(complete);
+    const auto full = Open(complete.Output);
+    CHECK(full->numLevels == 3);
+    CHECK(full->numFaces == 6);
+    for (uint32_t face = 0; face < 6; ++face)
+        for (uint32_t level = 0; level < 3; ++level)
+            CheckColor(Decode(full.get(), level, face, fixture.Root()), {255, 255, 255, 255});
     request.Overrides.bNoMips = true;
     const auto result = fixture.Cooker().Cook(request);
     RequireCooked(result);

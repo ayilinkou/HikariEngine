@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <optional>
 #include <string>
 
@@ -18,5 +19,10 @@ std::optional<Image> FilterTextureMip(const Image& source, TextureColorSpace col
 
 /** Normalize decoded XYZ before storing XY with positive-Z reconstruction. */
 std::optional<Image> PrepareNormalTextureXY(const Image& source, std::string& error);
+
+/** Tent reduction across sampler-compatible face edges and three-face corners. */
+std::optional<std::array<Image, 6>> FilterCubemapMip(const std::array<Image, 6>& source,
+                                                     TextureColorSpace color, TextureUsage usage,
+                                                     std::string& error);
 
 } // namespace Hikari::Asset

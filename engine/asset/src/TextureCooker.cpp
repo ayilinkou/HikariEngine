@@ -275,23 +275,11 @@ TextureCookResult TextureCooker::Cook(const TextureCookRequest& request) const
     encoder.Encode = [](const PreparedTextureCook& prepared, const std::filesystem::path& output,
                         std::string& error)
     {
-        if (!prepared.Dds || !prepared.Dds->IsCompressed())
+        if (!prepared.Dds || !prepared.Dds->IsCompressed() ||
+            prepared.Settings.bRecompressExistingMips ||
+            (prepared.Settings.Authored.bMipmaps &&
+             prepared.Dds->Levels < FullTextureMipCount(prepared.Dds->Extent)))
             return EncodeTexturePixels(prepared, output, error);
-        if (prepared.Settings.bRecompressExistingMips)
-        {
-            error = std::format("{}: DDS pixel/format conversion is not available yet (TC8); "
-                                "no cooked output was replaced",
-                                prepared.Paths.SourcePath.string());
-            return false;
-        }
-        if (prepared.Settings.Authored.bMipmaps &&
-            prepared.Dds->Levels < FullTextureMipCount(prepared.Dds->Extent))
-        {
-            error = std::format("{}: Missing DDS mip generation is not available yet (TC8); "
-                                "use --no-mips to preserve the base level",
-                                prepared.Paths.SourcePath.string());
-            return false;
-        }
         return RepackageDds(prepared.Paths.SourcePath, *prepared.Dds, prepared.Settings, output,
                             error);
     };

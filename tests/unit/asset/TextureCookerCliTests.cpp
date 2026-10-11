@@ -266,7 +266,7 @@ TEST_CASE("CLI DDS cooking and preview share native metadata and incremental rec
     CHECK_FALSE(saved->bMipmaps);
 }
 
-TEST_CASE("CLI incomplete DDS chains report mip generation limits and allow base-only preservation",
+TEST_CASE("CLI incomplete DDS chains generate mips and allow base-only preservation",
           "[texture-cooker-cli][dds]")
 {
     TextureCookFixture fixture;
@@ -275,10 +275,11 @@ TEST_CASE("CLI incomplete DDS chains report mip generation limits and allow base
     std::vector<std::string> args{"cooker", "cook", "partial.dds", "--source-root",
                                   fixture.Content().string()};
     std::string output, error;
-    CHECK(Run(args, fixture.Content(), output, error) == 1);
-    CHECK(Contains(error, "Missing DDS mip generation"));
+    CHECK(Run(args, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Cooked: "));
+    CHECK(Contains(error, "does not preserve alpha-test coverage"));
     CHECK(Contains(error, "--no-mips"));
-    CHECK_FALSE(fs::exists(fixture.Cooked() / "partial.dds.ktx2"));
+    CHECK(fs::exists(fixture.Cooked() / "partial.dds.ktx2"));
     args.push_back("--no-mips");
     CHECK(Run(args, fixture.Content(), output, error) == 0);
     CHECK(Contains(output, "Cooked: "));

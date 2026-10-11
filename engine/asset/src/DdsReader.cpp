@@ -317,7 +317,9 @@ TextureSettingsSource DdsSettingsSource(const DdsTextureInfo& info, bool bSettin
     // Custom alpha explicitly denotes a data channel rather than transparency.
     // Neither case needs alpha-test coverage processing. Keep the representation
     // itself in DdsTextureInfo and the cooked metadata, not in authored settings.
-    if (info.AlphaMode == DdsAlphaMode::Opaque || info.AlphaMode == DdsAlphaMode::Custom)
+    // An explicit AG normal swizzle uses alpha to store X, not transparency.
+    if (info.AlphaMode == DdsAlphaMode::Opaque || info.AlphaMode == DdsAlphaMode::Custom ||
+        info.ChannelSwizzle == DdsChannelSwizzle::SwapRedAlpha)
         source.NativeAlphaMode = TextureAlphaMode::Opaque;
     return source;
 }

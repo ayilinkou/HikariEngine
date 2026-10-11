@@ -35,7 +35,7 @@ bool RepackageDds(const std::filesystem::path& source, const DdsTextureInfo& inf
         settings.Authored.bFlipNormalY)
     {
         error = std::format("{}: Lossless DDS repackaging requires the native format and unchanged "
-                            "pixels; DDS conversion is not available yet (TC8)",
+                            "pixels; use the DDS conversion path for requested pixel changes",
                             source.string());
         return false;
     }
