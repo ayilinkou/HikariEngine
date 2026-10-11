@@ -1,6 +1,7 @@
 #include "CookRecord.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <format>
 #include <memory>
 
@@ -156,9 +157,19 @@ bool IsCookCurrent(const std::filesystem::path& output, const std::filesystem::p
 bool ValidateCookOutput(const PreparedTextureCook& prepared, const std::filesystem::path& output,
                         std::string& error)
 {
+    // Own the stream: libktx 4.4.2 leaves named files open when header reads fail.
+    std::FILE* rawFile = nullptr;
+#ifdef _WIN32
+    _wfopen_s(&rawFile, output.c_str(), L"rb");
+#else
+    rawFile = std::fopen(output.c_str(), "rb");
+#endif
+    const auto closeFile = [](std::FILE* value) { std::fclose(value); };
+    const std::unique_ptr<std::FILE, decltype(closeFile)> file(rawFile, closeFile);
     ktxTexture2* texture = nullptr;
-    const auto status = ktxTexture2_CreateFromNamedFile(
-        output.string().c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture);
+    const auto status = file ? ktxTexture2_CreateFromStdioStream(
+                                   file.get(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture)
+                             : KTX_FILE_OPEN_FAILED;
     if (status != KTX_SUCCESS)
     {
         error =

@@ -33,7 +33,7 @@ int main(int argc, char** argv)
             auto attempts = prepared.Paths.CookedPath;
             attempts += ".attempts";
             {
-                std::ofstream file(attempts, std::ios::app);
+                std::ofstream file(attempts, std::ios::app | std::ios::binary);
                 file << "encoded\n";
             }
             if (mode == "interrupt-encoding")

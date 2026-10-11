@@ -277,6 +277,50 @@ TEST_CASE("Missing or corrupt outputs and records recook instead of claiming fre
     RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Skipped);
 }
 
+TEST_CASE("Cook output validation releases files after success and malformed input",
+          "[asset][texture-cooker][incremental]")
+{
+    TextureCookFixture fixture;
+    fixture.WriteImage("image.png");
+    std::string error;
+    std::vector<std::string> warnings;
+    const auto prepared = fixture.Cooker().Prepare({.Source = "image.png"}, error, warnings);
+    REQUIRE(prepared);
+    const auto output = fixture.Root() / "validation.ktx2";
+    REQUIRE(WriteTextureCookKtxFixture(*prepared, output, error));
+    bool bExpectedValid = true;
+    SECTION("valid output") {}
+    SECTION("short header")
+    {
+        TextureCookFixture::WriteText(output, "not KTX2");
+        bExpectedValid = false;
+    }
+    SECTION("invalid complete header")
+    {
+        auto bytes = TextureCookFixture::ReadText(output);
+        bytes.front() = 0;
+        TextureCookFixture::WriteText(output, bytes);
+        bExpectedValid = false;
+    }
+    SECTION("truncated payload")
+    {
+        fs::resize_file(output, fs::file_size(output) - 1);
+        bExpectedValid = false;
+    }
+    CHECK(ValidateCookOutput(*prepared, output, error) == bExpectedValid);
+#ifndef _WIN32
+    // Linux can unlink an open file, so removal alone would miss the handle leak.
+    for (const auto& descriptor : fs::directory_iterator("/proc/self/fd"))
+    {
+        std::error_code ec;
+        const auto target = fs::read_symlink(descriptor.path(), ec);
+        if (!ec)
+            CHECK(target != output);
+    }
+#endif
+    CHECK(fs::remove(output));
+}
+
 TEST_CASE("Failed encoding and validation retain the last successful asset and record",
           "[asset][texture-cooker][incremental]")
 {
