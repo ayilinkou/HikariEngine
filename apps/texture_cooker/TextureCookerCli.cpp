@@ -205,12 +205,7 @@ int RunTextureCooker(int argc, const char* const* argv,
         if (bBatch && bDryRun)
             throw Platform::CommandLineError(
                 "--dry-run currently requires a single-file cook request");
-        if (bBatch)
-        {
-            errors << "Recursive batch cooking is not available yet\n";
-            return 1;
-        }
-        if (request.Source.empty())
+        if (!bBatch && request.Source.empty())
             throw Platform::CommandLineError(
                 "cook requires exactly one source path before its options");
 
@@ -222,6 +217,38 @@ int RunTextureCooker(int argc, const char* const* argv,
         candidates.SourceRelative = fallbackSourceRoot;
         sourceRoot = Platform::ResolveContentRoot(candidates);
         const Asset::TextureCooker cooker(sourceRoot, cookedRoot);
+        if (bBatch)
+        {
+            const auto batch = cooker.CookAll(
+                {.bForce = request.bForce, .EncoderThreads = request.EncoderThreads});
+            size_t cooked = 0, unchanged = 0, failed = batch.Errors.size();
+            for (const auto& error : batch.Errors)
+                errors << error << '\n';
+            for (const auto& entry : batch.Entries)
+            {
+                for (const auto& warning : entry.Result.Warnings)
+                    errors << "Warning: " << warning << '\n';
+                switch (entry.Result.Status)
+                {
+                    case Asset::TextureCookStatus::Cooked:
+                        ++cooked;
+                        output << "Cooked: " << entry.Result.Output.string() << '\n';
+                        break;
+                    case Asset::TextureCookStatus::Skipped:
+                        ++unchanged;
+                        output << "Unchanged: " << entry.Result.Output.string() << '\n';
+                        break;
+                    case Asset::TextureCookStatus::Failed:
+                        ++failed;
+                        errors << "Failed: " << entry.Source.string() << ": " << entry.Result.Error
+                               << '\n';
+                        break;
+                }
+            }
+            output << std::format("Batch: {} cooked, {} unchanged, {} failed\n", cooked, unchanged,
+                                  failed);
+            return batch.Succeeded() ? 0 : 1;
+        }
         if (bDryRun)
         {
             std::string error;

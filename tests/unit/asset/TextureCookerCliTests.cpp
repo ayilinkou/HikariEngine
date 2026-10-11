@@ -78,7 +78,7 @@ TEST_CASE("Cooker CLI rejects malformed arguments and numeric limits", "[texture
                   output, error) == 2);
 }
 
-TEST_CASE("Batch CLI rejects texture overrides and exposes its unavailable implementation",
+TEST_CASE("Batch CLI rejects texture overrides and succeeds on an empty source tree",
           "[texture-cooker-cli]")
 {
     std::string output, error;
@@ -95,9 +95,52 @@ TEST_CASE("Batch CLI rejects texture overrides and exposes its unavailable imple
         CHECK(Run(arguments, "no-such-content", output, error) == 2);
         CHECK(Contains(error, "per-texture overrides"));
     }
-    CHECK(Run({"cooker", "cook-all", "--force", "--threads=2"}, "no-such-content", output, error) ==
-          1);
-    CHECK(Contains(error, "Recursive batch cooking is not available"));
+    TextureCookFixture fixture;
+    CHECK(Run({"cooker", "cook-all", "--source-root", fixture.Content().string(), "--force",
+               "--threads=2"},
+              fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Batch: 0 cooked, 0 unchanged, 0 failed"));
+    CHECK_FALSE(fs::exists(fixture.Cooked()));
+}
+
+TEST_CASE("Batch CLI reports failures and later successes with warm skips and force",
+          "[texture-cooker-cli][texture-batch]")
+{
+    TextureCookFixture fixture;
+    TextureCookFixture::WriteText(fixture.Source("a-broken.png"), "not PNG");
+    fixture.WriteImage("b-valid.png");
+    fixture.WriteCubemap();
+    const std::vector<std::string> arguments{"cooker", "cook-all", "--source-root",
+                                             fixture.Content().string(), "--threads=2"};
+    std::string output, error;
+    CHECK(Run(arguments, fixture.Content(), output, error) == 1);
+    CHECK(Contains(output, "Batch: 2 cooked, 0 unchanged, 1 failed"));
+    CHECK(Contains(error, "Failed: a-broken.png"));
+    CHECK(fs::exists(fixture.Cooked() / "b-valid.png.ktx2"));
+    CHECK(fs::exists(fixture.Cooked() / "sky/sky.cubemap.ktx2"));
+    CHECK_FALSE(fs::exists(fixture.Cooked() / "sky/right.png.ktx2"));
+    CHECK_FALSE(fs::exists(fixture.Source("a-broken.png.json")));
+    CHECK(Run(arguments, fixture.Content(), output, error) == 1);
+    CHECK(Contains(output, "Batch: 0 cooked, 2 unchanged, 1 failed"));
+    auto forced = arguments;
+    forced.push_back("--force");
+    CHECK(Run(forced, fixture.Content(), output, error) == 1);
+    CHECK(Contains(output, "Batch: 2 cooked, 0 unchanged, 1 failed"));
+}
+
+TEST_CASE("Batch CLI rejects dry-run and positional inputs before writes",
+          "[texture-cooker-cli][texture-batch]")
+{
+    TextureCookFixture fixture;
+    fixture.WriteImage("image.png");
+    std::string output, error;
+    CHECK(Run({"cooker", "cook-all", "--source-root", fixture.Content().string(), "--dry-run"},
+              fixture.Content(), output, error) == 2);
+    CHECK(Contains(error, "single-file"));
+    CHECK(Run({"cooker", "cook-all", "image.png", "--source-root", fixture.Content().string()},
+              fixture.Content(), output, error) == 2);
+    CHECK_FALSE(fs::exists(fixture.Source("image.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Cooked()));
 }
 
 TEST_CASE("CLI dry-run and code prepare identical requests without filesystem writes",

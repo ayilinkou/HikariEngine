@@ -19,42 +19,9 @@ std::optional<TextureCookPaths> MapTextureCookPaths(const std::filesystem::path&
     namespace fs = std::filesystem;
     error.clear();
     std::error_code ec;
-    if (sourceRoot.empty() || !fs::is_directory(sourceRoot, ec))
-    {
-        error = std::format("{}: Source root must be an existing directory; pass --source-root",
-                            sourceRoot.string());
-        return std::nullopt;
-    }
     TextureCookPaths paths;
-    paths.SourceRoot = fs::canonical(sourceRoot, ec);
-    if (ec)
-    {
-        error =
-            std::format("{}: Cannot resolve source root: {}", sourceRoot.string(), ec.message());
+    if (!ResolveCookRoots(sourceRoot, cookedRoot, paths.SourceRoot, paths.CookedRoot, error))
         return std::nullopt;
-    }
-    paths.CookedRoot =
-        fs::weakly_canonical(cookedRoot.empty() ? paths.SourceRoot.parent_path() / "cooked"
-                                                : fs::absolute(cookedRoot, ec),
-                             ec);
-    if (ec || paths.CookedRoot.empty())
-    {
-        error =
-            std::format("{}: Cannot resolve cooked root: {}", cookedRoot.string(), ec.message());
-        return std::nullopt;
-    }
-    if (fs::exists(paths.CookedRoot, ec) && !fs::is_directory(paths.CookedRoot, ec))
-    {
-        error = std::format("{}: Cooked root is not a directory; choose another --cooked-root",
-                            paths.CookedRoot.string());
-        return std::nullopt;
-    }
-    if (ec)
-    {
-        error = std::format("{}: Cannot inspect cooked root: {}. Choose another --cooked-root.",
-                            paths.CookedRoot.string(), ec.message());
-        return std::nullopt;
-    }
     if (source.empty() || (source.has_root_path() && !source.is_absolute()))
     {
         error = "A source-relative or absolute texture path is required";

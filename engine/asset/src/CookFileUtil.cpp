@@ -46,6 +46,47 @@ std::optional<std::filesystem::path> CreateScratchDirectory(const std::filesyste
 }
 } // namespace
 
+bool ResolveCookRoots(const std::filesystem::path& source, const std::filesystem::path& cooked,
+                      std::filesystem::path& resolvedSource, std::filesystem::path& resolvedCooked,
+                      std::string& error)
+{
+    namespace fs = std::filesystem;
+    error.clear();
+    std::error_code ec;
+    if (source.empty() || !fs::is_directory(source, ec))
+    {
+        error = std::format("{}: Source root must be an existing directory; pass --source-root",
+                            source.string());
+        return false;
+    }
+    resolvedSource = fs::canonical(source, ec);
+    if (ec)
+    {
+        error = std::format("{}: Cannot resolve source root: {}", source.string(), ec.message());
+        return false;
+    }
+    resolvedCooked = fs::weakly_canonical(
+        cooked.empty() ? resolvedSource.parent_path() / "cooked" : fs::absolute(cooked, ec), ec);
+    if (ec || resolvedCooked.empty())
+    {
+        error = std::format("{}: Cannot resolve cooked root: {}", cooked.string(), ec.message());
+        return false;
+    }
+    if (fs::exists(resolvedCooked, ec) && !fs::is_directory(resolvedCooked, ec))
+    {
+        error = std::format("{}: Cooked root is not a directory; choose another --cooked-root",
+                            resolvedCooked.string());
+        return false;
+    }
+    if (ec)
+    {
+        error = std::format("{}: Cannot inspect cooked root: {}. Choose another --cooked-root.",
+                            resolvedCooked.string(), ec.message());
+        return false;
+    }
+    return true;
+}
+
 std::optional<std::filesystem::path> RelativeCookPath(const std::filesystem::path& path,
                                                       const std::filesystem::path& root)
 {

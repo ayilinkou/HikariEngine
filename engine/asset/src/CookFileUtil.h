@@ -8,6 +8,9 @@
 namespace Hikari::Asset
 {
 
+bool ResolveCookRoots(const std::filesystem::path& source, const std::filesystem::path& cooked,
+                      std::filesystem::path& resolvedSource, std::filesystem::path& resolvedCooked,
+                      std::string& error);
 // Root membership also handles native filesystem case rules for existing paths.
 std::optional<std::filesystem::path> RelativeCookPath(const std::filesystem::path& path,
                                                       const std::filesystem::path& root);

@@ -38,3 +38,28 @@ target_compile_definitions(HikariTextureCooker PRIVATE
   HIKARI_COOKER_CONTENT_DIR="${CMAKE_SOURCE_DIR}/content")
 engine_set_warnings(HikariTextureCooker)
 hikari_apply_build_options(HikariTextureCooker)
+
+set(HIKARI_TEXTURE_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/content" CACHE PATH
+    "Source root for the explicit cook-textures target")
+set(HIKARI_TEXTURE_COOKED_ROOT "" CACHE PATH
+    "Cooked root for cook-textures (empty selects the source root's sibling cooked/)")
+set(HIKARI_TEXTURE_ENCODER_THREADS "8" CACHE STRING
+    "CPU encoder thread limit for cook-textures (1..128)")
+if(NOT HIKARI_TEXTURE_ENCODER_THREADS MATCHES "^[0-9]+$" OR
+   HIKARI_TEXTURE_ENCODER_THREADS LESS 1 OR HIKARI_TEXTURE_ENCODER_THREADS GREATER 128)
+  message(FATAL_ERROR "HIKARI_TEXTURE_ENCODER_THREADS must be an integer in [1, 128]")
+endif()
+set(texture_cooked_root_args)
+if(NOT HIKARI_TEXTURE_COOKED_ROOT STREQUAL "")
+  list(APPEND texture_cooked_root_args --cooked-root "${HIKARI_TEXTURE_COOKED_ROOT}")
+endif()
+add_custom_target(cook-textures
+  COMMAND $<TARGET_FILE:HikariTextureCooker> cook-all
+          --source-root "${HIKARI_TEXTURE_SOURCE_ROOT}"
+          ${texture_cooked_root_args}
+          --threads "${HIKARI_TEXTURE_ENCODER_THREADS}"
+  DEPENDS HikariTextureCooker
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  USES_TERMINAL
+  COMMENT "Cooking source textures with saved per-asset settings"
+  VERBATIM)

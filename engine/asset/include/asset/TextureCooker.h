@@ -6,6 +6,8 @@
 #include <vector>
 
 #include <asset/PreparedTextureCook.h>
+#include <asset/TextureCookBatchOptions.h>
+#include <asset/TextureCookBatchResult.h>
 #include <asset/TextureCookEncoder.h>
 #include <asset/TextureCookRequest.h>
 #include <asset/TextureCookResult.h>
@@ -28,8 +30,14 @@ public:
     TextureCookResult Cook(const TextureCookRequest& request) const;
     TextureCookResult Cook(const TextureCookRequest& request,
                            const TextureCookEncoder& encoder) const;
+    /** Discover source assets and cook serially, retaining failures and later successes. */
+    TextureCookBatchResult CookAll(const TextureCookBatchOptions& options = {}) const;
+    TextureCookBatchResult CookAll(const TextureCookBatchOptions& options,
+                                   const TextureCookEncoder& encoder) const;
 
 private:
+    TextureCookBatchResult CookBatch(const TextureCookBatchOptions& options,
+                                     const TextureCookEncoder* encoder) const;
     std::filesystem::path m_SourceRoot;
     std::filesystem::path m_CookedRoot;
 };

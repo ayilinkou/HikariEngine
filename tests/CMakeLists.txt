@@ -49,7 +49,7 @@ engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
   unit/asset/ImageReaderTests.cpp unit/asset/TextureSettingsTests.cpp
   unit/asset/TextureCookerTests.cpp unit/asset/TextureCookIncrementalTests.cpp
   unit/asset/DdsCookingTests.cpp unit/asset/DdsCompletionTests.cpp
-  unit/asset/PixelCookingTests.cpp unit/asset/MaskedCookingTests.cpp
+  unit/asset/PixelCookingTests.cpp unit/asset/MaskedCookingTests.cpp unit/asset/TextureCookBatchTests.cpp
   LIBS Engine::Asset KTX::ktx Vulkan::Headers nlohmann_json::nlohmann_json)
 target_include_directories(asset_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 target_include_directories(asset_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/asset/src)

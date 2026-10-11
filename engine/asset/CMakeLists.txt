@@ -7,7 +7,7 @@ engine_module(Asset SOURCES src/ImageReader.cpp src/ImageWriter.cpp
               src/CookHash.cpp src/CookLock.cpp src/CookRecord.cpp src/CookPublication.cpp
               src/DdsReader.cpp src/DdsKtxWriter.cpp
               src/CookProcess.cpp src/CookKtxMetadata.cpp src/TexturePixelFilter.cpp
-              src/PixelTextureEncoder.cpp src/TextureBlockCodec.cpp
+              src/PixelTextureEncoder.cpp src/TextureBlockCodec.cpp src/TextureCookBatch.cpp
               LINK_LIBRARIES Engine::Core)
 target_link_libraries(Asset PRIVATE nlohmann_json::nlohmann_json KTX::ktx)
 

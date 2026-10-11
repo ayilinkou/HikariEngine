@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC9 implemented. TC10 is next.** Runs after the
+**Stage 7.8 — TC1–TC10 implemented. TC11 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -331,7 +331,7 @@ Implemented.
 Implemented.
 `--dry-run` previews validated image/cubemap requests without writes. TC5 adds DDS metadata
 reading and native repackaging; TC6 adds colour/material-data pixel encoding and TC7 adds
-normal encoding. TC9 adds masked encoding; recursive batch cooking remains later work.
+normal encoding, TC9 adds masked encoding and TC10 adds recursive batch cooking.
 
 - **Do:** Add CPU-only cooking service contracts in the asset/tool layer and a standalone
   `HikariTextureCooker` entry point. Implement single-file path mapping, source-root
@@ -457,7 +457,17 @@ and material-cutoff integration remain follow-ups.
   alpha loss warns/errors as specified; requests to generate masked mips fail clearly.
 - **Size:** S–M · **Needs:** TC6, TC8.
 
-### TC10. Recursive batch cooking and CMake target — NEXT
+### TC10. Recursive batch cooking and CMake target
+
+Implemented. `cook-all` discovers sources recursively and cooks serially with saved settings,
+reporting failures while continuing later items. Descriptors precede standalone images;
+recoverable face references stay reserved after descriptor failures. The selected cooked
+tree is excluded and directory symlinks are not followed.
+
+Run `cmake --build --preset <preset> --target cook-textures` for an explicit batch build.
+Its cache options are `HIKARI_TEXTURE_SOURCE_ROOT`, `HIKARI_TEXTURE_COOKED_ROOT` and
+`HIKARI_TEXTURE_ENCODER_THREADS`; defaults use repository content, sibling cooked output
+and eight encoder threads. Ordinary builds do not invoke cooking.
 
 - **Do:** Discover supported source files recursively, preserve each settings file or
   create defaults, check fingerprints and cook serially. Exclude generated roots,
@@ -469,7 +479,7 @@ and material-cutoff integration remain follow-ups.
   status. Run without GPU.
 - **Size:** M · **Needs:** TC3–TC9; TC-D14.
 
-### TC11. Neutral BC formats and block-aware footprints
+### TC11. Neutral BC formats and block-aware footprints — NEXT
 
 - **Do:** Extend the curated format enum and both conversion tables together; add block
   extent/bytes and checked subresource-size helpers. Audit upload/readback validation and
