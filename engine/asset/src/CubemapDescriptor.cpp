@@ -79,4 +79,16 @@ std::optional<std::string> SerializeCubemapDescriptor(const CubemapDescriptor& d
     return document.dump(2) + '\n';
 }
 
+std::optional<std::string> SerializeCubemapTemplate(const TextureSettings& settings,
+                                                    std::string_view path, std::string& error)
+{
+    const auto serialized = SerializeTextureSettings(settings, path, error);
+    if (!serialized)
+        return std::nullopt;
+    auto document = nlohmann::json::parse(*serialized);
+    for (const auto face : kCubemapFaceNames)
+        document["faces"][std::string(face)] = "";
+    return document.dump(2) + '\n';
+}
+
 } // namespace Hikari::Asset

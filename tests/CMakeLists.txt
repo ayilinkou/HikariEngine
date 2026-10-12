@@ -48,6 +48,7 @@ engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
 engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
   unit/asset/ImageReaderTests.cpp unit/asset/TextureSettingsTests.cpp
   unit/asset/TextureCookerTests.cpp unit/asset/TextureCookIncrementalTests.cpp
+  unit/asset/TextureSettingsTemplateTests.cpp
   unit/asset/DdsCookingTests.cpp unit/asset/DdsCompletionTests.cpp
   unit/asset/PixelCookingTests.cpp unit/asset/MaskedCookingTests.cpp unit/asset/TextureCookBatchTests.cpp
   LIBS Engine::Asset KTX::ktx Vulkan::Headers nlohmann_json::nlohmann_json)
@@ -71,7 +72,7 @@ engine_set_warnings(texture_cook_worker)
 add_dependencies(asset_tests texture_cook_worker)
 
 engine_test(texture_cooker_cli_tests SOURCES unit/asset/TextureCookerCliTests.cpp
-  LIBS TextureCookerCli)
+  LIBS TextureCookerCli nlohmann_json::nlohmann_json)
 target_include_directories(texture_cooker_cli_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 add_dependencies(texture_cooker_cli_tests HikariTextureCooker)
 add_test(NAME texture_cooker_help

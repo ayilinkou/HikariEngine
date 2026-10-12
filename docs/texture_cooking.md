@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC10 implemented. TC11 is next.** Runs after the
+**Stage 7.8 — TC1–TC11 implemented. TC12 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -71,7 +71,7 @@ colour and channels discarded by the selected format. Warnings name the settings
 advise modifying it and recooking. Invalid combinations fail before settings are saved or
 output replaced; BC4/BC5 have no sRGB variants.
 
-Planned creation commands generate editable settings without requiring source images or
+Creation commands generate editable settings without requiring source images or
 initializing an encoder:
 
 - `HikariTextureCooker init-texture <path/name> [texture-setting flags]` appends
@@ -89,6 +89,21 @@ directories. Use shared authored settings defaults, retaining `auto` format/colo
 fields, and accept the same texture-setting flags as single-file `cook`. Existing files
 are preserved by default; `--overwrite` and `--force` are equivalent explicit replacement
 flags for these creation commands. Operational cooking quality is not an authored setting.
+
+The asset API exposes the same operations as static
+`TextureCooker::CreateTextureSettings` and `TextureCooker::CreateCubemapSettings` functions,
+without constructing a source-root-bound cooker. Template validation checks authored
+values and source-independent constraints; source metadata and other image-dependent
+constraints are validated when cooking. Unspecified alpha policy remains omitted so DDS
+alpha metadata can still supply its interpretation.
+
+For example, from an existing asset directory:
+
+```sh
+HikariTextureCooker init-texture brick.png --usage normal --flip-normal-y
+HikariTextureCooker init-cubemap sky
+HikariTextureCooker init-texture mytex --usage scalar --overwrite
+```
 
 **TC-D3 — Preserve saved settings and apply explicit single-file overrides.**
 
@@ -530,7 +545,15 @@ they do not record encoding effort.
   status. Run without GPU.
 - **Size:** M · **Needs:** TC3–TC9; TC-D14.
 
-### TC11. Texture settings templates and descriptive sidecar names — NEXT
+### TC11. Texture settings templates and descriptive sidecar names
+
+Implemented. Both CLI commands and shared asset functions create settings without source
+images, content roots or an encoder. Relative names use the current working directory;
+suffixes are appended automatically and parent directories must exist. Template writes
+publish complete files without replacing existing destinations unless an overwrite alias
+is supplied. All 2D cooking paths use only `*.texture.json` sidecars, retaining source
+extensions. Cubemap templates have six empty paths and remain invalid cooking inputs until
+configured; normal descriptor parsing and serialization remain strict.
 
 - **Do:** Switch all 2D cooking paths and automatic settings creation to
   `<source-filename>.texture.json`, preserving the source extension and source-image
@@ -556,7 +579,7 @@ they do not record encoding effort.
   only the new sidecars and preserve source identities and cooked-output paths.
 - **Size:** S–M · **Needs:** TC2, TC3, TC10; TC-D2, TC-D3, TC-D8, TC-D14.
 
-### TC12. Neutral BC formats and block-aware footprints
+### TC12. Neutral BC formats and block-aware footprints — NEXT
 
 - **Do:** Extend the curated format enum and both conversion tables together; add block
   extent/bytes and checked subresource-size helpers. Audit upload/readback validation and

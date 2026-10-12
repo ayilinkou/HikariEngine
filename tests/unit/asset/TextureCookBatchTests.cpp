@@ -65,8 +65,10 @@ TEST_CASE("Batch cooking mixes source types, retains saved semantics and skips u
     const std::string normalSettings =
         R"({"version":1,"usage":"normal","flipNormalY":true,"mipmaps":false})";
     const std::string scalarSettings = R"({"version":1,"usage":"scalar"})";
-    TextureCookFixture::WriteText(fixture.Source("textures/normal.png.json"), normalSettings);
-    TextureCookFixture::WriteText(fixture.Source("textures/scalar.png.json"), scalarSettings);
+    TextureCookFixture::WriteText(fixture.Source("textures/normal.png.texture.json"),
+                                  normalSettings);
+    TextureCookFixture::WriteText(fixture.Source("textures/scalar.png.texture.json"),
+                                  scalarSettings);
     const auto cooker = fixture.Cooker();
     const auto first = cooker.CookAll({.EncoderThreads = 2});
     REQUIRE(first.Succeeded());
@@ -87,12 +89,12 @@ TEST_CASE("Batch cooking mixes source types, retains saved semantics and skips u
     CHECK(cube->numFaces == 6);
     CHECK(cube->numLevels == 3);
     CHECK_FALSE(fs::exists(fixture.Cooked() / "sky/right.png.ktx2"));
-    CHECK_FALSE(fs::exists(fixture.Source("sky/right.png.json")));
-    CHECK(TextureCookFixture::ReadText(fixture.Source("textures/normal.png.json")) ==
+    CHECK_FALSE(fs::exists(fixture.Source("sky/right.png.texture.json")));
+    CHECK(TextureCookFixture::ReadText(fixture.Source("textures/normal.png.texture.json")) ==
           normalSettings);
-    CHECK(TextureCookFixture::ReadText(fixture.Source("textures/scalar.png.json")) ==
+    CHECK(TextureCookFixture::ReadText(fixture.Source("textures/scalar.png.texture.json")) ==
           scalarSettings);
-    CHECK(fs::exists(fixture.Source("textures/color.PNG.json")));
+    CHECK(fs::exists(fixture.Source("textures/color.PNG.texture.json")));
     const auto warm = cooker.CookAll({.EncoderThreads = 2});
     REQUIRE(warm.Succeeded());
     for (const auto& item : warm.Entries)
@@ -108,7 +110,7 @@ TEST_CASE("Batch cooking mixes source types, retains saved semantics and skips u
     REQUIRE(forced.Succeeded());
     for (const auto& item : forced.Entries)
         CHECK(item.Result.Status == TextureCookStatus::Cooked);
-    CHECK(TextureCookFixture::ReadText(fixture.Source("textures/normal.png.json")) ==
+    CHECK(TextureCookFixture::ReadText(fixture.Source("textures/normal.png.texture.json")) ==
           normalSettings);
 }
 
@@ -196,7 +198,7 @@ TEST_CASE("Failed descriptors reserve recoverable references and leave unrelated
     CHECK(Entry(result, "sky/sky.cubemap.json").Result.Status == TextureCookStatus::Failed);
     CHECK(Entry(result, "other.png").Result.Status == TextureCookStatus::Cooked);
     CHECK_FALSE(fs::exists(fixture.Cooked() / "sky/right.png.ktx2"));
-    CHECK_FALSE(fs::exists(fixture.Source("sky/right.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("sky/right.png.texture.json")));
     CHECK_FALSE(fs::exists(fixture.Cooked() / "sky/alternate.png.ktx2"));
     CHECK(TextureCookFixture::ReadText(fixture.Source("sky/sky.cubemap.json")) == text);
     const auto single =
@@ -226,7 +228,7 @@ TEST_CASE("Encoder failures keep cubemap face reservations while other assets su
     CHECK(Entry(result, "sky/sky.cubemap.json").Result.Status == TextureCookStatus::Failed);
     CHECK(Entry(result, "other.png").Result.Status == TextureCookStatus::Cooked);
     CHECK_FALSE(fs::exists(fixture.Cooked() / "sky/right.png.ktx2"));
-    CHECK_FALSE(fs::exists(fixture.Source("sky/right.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("sky/right.png.texture.json")));
 }
 
 TEST_CASE("Batch discovery excludes nested generated trees and directory symlinks",
@@ -257,7 +259,7 @@ TEST_CASE("Batch discovery excludes nested generated trees and directory symlink
     REQUIRE(first.Succeeded());
     REQUIRE(first.Entries.size() == 1);
     CHECK(first.Entries[0].Source == "input.png");
-    CHECK_FALSE(fs::exists(fixture.Source("generated/trap.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("generated/trap.png.texture.json")));
     const auto warm = cooker.CookAll({}, TextureCookFixtureEncoder());
     REQUIRE(warm.Succeeded());
     REQUIRE(warm.Entries.size() == 1);
@@ -276,7 +278,7 @@ TEST_CASE("Batch discovery reports invalid sources without stopping successful i
     CHECK(result.Entries[0].Source == "a-broken.png");
     CHECK(result.Entries[0].Result.Status == TextureCookStatus::Failed);
     CHECK(result.Entries[1].Result.Status == TextureCookStatus::Cooked);
-    CHECK_FALSE(fs::exists(fixture.Source("a-broken.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("a-broken.png.texture.json")));
     CHECK(fs::exists(fixture.Cooked() / "z-valid.png.ktx2"));
 }
 
@@ -316,6 +318,6 @@ TEST_CASE("Batch configuration errors and empty trees leave the filesystem uncha
     TextureCookFixture::WriteText(blocked, "keep");
     CHECK_FALSE(TextureCooker(fixture.Content(), blocked).CookAll().Succeeded());
     CHECK(TextureCookFixture::ReadText(blocked) == "keep");
-    CHECK_FALSE(fs::exists(fixture.Source("image.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("image.png.texture.json")));
     CHECK_FALSE(fs::exists(fixture.Cooked()));
 }

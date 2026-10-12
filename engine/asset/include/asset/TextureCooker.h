@@ -11,6 +11,7 @@
 #include <asset/TextureCookEncoder.h>
 #include <asset/TextureCookRequest.h>
 #include <asset/TextureCookResult.h>
+#include <asset/TextureSettingsOverrides.h>
 
 namespace Hikari::Asset
 {
@@ -20,6 +21,17 @@ class TextureCooker
 {
 public:
     explicit TextureCooker(std::filesystem::path sourceRoot, std::filesystem::path cookedRoot = {});
+
+    // Append the settings suffix to a cwd-relative or absolute name. The parent
+    // must exist; source images, content roots and an encoder are not required.
+    static std::optional<std::filesystem::path>
+    CreateTextureSettings(const std::filesystem::path& name,
+                          const TextureSettingsOverrides& overrides, bool bOverwrite,
+                          std::string& error);
+    static std::optional<std::filesystem::path>
+    CreateCubemapSettings(const std::filesystem::path& name,
+                          const TextureSettingsOverrides& overrides, bool bOverwrite,
+                          std::string& error);
 
     // Read-only request validation, path mapping and shared settings resolution.
     std::optional<PreparedTextureCook> Prepare(const TextureCookRequest& request,

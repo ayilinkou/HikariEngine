@@ -21,7 +21,7 @@ bool Contains(std::string_view text, std::string_view part)
     return text.find(part) != std::string_view::npos;
 }
 
-constexpr std::string_view kSettingsPath = "content/textures/example.png.json";
+constexpr std::string_view kSettingsPath = "content/textures/example.png.texture.json";
 
 struct SettingsFixture
 {

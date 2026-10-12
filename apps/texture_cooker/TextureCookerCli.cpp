@@ -27,8 +27,10 @@ void PrintUsage(std::ostream& output)
     { output << std::format("  {:<38}{}\n", flag, description); };
     output << "HikariTextureCooker\n\n"
               "Usage: HikariTextureCooker cook <source-relative or absolute file> [options]\n"
-              "       HikariTextureCooker cook-all [operational options]\n\n"
-              "Operational options:\n";
+              "       HikariTextureCooker cook-all [operational options]\n"
+              "       HikariTextureCooker init-texture <path/name> [settings options]\n"
+              "       HikariTextureCooker init-cubemap <path/name> [settings options]\n\n"
+              "Cooking options:\n";
     option("--source-root <dir>", "Source root (default: HIKARI_CONTENT or content/)");
     option("--cooked-root <dir>", "Cooked root (default: source root's sibling cooked/)");
     option("--force", "Bypass incremental checks without resetting settings");
@@ -36,7 +38,12 @@ void PrintUsage(std::ostream& output)
     option("--quality <0..1>", "Minimum encoding quality (default: 1.0; exact with --force)");
     option("--dry-run", "Validate a single request and print paths without writes");
     option("--help", "Show help");
-    output << "\nSingle-file options (saved settings otherwise stay in effect):\n";
+    output << "\nCreation options (no source images required):\n";
+    option("--overwrite, --force", "Replace existing settings (otherwise fail)");
+    option("", "Names get .texture.json or .cubemap.json appended");
+    option("", "Paths use the current working directory; parent must exist");
+    option("", "Cooked 2D settings use <image>.texture.json beside the image");
+    output << "\nSettings options (cook and init commands; cook preserves omitted settings):\n";
     option("--usage <color|normal|scalar|packed>", "Texture usage (default: color)");
     option("--format <auto|BC1|BC4|BC5|BC7>", "Compression format (default: auto)");
     option("", "DDS also supports BC2, BC3, BC4_S and BC5_S");
@@ -121,12 +128,17 @@ int RunTextureCooker(int argc, const char* const* argv,
     try
     {
         if (argc < 2)
-            throw Platform::CommandLineError("Expected cook or cook-all; use --help for usage");
+            throw Platform::CommandLineError("Expected a cooker command; use --help for usage");
         const std::string_view command = argv[1];
         const bool bBatch = command == "cook-all";
-        if (command != "cook" && !bBatch)
+        const bool bInitTexture = command == "init-texture";
+        const bool bInitCubemap = command == "init-cubemap";
+        const bool bInit = bInitTexture || bInitCubemap;
+        if (command != "cook" && !bBatch && !bInit)
             throw Platform::CommandLineError(
-                std::format("Unknown command '{}'; expected cook or cook-all", command));
+                std::format("Unknown command '{}'; expected cook, cook-all, init-texture or "
+                            "init-cubemap",
+                            command));
 
         Asset::TextureCookRequest request;
         std::vector<const char*> optionArgs{argv[0]};
@@ -146,6 +158,10 @@ int RunTextureCooker(int argc, const char* const* argv,
         for (const auto& option : commandLine.Options())
         {
             const auto& flag = option.Flag;
+            if (bInit && (flag == "--source-root" || flag == "--cooked-root" ||
+                          flag == "--threads" || flag == "--quality" || flag == "--dry-run"))
+                throw Platform::CommandLineError(
+                    std::format("{}: {} is a cooking-only option", command, flag));
             if (flag == "--help" || flag == "-h")
             {
                 option.RequireNoValue();
@@ -164,7 +180,7 @@ int RunTextureCooker(int argc, const char* const* argv,
             }
             else if (flag == "--quality")
                 request.EncodingQuality = RequireUnitInterval(option);
-            else if (flag == "--force")
+            else if (flag == "--force" || (bInit && flag == "--overwrite"))
             {
                 option.RequireNoValue();
                 request.bForce = true;
@@ -200,6 +216,25 @@ int RunTextureCooker(int argc, const char* const* argv,
         if (bHelp)
         {
             PrintUsage(output);
+            return 0;
+        }
+        if (bInit)
+        {
+            if (request.Source.empty())
+                throw Platform::CommandLineError(std::format(
+                    "{} requires exactly one template name before its options", command));
+            std::string error;
+            const auto path = bInitTexture
+                                  ? Asset::TextureCooker::CreateTextureSettings(
+                                        request.Source, request.Overrides, request.bForce, error)
+                                  : Asset::TextureCooker::CreateCubemapSettings(
+                                        request.Source, request.Overrides, request.bForce, error);
+            if (!path)
+            {
+                errors << error << '\n';
+                return 1;
+            }
+            output << "Created: " << path->string() << '\n';
             return 0;
         }
         if (bBatch && !request.Overrides.IsEmpty())

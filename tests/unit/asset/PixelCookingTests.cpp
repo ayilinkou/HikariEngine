@@ -208,7 +208,7 @@ TEST_CASE("Real BC5 and BC7 encoders retain normal directions and decoding metad
                 const auto image = Constant(7, 5, pixels);
                 REQUIRE(
                     WritePng(image.Pixels, image.Extent, fixture.Source("normal.png").string()));
-                fs::remove(fixture.Source("normal.png.json"));
+                fs::remove(fixture.Source("normal.png.texture.json"));
                 TextureCookRequest request{.Source = "normal.png", .EncoderThreads = 2};
                 request.Overrides.Usage = TextureUsage::Normal;
                 request.Overrides.Format = format;
@@ -317,7 +317,7 @@ TEST_CASE("Generated normal mips retain a saved Y flip exactly once and settings
     REQUIRE(WritePng(image.Pixels, image.Extent, fixture.Source("normal.png").string()));
     for (const auto format : {TextureCompression::BC5, TextureCompression::BC7})
     {
-        fs::remove(fixture.Source("normal.png.json"));
+        fs::remove(fixture.Source("normal.png.texture.json"));
         TextureCookRequest request{.Source = "normal.png", .EncoderThreads = 2};
         request.Overrides.Usage = TextureUsage::Normal;
         request.Overrides.Format = format;
@@ -331,15 +331,15 @@ TEST_CASE("Generated normal mips retain a saved Y flip exactly once and settings
         request.Overrides = {};
         CHECK(fixture.Cooker().Cook(request).Status == TextureCookStatus::Skipped);
         std::string error;
-        auto settings =
-            ParseTextureSettings(TextureCookFixture::ReadText(fixture.Source("normal.png.json")),
-                                 "normal.png.json", error);
+        auto settings = ParseTextureSettings(
+            TextureCookFixture::ReadText(fixture.Source("normal.png.texture.json")),
+            "normal.png.texture.json", error);
         REQUIRE(settings);
         REQUIRE(settings->bFlipNormalY);
         settings->bFlipNormalY = false;
-        const auto json = SerializeTextureSettings(*settings, "normal.png.json", error);
+        const auto json = SerializeTextureSettings(*settings, "normal.png.texture.json", error);
         REQUIRE(json);
-        TextureCookFixture::WriteText(fixture.Source("normal.png.json"), *json);
+        TextureCookFixture::WriteText(fixture.Source("normal.png.texture.json"), *json);
         const auto unflipped = fixture.Cooker().Cook(request);
         RequireCooked(unflipped);
         const auto updated = Open(unflipped.Output);
@@ -674,7 +674,7 @@ TEST_CASE("Typed DX10 pixel DDS retains colour interpretation and explicit overr
         TextureCookFixture::WriteText(
             fixture.Source("typed.dds"),
             MakePixelDdsFixture(layout, 2, 2, 2, 1, false, 0, pixel, dxgi).Bytes);
-        fs::remove(fixture.Source("typed.dds.json"));
+        fs::remove(fixture.Source("typed.dds.texture.json"));
         const auto result = fixture.Cooker().Cook({.Source = "typed.dds", .EncoderThreads = 2});
         RequireCooked(result);
         const auto texture = Open(result.Output);
@@ -726,7 +726,7 @@ TEST_CASE("Malformed pixel DDS masks, precision and row layouts fail before writ
     const auto result = fixture.Cooker().Cook({.Source = "invalid.dds"});
     CHECK(result.Status == TextureCookStatus::Failed);
     CHECK_FALSE(result.Error.empty());
-    CHECK_FALSE(fs::exists(fixture.Source("invalid.dds.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("invalid.dds.texture.json")));
     CHECK_FALSE(fs::exists(fixture.Cooked()));
 }
 
@@ -755,7 +755,7 @@ TEST_CASE("Higher-precision PNG and oversized dimensions are rejected without re
     const auto result = fixture.Cooker().Cook({.Source = "unsupported.png"});
     CHECK(result.Status == TextureCookStatus::Failed);
     CHECK(result.Error.find(expected) != std::string::npos);
-    CHECK_FALSE(fs::exists(fixture.Source("unsupported.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("unsupported.png.texture.json")));
     CHECK_FALSE(fs::exists(fixture.Cooked()));
 }
 

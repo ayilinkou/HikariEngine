@@ -294,6 +294,25 @@ bool TextureSettingsOverrides::IsEmpty() const
            !bNoMips;
 }
 
+TextureSettings ApplyTextureSettingsOverrides(const TextureSettings& saved,
+                                              const TextureSettingsOverrides& overrides)
+{
+    TextureSettings authored = saved;
+    if (overrides.Usage)
+        authored.Usage = *overrides.Usage;
+    if (overrides.Format)
+        authored.Format = *overrides.Format;
+    if (overrides.ColorSpace)
+        authored.ColorSpace = *overrides.ColorSpace;
+    if (overrides.AlphaMode)
+        authored.AlphaMode = *overrides.AlphaMode;
+    if (overrides.AlphaCutoff)
+        authored.AlphaCutoff = *overrides.AlphaCutoff;
+    authored.bFlipNormalY = authored.bFlipNormalY || overrides.bFlipNormalY;
+    authored.bMipmaps = authored.bMipmaps && !overrides.bNoMips;
+    return authored;
+}
+
 std::optional<ResolvedTextureSettings>
 ResolveTextureSettings(const TextureSettings& saved, const TextureSettingsOverrides& overrides,
                        const TextureSettingsSource& source, std::string_view settingsPath,
@@ -312,20 +331,8 @@ ResolveTextureSettings(const TextureSettings& saved, const TextureSettingsOverri
                     "settings or use single-file cook");
 
     ResolvedTextureSettings resolved;
-    resolved.Authored = saved;
+    resolved.Authored = ApplyTextureSettingsOverrides(saved, overrides);
     auto& authored = resolved.Authored;
-    if (overrides.Usage)
-        authored.Usage = *overrides.Usage;
-    if (overrides.Format)
-        authored.Format = *overrides.Format;
-    if (overrides.ColorSpace)
-        authored.ColorSpace = *overrides.ColorSpace;
-    if (overrides.AlphaMode)
-        authored.AlphaMode = *overrides.AlphaMode;
-    if (overrides.AlphaCutoff)
-        authored.AlphaCutoff = *overrides.AlphaCutoff;
-    authored.bFlipNormalY = authored.bFlipNormalY || overrides.bFlipNormalY;
-    authored.bMipmaps = authored.bMipmaps && !overrides.bNoMips;
     if (!ValidateSchema(authored, settingsPath, error))
         return std::nullopt;
     if (source.Channels > 4)

@@ -22,6 +22,27 @@ namespace Hikari::Asset
 
 namespace
 {
+bool PublishNewCookFile(const std::filesystem::path& temporary,
+                        const std::filesystem::path& destination, std::string& error)
+{
+    std::error_code ec;
+#ifdef _WIN32
+    if (!MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH))
+        ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+#else
+    // Linking on the same filesystem publishes complete bytes without replacing
+    // another writer's file. Scratch cleanup removes the temporary link.
+    std::filesystem::create_hard_link(temporary, destination, ec);
+#endif
+    if (ec)
+    {
+        error = std::format("{}: Cannot create settings file without overwriting: {}",
+                            destination.string(), ec.message());
+        return false;
+    }
+    return true;
+}
+
 std::optional<std::filesystem::path> CreateScratchDirectory(const std::filesystem::path& parent,
                                                             std::string& error)
 {
@@ -128,7 +149,8 @@ std::optional<std::string> ReadCookText(const std::filesystem::path& path, std::
     return text;
 }
 
-bool WriteCookText(const std::filesystem::path& path, std::string_view text, std::string& error)
+bool WriteCookText(const std::filesystem::path& path, std::string_view text, std::string& error,
+                   bool bOverwrite)
 {
     const auto directory = CreateScratchDirectory(path.parent_path(), error);
     if (!directory)
@@ -144,7 +166,9 @@ bool WriteCookText(const std::filesystem::path& path, std::string_view text, std
                                 path.string());
         else
         {
-            bPublished = FlushCookFile(temporary, error) && ReplaceCookFile(temporary, path, error);
+            bPublished = FlushCookFile(temporary, error) &&
+                         (bOverwrite ? ReplaceCookFile(temporary, path, error)
+                                     : PublishNewCookFile(temporary, path, error));
         }
     }
     std::error_code ignored;

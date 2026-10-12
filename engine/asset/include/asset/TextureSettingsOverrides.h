@@ -24,4 +24,8 @@ struct TextureSettingsOverrides
     bool IsEmpty() const;
 };
 
+// Preserve authored auto fields and apply only explicitly supplied overrides.
+TextureSettings ApplyTextureSettingsOverrides(const TextureSettings& saved,
+                                              const TextureSettingsOverrides& overrides);
+
 } // namespace Hikari::Asset

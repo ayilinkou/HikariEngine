@@ -15,7 +15,9 @@ bool ResolveCookRoots(const std::filesystem::path& source, const std::filesystem
 std::optional<std::filesystem::path> RelativeCookPath(const std::filesystem::path& path,
                                                       const std::filesystem::path& root);
 std::optional<std::string> ReadCookText(const std::filesystem::path& path, std::string& error);
-bool WriteCookText(const std::filesystem::path& path, std::string_view text, std::string& error);
+// With overwrite disabled, publication fails atomically if a destination exists.
+bool WriteCookText(const std::filesystem::path& path, std::string_view text, std::string& error,
+                   bool bOverwrite = true);
 bool CheckCookOutputDirectory(const std::filesystem::path& directory, std::string& error);
 // Flush file bytes before publication, then atomically replace a file on the
 // same filesystem. Windows needs explicit replacement semantics.

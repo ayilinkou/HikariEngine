@@ -48,7 +48,7 @@ TEST_CASE("Cook paths keep source extensions and use a content-relative cooked s
         INFO(error);
         REQUIRE(paths);
         CHECK(paths->SourceRelative == fs::path(source));
-        CHECK(paths->SettingsPath == fixture.Source(source + ".json"));
+        CHECK(paths->SettingsPath == fixture.Source(source + ".texture.json"));
         CHECK(paths->CookedPath == fixture.Cooked() / (source + ".ktx2"));
         CHECK(paths->RecordPath == fixture.Cooked() / (source + ".cook.json"));
     }
@@ -117,7 +117,7 @@ TEST_CASE("Unsafe or blocked lock directories fail before settings publication",
         const auto result = fixture.Cooker().Cook({.Source = "image.png"});
         CHECK(result.Status == TextureCookStatus::Failed);
         CHECK_FALSE(result.Error.empty());
-        CHECK_FALSE(fs::exists(fixture.Source("image.png.json")));
+        CHECK_FALSE(fs::exists(fixture.Source("image.png.texture.json")));
         CHECK_FALSE(fs::exists(fixture.Cooked() / "image.png.ktx2"));
     };
     SECTION("blocked")
@@ -154,8 +154,8 @@ TEST_CASE("Cook path symlinks cannot escape source or generated roots", "[asset]
     SECTION("settings")
     {
         TextureCookFixture::WriteText(fixture.Root() / "outside.json", R"({"version":1})");
-        fs::create_symlink(fixture.Root() / "outside.json", fixture.Source("nested/image.png.json"),
-                           ec);
+        fs::create_symlink(fixture.Root() / "outside.json",
+                           fixture.Source("nested/image.png.texture.json"), ec);
         if (ec)
             SKIP("Symlink creation unavailable: " + ec.message());
         CHECK_FALSE(MapTextureCookPaths(fixture.Content(), {}, "nested/image.png", error));
@@ -191,8 +191,9 @@ TEST_CASE("Preparing is read-only and saving defaults creates only source settin
     CHECK_FALSE(warnings.empty());
     CHECK_FALSE(fs::exists(prepared->Paths.SettingsPath));
     REQUIRE(cooker.SaveSettings(*prepared, error));
-    const auto saved = ParseTextureSettings(
-        TextureCookFixture::ReadText(prepared->Paths.SettingsPath), "image.png.json", error);
+    const auto saved =
+        ParseTextureSettings(TextureCookFixture::ReadText(prepared->Paths.SettingsPath),
+                             "image.png.texture.json", error);
     REQUIRE(saved);
     CHECK(saved->Format == TextureCompression::Auto);
     CHECK(saved->ColorSpace == TextureColorSpace::Auto);
@@ -239,7 +240,7 @@ TEST_CASE("Invalid cooking requests preserve existing settings, outputs and reco
     TextureCookFixture fixture;
     fixture.WriteImage("image.png");
     const std::string settings = R"({"version":1,"usage":"normal","flipNormalY":true})";
-    TextureCookFixture::WriteText(fixture.Source("image.png.json"), settings);
+    TextureCookFixture::WriteText(fixture.Source("image.png.texture.json"), settings);
     TextureCookFixture::WriteText(fixture.Cooked() / "image.png.ktx2", "last asset");
     TextureCookFixture::WriteText(fixture.Cooked() / "image.png.cook.json", "old record");
     TextureCookRequest request{.Source = "image.png"};
@@ -247,7 +248,7 @@ TEST_CASE("Invalid cooking requests preserve existing settings, outputs and reco
     const auto result = fixture.Cooker().Cook(request);
     CHECK(result.Status == TextureCookStatus::Failed);
     CHECK(Contains(result.Error, "flipNormalY"));
-    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.json")) == settings);
+    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.texture.json")) == settings);
     CHECK(TextureCookFixture::ReadText(fixture.Cooked() / "image.png.ktx2") == "last asset");
     CHECK(TextureCookFixture::ReadText(fixture.Cooked() / "image.png.cook.json") == "old record");
     CHECK(result.Warnings.empty());
@@ -263,15 +264,15 @@ TEST_CASE("Saving prepared settings rejects intervening author edits", "[asset][
     auto prepared = cooker.Prepare({.Source = "image.png"}, error, warnings);
     REQUIRE(prepared);
     const std::string edited = R"({"version":1,"usage":"scalar"})";
-    TextureCookFixture::WriteText(fixture.Source("image.png.json"), edited);
+    TextureCookFixture::WriteText(fixture.Source("image.png.texture.json"), edited);
     CHECK_FALSE(cooker.SaveSettings(*prepared, error));
     CHECK(Contains(error, "changed since preparation"));
-    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.json")) == edited);
+    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.texture.json")) == edited);
     TextureCookRequest request{.Source = "image.png"};
     request.Overrides.Usage = TextureUsage::Packed;
     prepared = cooker.Prepare(request, error, warnings);
     REQUIRE(prepared);
-    TextureCookFixture::WriteText(fixture.Source("image.png.json"), R"({"version":1})");
+    TextureCookFixture::WriteText(fixture.Source("image.png.texture.json"), R"({"version":1})");
     CHECK_FALSE(cooker.SaveSettings(*prepared, error));
 }
 
@@ -283,7 +284,7 @@ TEST_CASE("Cooker defaults cannot silently convert DDS before reading native met
     const auto result = fixture.Cooker().Cook({.Source = "native.dds"});
     CHECK(result.Status == TextureCookStatus::Failed);
     CHECK(Contains(result.Error, "DDS header: Truncated header"));
-    CHECK_FALSE(fs::exists(fixture.Source("native.dds.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("native.dds.texture.json")));
     CHECK_FALSE(fs::exists(fixture.Cooked()));
 }
 
@@ -328,7 +329,8 @@ TEST_CASE("Cubemap preparation maps one identity and preserves explicit face ord
 {
     TextureCookFixture fixture;
     fixture.WriteCubemap(R"("usage":"packed",)");
-    TextureCookFixture::WriteText(fixture.Source("sky/right.png.json"), R"({"version":99})");
+    TextureCookFixture::WriteText(fixture.Source("sky/right.png.texture.json"),
+                                  R"({"version":99})");
     std::string error;
     std::vector<std::string> warnings;
     TextureCookRequest request{.Source = "sky/sky.cubemap.json"};
@@ -356,7 +358,7 @@ TEST_CASE("Cubemap preparation maps one identity and preserves explicit face ord
     CHECK(saved->Settings.bFlipNormalY);
     CHECK(saved->Settings.Usage == TextureUsage::Normal);
     CHECK(saved->Faces == overridden->Descriptor->Faces);
-    CHECK(TextureCookFixture::ReadText(fixture.Source("sky/right.png.json")) ==
+    CHECK(TextureCookFixture::ReadText(fixture.Source("sky/right.png.texture.json")) ==
           R"({"version":99})");
     CHECK_FALSE(fs::exists(fixture.Source("sky/sky.cubemap.json.json")));
 }
@@ -409,7 +411,7 @@ TEST_CASE("Cooker failures preserve files and never claim preparation is a cooke
         const auto result = TextureCooker(fixture.Content(), blocked).Cook({.Source = "image.png"});
         CHECK(result.Status == TextureCookStatus::Failed);
         CHECK(Contains(result.Error, "cooked-root"));
-        CHECK_FALSE(fs::exists(fixture.Source("image.png.json")));
+        CHECK_FALSE(fs::exists(fixture.Source("image.png.texture.json")));
         CHECK(TextureCookFixture::ReadText(blocked) == "keep");
     }
     SECTION("encoder unavailable")
@@ -417,7 +419,7 @@ TEST_CASE("Cooker failures preserve files and never claim preparation is a cooke
         const auto result = fixture.Cooker().Cook({.Source = "image.png"}, TextureCookEncoder{});
         CHECK(result.Status == TextureCookStatus::Failed);
         CHECK(Contains(result.Error, "Texture encoding is not available"));
-        CHECK(fs::exists(fixture.Source("image.png.json")));
+        CHECK(fs::exists(fixture.Source("image.png.texture.json")));
         CHECK_FALSE(fs::exists(fixture.Cooked() / "image.png.ktx2"));
         CHECK_FALSE(fs::exists(fixture.Cooked() / "image.png.cook.json"));
         for (const auto& entry : fs::directory_iterator(fixture.Content()))
@@ -461,7 +463,7 @@ TEST_CASE("Code requests enforce thread limits and inspect JPEG metadata",
         CHECK(cooker.Prepare(request, error, warnings));
     }
     CHECK_FALSE(fs::exists(fixture.Cooked()));
-    CHECK_FALSE(fs::exists(fixture.Source("image.jpg.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("image.jpg.texture.json")));
 }
 
 TEST_CASE("Cooker roots remain stable when the working directory changes",
@@ -504,6 +506,6 @@ TEST_CASE("Read-only cooked directories fail before creating source settings",
         SKIP("Current user bypasses filesystem permission checks");
     CHECK(result.Status == TextureCookStatus::Failed);
     CHECK(Contains(result.Error, "--cooked-root"));
-    CHECK_FALSE(fs::exists(fixture.Source("image.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("image.png.texture.json")));
 }
 #endif

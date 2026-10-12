@@ -143,7 +143,7 @@ TEST_CASE("Unchanged cooks verify output hashes and preserve settings and record
     CHECK(parsed->Versions.Compressonator == "4.5.52");
     CHECK_FALSE(parsed->Versions.Ktx.empty());
     CHECK_FALSE(parsed->Versions.ImageDecoder.empty());
-    const auto settingsPath = fixture.Source("image.png.json");
+    const auto settingsPath = fixture.Source("image.png.texture.json");
     const auto settings = TextureCookFixture::ReadText(settingsPath);
     fs::last_write_time(fixture.Source("image.png"),
                         fs::last_write_time(fixture.Source("image.png")) + std::chrono::hours(1));
@@ -276,7 +276,7 @@ TEST_CASE("Quality requests upgrade effort, reuse higher effort and force exact 
     const auto initial = ReadCookRecord(recordPath);
     REQUIRE(initial);
     CHECK(initial->EncodingQuality == 0.5);
-    const auto settings = TextureCookFixture::ReadText(fixture.Source("image.png.json"));
+    const auto settings = TextureCookFixture::ReadText(fixture.Source("image.png.texture.json"));
     request.EncodingQuality = 0.25;
     RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Skipped);
     request.EncodingQuality = 0.8;
@@ -297,7 +297,7 @@ TEST_CASE("Quality requests upgrade effort, reuse higher effort and force exact 
     request.EncodingQuality = 1.0;
     RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Cooked);
     CHECK(qualities == std::vector<double>{0.5, 0.8, 1.0, 0.5, 1.0});
-    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.json")) == settings);
+    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.texture.json")) == settings);
 }
 
 TEST_CASE("Source, effective settings and every pipeline dependency identity invalidate cooks",
@@ -553,7 +553,7 @@ TEST_CASE("Failed encoding and validation retain the last successful asset and r
     {
         encoder.Encode = [&](const auto& prepared, const auto& temporary, auto& error)
         {
-            TextureCookFixture::WriteText(fixture.Source("image.png.json"),
+            TextureCookFixture::WriteText(fixture.Source("image.png.texture.json"),
                                           R"({"version":1,"usage":"packed"})");
             return WriteTextureCookKtxFixture(prepared, temporary, error);
         };

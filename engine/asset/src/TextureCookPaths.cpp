@@ -82,7 +82,7 @@ std::optional<TextureCookPaths> MapTextureCookPaths(const std::filesystem::path&
             return std::nullopt;
         }
         paths.SettingsPath = paths.SourcePath;
-        paths.SettingsPath += ".json";
+        paths.SettingsPath += ".texture.json";
     }
     paths.CookedPath = paths.CookedRoot / stem;
     paths.CookedPath += ".ktx2";

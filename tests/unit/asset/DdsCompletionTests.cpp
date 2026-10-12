@@ -228,7 +228,7 @@ TEST_CASE("Native DDS completion retains all supplied blocks and generates every
             EncodeDds(fixture, format, 7, 5, 2, 1, [](uint32_t, uint32_t level, uint32_t, uint32_t)
                       { return Pixel{uint8_t(level ? 64 : 190), 192, 128, 160}; });
         TextureCookFixture::WriteText(fixture.Source("partial.dds"), dds.Bytes);
-        fs::remove(fixture.Source("partial.dds.json"));
+        fs::remove(fixture.Source("partial.dds.texture.json"));
         TextureCookRequest request{.Source = "partial.dds", .EncoderThreads = 2};
         request.Overrides.Usage = TextureUsage::Packed;
         const auto result = fixture.Cooker().Cook(request);
@@ -271,7 +271,7 @@ TEST_CASE("Unknown DDS alpha completion warns about coverage and filters sRGB in
     Cooked(result);
     bool warned = false;
     for (const auto& warning : result.Warnings)
-        warned |= warning.find("foliage.dds.json") != std::string::npos &&
+        warned |= warning.find("foliage.dds.texture.json") != std::string::npos &&
                   warning.find("does not preserve alpha-test coverage") != std::string::npos;
     CHECK(warned);
     const auto texture = Open(result.Output);
@@ -499,7 +499,7 @@ TEST_CASE("Native normal swizzles survive completion and become canonical after 
         dds.SetWord(80, 0x80000004u);
         dds.SetWord(88, bAlphaX ? 0x35443241u : 0x59583241u);
         TextureCookFixture::WriteText(fixture.Source("normal.dds"), dds.Bytes);
-        fs::remove(fixture.Source("normal.dds.json"));
+        fs::remove(fixture.Source("normal.dds.texture.json"));
         TextureCookRequest request{.Source = "normal.dds", .EncoderThreads = 2};
         request.Overrides.Usage = TextureUsage::Normal;
         const auto completed = fixture.Cooker().Cook(request);

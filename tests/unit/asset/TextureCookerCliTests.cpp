@@ -6,6 +6,9 @@
 #include <string_view>
 #include <vector>
 
+#include <asset/CubemapDescriptor.h>
+#include <nlohmann/json.hpp>
+
 #include "DdsFixture.h"
 #include "TextureCookFixture.h"
 #include "TextureCookerCli.h"
@@ -14,6 +17,23 @@ namespace fs = std::filesystem;
 
 namespace
 {
+class WorkingDirectory
+{
+public:
+    explicit WorkingDirectory(const fs::path& path) : m_Previous(fs::current_path())
+    {
+        fs::current_path(path);
+    }
+    ~WorkingDirectory()
+    {
+        std::error_code ignored;
+        fs::current_path(m_Previous, ignored);
+    }
+
+private:
+    fs::path m_Previous;
+};
+
 int Run(const std::vector<std::string>& arguments, const fs::path& fallback, std::string& output,
         std::string& error)
 {
@@ -38,13 +58,123 @@ TEST_CASE("Cooker help needs neither content nor a rendering device", "[texture-
     std::string output, error;
     for (const auto& arguments : {std::vector<std::string>{"cooker", "--help"},
                                   std::vector<std::string>{"cooker", "cook", "--help"},
-                                  std::vector<std::string>{"cooker", "cook-all", "--help"}})
+                                  std::vector<std::string>{"cooker", "cook-all", "--help"},
+                                  std::vector<std::string>{"cooker", "init-texture", "--help"},
+                                  std::vector<std::string>{"cooker", "init-cubemap", "--help"}})
     {
         CHECK(Run(arguments, "no-such-content", output, error) == 0);
         CHECK(Contains(output, "Usage: HikariTextureCooker"));
         CHECK(Contains(output, "--flip-normal-y"));
+        CHECK(Contains(output, "init-texture"));
+        CHECK(Contains(output, "init-cubemap"));
+        CHECK(Contains(output, "--overwrite"));
         CHECK(error.empty());
     }
+}
+
+TEST_CASE("Creation CLI resolves names from the working directory without source images",
+          "[texture-cooker-cli][texture-template]")
+{
+    TextureCookFixture fixture;
+    WorkingDirectory directory(fixture.Root());
+    std::string output, error;
+    const auto missingContent = fixture.Root() / "no content";
+    for (const auto name : {"mytex", "brick.png", "brick.jpg", "future.dds"})
+    {
+        CHECK(Run({"cooker", "init-texture", name, "--usage", "normal", "--flip-normal-y",
+                   "--no-mips"},
+                  missingContent, output, error) == 0);
+        const auto path = fixture.Root() / (std::string(name) + ".texture.json");
+        REQUIRE(fs::is_regular_file(path));
+        CHECK(Contains(output, path.string()));
+        CHECK(error.empty());
+        CHECK_FALSE(fs::exists(fixture.Root() / name));
+        CHECK_FALSE(fs::exists(fixture.Source(std::string(name) + ".texture.json")));
+        const auto settings = Hikari::Asset::ParseTextureSettings(
+            TextureCookFixture::ReadText(path), path.string(), error);
+        REQUIRE(settings);
+        CHECK(settings->Usage == Hikari::Asset::TextureUsage::Normal);
+        CHECK(settings->Format == Hikari::Asset::TextureCompression::Auto);
+        CHECK(settings->ColorSpace == Hikari::Asset::TextureColorSpace::Auto);
+        CHECK(settings->bFlipNormalY);
+        CHECK_FALSE(settings->bMipmaps);
+    }
+    const auto cubeName = fixture.Root() / "my sky";
+    CHECK(Run({"cooker", "init-cubemap", cubeName.string(), "--usage", "packed", "--format", "bc7",
+               "--color-space", "linear", "--alpha-mode", "mask", "--alpha-cutoff", "0.75",
+               "--no-mips"},
+              missingContent, output, error) == 0);
+    const auto cube = fixture.Root() / "my sky.cubemap.json";
+    auto document = nlohmann::json::parse(TextureCookFixture::ReadText(cube));
+    CHECK(document["faces"].size() == 6);
+    for (const auto face : Hikari::Asset::kCubemapFaceNames)
+        CHECK(document["faces"][std::string(face)] == "");
+    CHECK(document["usage"] == "packed");
+    CHECK(document["format"] == "bc7");
+    CHECK(document["colorSpace"] == "linear");
+    CHECK(document["alphaMode"] == "mask");
+    CHECK(document["alphaCutoff"] == 0.75);
+    CHECK(document["mipmaps"] == false);
+    CHECK_FALSE(Hikari::Asset::ParseCubemapDescriptor(document.dump(), cube.string(), error));
+    CHECK_FALSE(fs::exists(fixture.Cooked()));
+    CHECK_FALSE(fs::exists(missingContent));
+}
+
+TEST_CASE("Creation CLI preserves existing files unless an overwrite alias is explicit",
+          "[texture-cooker-cli][texture-template]")
+{
+    TextureCookFixture fixture;
+    WorkingDirectory directory(fixture.Root());
+    std::string output, error;
+    for (const auto command : {"init-texture", "init-cubemap"})
+    {
+        const auto path =
+            fixture.Root() /
+            (std::string("authored") +
+             (std::string_view(command) == "init-texture" ? ".texture.json" : ".cubemap.json"));
+        for (const auto flag : {"--overwrite", "--force"})
+        {
+            TextureCookFixture::WriteText(path, "authored content");
+            CHECK(Run({"cooker", command, "authored"}, "missing content", output, error) == 1);
+            CHECK(Contains(error, "already exists"));
+            CHECK(TextureCookFixture::ReadText(path) == "authored content");
+            CHECK(Run({"cooker", command, "authored", flag, "--flip-normal-y"}, "missing content",
+                      output, error) == 1);
+            CHECK(TextureCookFixture::ReadText(path) == "authored content");
+            CHECK(Run({"cooker", command, "authored", flag, "--usage", "scalar"}, "missing content",
+                      output, error) == 0);
+            CHECK(nlohmann::json::parse(TextureCookFixture::ReadText(path))["usage"] == "scalar");
+        }
+    }
+    CHECK(Run({"cooker", "cook", "image.png", "--overwrite"}, "missing content", output, error) ==
+          2);
+    CHECK(Run({"cooker", "cook-all", "--overwrite"}, "missing content", output, error) == 2);
+}
+
+TEST_CASE("Creation CLI rejects missing parents and cooking-only options without writes",
+          "[texture-cooker-cli][texture-template]")
+{
+    TextureCookFixture fixture;
+    WorkingDirectory directory(fixture.Root());
+    std::string output, error;
+    for (const auto command : {"init-texture", "init-cubemap"})
+    {
+        CHECK(Run({"cooker", command}, "missing content", output, error) == 2);
+        CHECK(Run({"cooker", command, ""}, "missing content", output, error) == 2);
+        CHECK(Run({"cooker", command, "name", "extra"}, "missing content", output, error) == 2);
+        CHECK(Run({"cooker", command, "missing/name"}, "missing content", output, error) == 1);
+        CHECK(Contains(error, "Parent directory"));
+        CHECK_FALSE(fs::exists(fixture.Root() / "missing"));
+        for (const auto flag : {"--quality=0.5", "--threads=2", "--source-root=missing",
+                                "--cooked-root=missing", "--dry-run", "--overwrite=false",
+                                "--force=false", "--usage=infer", "--alpha-cutoff=nan"})
+        {
+            INFO(flag);
+            CHECK(Run({"cooker", command, "name", flag}, "missing content", output, error) == 2);
+        }
+    }
+    CHECK_FALSE(fs::exists(fixture.Root() / "name.texture.json"));
+    CHECK_FALSE(fs::exists(fixture.Root() / "name.cubemap.json"));
 }
 
 TEST_CASE("Cooker CLI rejects malformed arguments and numeric limits", "[texture-cooker-cli]")
@@ -126,7 +256,7 @@ TEST_CASE("Batch CLI reports failures and later successes with warm skips and fo
     CHECK(fs::exists(fixture.Cooked() / "b-valid.png.ktx2"));
     CHECK(fs::exists(fixture.Cooked() / "sky/sky.cubemap.ktx2"));
     CHECK_FALSE(fs::exists(fixture.Cooked() / "sky/right.png.ktx2"));
-    CHECK_FALSE(fs::exists(fixture.Source("a-broken.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("a-broken.png.texture.json")));
     CHECK(Run(arguments, fixture.Content(), output, error) == 1);
     CHECK(Contains(output, "Batch: 0 cooked, 2 unchanged, 1 failed"));
     auto forced = arguments;
@@ -146,7 +276,7 @@ TEST_CASE("Batch CLI rejects dry-run and positional inputs before writes",
     CHECK(Contains(error, "single-file"));
     CHECK(Run({"cooker", "cook-all", "image.png", "--source-root", fixture.Content().string()},
               fixture.Content(), output, error) == 2);
-    CHECK_FALSE(fs::exists(fixture.Source("image.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("image.png.texture.json")));
     CHECK_FALSE(fs::exists(fixture.Cooked()));
 }
 
@@ -203,7 +333,7 @@ TEST_CASE("CLI quality flows through cook and cook-all with upgrades and forced 
     low.insert(low.end(), {"--quality", "0.5"});
     REQUIRE(Run(low, fixture.Content(), output, error) == 0);
     CHECK(Contains(output, "Cooked: "));
-    const auto settings = TextureCookFixture::ReadText(fixture.Source("image.png.json"));
+    const auto settings = TextureCookFixture::ReadText(fixture.Source("image.png.texture.json"));
     const auto recordPath = fixture.Cooked() / "image.png.cook.json";
     CHECK(Contains(TextureCookFixture::ReadText(recordPath), "\"encodingQuality\": 0.5"));
     const std::vector<std::string> batch{"cooker", "cook-all", "--source-root",
@@ -218,7 +348,7 @@ TEST_CASE("CLI quality flows through cook and cook-all with upgrades and forced 
     REQUIRE(Run(forced, fixture.Content(), output, error) == 0);
     CHECK(Contains(output, "Batch: 1 cooked, 0 unchanged, 0 failed"));
     CHECK(Contains(TextureCookFixture::ReadText(recordPath), "\"encodingQuality\": 0.5"));
-    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.json")) == settings);
+    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.texture.json")) == settings);
 }
 
 TEST_CASE("CLI cooks normals and retains saved flips through unchanged and forced requests",
@@ -233,14 +363,14 @@ TEST_CASE("CLI cooks normals and retains saved flips through unchanged and force
     CHECK(Contains(output, "Cooked"));
     std::string parseError;
     const auto saved = Hikari::Asset::ParseTextureSettings(
-        TextureCookFixture::ReadText(fixture.Source("image.png.json")), "image.png.json",
-        parseError);
+        TextureCookFixture::ReadText(fixture.Source("image.png.texture.json")),
+        "image.png.texture.json", parseError);
     REQUIRE(saved);
     CHECK(saved->Usage == Hikari::Asset::TextureUsage::Normal);
     CHECK(saved->bFlipNormalY);
     CHECK_FALSE(saved->bMipmaps);
     CHECK(fs::exists(fixture.Cooked() / "image.png.ktx2"));
-    const auto before = TextureCookFixture::ReadText(fixture.Source("image.png.json"));
+    const auto before = TextureCookFixture::ReadText(fixture.Source("image.png.texture.json"));
     const auto cooked = TextureCookFixture::ReadText(fixture.Cooked() / "image.png.ktx2");
     CHECK(Run({"cooker", "cook", "image.png", "--source-root", fixture.Content().string()},
               fixture.Content(), output, error) == 0);
@@ -250,7 +380,7 @@ TEST_CASE("CLI cooks normals and retains saved flips through unchanged and force
         Run({"cooker", "cook", "image.png", "--source-root", fixture.Content().string(), "--force"},
             fixture.Content(), output, error) == 0);
     CHECK(Contains(output, "Cooked"));
-    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.json")) == before);
+    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.texture.json")) == before);
 }
 
 TEST_CASE("CLI masked options validate together before any settings or output writes",
@@ -273,7 +403,7 @@ TEST_CASE("CLI masked options validate together before any settings or output wr
     arguments.push_back("--no-mips");
     CHECK(Run(arguments, fixture.Content(), output, error) == 0);
     CHECK(Contains(output, "Format: BC1"));
-    CHECK_FALSE(fs::exists(fixture.Source("mask.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("mask.png.texture.json")));
     CHECK_FALSE(fs::exists(fixture.Cooked()));
 }
 
@@ -289,10 +419,10 @@ TEST_CASE("CLI masked cooking persists cutoff and no-mips through unchanged requ
               fixture.Content(), output, error) == 0);
     CHECK(Contains(output, "Cooked: "));
     CHECK(fs::exists(fixture.Cooked() / "mask.png.ktx2"));
-    const auto settingsText = TextureCookFixture::ReadText(fixture.Source("mask.png.json"));
+    const auto settingsText = TextureCookFixture::ReadText(fixture.Source("mask.png.texture.json"));
     std::string parseError;
     const auto saved =
-        Hikari::Asset::ParseTextureSettings(settingsText, "mask.png.json", parseError);
+        Hikari::Asset::ParseTextureSettings(settingsText, "mask.png.texture.json", parseError);
     REQUIRE(saved);
     CHECK(saved->AlphaMode == Hikari::Asset::TextureAlphaMode::Mask);
     CHECK(saved->AlphaCutoff == 0.75);
@@ -300,7 +430,7 @@ TEST_CASE("CLI masked cooking persists cutoff and no-mips through unchanged requ
     CHECK(Run({"cooker", "cook", "mask.png", "--source-root", fixture.Content().string()},
               fixture.Content(), output, error) == 0);
     CHECK(Contains(output, "Unchanged: "));
-    CHECK(TextureCookFixture::ReadText(fixture.Source("mask.png.json")) == settingsText);
+    CHECK(TextureCookFixture::ReadText(fixture.Source("mask.png.texture.json")) == settingsText);
     CHECK(Run({"cooker", "cook", "mask.png", "--source-root", fixture.Content().string(),
                "--alpha-cutoff=0.5", "--threads=2"},
               fixture.Content(), output, error) == 0);
@@ -340,7 +470,7 @@ TEST_CASE("CLI missing sources and blocked output roots return operational failu
                "--cooked-root", blocked.string()},
               fixture.Content(), output, error) == 1);
     CHECK(Contains(error, "cooked-root"));
-    CHECK_FALSE(fs::exists(fixture.Source("image.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("image.png.texture.json")));
 }
 
 TEST_CASE("CLI DDS cooking and preview share native metadata and incremental records",
@@ -358,7 +488,7 @@ TEST_CASE("CLI DDS cooking and preview share native metadata and incremental rec
     CHECK(Contains(output, "DDS mip levels: 3"));
     CHECK(Contains(output, "DDS faces: 6"));
     CHECK_FALSE(fs::exists(fixture.Cooked()));
-    CHECK_FALSE(fs::exists(fixture.Source("sky.dds.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("sky.dds.texture.json")));
     args.pop_back();
     CHECK(Run(args, fixture.Content(), output, error) == 0);
     CHECK(Contains(output, "Cooked: "));
@@ -373,7 +503,8 @@ TEST_CASE("CLI DDS cooking and preview share native metadata and incremental rec
     CHECK(Run(args, fixture.Content(), output, error) == 0);
     std::string parseError;
     const auto saved = Hikari::Asset::ParseTextureSettings(
-        TextureCookFixture::ReadText(fixture.Source("sky.dds.json")), "sky.dds.json", parseError);
+        TextureCookFixture::ReadText(fixture.Source("sky.dds.texture.json")),
+        "sky.dds.texture.json", parseError);
     REQUIRE(saved);
     CHECK_FALSE(saved->bMipmaps);
 }
@@ -416,8 +547,8 @@ TEST_CASE("CLI color and scalar images cook real full and base-only KTX2 outputs
     CHECK(Contains(output, "Cooked: "));
     std::string parseError;
     const auto saved = Hikari::Asset::ParseTextureSettings(
-        TextureCookFixture::ReadText(fixture.Source("color.png.json")), "color.png.json",
-        parseError);
+        TextureCookFixture::ReadText(fixture.Source("color.png.texture.json")),
+        "color.png.texture.json", parseError);
     REQUIRE(saved);
     CHECK(saved->Usage == Hikari::Asset::TextureUsage::Scalar);
     CHECK_FALSE(saved->bMipmaps);

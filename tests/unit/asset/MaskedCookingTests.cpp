@@ -265,7 +265,7 @@ TEST_CASE("Invalid mask settings preserve saved settings and the last published 
     auto request = MaskRequest("mask.png", TextureCompression::BC7);
     const auto success = fixture.Cooker().Cook(request);
     Cooked(success);
-    const auto settings = TextureCookFixture::ReadText(fixture.Source("mask.png.json"));
+    const auto settings = TextureCookFixture::ReadText(fixture.Source("mask.png.texture.json"));
     const auto output = TextureCookFixture::ReadText(success.Output);
     const auto record = TextureCookFixture::ReadText(fixture.Cooked() / "mask.png.cook.json");
     for (const double cutoff : {-0.01, 1.01, std::numeric_limits<double>::infinity(),
@@ -275,7 +275,7 @@ TEST_CASE("Invalid mask settings preserve saved settings and the last published 
         const auto failure = fixture.Cooker().Cook(request);
         CHECK(failure.Status == TextureCookStatus::Failed);
         CHECK(failure.Error.find("alphaCutoff") != std::string::npos);
-        CHECK(TextureCookFixture::ReadText(fixture.Source("mask.png.json")) == settings);
+        CHECK(TextureCookFixture::ReadText(fixture.Source("mask.png.texture.json")) == settings);
         CHECK(TextureCookFixture::ReadText(success.Output) == output);
         CHECK(TextureCookFixture::ReadText(fixture.Cooked() / "mask.png.cook.json") == record);
     }
@@ -287,7 +287,7 @@ TEST_CASE("Invalid mask settings preserve saved settings and the last published 
         const auto failure = fixture.Cooker().Cook(request);
         CHECK(failure.Status == TextureCookStatus::Failed);
         CHECK(failure.Error.find("alpha-capable") != std::string::npos);
-        CHECK(TextureCookFixture::ReadText(fixture.Source("mask.png.json")) == settings);
+        CHECK(TextureCookFixture::ReadText(fixture.Source("mask.png.texture.json")) == settings);
         CHECK(TextureCookFixture::ReadText(success.Output) == output);
     }
 }
@@ -303,21 +303,22 @@ TEST_CASE("Generated masked mips fail before writes and saved cutoffs invalidate
     const auto rejected = fixture.Cooker().Cook(request);
     CHECK(rejected.Status == TextureCookStatus::Failed);
     CHECK(rejected.Error.find("--no-mips") != std::string::npos);
-    CHECK_FALSE(fs::exists(fixture.Source("mask.png.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("mask.png.texture.json")));
     CHECK_FALSE(fs::exists(fixture.Cooked()));
     request.Overrides.bNoMips = true;
     Cooked(fixture.Cooker().Cook(request));
     request.Overrides = {};
     CHECK(fixture.Cooker().Cook(request).Status == TextureCookStatus::Skipped);
     std::string error;
-    auto saved = ParseTextureSettings(TextureCookFixture::ReadText(fixture.Source("mask.png.json")),
-                                      "mask.png.json", error);
+    auto saved =
+        ParseTextureSettings(TextureCookFixture::ReadText(fixture.Source("mask.png.texture.json")),
+                             "mask.png.texture.json", error);
     REQUIRE(saved);
     CHECK_FALSE(saved->bMipmaps);
     saved->AlphaCutoff = 0.75;
-    const auto json = SerializeTextureSettings(*saved, "mask.png.json", error);
+    const auto json = SerializeTextureSettings(*saved, "mask.png.texture.json", error);
     REQUIRE(json);
-    TextureCookFixture::WriteText(fixture.Source("mask.png.json"), *json);
+    TextureCookFixture::WriteText(fixture.Source("mask.png.texture.json"), *json);
     const auto result = fixture.Cooker().Cook(request);
     Cooked(result);
     const auto texture = Open(result.Output);

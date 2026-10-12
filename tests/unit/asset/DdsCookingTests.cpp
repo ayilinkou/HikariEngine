@@ -126,7 +126,7 @@ TEST_CASE("DDS native formats preserve all blocks, faces and supplied mips throu
             const auto dds = MakeDdsFixture(format.FourCC, format.BlockBytes, 7, faces == 6 ? 7 : 5,
                                             3, faces, format.Dxgi);
             TextureCookFixture::WriteText(fixture.Source("native.dds"), dds.Bytes);
-            fs::remove(fixture.Source("native.dds.json"));
+            fs::remove(fixture.Source("native.dds.texture.json"));
             TextureCookRequest request{.Source = "native.dds"};
             // Legacy DDS without colour metadata resolves from explicitly authored usage.
             if (format.NativeKtx == VK_FORMAT_BC4_UNORM_BLOCK ||
@@ -182,7 +182,7 @@ TEST_CASE("DDS alpha representation survives repackaging without inventing missi
     {
         const auto dds = MakeDdsFixture("DX10", 16, 4, 4, 3, 6, 78, alpha);
         TextureCookFixture::WriteText(fixture.Source("alpha.dds"), dds.Bytes);
-        fs::remove(fixture.Source("alpha.dds.json"));
+        fs::remove(fixture.Source("alpha.dds.texture.json"));
         const auto result = fixture.Cooker().Cook({.Source = "alpha.dds"});
         RequireStatus(result, TextureCookStatus::Cooked);
         const auto texture = OpenKtx(result.Output);
@@ -198,9 +198,9 @@ TEST_CASE("DDS alpha representation survives repackaging without inventing missi
         CHECK(KHR_DFDVAL(texture->pDfd + 1, TRANSFER) == KHR_DF_TRANSFER_SRGB);
         CheckPayloads(texture.get(), dds);
         std::string error;
-        const auto saved =
-            ParseTextureSettings(TextureCookFixture::ReadText(fixture.Source("alpha.dds.json")),
-                                 "alpha.dds.json", error);
+        const auto saved = ParseTextureSettings(
+            TextureCookFixture::ReadText(fixture.Source("alpha.dds.texture.json")),
+            "alpha.dds.texture.json", error);
         REQUIRE(saved);
         CHECK_FALSE(saved->AlphaMode);
     }
@@ -257,7 +257,7 @@ TEST_CASE("Partial DDS chains are bounded, completed and preserve supplied level
         const auto dds = MakeDdsFixture("DX10", 16, 8, 8, 2, faces, 77);
         const auto source = fixture.Source("partial.dds");
         TextureCookFixture::WriteText(source, dds.Bytes);
-        fs::remove(fixture.Source("partial.dds.json"));
+        fs::remove(fixture.Source("partial.dds.texture.json"));
         std::string error;
         std::vector<std::string> warnings;
         const auto prepared = fixture.Cooker().Prepare({.Source = "partial.dds"}, error, warnings);
@@ -300,7 +300,7 @@ TEST_CASE("Native normal DDS preserves signedness, all blocks and normal decodin
             auto dds = MakeDdsFixture("DX10", 16, 4, 4, 3, faces, dxgi);
             dds.SetWord(80, 0x80000004u);
             TextureCookFixture::WriteText(fixture.Source("normal.dds"), dds.Bytes);
-            fs::remove(fixture.Source("normal.dds.json"));
+            fs::remove(fixture.Source("normal.dds.texture.json"));
             TextureCookRequest request{.Source = "normal.dds"};
             request.Overrides.Usage = TextureUsage::Normal;
             const auto result = fixture.Cooker().Cook(request);
@@ -356,7 +356,7 @@ TEST_CASE("Explicit NVTT swizzles retain blocks and identify their normal decodi
         dds.SetWord(80, 0x80000004u);
         dds.SetWord(88, bSwapAlpha ? 0x35443241u : 0x59583241u);
         TextureCookFixture::WriteText(fixture.Source("normal.dds"), dds.Bytes);
-        fs::remove(fixture.Source("normal.dds.json"));
+        fs::remove(fixture.Source("normal.dds.texture.json"));
         TextureCookRequest request{.Source = "normal.dds"};
         request.Overrides.Usage = TextureUsage::Normal;
         const auto result = fixture.Cooker().Cook(request);
@@ -610,7 +610,7 @@ TEST_CASE("DDS rejects malformed and unsupported headers before saving settings 
     CHECK(result.Status == TextureCookStatus::Failed);
     CHECK(result.Error.find(expected) != std::string::npos);
     CHECK(result.Error.find(source.string()) != std::string::npos);
-    CHECK_FALSE(fs::exists(fixture.Source("broken.dds.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("broken.dds.texture.json")));
     CHECK_FALSE(fs::exists(fixture.Cooked()));
 }
 
@@ -631,7 +631,7 @@ TEST_CASE("Every truncation of a DDS cubemap is rejected, including discarded mi
     TextureCookRequest request{.Source = "truncated.dds"};
     request.Overrides.bNoMips = true;
     CHECK(fixture.Cooker().Cook(request).Status == TextureCookStatus::Failed);
-    CHECK_FALSE(fs::exists(fixture.Source("truncated.dds.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("truncated.dds.texture.json")));
 }
 
 TEST_CASE("DDS reading accepts omitted advisory flags and DX10 cube metadata without legacy caps",
@@ -709,5 +709,5 @@ TEST_CASE("Saving DDS settings checks the validated native metadata before writi
     }
     CHECK_FALSE(cooker.SaveSettings(*prepared, error));
     CHECK(error.find("changed since preparation") != std::string::npos);
-    CHECK_FALSE(fs::exists(fixture.Source("native.dds.json")));
+    CHECK_FALSE(fs::exists(fixture.Source("native.dds.texture.json")));
 }
