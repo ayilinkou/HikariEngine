@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -130,6 +131,7 @@ TEST_CASE("Batch failures retain earlier assets and continue serially with opera
         bEncoding = true;
         order.push_back(prepared.Paths.SourceRelative);
         CHECK(prepared.Request.EncoderThreads == 128);
+        CHECK(prepared.Request.EncodingQuality == 0.5);
         CHECK(prepared.Request.bForce);
         CHECK(prepared.Request.Overrides.IsEmpty());
         bool bSuccess = false;
@@ -143,7 +145,8 @@ TEST_CASE("Batch failures retain earlier assets and continue serially with opera
         bEncoding = false;
         return bSuccess;
     };
-    const auto result = cooker.CookAll({.bForce = true, .EncoderThreads = 128}, encoder);
+    const auto result =
+        cooker.CookAll({.bForce = true, .EncoderThreads = 128, .EncodingQuality = 0.5}, encoder);
     CHECK_FALSE(result.Succeeded());
     CHECK(result.Errors.empty());
     REQUIRE(result.Entries.size() == 2);
@@ -286,13 +289,22 @@ TEST_CASE("Batch configuration errors and empty trees leave the filesystem uncha
     CHECK(empty.Entries.empty());
     CHECK_FALSE(fs::exists(fixture.Cooked()));
     fixture.WriteImage("image.png");
-    for (const uint32_t threads : {0u, 129u})
+    for (const uint32_t threads : {129u, 256u})
     {
         const auto bad = fixture.Cooker().CookAll({.EncoderThreads = threads});
         CHECK_FALSE(bad.Succeeded());
         CHECK(bad.Entries.empty());
         REQUIRE(bad.Errors.size() == 1);
         CHECK(bad.Errors[0].find("threads") != std::string::npos);
+    }
+    for (const double quality : {-0.1, 1.1, std::numeric_limits<double>::infinity(),
+                                 std::numeric_limits<double>::quiet_NaN()})
+    {
+        const auto bad = fixture.Cooker().CookAll({.EncodingQuality = quality});
+        CHECK_FALSE(bad.Succeeded());
+        CHECK(bad.Entries.empty());
+        REQUIRE(bad.Errors.size() == 1);
+        CHECK(bad.Errors[0].find("quality") != std::string::npos);
     }
     const auto missing = TextureCooker(fixture.Root() / "missing").CookAll();
     CHECK_FALSE(missing.Succeeded());

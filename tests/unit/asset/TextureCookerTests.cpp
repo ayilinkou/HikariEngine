@@ -2,6 +2,7 @@
 
 #include <array>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -111,9 +112,18 @@ TEST_CASE("Unsafe or blocked lock directories fail before settings publication",
     TextureCookFixture fixture;
     fixture.WriteImage("image.png");
     fs::create_directory(fixture.Cooked());
+    const auto checkBlocked = [&]
+    {
+        const auto result = fixture.Cooker().Cook({.Source = "image.png"});
+        CHECK(result.Status == TextureCookStatus::Failed);
+        CHECK_FALSE(result.Error.empty());
+        CHECK_FALSE(fs::exists(fixture.Source("image.png.json")));
+        CHECK_FALSE(fs::exists(fixture.Cooked() / "image.png.ktx2"));
+    };
     SECTION("blocked")
     {
         TextureCookFixture::WriteText(fixture.Cooked() / ".locks", "retain this file");
+        checkBlocked();
     }
     SECTION("outside cooked root")
     {
@@ -122,12 +132,8 @@ TEST_CASE("Unsafe or blocked lock directories fail before settings publication",
         fs::create_directory_symlink(fixture.Root() / "outside", fixture.Cooked() / ".locks", ec);
         if (ec)
             SKIP("Symlink creation unavailable: " + ec.message());
+        checkBlocked();
     }
-    const auto result = fixture.Cooker().Cook({.Source = "image.png"});
-    CHECK(result.Status == TextureCookStatus::Failed);
-    CHECK_FALSE(result.Error.empty());
-    CHECK_FALSE(fs::exists(fixture.Source("image.png.json")));
-    CHECK_FALSE(fs::exists(fixture.Cooked() / "image.png.ktx2"));
 }
 
 TEST_CASE("Cook path symlinks cannot escape source or generated roots", "[asset][texture-cooker]")
@@ -428,13 +434,13 @@ TEST_CASE("Code requests enforce thread limits and inspect JPEG metadata",
     std::vector<std::string> warnings;
     TextureCookRequest request{.Source = "image.jpg"};
     const auto cooker = fixture.Cooker();
-    for (uint32_t threads : {0u, 129u})
+    for (uint32_t threads : {129u, 256u})
     {
         request.EncoderThreads = threads;
         CHECK_FALSE(cooker.Prepare(request, error, warnings));
-        CHECK(Contains(error, "[1, 128]"));
+        CHECK(Contains(error, "[0, 128]"));
     }
-    for (uint32_t threads : {1u, 128u})
+    for (uint32_t threads : {0u, 1u, 128u})
     {
         request.EncoderThreads = threads;
         const auto prepared = cooker.Prepare(request, error, warnings);
@@ -442,6 +448,20 @@ TEST_CASE("Code requests enforce thread limits and inspect JPEG metadata",
         CHECK(prepared->ImageMetadata.front().Channels == 3);
         CHECK(prepared->ImageMetadata.front().Extent.Width == 4);
     }
+    for (const double quality : {-0.1, 1.1, std::numeric_limits<double>::infinity(),
+                                 std::numeric_limits<double>::quiet_NaN()})
+    {
+        request.EncodingQuality = quality;
+        CHECK_FALSE(cooker.Prepare(request, error, warnings));
+        CHECK(Contains(error, "quality"));
+    }
+    for (const double quality : {0.0, 0.5, 1.0})
+    {
+        request.EncodingQuality = quality;
+        CHECK(cooker.Prepare(request, error, warnings));
+    }
+    CHECK_FALSE(fs::exists(fixture.Cooked()));
+    CHECK_FALSE(fs::exists(fixture.Source("image.jpg.json")));
 }
 
 TEST_CASE("Cooker roots remain stable when the working directory changes",

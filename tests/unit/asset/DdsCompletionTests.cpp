@@ -94,7 +94,7 @@ DdsFixture EncodeDds(const TextureCookFixture& fixture, TextureCompression forma
         std::string error;
         // Exercise spaces in paths without a Windows-invalid trailing space.
         const auto blocks = EncodeTextureBlocks(
-            image, format, 2, 0.5,
+            image, format, 2, 1.0, 0.5,
             fixture.Root() / "fixture data" / std::to_string(sub.Face) / std::to_string(sub.Level),
             ConfiguredTextureEncoder(), error);
         INFO(error);
@@ -459,8 +459,9 @@ TEST_CASE("Partial BC blocks preserve distinct rows without changing logical dim
                 MakeImage(extent.Width, extent.Height, [](uint32_t, uint32_t y)
                           { return y % 2 ? Pixel{192, 64, 128, 255} : Pixel{64, 192, 128, 255}; });
             std::string error;
-            const auto blocks = EncodeTextureBlocks(image, format, 2, 0.5, fixture.Root() / "codec",
-                                                    ConfiguredTextureEncoder(), error);
+            const auto blocks =
+                EncodeTextureBlocks(image, format, 2, 1.0, 0.5, fixture.Root() / "codec",
+                                    ConfiguredTextureEncoder(), error);
             INFO(error);
             REQUIRE(blocks);
             CHECK(blocks->size() ==

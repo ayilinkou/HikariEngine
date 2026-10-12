@@ -4,5 +4,8 @@ engine_module(Platform SOURCES src/SdlPlatform.cpp src/HeadlessPlatform.cpp src/
 
 # The last-resort content root, so a freshly built tree runs before anything
 # has been installed alongside the executable.
+if(NOT DEFINED HIKARI_ENGINE_SOURCE_DIR)
+  set(HIKARI_ENGINE_SOURCE_DIR "${CMAKE_SOURCE_DIR}")
+endif()
 target_compile_definitions(Platform
-                           PRIVATE HIKARI_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+                           PRIVATE HIKARI_SOURCE_DIR="${HIKARI_ENGINE_SOURCE_DIR}")

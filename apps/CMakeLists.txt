@@ -31,33 +31,42 @@ target_include_directories(TextureCookerCli PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/t
 target_link_libraries(TextureCookerCli PUBLIC Engine::Asset Engine::Platform)
 engine_set_warnings(TextureCookerCli)
 
-add_executable(HikariTextureCooker texture_cooker/main.cpp)
-target_link_libraries(HikariTextureCooker PRIVATE TextureCookerCli SanitizerShims)
-set_target_properties(HikariTextureCooker PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${HIKARI_EXE_DIR})
-target_compile_definitions(HikariTextureCooker PRIVATE
-  HIKARI_COOKER_CONTENT_DIR="${CMAKE_SOURCE_DIR}/content")
-engine_set_warnings(HikariTextureCooker)
-hikari_apply_build_options(HikariTextureCooker)
+configure_file("${CMAKE_SOURCE_DIR}/cmake/BuildTextureCooker.cmake.in"
+               "${CMAKE_CURRENT_BINARY_DIR}/BuildTextureCooker.cmake" @ONLY)
+add_custom_target(HikariTextureCooker ALL
+  COMMAND ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_BINARY_DIR}/BuildTextureCooker.cmake"
+  BYPRODUCTS "${HIKARI_TEXTURE_COOKER_EXECUTABLE}"
+  COMMENT "Building the shared Release texture cooker"
+  USES_TERMINAL
+  VERBATIM)
 
 set(HIKARI_TEXTURE_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/content" CACHE PATH
     "Source root for the explicit cook-textures target")
 set(HIKARI_TEXTURE_COOKED_ROOT "" CACHE PATH
     "Cooked root for cook-textures (empty selects the source root's sibling cooked/)")
-set(HIKARI_TEXTURE_ENCODER_THREADS "8" CACHE STRING
-    "CPU encoder thread limit for cook-textures (1..128)")
+set(HIKARI_TEXTURE_ENCODER_THREADS "0" CACHE STRING
+    "CPU encoder thread limit for cook-textures (0=automatic, 1..128=explicit)")
 if(NOT HIKARI_TEXTURE_ENCODER_THREADS MATCHES "^[0-9]+$" OR
-   HIKARI_TEXTURE_ENCODER_THREADS LESS 1 OR HIKARI_TEXTURE_ENCODER_THREADS GREATER 128)
-  message(FATAL_ERROR "HIKARI_TEXTURE_ENCODER_THREADS must be an integer in [1, 128]")
+   HIKARI_TEXTURE_ENCODER_THREADS GREATER 128)
+  message(FATAL_ERROR "HIKARI_TEXTURE_ENCODER_THREADS must be an integer in [0, 128]")
+endif()
+set(HIKARI_TEXTURE_ENCODING_QUALITY "1.0" CACHE STRING
+    "Minimum encoding quality for cook-textures (0.0..1.0)")
+if(NOT HIKARI_TEXTURE_ENCODING_QUALITY MATCHES
+   "^[+-]?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][+-]?[0-9]+)?$" OR
+   HIKARI_TEXTURE_ENCODING_QUALITY LESS 0 OR HIKARI_TEXTURE_ENCODING_QUALITY GREATER 1)
+  message(FATAL_ERROR "HIKARI_TEXTURE_ENCODING_QUALITY must be a number in [0, 1]")
 endif()
 set(texture_cooked_root_args)
 if(NOT HIKARI_TEXTURE_COOKED_ROOT STREQUAL "")
   list(APPEND texture_cooked_root_args --cooked-root "${HIKARI_TEXTURE_COOKED_ROOT}")
 endif()
 add_custom_target(cook-textures
-  COMMAND $<TARGET_FILE:HikariTextureCooker> cook-all
+  COMMAND "${HIKARI_TEXTURE_COOKER_EXECUTABLE}" cook-all
           --source-root "${HIKARI_TEXTURE_SOURCE_ROOT}"
           ${texture_cooked_root_args}
           --threads "${HIKARI_TEXTURE_ENCODER_THREADS}"
+          --quality "${HIKARI_TEXTURE_ENCODING_QUALITY}"
   DEPENDS HikariTextureCooker
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   USES_TERMINAL

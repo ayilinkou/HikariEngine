@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include "CookFileUtil.h"
+#include "CookHash.h"
 #include "SettingsJson.h"
 
 namespace Hikari::Asset
@@ -121,11 +122,12 @@ bool CookPublication::Stage(const CookRecord& record, std::string& error)
         return false;
     // Publish the journal last. Until it exists, no public file may be replaced.
     return WriteCookText(m_Directory / "journal.json",
-                         nlohmann::json{{"version", 1},
+                         nlohmann::json{{"version", 2},
                                         {"hadOutput", hadOutput},
                                         {"hadRecord", hadRecord},
                                         {"fingerprint", record.Fingerprint},
-                                        {"outputHash", record.OutputHash}}
+                                        {"outputHash", record.OutputHash},
+                                        {"encodingQuality", record.EncodingQuality}}
                              .dump(),
                          error);
 }
@@ -172,7 +174,10 @@ bool CookPublication::Recover(const TextureCookPaths& paths, std::string& error)
         return false;
     try
     {
-        if (journal->size() != 5 || journal->at("version") != 1 ||
+        const bool legacy = journal->at("version") == 1;
+        if ((legacy ? journal->size() != 5
+                    : (journal->at("version") != 2 || journal->size() != 6 ||
+                       !journal->at("encodingQuality").is_number())) ||
             !journal->at("hadOutput").is_boolean() || !journal->at("hadRecord").is_boolean())
         {
             error = std::format("{}: Invalid cooking journal; transaction retained for recovery",
@@ -181,10 +186,13 @@ bool CookPublication::Recover(const TextureCookPaths& paths, std::string& error)
         }
         const auto fingerprint = journal->at("fingerprint").get<std::string>();
         const auto hash = journal->at("outputHash").get<std::string>();
-        const auto record = ReadCookRecord(paths.RecordPath);
+        const auto record = ReadCookRecord(paths.RecordPath, legacy);
+        std::string ignored;
+        const auto outputHash = HashCookFile(paths.CookedPath, ignored);
         const bool committed =
             record && record->Fingerprint == fingerprint && record->OutputHash == hash &&
-            IsCookCurrent(paths.CookedPath, paths.RecordPath, fingerprint, record->Versions);
+            (legacy || record->EncodingQuality == journal->at("encodingQuality").get<double>()) &&
+            outputHash && *outputHash == hash;
         if (!committed && (!RestoreFile(directory, paths.CookedPath, "previous.ktx2",
                                         journal->at("hadOutput").get<bool>(), error) ||
                            !RestoreFile(directory, paths.RecordPath, "previous.json",

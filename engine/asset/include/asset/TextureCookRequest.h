@@ -13,8 +13,10 @@ struct TextureCookRequest
     std::filesystem::path Source{};
     TextureSettingsOverrides Overrides{};
     bool bForce = false;
-    // The CPU tool accepts 1–128 threads, with an upstream default of eight.
-    uint32_t EncoderThreads = 8;
+    // Zero leaves thread selection to Compressonator; explicit limits are 1–128.
+    uint32_t EncoderThreads = 0;
+    // Minimum encoding effort for reuse; force encodes at exactly this quality.
+    double EncodingQuality = 1.0;
 };
 
 } // namespace Hikari::Asset

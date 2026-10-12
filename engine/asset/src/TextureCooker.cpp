@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <exception>
 #include <format>
 #include <system_error>
@@ -36,9 +37,15 @@ std::optional<PreparedTextureCook> TextureCooker::Prepare(const TextureCookReque
     namespace fs = std::filesystem;
     error.clear();
     warnings.clear();
-    if (request.EncoderThreads < 1 || request.EncoderThreads > 128)
+    if (request.EncoderThreads > 128)
     {
-        error = "Encoder threads must be in [1, 128]";
+        error = "Encoder threads must be in [0, 128] (0 selects automatic)";
+        return std::nullopt;
+    }
+    if (!std::isfinite(request.EncodingQuality) || request.EncodingQuality < 0 ||
+        request.EncodingQuality > 1)
+    {
+        error = "Encoding quality must be a finite number in [0, 1]";
         return std::nullopt;
     }
     const auto paths = MapTextureCookPaths(m_SourceRoot, m_CookedRoot, request.Source, error);
@@ -314,8 +321,8 @@ TextureCookResult TextureCooker::Cook(const TextureCookRequest& request,
     const auto fingerprint = FingerprintTextureCook(*prepared, encoder.Versions, result.Error);
     if (!fingerprint)
         return result;
-    if (!request.bForce &&
-        IsCookCurrent(result.Output, prepared->Paths.RecordPath, *fingerprint, encoder.Versions))
+    if (!request.bForce && IsCookCurrent(result.Output, prepared->Paths.RecordPath, *fingerprint,
+                                         encoder.Versions, request.EncodingQuality))
     {
         result.Status = TextureCookStatus::Skipped;
         return result;
@@ -360,7 +367,8 @@ TextureCookResult TextureCooker::Cook(const TextureCookRequest& request,
     }
     const auto outputHash = HashCookFile(publication->OutputPath(), result.Error);
     if (!outputHash ||
-        !publication->Stage({*fingerprint, *outputHash, encoder.Versions}, result.Error))
+        !publication->Stage({*fingerprint, *outputHash, encoder.Versions, request.EncodingQuality},
+                            result.Error))
         return result;
     if (!publication->PublishOutput(result.Error) || !publication->PublishRecord(result.Error))
     {

@@ -32,7 +32,8 @@ void PrintUsage(std::ostream& output)
     option("--source-root <dir>", "Source root (default: HIKARI_CONTENT or content/)");
     option("--cooked-root <dir>", "Cooked root (default: source root's sibling cooked/)");
     option("--force", "Bypass incremental checks without resetting settings");
-    option("--threads <1..128>", "CPU encoder thread limit (default: 8)");
+    option("--threads <0..128>", "CPU encoder thread limit (default: 0 = automatic)");
+    option("--quality <0..1>", "Minimum encoding quality (default: 1.0; exact with --force)");
     option("--dry-run", "Validate a single request and print paths without writes");
     option("--help", "Show help");
     output << "\nSingle-file options (saved settings otherwise stay in effect):\n";
@@ -66,16 +67,16 @@ std::filesystem::path RequirePath(const Platform::CommandLineOption& option)
     return value;
 }
 
-double RequireCutoff(const Platform::CommandLineOption& option)
+double RequireUnitInterval(const Platform::CommandLineOption& option)
 {
     const auto value = option.RequireValue();
     try
     {
         size_t consumed = 0;
-        const double cutoff = std::stod(value, &consumed);
-        if (consumed != value.size() || !std::isfinite(cutoff) || cutoff < 0 || cutoff > 1)
-            throw std::invalid_argument("Invalid cutoff");
-        return cutoff;
+        const double number = std::stod(value, &consumed);
+        if (consumed != value.size() || !std::isfinite(number) || number < 0 || number > 1)
+            throw std::invalid_argument("Invalid number");
+        return number;
     }
     catch (const std::exception&)
     {
@@ -94,6 +95,7 @@ void PrintPrepared(const Asset::PreparedTextureCook& prepared, std::ostream& out
            << "Format: " << Asset::ToDisplayString(prepared.Settings.Format) << '\n'
            << "Color space: " << Asset::ToString(prepared.Settings.ColorSpace) << '\n'
            << "Encoder threads: " << prepared.Request.EncoderThreads << '\n'
+           << "Encoding quality: " << prepared.Request.EncodingQuality << '\n'
            << "Force: " << (prepared.Request.bForce ? "true" : "false") << '\n';
     if (prepared.Dds)
         output << "DDS mip levels: " << prepared.Dds->Levels << '\n'
@@ -156,10 +158,12 @@ int RunTextureCooker(int argc, const char* const* argv,
             else if (flag == "--threads")
             {
                 const auto count = option.RequireUint64();
-                if (count < 1 || count > 128)
-                    throw Platform::CommandLineError("--threads: Expected an integer in [1, 128]");
+                if (count > 128)
+                    throw Platform::CommandLineError("--threads: Expected an integer in [0, 128]");
                 request.EncoderThreads = static_cast<uint32_t>(count);
             }
+            else if (flag == "--quality")
+                request.EncodingQuality = RequireUnitInterval(option);
             else if (flag == "--force")
             {
                 option.RequireNoValue();
@@ -179,7 +183,7 @@ int RunTextureCooker(int argc, const char* const* argv,
             else if (flag == "--alpha-mode")
                 request.Overrides.AlphaMode = RequireToken(option, Asset::ParseTextureAlphaMode);
             else if (flag == "--alpha-cutoff")
-                request.Overrides.AlphaCutoff = RequireCutoff(option);
+                request.Overrides.AlphaCutoff = RequireUnitInterval(option);
             else if (flag == "--flip-normal-y")
             {
                 option.RequireNoValue();
@@ -219,8 +223,9 @@ int RunTextureCooker(int argc, const char* const* argv,
         const Asset::TextureCooker cooker(sourceRoot, cookedRoot);
         if (bBatch)
         {
-            const auto batch = cooker.CookAll(
-                {.bForce = request.bForce, .EncoderThreads = request.EncoderThreads});
+            const auto batch = cooker.CookAll({.bForce = request.bForce,
+                                               .EncoderThreads = request.EncoderThreads,
+                                               .EncodingQuality = request.EncodingQuality});
             size_t cooked = 0, unchanged = 0, failed = batch.Errors.size();
             for (const auto& error : batch.Errors)
                 errors << error << '\n';

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <exception>
 #include <format>
 #include <map>
@@ -188,9 +189,15 @@ TextureCookBatchResult TextureCooker::CookBatch(const TextureCookBatchOptions& o
                                                 const TextureCookEncoder* encoder) const
 {
     TextureCookBatchResult batch;
-    if (options.EncoderThreads < 1 || options.EncoderThreads > 128)
+    if (options.EncoderThreads > 128)
     {
-        batch.Errors.push_back("Encoder threads must be in [1, 128]");
+        batch.Errors.push_back("Encoder threads must be in [0, 128] (0 selects automatic)");
+        return batch;
+    }
+    if (!std::isfinite(options.EncodingQuality) || options.EncodingQuality < 0 ||
+        options.EncodingQuality > 1)
+    {
+        batch.Errors.push_back("Encoding quality must be a finite number in [0, 1]");
         return batch;
     }
     fs::path sourceRoot, cookedRoot;
@@ -220,6 +227,7 @@ TextureCookBatchResult TextureCooker::CookBatch(const TextureCookBatchOptions& o
         TextureCookRequest request{.Source = source};
         request.bForce = options.bForce;
         request.EncoderThreads = options.EncoderThreads;
+        request.EncodingQuality = options.EncodingQuality;
         return request;
     };
     const auto cook = [&](const fs::path& source)

@@ -213,7 +213,8 @@ bool EncodeTexturePixels(const PreparedTextureCook& prepared, const std::filesys
                     packed.Pixels[pixel] = 255;
             const auto blocks =
                 EncodeTextureBlocks(packed, settings.Format, prepared.Request.EncoderThreads,
-                                    settings.Authored.AlphaCutoff, directory, executable, error);
+                                    prepared.Request.EncodingQuality, settings.Authored.AlphaCutoff,
+                                    directory, executable, error);
             if (!blocks || !check(ktxTexture_SetImageFromMemory(ktxTexture(texture), level, 0, face,
                                                                 blocks->data(), blocks->size())))
                 return false;

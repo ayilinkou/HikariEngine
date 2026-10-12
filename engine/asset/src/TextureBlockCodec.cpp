@@ -268,7 +268,7 @@ std::optional<Image> DecodeTextureBlocks(std::span<const uint8_t> blocks, Core::
 }
 
 std::optional<std::vector<uint8_t>>
-EncodeTextureBlocks(const Image& image, TextureCompression format, uint32_t threads,
+EncodeTextureBlocks(const Image& image, TextureCompression format, uint32_t threads, double quality,
                     double alphaCutoff, const std::filesystem::path& directory,
                     const std::filesystem::path& executable, std::string& error)
 {
@@ -276,10 +276,11 @@ EncodeTextureBlocks(const Image& image, TextureCompression format, uint32_t thre
     if (!DxgiFormat(format) || !image.Extent.Width || !image.Extent.Height ||
         image.Extent.Width > 16384 || image.Extent.Height > 16384 ||
         uint64_t(image.Extent.Width) * image.Extent.Height * 4 != image.Pixels.size() ||
+        threads > 128 || !std::isfinite(quality) || quality < 0 || quality > 1 ||
         !std::isfinite(alphaCutoff) || alphaCutoff < 0 || alphaCutoff > 1)
     {
         error = "Native encoding requires complete bounded RGBA pixels, a BC format and valid "
-                "alpha cutoff";
+                "quality, thread limit and alpha cutoff";
         return std::nullopt;
     }
     if (!CreateDirectory(directory, error))
@@ -320,16 +321,17 @@ EncodeTextureBlocks(const Image& image, TextureCompression format, uint32_t thre
         error = std::format("{}: Cannot write prepared mip pixels", input.string());
         return std::nullopt;
     }
-    std::vector<std::string> arguments{"-fd",         std::string(ToDisplayString(format)),
-                                       "-EncodeWith", "HPC",
-                                       "-NumThreads", std::to_string(threads),
-                                       "-nomipmap"};
-    if (format == TextureCompression::BC7)
+    std::vector<std::string> arguments{"-fd",
+                                       std::string(ToDisplayString(format)),
+                                       "-EncodeWith",
+                                       "HPC",
+                                       "-nomipmap",
+                                       "-Quality",
+                                       std::format("{}", quality)};
+    if (threads != 0)
     {
-        // The fast default can collapse a small two-dimensional gradient to
-        // one colour line. Offline cooking needs the full BC7 mode search.
-        arguments.push_back("-Quality");
-        arguments.push_back("1.0");
+        arguments.push_back("-NumThreads");
+        arguments.push_back(std::to_string(threads));
     }
     if (format == TextureCompression::BC1)
     {

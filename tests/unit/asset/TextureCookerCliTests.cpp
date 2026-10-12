@@ -70,12 +70,19 @@ TEST_CASE("Cooker CLI rejects malformed arguments and numeric limits", "[texture
         CHECK(Run(arguments, "no-such-content", output, error) == 2);
         CHECK_FALSE(error.empty());
     }
-    for (const auto value : {"0", "129", "-1", "oops", "18446744073709551616"})
+    for (const auto value : {"129", "-1", "oops", "18446744073709551616"})
         CHECK(Run({"cooker", "cook", "image.png", "--threads", value}, "no-such-content", output,
                   error) == 2);
     for (const auto value : {"-0.1", "1.1", "nan", "inf", "0.5x", "1e309"})
+    {
         CHECK(Run({"cooker", "cook", "image.png", "--alpha-cutoff", value}, "no-such-content",
                   output, error) == 2);
+        CHECK(Run({"cooker", "cook", "image.png", "--quality", value}, "no-such-content", output,
+                  error) == 2);
+        CHECK(Run({"cooker", "cook-all", "--quality", value}, "no-such-content", output, error) ==
+              2);
+    }
+    CHECK(Run({"cooker", "cook-all", "--quality"}, "no-such-content", output, error) == 2);
 }
 
 TEST_CASE("Batch CLI rejects texture overrides and succeeds on an empty source tree",
@@ -97,7 +104,7 @@ TEST_CASE("Batch CLI rejects texture overrides and succeeds on an empty source t
     }
     TextureCookFixture fixture;
     CHECK(Run({"cooker", "cook-all", "--source-root", fixture.Content().string(), "--force",
-               "--threads=2"},
+               "--threads=0", "--quality=0.5"},
               fixture.Content(), output, error) == 0);
     CHECK(Contains(output, "Batch: 0 cooked, 0 unchanged, 0 failed"));
     CHECK_FALSE(fs::exists(fixture.Cooked()));
@@ -154,7 +161,7 @@ TEST_CASE("CLI dry-run and code prepare identical requests without filesystem wr
         Run({"cooker", "cook", "image.png", "--source-root", fixture.Content().string(),
              "--cooked-root", custom.string(), "--usage=normal", "--format=bc7",
              "--color-space=linear", "--flip-normal-y", "--flip-normal-y", "--no-mips", "--force",
-             "--threads", "2", "--dry-run"},
+             "--threads", "2", "--quality", "0.5", "--dry-run"},
             fixture.Content(), output, error);
     INFO(error);
     REQUIRE(code == 0);
@@ -166,6 +173,7 @@ TEST_CASE("CLI dry-run and code prepare identical requests without filesystem wr
     request.Overrides.bNoMips = true;
     request.bForce = true;
     request.EncoderThreads = 2;
+    request.EncodingQuality = 0.5;
     std::string serviceError;
     std::vector<std::string> warnings;
     const auto prepared = Hikari::Asset::TextureCooker(fixture.Content(), custom)
@@ -177,9 +185,40 @@ TEST_CASE("CLI dry-run and code prepare identical requests without filesystem wr
     CHECK(Contains(output, "Format: BC7"));
     CHECK(Contains(output, "Color space: linear"));
     CHECK(Contains(output, "Encoder threads: 2"));
+    CHECK(Contains(output, "Encoding quality: 0.5"));
     CHECK(Contains(output, "Force: true"));
     CHECK_FALSE(fs::exists(prepared->Paths.SettingsPath));
     CHECK_FALSE(fs::exists(custom));
+}
+
+TEST_CASE("CLI quality flows through cook and cook-all with upgrades and forced downgrades",
+          "[texture-cooker-cli][quality]")
+{
+    TextureCookFixture fixture;
+    fixture.WriteImage("image.png");
+    std::string output, error;
+    const std::vector<std::string> single{
+        "cooker", "cook", "image.png", "--source-root", fixture.Content().string(), "--threads=2"};
+    auto low = single;
+    low.insert(low.end(), {"--quality", "0.5"});
+    REQUIRE(Run(low, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Cooked: "));
+    const auto settings = TextureCookFixture::ReadText(fixture.Source("image.png.json"));
+    const auto recordPath = fixture.Cooked() / "image.png.cook.json";
+    CHECK(Contains(TextureCookFixture::ReadText(recordPath), "\"encodingQuality\": 0.5"));
+    const std::vector<std::string> batch{"cooker", "cook-all", "--source-root",
+                                         fixture.Content().string(), "--threads=2"};
+    REQUIRE(Run(batch, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Batch: 1 cooked, 0 unchanged, 0 failed"));
+    CHECK(Contains(TextureCookFixture::ReadText(recordPath), "\"encodingQuality\": 1.0"));
+    REQUIRE(Run(low, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Unchanged: "));
+    auto forced = batch;
+    forced.insert(forced.end(), {"--quality=0.5", "--force"});
+    REQUIRE(Run(forced, fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Batch: 1 cooked, 0 unchanged, 0 failed"));
+    CHECK(Contains(TextureCookFixture::ReadText(recordPath), "\"encodingQuality\": 0.5"));
+    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.json")) == settings);
 }
 
 TEST_CASE("CLI cooks normals and retains saved flips through unchanged and forced requests",

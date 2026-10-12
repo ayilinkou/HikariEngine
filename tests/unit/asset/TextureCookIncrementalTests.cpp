@@ -164,6 +164,142 @@ TEST_CASE("Unchanged cooks verify output hashes and preserve settings and record
     CHECK(TextureCookFixture::ReadText(recordPath) == record);
 }
 
+TEST_CASE(
+    "Cook records check stored quality independently of fingerprints and validate legacy data",
+    "[asset][texture-cooker][incremental][quality]")
+{
+    TextureCookFixture fixture;
+    const auto output = fixture.Cooked() / "image.png.ktx2";
+    const auto recordPath = fixture.Cooked() / "image.png.cook.json";
+    TextureCookFixture::WriteText(output, "stored texture bytes");
+    std::string error;
+    const auto outputHash = HashCookFile(output, error);
+    REQUIRE(outputHash);
+    const CookRecord record{HashCookText("recipe"), *outputHash, DefaultTextureCookVersions(), 0.5};
+    const auto serialized = SerializeCookRecord(record);
+    TextureCookFixture::WriteText(recordPath, serialized);
+    CHECK(IsCookCurrent(output, recordPath, record.Fingerprint, record.Versions, 0.25));
+    CHECK(IsCookCurrent(output, recordPath, record.Fingerprint, record.Versions, 0.5));
+    CHECK_FALSE(IsCookCurrent(output, recordPath, record.Fingerprint, record.Versions, 1.0));
+    for (const auto& value : {nlohmann::json(-0.1), nlohmann::json(1.1), nlohmann::json("nan"),
+                              nlohmann::json(nullptr)})
+    {
+        auto invalid = nlohmann::json::parse(serialized);
+        invalid["encodingQuality"] = value;
+        TextureCookFixture::WriteText(recordPath, invalid.dump());
+        CHECK_FALSE(ReadCookRecord(recordPath));
+    }
+    auto legacy = nlohmann::json::parse(serialized);
+    legacy["version"] = 1;
+    legacy.erase("encodingQuality");
+    TextureCookFixture::WriteText(recordPath, legacy.dump());
+    CHECK_FALSE(ReadCookRecord(recordPath));
+    CHECK(ReadCookRecord(recordPath, true));
+    CHECK_FALSE(IsCookCurrent(output, recordPath, record.Fingerprint, record.Versions, 0.0));
+}
+
+TEST_CASE("Publication recovery distinguishes quality even when encoded bytes are identical",
+          "[asset][texture-cooker][incremental][quality]")
+{
+    TextureCookFixture fixture;
+    TextureCookPaths paths;
+    paths.CookedPath = fixture.Cooked() / "image.png.ktx2";
+    paths.RecordPath = fixture.Cooked() / "image.png.cook.json";
+    TextureCookFixture::WriteText(paths.CookedPath, "identical encoded bytes");
+    std::string error;
+    const auto hash = HashCookFile(paths.CookedPath, error);
+    REQUIRE(hash);
+    const CookRecord previous{HashCookText("recipe"), *hash, DefaultTextureCookVersions(), 0.5};
+    TextureCookFixture::WriteText(paths.RecordPath, SerializeCookRecord(previous));
+    const auto publication = CookPublication::Begin(paths, error);
+    REQUIRE(publication);
+    TextureCookFixture::WriteText(publication->OutputPath(), "identical encoded bytes");
+    auto upgraded = previous;
+    upgraded.EncodingQuality = 1.0;
+    REQUIRE(publication->Stage(upgraded, error));
+    REQUIRE(publication->PublishOutput(error));
+    REQUIRE(CookPublication::Recover(paths, error));
+    const auto restored = ReadCookRecord(paths.RecordPath);
+    REQUIRE(restored);
+    CHECK(restored->EncodingQuality == 0.5);
+    CHECK(TextureCookFixture::ReadText(paths.CookedPath) == "identical encoded bytes");
+}
+
+TEST_CASE("Publication recovery retains committed legacy assets when upgrading the cooker",
+          "[asset][texture-cooker][incremental][quality]")
+{
+    TextureCookFixture fixture;
+    TextureCookPaths paths;
+    paths.CookedPath = fixture.Cooked() / "image.png.ktx2";
+    paths.RecordPath = fixture.Cooked() / "image.png.cook.json";
+    TextureCookFixture::WriteText(paths.CookedPath, "legacy encoded bytes");
+    std::string error;
+    const auto hash = HashCookFile(paths.CookedPath, error);
+    REQUIRE(hash);
+    const CookRecord record{HashCookText("legacy recipe"), *hash, DefaultTextureCookVersions()};
+    auto legacy = nlohmann::json::parse(SerializeCookRecord(record));
+    legacy["version"] = 1;
+    legacy.erase("encodingQuality");
+    TextureCookFixture::WriteText(paths.RecordPath, legacy.dump());
+    auto directory = paths.CookedPath;
+    directory += ".transaction";
+    TextureCookFixture::WriteText(directory / "journal.json",
+                                  nlohmann::json{{"version", 1},
+                                                 {"hadOutput", false},
+                                                 {"hadRecord", false},
+                                                 {"fingerprint", record.Fingerprint},
+                                                 {"outputHash", record.OutputHash}}
+                                      .dump());
+    REQUIRE(CookPublication::Recover(paths, error));
+    CHECK(fs::exists(paths.CookedPath));
+    CHECK(ReadCookRecord(paths.RecordPath, true));
+    CHECK_FALSE(fs::exists(directory));
+}
+
+TEST_CASE("Quality requests upgrade effort, reuse higher effort and force exact downgrades",
+          "[asset][texture-cooker][incremental][quality]")
+{
+    TextureCookFixture fixture;
+    fixture.WriteImage("image.png");
+    auto encoder = TextureCookFixtureEncoder();
+    const auto encode = encoder.Encode;
+    std::vector<double> qualities;
+    encoder.Encode = [&](const auto& prepared, const auto& output, auto& error)
+    {
+        qualities.push_back(prepared.Request.EncodingQuality);
+        return encode(prepared, output, error);
+    };
+    const auto cooker = fixture.Cooker();
+    TextureCookRequest request{.Source = "image.png", .EncodingQuality = 0.5};
+    RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Cooked);
+    const auto recordPath = fixture.Cooked() / "image.png.cook.json";
+    const auto initial = ReadCookRecord(recordPath);
+    REQUIRE(initial);
+    CHECK(initial->EncodingQuality == 0.5);
+    const auto settings = TextureCookFixture::ReadText(fixture.Source("image.png.json"));
+    request.EncodingQuality = 0.25;
+    RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Skipped);
+    request.EncodingQuality = 0.8;
+    RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Cooked);
+    request.EncodingQuality = 1.0;
+    RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Cooked);
+    const auto full = TextureCookFixture::ReadText(recordPath);
+    request.EncodingQuality = 0.5;
+    RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Skipped);
+    CHECK(TextureCookFixture::ReadText(recordPath) == full);
+    request.bForce = true;
+    RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Cooked);
+    const auto downgraded = ReadCookRecord(recordPath);
+    REQUIRE(downgraded);
+    CHECK(downgraded->EncodingQuality == 0.5);
+    CHECK(downgraded->Fingerprint == initial->Fingerprint);
+    request.bForce = false;
+    request.EncodingQuality = 1.0;
+    RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Cooked);
+    CHECK(qualities == std::vector<double>{0.5, 0.8, 1.0, 0.5, 1.0});
+    CHECK(TextureCookFixture::ReadText(fixture.Source("image.png.json")) == settings);
+}
+
 TEST_CASE("Source, effective settings and every pipeline dependency identity invalidate cooks",
           "[asset][texture-cooker][incremental]")
 {
@@ -258,7 +394,7 @@ TEST_CASE("Missing or corrupt outputs and records recook instead of claiming fre
     SECTION("unsupported record version")
     {
         auto json = nlohmann::json::parse(recordBytes);
-        json["version"] = 2;
+        json["version"] = 3;
         TextureCookFixture::WriteText(recordPath, json.dump());
     }
     SECTION("damaged dependency identity")
@@ -267,9 +403,22 @@ TEST_CASE("Missing or corrupt outputs and records recook instead of claiming fre
         json["versions"]["ktx"] = "incorrect version";
         TextureCookFixture::WriteText(recordPath, json.dump());
     }
+    SECTION("legacy record without encoding quality")
+    {
+        auto json = nlohmann::json::parse(recordBytes);
+        json["version"] = 1;
+        json.erase("encodingQuality");
+        TextureCookFixture::WriteText(recordPath, json.dump());
+    }
+    SECTION("invalid encoding quality")
+    {
+        auto json = nlohmann::json::parse(recordBytes);
+        json["encodingQuality"] = 1.5;
+        TextureCookFixture::WriteText(recordPath, json.dump());
+    }
     SECTION("duplicate fields")
     {
-        TextureCookFixture::WriteText(recordPath, "{\"version\":1," + recordBytes.substr(1));
+        TextureCookFixture::WriteText(recordPath, "{\"version\":2," + recordBytes.substr(1));
     }
     RequireStatus(cooker.Cook(request, encoder), TextureCookStatus::Cooked);
     CHECK(TextureCookFixture::ReadText(output) == outputBytes);

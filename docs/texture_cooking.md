@@ -101,17 +101,16 @@ Code-triggered cooking uses the same logic and waits for completion when cooked 
 missing or stale. Deployment restrictions are deferred until there is a distributed app.
 On-demand cooking runs synchronously on the requesting thread, launching and waiting for
 Compressonator without a dedicated worker pool. Offline batch cooking processes textures
-serially, using Compressonator's internal compression threads with a configurable thread
-limit. Collect per-file failures, finish other batch items, and return a failing exit
-status if any failed. Concurrent texture scheduling is a future optimization requiring
+serially, leaving Compressonator's internal thread selection automatic by default, with
+an optional explicit limit. Collect per-file failures, finish other batch items, and return
+a failing exit status if any failed. Concurrent texture scheduling is a future optimization requiring
 measurements; reuse Core's job-system implementation where useful and budget encoder
 threads together with concurrent jobs. Do not occupy rendering workers with compression
 process waits.
 
 TC16 exposes finite numeric encoding quality (`0.0`–`1.0`) through shared requests,
-CLI `--quality` and a CMake quality option. Defaults are `1.0` for offline cooking and a
-configurable lower value for runtime/on-demand cooking; choose the runtime default after
-idle-machine timing and representative image-quality checks. Encoding quality is an
+CLI `--quality` and a CMake quality option. Defaults are `1.0` for regular CLI/CMake cooking
+and a configurable `0.5` for runtime/on-demand cooking. Encoding quality is an
 operational request option and does not overwrite authored texture settings.
 
 **TC-D5 — Preserve compressed DDS and accept common 8-bit pixel layouts.**
@@ -479,9 +478,18 @@ recoverable face references stay reserved after descriptor failures. The selecte
 tree is excluded and directory symlinks are not followed.
 
 Run `cmake --build --preset <preset> --target cook-textures` for an explicit batch build.
-Its cache options are `HIKARI_TEXTURE_SOURCE_ROOT`, `HIKARI_TEXTURE_COOKED_ROOT` and
-`HIKARI_TEXTURE_ENCODER_THREADS`; defaults use repository content, sibling cooked output
-and eight encoder threads. Ordinary builds do not invoke cooking.
+Its cache options are `HIKARI_TEXTURE_SOURCE_ROOT`, `HIKARI_TEXTURE_COOKED_ROOT`,
+`HIKARI_TEXTURE_ENCODER_THREADS` and `HIKARI_TEXTURE_ENCODING_QUALITY`; defaults use
+repository content, sibling cooked output, automatic threads (`0`) and quality `1.0`.
+Ordinary builds do not invoke cooking. Every engine configuration builds and uses the
+same Release executable at `build/texture-cooker/HikariTextureCooker` (`.exe` on Windows),
+including Release asset/platform code and dependencies. Override its build directory with
+`HIKARI_TEXTURE_COOKER_BUILD_DIR` when using a different toolchain or generator.
+
+Both `cook <file> --quality 0.5` and `cook-all --quality 0.5` request a minimum encoding
+quality; a current `1.0` output is reused. Add `--force` to encode at exactly `0.5`.
+Quality is not saved in authored settings. Version-1 cook records are recooked once because
+they do not record encoding effort.
 
 - **Do:** Discover supported source files recursively, preserve each settings file or
   create defaults, check fingerprints and cook serially. Exclude generated roots,
@@ -549,12 +557,15 @@ and eight encoder threads. Ordinary builds do not invoke cooking.
 
 ### TC16. Numeric encoding quality and incremental upgrades
 
+CLI/CMake quality, incremental upgrades and the shared Release cooker are implemented;
+runtime quality selection remains part of this step.
+
 - **Do:** Expose numeric quality (`0.0`–`1.0`) through shared requests, CLI and CMake;
-  default offline to `1.0` and runtime to a configurable lower value. Record actual quality
+  default regular CLI/CMake cooks to `1.0` and runtime to configurable `0.5`. Record quality
   and encoder identity/parameters; reuse current outputs meeting the requested minimum,
   upgrade lower-quality outputs from source, and let `--force` encode at the exact request.
   Preserve authored settings, retained DDS blocks and publication guarantees. Build the
-  standalone cooker and its dependencies in Release for every engine configuration.
+  standalone cooker and its dependencies in one shared Release build for all engine configurations.
 - **Verify:** Defaults, overrides and invalid values; offline upgrades and higher-quality
   runtime reuse, including concurrent requests and legacy records. Confirm Release cooker
   selection from Debug.

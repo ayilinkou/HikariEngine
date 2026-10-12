@@ -9,7 +9,8 @@ namespace Hikari::Asset
 struct TextureCookBatchOptions
 {
     bool bForce = false;
-    uint32_t EncoderThreads = 8;
+    uint32_t EncoderThreads = 0;
+    double EncodingQuality = 1.0;
 };
 
 } // namespace Hikari::Asset

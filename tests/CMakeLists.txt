@@ -74,7 +74,8 @@ engine_test(texture_cooker_cli_tests SOURCES unit/asset/TextureCookerCliTests.cp
   LIBS TextureCookerCli)
 target_include_directories(texture_cooker_cli_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 add_dependencies(texture_cooker_cli_tests HikariTextureCooker)
-add_test(NAME texture_cooker_help COMMAND HikariTextureCooker --help)
+add_test(NAME texture_cooker_help
+  COMMAND "${HIKARI_TEXTURE_COOKER_EXECUTABLE}" --help)
 set_tests_properties(texture_cooker_help PROPERTIES LABELS "unit"
   PASS_REGULAR_EXPRESSION "Usage: HikariTextureCooker"
   ENVIRONMENT "DISPLAY=;WAYLAND_DISPLAY=;VK_DRIVER_FILES=${CMAKE_CURRENT_BINARY_DIR}/no-cooker-driver.json")

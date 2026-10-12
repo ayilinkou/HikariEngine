@@ -162,6 +162,11 @@ endif()
 
 include(cmake/Shaders.cmake)
 
+set(HIKARI_TEXTURE_COOKER_BUILD_DIR "${CMAKE_SOURCE_DIR}/build/texture-cooker" CACHE PATH
+    "Shared Release host-tool build used by every engine configuration")
+set(HIKARI_TEXTURE_COOKER_EXECUTABLE
+    "${HIKARI_TEXTURE_COOKER_BUILD_DIR}/HikariTextureCooker${CMAKE_EXECUTABLE_SUFFIX}")
+
 if(ENGINE_BUILD_TESTS)
   enable_testing()
   find_package(Catch2 CONFIG REQUIRED)

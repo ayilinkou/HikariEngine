@@ -1,6 +1,7 @@
 #include "CookRecord.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <format>
 #include <memory>
@@ -18,7 +19,7 @@ namespace Hikari::Asset
 
 TextureCookVersions DefaultTextureCookVersions()
 {
-    return {"tc9-1", HIKARI_COOK_COMPRESSONATOR_VERSION, HIKARI_COOK_KTX_VERSION,
+    return {"tc16-1", HIKARI_COOK_COMPRESSONATOR_VERSION, HIKARI_COOK_KTX_VERSION,
             HIKARI_COOK_STB_IDENTITY};
 }
 
@@ -69,6 +70,7 @@ std::optional<std::string> FingerprintTextureCook(const PreparedTextureCook& pre
     const auto& settings = prepared.Settings;
     Json document{
         {"versions", VersionJson(versions)},
+        {"encoder", {{"backend", "HPC"}, {"mipmaps", "prepared"}}},
         {"kind", prepared.Dds          ? (prepared.Dds->Faces == 6 ? "dds-cubemap" : "dds-2d")
                  : prepared.Descriptor ? "cubemap"
                                        : "2d"},
@@ -100,15 +102,16 @@ std::optional<std::string> FingerprintTextureCook(const PreparedTextureCook& pre
 
 std::string SerializeCookRecord(const CookRecord& record)
 {
-    return Json{{"version", 1},
+    return Json{{"version", 2},
                 {"fingerprint", record.Fingerprint},
                 {"outputHash", record.OutputHash},
-                {"versions", VersionJson(record.Versions)}}
+                {"versions", VersionJson(record.Versions)},
+                {"encodingQuality", record.EncodingQuality}}
                .dump(2) +
            "\n";
 }
 
-std::optional<CookRecord> ReadCookRecord(const std::filesystem::path& path)
+std::optional<CookRecord> ReadCookRecord(const std::filesystem::path& path, bool allowLegacy)
 {
     std::string ignored;
     const auto text = ReadCookText(path, ignored);
@@ -119,8 +122,13 @@ std::optional<CookRecord> ReadCookRecord(const std::filesystem::path& path)
         return std::nullopt;
     try
     {
-        if (json->size() != 4 || !json->at("version").is_number_integer() ||
-            json->at("version") != 1)
+        if (!json->at("version").is_number_integer())
+            return std::nullopt;
+        const bool legacy = json->at("version") == 1;
+        // Preserve committed legacy transactions, but recook legacy assets.
+        if (legacy ? (!allowLegacy || json->size() != 4)
+                   : (json->at("version") != 2 || json->size() != 5 ||
+                      !json->at("encodingQuality").is_number()))
             return std::nullopt;
         const auto& versions = json->at("versions");
         if (!versions.is_object() || versions.size() != 4)
@@ -130,10 +138,13 @@ std::optional<CookRecord> ReadCookRecord(const std::filesystem::path& path)
                           {versions.at("pipeline").get<std::string>(),
                            versions.at("compressonator").get<std::string>(),
                            versions.at("ktx").get<std::string>(),
-                           versions.at("imageDecoder").get<std::string>()}};
+                           versions.at("imageDecoder").get<std::string>()},
+                          legacy ? 0.0 : json->at("encodingQuality").get<double>()};
         if (!IsDigest(record.Fingerprint) || !IsDigest(record.OutputHash) ||
             record.Versions.Pipeline.empty() || record.Versions.Compressonator.empty() ||
-            record.Versions.Ktx.empty() || record.Versions.ImageDecoder.empty())
+            record.Versions.Ktx.empty() || record.Versions.ImageDecoder.empty() ||
+            !std::isfinite(record.EncodingQuality) || record.EncodingQuality < 0 ||
+            record.EncodingQuality > 1)
             return std::nullopt;
         return record;
     }
@@ -144,10 +155,12 @@ std::optional<CookRecord> ReadCookRecord(const std::filesystem::path& path)
 }
 
 bool IsCookCurrent(const std::filesystem::path& output, const std::filesystem::path& recordPath,
-                   std::string_view fingerprint, const TextureCookVersions& versions)
+                   std::string_view fingerprint, const TextureCookVersions& versions,
+                   double minimumQuality)
 {
     const auto record = ReadCookRecord(recordPath);
-    if (!record || record->Fingerprint != fingerprint || record->Versions != versions)
+    if (!record || record->Fingerprint != fingerprint || record->Versions != versions ||
+        record->EncodingQuality < minimumQuality)
         return false;
     std::string ignored;
     const auto hash = HashCookFile(output, ignored);

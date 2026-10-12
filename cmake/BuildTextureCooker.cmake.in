@@ -1,0 +1,38 @@
+# Different engine configurations can build concurrently against this tree.
+file(MAKE_DIRECTORY [==[@HIKARI_TEXTURE_COOKER_BUILD_DIR@]==])
+file(LOCK [==[@HIKARI_TEXTURE_COOKER_BUILD_DIR@]==] DIRECTORY GUARD PROCESS
+     TIMEOUT 600 RESULT_VARIABLE lock_result)
+if(NOT lock_result STREQUAL "0")
+  message(FATAL_ERROR "Cannot lock the shared cooker build: ${lock_result}")
+endif()
+
+set(configure_args
+  -Wno-unused-cli
+  -S [==[@CMAKE_SOURCE_DIR@/apps/texture_cooker]==]
+  -B [==[@HIKARI_TEXTURE_COOKER_BUILD_DIR@]==]
+  -G [==[@CMAKE_GENERATOR@]==]
+  [==[-DCMAKE_TOOLCHAIN_FILE=@CMAKE_TOOLCHAIN_FILE@]==]
+  [==[-DVCPKG_INSTALLED_DIR=@VCPKG_INSTALLED_DIR@]==]
+  [==[-DVCPKG_TARGET_TRIPLET=@VCPKG_HOST_TRIPLET@]==]
+  [==[-DVCPKG_HOST_TRIPLET=@VCPKG_HOST_TRIPLET@]==]
+  -DVCPKG_MANIFEST_MODE=OFF
+  -DVCPKG_MANIFEST_INSTALL=OFF)
+if(NOT [==[@CMAKE_GENERATOR_PLATFORM@]==] STREQUAL "")
+  list(APPEND configure_args -A [==[@CMAKE_GENERATOR_PLATFORM@]==])
+endif()
+if(NOT [==[@CMAKE_GENERATOR_TOOLSET@]==] STREQUAL "")
+  list(APPEND configure_args -T [==[@CMAKE_GENERATOR_TOOLSET@]==])
+endif()
+if(NOT "@CMAKE_CROSSCOMPILING@")
+  list(APPEND configure_args
+    [==[-DCMAKE_C_COMPILER=@CMAKE_C_COMPILER@]==]
+    [==[-DCMAKE_CXX_COMPILER=@CMAKE_CXX_COMPILER@]==])
+endif()
+if(NOT [==[@CMAKE_MAKE_PROGRAM@]==] STREQUAL "")
+  list(APPEND configure_args [==[-DCMAKE_MAKE_PROGRAM=@CMAKE_MAKE_PROGRAM@]==])
+endif()
+execute_process(COMMAND [==[@CMAKE_COMMAND@]==] ${configure_args}
+                COMMAND_ERROR_IS_FATAL ANY)
+execute_process(COMMAND [==[@CMAKE_COMMAND@]==] --build [==[@HIKARI_TEXTURE_COOKER_BUILD_DIR@]==]
+                --config Release --target HikariTextureCooker --parallel
+                COMMAND_ERROR_IS_FATAL ANY)

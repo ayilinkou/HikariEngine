@@ -24,7 +24,7 @@ std::optional<Image> DecodeTextureBlocks(std::span<const uint8_t> blocks, Core::
                                          std::string& error);
 /** Internal native DDS encoding includes BC2/BC3 and signed BC4/BC5. */
 std::optional<std::vector<uint8_t>>
-EncodeTextureBlocks(const Image& image, TextureCompression format, uint32_t threads,
+EncodeTextureBlocks(const Image& image, TextureCompression format, uint32_t threads, double quality,
                     double alphaCutoff, const std::filesystem::path& directory,
                     const std::filesystem::path& executable, std::string& error);
 
