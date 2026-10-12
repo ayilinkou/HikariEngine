@@ -108,6 +108,12 @@ measurements; reuse Core's job-system implementation where useful and budget enc
 threads together with concurrent jobs. Do not occupy rendering workers with compression
 process waits.
 
+TC16 exposes finite numeric encoding quality (`0.0`–`1.0`) through shared requests,
+CLI `--quality` and a CMake quality option. Defaults are `1.0` for offline cooking and a
+configurable lower value for runtime/on-demand cooking; choose the runtime default after
+idle-machine timing and representative image-quality checks. Encoding quality is an
+operational request option and does not overwrite authored texture settings.
+
 **TC-D5 — Preserve compressed DDS and accept common 8-bit pixel layouts.**
 
 Support BC1, BC2, BC3, BC4, BC5 and BC7 DDS repackaging/loading, preserving native format
@@ -137,6 +143,14 @@ engine/editor acquires a source asset, check the input fingerprint and output ha
 if necessary, wait and load the result; reuse already-loaded assets without repeating
 checks on every use or frame. Direct cooked-KTX2 loading validates/loads with libktx
 without requiring source files or cook records.
+
+TC16 stores actual numeric quality and encoder identity/parameters in a versioned cook
+record. Reuse requires matching inputs/settings/tools, an intact output and stored quality
+at least the requested value under compatible encoder settings. Treat the request as a
+minimum rather than an exact-match fingerprint field: offline `1.0` requests upgrade
+lower-quality outputs from source; runtime accepts higher-quality outputs without
+downgrading them. `--force` encodes at the exact requested quality. Handle legacy records
+explicitly and invalidate incompatible encoder identities.
 
 **TC-D7 — Explicit masked cooking without generated masked mips.**
 
@@ -533,17 +547,31 @@ and eight encoder threads. Ordinary builds do not invoke cooking.
   constraint.
 - **Size:** M · **Needs:** TC7, TC14; TC-D10.
 
-### TC16. Cross-platform delivery and completion gate
+### TC16. Numeric encoding quality and incremental upgrades
+
+- **Do:** Expose numeric quality (`0.0`–`1.0`) through shared requests, CLI and CMake;
+  default offline to `1.0` and runtime to a configurable lower value. Record actual quality
+  and encoder identity/parameters; reuse current outputs meeting the requested minimum,
+  upgrade lower-quality outputs from source, and let `--force` encode at the exact request.
+  Preserve authored settings, retained DDS blocks and publication guarantees. Build the
+  standalone cooker and its dependencies in Release for every engine configuration.
+- **Verify:** Defaults, overrides and invalid values; offline upgrades and higher-quality
+  runtime reuse, including concurrent requests and legacy records. Confirm Release cooker
+  selection from Debug.
+- **Size:** M · **Needs:** TC4, TC6, TC10, TC14; TC-D4, TC-D6, TC-D13.
+
+### TC17. Cross-platform delivery and completion gate
 
 - **Do:** Wire meaningful cooker unit/integration and compressed GPU coverage into the
-  existing Windows/Linux checks. Document offline/single-file/code workflows and clean
-  acquisition. Obtain approval for baseline updates and promote them only after inspecting
-  intended changes.
+  existing Windows/Linux checks. Include numeric quality selection, offline upgrades
+  and reuse of higher-quality outputs. Document offline/single-file/code workflows, quality
+  policy, Release cooker selection and clean acquisition. Obtain approval for baseline
+  updates and promote them only after inspecting intended changes.
 - **Verify:** Clean build/cook on both hosts; CPU-only batch works without graphics; DDS
-  preservation and invalidation suites pass; Vulkan and D3D12 upload/render checks pass
-  with zero validation errors. All open decisions resolved or explicitly deferred with
-  their blockers.
-- **Size:** M · **Needs:** TC1–TC15.
+  preservation, quality upgrade/reuse and invalidation suites pass; Vulkan and D3D12
+  upload/render checks pass with zero validation errors. All open decisions resolved or
+  explicitly deferred with their blockers.
+- **Size:** M · **Needs:** TC1–TC16.
 
 ---
 
