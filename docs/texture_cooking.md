@@ -619,8 +619,13 @@ runtime quality selection remains part of this step.
 to check representative end-to-end cold-cook/load speeds at `0.5` and `1.0` on Windows and
 Linux, including larger textures and cubemaps, and compare output quality. Revisit whether
 a separate runtime quality setting is needed at all or whether runtime should use `1.0`
-like offline cooking. Retain the planned configurable `0.5` runtime default until the user
-makes an informed decision from those measurements.
+like offline cooking. Also explore using BC1 at normal encoding quality for eligible
+opaque runtime colour textures and cubemaps as an alternative to lowering BC7 quality.
+Compare cook speeds and visual results with the user on representative assets, including
+mip sampling. Review authored format/alpha constraints and how runtime BC1 outputs would
+be identified, reused and upgraded by offline BC7 cooks before choosing a runtime format
+policy. Retain the planned configurable `0.5` runtime default until the user makes an
+informed decision from those measurements.
 
 - **Do:** Expose numeric quality (`0.0`–`1.0`) through shared requests, CLI and CMake;
   default regular CLI/CMake cooks to `1.0` and runtime to configurable `0.5`. Record quality
