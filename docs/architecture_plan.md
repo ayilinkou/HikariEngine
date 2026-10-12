@@ -13,8 +13,9 @@ supports (a) headless + automated runtime testing, (b) data-oriented performance
 the D3D12 backend landed on 15 September 2026; `docs/rhi.md` holds its decisions.
 **Next: Stage 7.8 — Texture cooking & mipmaps**, inserted before Stage 8. Its agreed design
 and incremental steps live in [texture_cooking.md](texture_cooking.md); TC1–TC10 are
-implemented and TC11's neutral BC formats and footprints are next. Stage 8 follows, with steps 49–56 partly
-superseded by the RHI stages and step 48 already completed at 7.6.
+implemented and TC11's settings templates and descriptive sidecar names are next.
+Stage 8 follows, with steps 49–56 partly superseded by the RHI stages and step 48
+already completed at 7.6.
 
 > Companion document: `suggested_work.md` covers *correctness bugs* and
 > localised fixes. This document deliberately does **not** repeat them. Where a bug is
@@ -1769,7 +1770,7 @@ document.
 | 5 | 24–34 | `RHI` library, batched uploads, growable descriptors | ~2 weeks |
 | 6 | 35–40 | **Headless device + offscreen rendering + readback** | ~1 week |
 | 7 | 41–47 | **`--headless --frames N` in CI. Stated goal met.** | ~1.5 weeks |
-| 7.8 | TC1–TC17; see [texture_cooking.md](texture_cooking.md) | Native-BC KTX2, incremental offline/on-demand cooking, configurable encoding quality and mip sampling on both backends | L–XL |
+| 7.8 | TC1–TC18; see [texture_cooking.md](texture_cooking.md) | Native-BC KTX2, incremental offline/on-demand cooking, configurable encoding quality and mip sampling on both backends | L–XL |
 | 8 | 48–56 | Passes as classes, frame graph, automatic barriers | ~2.5 weeks |
 | 9 | 57–68 | Handles, snapshots, radix sort, culling, ECS | ~3 weeks |
 | 10 | 69–76 | Bindless, mega-buffers, async loading, indirect | open-ended |
@@ -2807,7 +2808,7 @@ and a real-content one.
 ## Stage 7.8 — Texture cooking & mipmaps
 
 **Status: TC1–TC10 implemented; TC11 is next.** Stage 7.7 is complete. Continue this stage,
-before Stage 8, using the stage-local TC1–TC17 work order in
+before Stage 8, using the stage-local TC1–TC18 work order in
 [texture_cooking.md](texture_cooking.md). That document owns the numbered design decisions, per-step changes, dependencies and
 verification; do not duplicate them here.
 
@@ -3034,7 +3035,7 @@ is the serial run-up to a second backend. Step 47 is a genuine prerequisite rath
 convenient predecessor: it is the instrument that tells you whether the D3D12 backend renders
 what the Vulkan one does, and without it every B-step is verified by eye.
 
-Stage 7.7 → **Stage 7.8 texture cooking (TC1–TC17)** → Stage 8. The detailed texture
+Stage 7.7 → **Stage 7.8 texture cooking (TC1–TC18)** → Stage 8. The detailed texture
 work order is in [texture_cooking.md](texture_cooking.md).
 
 The spine starts much further along than it reads: **35, 37, 38 and 39 are all done**, so

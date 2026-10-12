@@ -35,10 +35,15 @@ because compression, correct colour handling and mip sampling change pixels.
 
 **TC-D2 — Source settings and separate cooked outputs.**
 
-Keep `content/textures/brick.png.json` beside `brick.png`, committing both. Generated
+Keep `content/textures/brick.png.texture.json` beside `brick.png`, committing both. Generated
 output lives under a separate configurable cooked root, mirroring paths and retaining the
 source extension: `cooked/textures/brick.png.ktx2` and `brick.png.cook.json`. Ignore
 generated files in Git; cook records need not be included in a runtime package.
+
+Cooking supports only `<source-filename>.texture.json` sidecars, retaining the source
+extension; there is no fallback to legacy `<source-filename>.json` names. The source image
+remains the 2D asset identity: the engine requests `brick.png`, and its JSON sidecar only
+configures cooking. Cubemap descriptors retain their existing `*.cubemap.json` identity.
 
 The default cooked root is a sibling of the resolved content root:
 `<content-root-parent>/cooked/`. Thus `HikariEngine/content/` maps to
@@ -66,6 +71,25 @@ colour and channels discarded by the selected format. Warnings name the settings
 advise modifying it and recooking. Invalid combinations fail before settings are saved or
 output replaced; BC4/BC5 have no sRGB variants.
 
+Planned creation commands generate editable settings without requiring source images or
+initializing an encoder:
+
+- `HikariTextureCooker init-texture <path/name> [texture-setting flags]` appends
+  `.texture.json`. The name need not include a source extension: `init-texture mytex`
+  creates `mytex.texture.json`. Once the source exists, rename the template to include its
+  extension, for example `mytex.png.texture.json`. Supplying `brick.png` directly creates
+  `brick.png.texture.json` without requiring that image to exist.
+- `HikariTextureCooker init-cubemap <path/name> [texture-setting flags]` appends
+  `.cubemap.json` and includes all six named face keys with empty path strings. Paths must
+  be filled before cooking.
+
+Relative output paths resolve from the current working directory, independently of the
+configured content root. The parent directory must already exist; do not create missing
+directories. Use shared authored settings defaults, retaining `auto` format/colour-space
+fields, and accept the same texture-setting flags as single-file `cook`. Existing files
+are preserved by default; `--overwrite` and `--force` are equivalent explicit replacement
+flags for these creation commands. Operational cooking quality is not an authored setting.
+
 **TC-D3 — Preserve saved settings and apply explicit single-file overrides.**
 
 CLI exposes independent `--usage`, `--format` and `--color-space` overrides. Resolve saved
@@ -92,7 +116,7 @@ texture's normal usage and enabled flip, and skips cooking if its fingerprint an
 are unchanged. Editing the JSON to disable flipping invalidates the fingerprint and
 triggers recooking on the next cooking request.
 
-**TC-D4 — CPU encoding, serial batches and synchronous on-demand cooking.**
+**TC-D4 — HPC CPU encoding, serial cook-all and synchronous on-demand cooking.**
 
 One standalone cooker provides single-file `cook` and recursive `cook-all` modes. A CMake
 `cook-textures` target invokes batch mode once; calling CMake from code is unnecessary.
@@ -100,18 +124,19 @@ Discover PNG/JPG/DDS beneath a configurable source root, excluding generated out
 Code-triggered cooking uses the same logic and waits for completion when cooked output is
 missing or stale. Deployment restrictions are deferred until there is a distributed app.
 On-demand cooking runs synchronously on the requesting thread, launching and waiting for
-Compressonator without a dedicated worker pool. Offline batch cooking processes textures
+Compressonator HPC on Windows and Linux without a dedicated worker pool. Each encoded
+mip/face uses a separate encoder invocation. Offline batch cooking processes textures
 serially, leaving Compressonator's internal thread selection automatic by default, with
 an optional explicit limit. Collect per-file failures, finish other batch items, and return
-a failing exit status if any failed. Concurrent texture scheduling is a future optimization requiring
-measurements; reuse Core's job-system implementation where useful and budget encoder
-threads together with concurrent jobs. Do not occupy rendering workers with compression
-process waits.
+a failing exit status if any failed. Encoder batching/process reuse and concurrent texture
+scheduling are excluded from planned work. Do not occupy rendering workers with
+compression process waits.
 
-TC16 exposes finite numeric encoding quality (`0.0`–`1.0`) through shared requests,
+TC17 exposes finite numeric encoding quality (`0.0`–`1.0`) through shared requests,
 CLI `--quality` and a CMake quality option. Defaults are `1.0` for regular CLI/CMake cooking
 and a configurable `0.5` for runtime/on-demand cooking. Encoding quality is an
 operational request option and does not overwrite authored texture settings.
+The separate runtime quality policy is subject to the user review checkpoint in TC17.
 
 **TC-D5 — Preserve compressed DDS and accept common 8-bit pixel layouts.**
 
@@ -143,7 +168,7 @@ if necessary, wait and load the result; reuse already-loaded assets without repe
 checks on every use or frame. Direct cooked-KTX2 loading validates/loads with libktx
 without requiring source files or cook records.
 
-TC16 stores actual numeric quality and encoder identity/parameters in a versioned cook
+TC17 stores actual numeric quality and encoder identity/parameters in a versioned cook
 record. Reuse requires matching inputs/settings/tools, an intact output and stored quality
 at least the requested value under compatible encoder settings. Treat the request as a
 minimum rather than an exact-match fingerprint field: offline `1.0` requests upgrade
@@ -274,9 +299,9 @@ host-tool port. Normal CMake/vcpkg project setup automatically provisions pinned
 Compressonator; no separate manual installation or tool-setup target is required before
 offline or on-demand cooking. The exact acquisition method remains an implementation
 investigation: verify pinned binaries with checksums or build pinned sources, on both
-platforms. Offline cooking requires no renderer/GPU initialization. Use CPU encoding
-initially for both offline and on-demand cooking, avoiding graphics-context and GPU
-availability requirements and GPU competition with rendering. GPU encoding is deferred
+platforms. Offline cooking requires no renderer/GPU initialization. Use HPC CPU encoding
+on Windows and Linux for both offline and on-demand cooking, avoiding graphics-context
+and GPU availability requirements and GPU competition with rendering. GPU encoding is deferred
 until platform/format support, quality and throughput have been measured on representative
 Windows/Linux systems.
 
@@ -286,6 +311,10 @@ Validate texture settings and cubemap descriptors strictly: reject unknown field
 values and unsupported schema versions with a diagnostic naming the file and offending
 field/version. Recognized optional fields use documented defaults. Do not silently ignore
 misspellings or interpret a newer schema as the current version.
+
+Template generation permits intentionally empty cubemap face paths without requiring
+source files. Cooking retains strict descriptor validation and reports an unset face path
+as an error; this does not make incomplete templates valid cooking inputs.
 
 Preserve source dimensions. Reject inputs unsupported by the selected compression tool,
 native format or target backends, naming the constraint; do not resize or pad
@@ -304,7 +333,7 @@ single-file `cook` or authored settings instead of overwriting a mixed tree's se
 
 Each step leaves a compiling, running application and has its own verification. Report run
 results in completion messages; keep this plan focused on lasting behavior and acceptance
-criteria. Keep source loading active until TC14; earlier steps exercise cooked loading through
+criteria. Keep source loading active until TC15; earlier steps exercise cooked loading through
 tests.
 Read RHI D11 before extending formats: neutral format entries and both backend mappings
 land together. Documentation-only edits need text/link review and `git diff --check`;
@@ -501,7 +530,33 @@ they do not record encoding effort.
   status. Run without GPU.
 - **Size:** M · **Needs:** TC3–TC9; TC-D14.
 
-### TC11. Neutral BC formats and block-aware footprints — NEXT
+### TC11. Texture settings templates and descriptive sidecar names — NEXT
+
+- **Do:** Switch all 2D cooking paths and automatic settings creation to
+  `<source-filename>.texture.json`, preserving the source extension and source-image
+  identity. Support only the new sidecar names; keep cubemap descriptor and cooked-output
+  mappings as specified in TC-D2. Add shared settings-creation functions and CLI commands
+  `init-texture <path/name>` and `init-cubemap <path/name>` that append `.texture.json` and
+  `.cubemap.json` respectively. Texture template names need not include a source extension;
+  authors can rename them once their source exists. Resolve relative output paths from
+  the current working directory, accept absolute paths, and require an existing
+  parent directory. Create templates without source images or encoder initialization,
+  applying single-file texture-setting flags to shared authored defaults. Generate all
+  six cubemap face keys with empty paths. Preserve existing destination files unless
+  `--overwrite` or its alias `--force` explicitly requests replacement; retain the
+  existing cooking meaning of `--force`. Validate authored setting values without source
+  inspection, and retain strict cooking validation for unfinished cubemap descriptors.
+  Update help, fixtures and documentation for the new commands and settings names.
+- **Verify:** Template creation without images or an available encoder; cwd-relative and
+  absolute paths, automatic suffixes, names with and without a source extension, shared
+  defaults and setting overrides. Missing parent directories fail without creating them.
+  Existing files remain intact by default; both overwrite aliases replace them as
+  requested, and invalid requests leave them intact. Cubemap templates contain six empty
+  face paths and fail cooking until configured. Single-file and serial `cook-all` use
+  only the new sidecars and preserve source identities and cooked-output paths.
+- **Size:** S–M · **Needs:** TC2, TC3, TC10; TC-D2, TC-D3, TC-D8, TC-D14.
+
+### TC12. Neutral BC formats and block-aware footprints
 
 - **Do:** Extend the curated format enum and both conversion tables together; add block
   extent/bytes and checked subresource-size helpers. Audit upload/readback validation and
@@ -511,7 +566,7 @@ they do not record encoding effort.
   blocks; existing uncompressed copy sizes and tests stay correct on both backends.
 - **Size:** M · **Needs:** TC1; TC-D8, TC-D10, TC-D14.
 
-### TC12. Compressed uploads on Vulkan and D3D12
+### TC13. Compressed uploads on Vulkan and D3D12
 
 - **Do:** Implement tightly packed block uploads, backend staging alignment and D3D12 row
   footprints. Submit all mips/layers in one `UploadTexture` call as required by the
@@ -519,20 +574,20 @@ they do not record encoding effort.
 - **Verify:** Known block data, non-power-of-two extents, small final mips, arrays/faces
   within agreed scope and staging-budget boundaries on both backends, with zero validation
   errors.
-- **Size:** M–L · **Needs:** TC11.
+- **Size:** M–L · **Needs:** TC12.
 
-### TC13. libktx decoding into neutral texture data
+### TC14. libktx decoding into neutral texture data
 
 - **Do:** Read/validate supported KTX2 metadata and payloads in the asset layer, map to
   neutral formats and enumerate subresources. Reject unsupported
   supercompression/transcoding or shapes explicitly; do not use libktx's Vulkan upload
   path to bypass the RHI.
 - **Verify:** Valid cooked fixtures and malformed format/level/payload metadata; upload
-  through TC12 and sample known mips on both backends. Existing source loading remains
+  through TC13 and sample known mips on both backends. Existing source loading remains
   active.
-- **Size:** M · **Needs:** TC5, TC12; TC-D8, TC-D10.
+- **Size:** M · **Needs:** TC5, TC13; TC-D8, TC-D10.
 
-### TC14. Synchronous source acquisition and existing-content migration
+### TC15. Synchronous source acquisition and existing-content migration
 
 - **Do:** Integrate shared incremental cooking into asset acquisition, plus direct KTX2
   loading. Warn on material/metadata usage conflicts while loading with saved settings;
@@ -542,9 +597,9 @@ they do not record encoding effort.
 - **Verify:** Cold cook/load, warm skip, edited source/settings, missing cooker and failed
   cook; repeated acquisition reuses the cache. Verify every shipped material's effective
   usage.
-- **Size:** M–L · **Needs:** TC10, TC13; TC-D9, TC-D12.
+- **Size:** M–L · **Needs:** TC10, TC11, TC14; TC-D9, TC-D12.
 
-### TC15. Mip sampling and normal shader integration
+### TC16. Mip sampling and normal shader integration
 
 - **Do:** Expose full mip chains through texture views and samplers; select correct normal
   decoding in both surface shaders, preserving explicitly overridden normal formats. Audit
@@ -553,12 +608,19 @@ they do not record encoding effort.
   orientation agrees between backends, and representative colour/data/masked textures
   render correctly. Existing material alpha cutoff remains a documented follow-up
   constraint.
-- **Size:** M · **Needs:** TC7, TC14; TC-D10.
+- **Size:** M · **Needs:** TC7, TC15; TC-D10.
 
-### TC16. Numeric encoding quality and incremental upgrades
+### TC17. Numeric encoding quality and incremental upgrades
 
 CLI/CMake quality, incremental upgrades and the shared Release cooker are implemented;
 runtime quality selection remains part of this step.
+
+**User review checkpoint:** Before implementing runtime quality selection, remind the user
+to check representative end-to-end cold-cook/load speeds at `0.5` and `1.0` on Windows and
+Linux, including larger textures and cubemaps, and compare output quality. Revisit whether
+a separate runtime quality setting is needed at all or whether runtime should use `1.0`
+like offline cooking. Retain the planned configurable `0.5` runtime default until the user
+makes an informed decision from those measurements.
 
 - **Do:** Expose numeric quality (`0.0`–`1.0`) through shared requests, CLI and CMake;
   default regular CLI/CMake cooks to `1.0` and runtime to configurable `0.5`. Record quality
@@ -569,9 +631,9 @@ runtime quality selection remains part of this step.
 - **Verify:** Defaults, overrides and invalid values; offline upgrades and higher-quality
   runtime reuse, including concurrent requests and legacy records. Confirm Release cooker
   selection from Debug.
-- **Size:** M · **Needs:** TC4, TC6, TC10, TC14; TC-D4, TC-D6, TC-D13.
+- **Size:** M · **Needs:** TC4, TC6, TC10, TC15; TC-D4, TC-D6, TC-D13.
 
-### TC17. Cross-platform delivery and completion gate
+### TC18. Cross-platform delivery and completion gate
 
 - **Do:** Wire meaningful cooker unit/integration and compressed GPU coverage into the
   existing Windows/Linux checks. Include numeric quality selection, offline upgrades
@@ -582,7 +644,7 @@ runtime quality selection remains part of this step.
   preservation, quality upgrade/reuse and invalidation suites pass; Vulkan and D3D12
   upload/render checks pass with zero validation errors. All open decisions resolved or
   explicitly deferred with their blockers.
-- **Size:** M · **Needs:** TC1–TC16.
+- **Size:** M · **Needs:** TC1–TC17.
 
 ---
 
@@ -590,8 +652,8 @@ runtime quality selection remains part of this step.
 
 Editor settings/recooking controls, alpha-coverage-preserving mips and explicit material
 alpha mode/cutoff, asynchronous cooking with fallback replacement, and HDR/BC6H remain
-backlog items. Automatic usage inference is excluded. GPU encoding and concurrent batch
-scheduling require performance/quality measurements before a separate design decision.
+backlog items. Automatic usage inference is excluded. GPU encoding requires
+performance/quality measurements before a separate design decision.
 
 Track advisory cubemap grouping hints as a follow-up: inspect directories for plausible
 face-name groups (for example left/right/top/bottom/front/back) and log a warning

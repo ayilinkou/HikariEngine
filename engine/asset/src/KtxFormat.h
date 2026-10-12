@@ -10,7 +10,7 @@ namespace Hikari::Asset
 
 // KTX2's on-disk format identifiers. Container validation needs no graphics
 // API types, device or RHI format extension. Tests pin these identifiers to
-// the registry constants; the neutral RHI mappings arrive together in TC11.
+// the registry constants; the neutral RHI mappings arrive together in TC12.
 enum class KtxFormat : uint32_t
 {
     BC1RgbUnorm = 131,
