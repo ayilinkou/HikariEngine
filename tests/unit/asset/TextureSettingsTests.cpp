@@ -580,6 +580,61 @@ TEST_CASE("Suspicious source settings warn without inferring usage", "[asset][te
     CHECK(fixture.WarnsAbout("discards the source alpha"));
 }
 
+TEST_CASE("BC5 normal encoding does not warn about reconstructed source Z",
+          "[asset][texture-settings]")
+{
+    for (const auto format : {TextureCompression::Auto, TextureCompression::BC5})
+        for (uint32_t channels : {3u, 4u})
+        {
+            CAPTURE(format, channels);
+            SettingsFixture fixture;
+            fixture.Saved.Usage = TextureUsage::Normal;
+            fixture.Saved.Format = format;
+            fixture.Source.Channels = channels;
+            const auto resolved = fixture.Resolve();
+            REQUIRE(resolved);
+            CHECK(resolved->Format == TextureCompression::BC5);
+            CHECK(resolved->ColorSpace == TextureColorSpace::Linear);
+            CHECK_FALSE(
+                fixture.WarnsAbout("remaining source colour/data channels will be discarded"));
+            CHECK(fixture.WarnsAbout("discards the source alpha") == (channels == 4));
+        }
+
+    for (const auto format : {TextureCompression::BC5, TextureCompression::BC5Signed})
+    {
+        CAPTURE(format);
+        SettingsFixture fixture;
+        fixture.Saved.Usage = TextureUsage::Normal;
+        fixture.Saved.Format = format;
+        fixture.Source.bDds = true;
+        fixture.Source.NativeFormat = TextureCompression::BC7;
+        fixture.Source.NativeColorSpace = TextureColorSpace::Linear;
+        fixture.Source.NativeAlphaMode = TextureAlphaMode::Opaque;
+        const auto resolved = fixture.Resolve();
+        REQUIRE(resolved);
+        CHECK(resolved->bRecompressExistingMips);
+        CHECK_FALSE(fixture.WarnsAbout("remaining source colour/data channels will be discarded"));
+        CHECK(fixture.WarnsAbout("recompress existing levels"));
+        CHECK(fixture.WarnsAbout("discards the source alpha"));
+    }
+}
+
+TEST_CASE("BC5 color and data conversions still warn about discarded source channels",
+          "[asset][texture-settings]")
+{
+    for (const auto usage : {TextureUsage::Color, TextureUsage::Scalar, TextureUsage::Packed})
+    {
+        CAPTURE(usage);
+        SettingsFixture fixture;
+        fixture.Saved.Usage = usage;
+        fixture.Saved.Format = TextureCompression::BC5;
+        fixture.Saved.ColorSpace = TextureColorSpace::Linear;
+        fixture.Source.Channels = 3;
+        REQUIRE(fixture.Resolve());
+        CHECK(fixture.WarnsAbout("remaining source colour/data channels will be discarded"));
+    }
+}
+
 TEST_CASE("Batch settings reject all per-texture overrides including explicit zero values",
           "[asset][texture-settings]")
 {

@@ -427,7 +427,11 @@ ResolveTextureSettings(const TextureSettings& saved, const TextureSettingsOverri
         sourceColorChannels = StoredColorChannels(*source.NativeFormat);
     const bool bProcessesPixels = !source.NativeFormat || resolved.bRecompressExistingMips ||
                                   (authored.bMipmaps && source.bNeedsMipGeneration);
-    if (bProcessesPixels && sourceColorChannels > StoredColorChannels(resolved.Format))
+    // BC5 normals intentionally store XY; the shader reconstructs positive Z.
+    // That supported encoding is not an unhandled loss of source color/data.
+    const bool bReconstructsNormalZ = authored.Usage == TextureUsage::Normal && bTwoChannels;
+    if (bProcessesPixels && !bReconstructsNormalZ &&
+        sourceColorChannels > StoredColorChannels(resolved.Format))
         warn(std::format(
             "Format {} stores {} colour/data channels; remaining source colour/data channels "
             "will be discarded.",
