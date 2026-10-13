@@ -52,7 +52,8 @@ TEST_CASE("BC device support agrees with texture creation and full-chain views",
                                                              : TextureViewDimension::Texture2D,
                                           .Format = format,
                                           .MipCount = 4u,
-                                          .LayerCount = desc.ArrayLayers}));
+                                          .LayerCount = desc.ArrayLayers,
+                                          .DebugName = "BC capability view"}));
             CHECK(device.GetTextureDesc(texture.Get())->Extent.Width == 12u);
         }
         CHECK_FALSE(device.IsFormatSupported(format, TextureUsage::ColorAttachment));
@@ -87,8 +88,9 @@ TEST_CASE("Malformed BC transfers fail before staging or native recording",
     CHECK(device.GetLiveBufferCount() == buffersBefore);
 
     const UniqueHandle<BufferHandle> buffer(
-        device,
-        device.CreateBuffer({.Size = 64u, .Usage = BufferUsage::CopySrc | BufferUsage::CopyDst}));
+        device, device.CreateBuffer({.Size = 64u,
+                                     .Usage = BufferUsage::CopySrc | BufferUsage::CopyDst,
+                                     .DebugName = "BC transfer validation buffer"}));
     const auto allocator = device.CreateCommandAllocator({});
     ICommandList& commands = allocator->Acquire();
     commands.Begin();
@@ -113,7 +115,8 @@ TEST_CASE("Malformed uploads leave the staging context usable", "[rhi][gpu][uplo
     const UniqueHandle<TextureHandle> texture(
         device, device.CreateTexture({.Format = Format::RGBA8Unorm,
                                       .Extent = {2u, 2u, 1u},
-                                      .Usage = TextureUsage::Sampled | TextureUsage::CopyDst}));
+                                      .Usage = TextureUsage::Sampled | TextureUsage::CopyDst,
+                                      .DebugName = "Malformed upload validation"}));
     const auto context = device.CreateUploadContext({});
     const std::array<std::byte, 16u> pixels{};
     const uint32_t buffersBefore = device.GetLiveBufferCount();
@@ -137,8 +140,9 @@ TEST_CASE("D3D12 rejects incompatible BC base dimensions without resizing",
     if (!device.IsFormatSupported(Format::BC7Unorm, kUsage))
         SKIP("Device has no BC7 texture support.");
     for (const uint32_t width : {1u, 3u, 7u})
-        CHECK_THROWS_WITH(
-            device.CreateTexture(
-                {.Format = Format::BC7Unorm, .Extent = {width, 4u, 1u}, .Usage = kUsage}),
-            ContainsSubstring("multiples of 4"));
+        CHECK_THROWS_WITH(device.CreateTexture({.Format = Format::BC7Unorm,
+                                                .Extent = {width, 4u, 1u},
+                                                .Usage = kUsage,
+                                                .DebugName = "BC invalid base dimensions"}),
+                          ContainsSubstring("multiples of 4"));
 }

@@ -118,7 +118,8 @@ TEST_CASE("Every BC format round-trips non-power-of-two mip chains and cubemap f
                                        .DebugName = "BC mip round-trip"};
                 const MipChain chain = MakeChain(desc);
                 const UniqueHandle<TextureHandle> texture(device, device.CreateTexture(desc));
-                const auto context = device.CreateUploadContext({.StagingBudget = 1u});
+                const auto context =
+                    device.CreateUploadContext({.StagingBudget = 1u, .DebugName = "BC mip upload"});
                 context->UploadTexture(texture.Get(), chain.Uploads);
                 context->Flush();
                 CHECK(context->GetStats().Uploads == 1u);
@@ -146,8 +147,11 @@ TEST_CASE("BC uploads keep full mip chains intact at staging budget boundaries",
         {
             if (!device.IsFormatSupported(format, kUsage))
                 SKIP("Device has no BC1/BC7 support.");
-            const TextureDesc desc{
-                .Format = format, .Extent = {12u, 12u, 1u}, .MipLevels = 4u, .Usage = kUsage};
+            const TextureDesc desc{.Format = format,
+                                   .Extent = {12u, 12u, 1u},
+                                   .MipLevels = 4u,
+                                   .Usage = kUsage,
+                                   .DebugName = "BC staging budget"};
             const MipChain chain = MakeChain(desc);
             for (const uint64_t budget :
                  {chain.Bytes * 2u, chain.Bytes * 2u - 1u, chain.Bytes - 1u})
@@ -155,7 +159,8 @@ TEST_CASE("BC uploads keep full mip chains intact at staging budget boundaries",
                 CAPTURE(format, budget);
                 const UniqueHandle<TextureHandle> first(device, device.CreateTexture(desc));
                 const UniqueHandle<TextureHandle> second(device, device.CreateTexture(desc));
-                const auto context = device.CreateUploadContext({.StagingBudget = budget});
+                const auto context = device.CreateUploadContext(
+                    {.StagingBudget = budget, .DebugName = "BC budget upload"});
                 context->UploadTexture(first.Get(), chain.Uploads);
                 CHECK(context->GetStats().Batches == 0u);
                 context->UploadTexture(second.Get(), chain.Uploads);
@@ -185,7 +190,8 @@ TEST_CASE("BC direct copies pack face ranges at nonzero block offsets", "[rhi][g
                                .Extent = {12u, 12u, 1u},
                                .ArrayLayers = 6u,
                                .Usage = kUsage,
-                               .bCubeCompatible = true};
+                               .bCubeCompatible = true,
+                               .DebugName = "BC face copies"};
         const size_t blockBytes = BytesPerBlock(format);
         const size_t faceBytes = blockBytes * 9u;
         const size_t offset = blockBytes * 3u;
@@ -194,12 +200,14 @@ TEST_CASE("BC direct copies pack face ranges at nonzero block offsets", "[rhi][g
         const UniqueHandle<BufferHandle> staging(
             device, device.CreateBuffer({.Size = source.size(),
                                          .Usage = BufferUsage::CopySrc,
-                                         .Access = MemoryAccess::CpuToGpu}));
+                                         .Access = MemoryAccess::CpuToGpu,
+                                         .DebugName = "BC face staging"}));
         std::memcpy(device.GetMappedData(staging.Get()), source.data(), source.size());
         const UniqueHandle<BufferHandle> readback(
             device, device.CreateBuffer({.Size = source.size(),
                                          .Usage = BufferUsage::CopyDst,
-                                         .Access = MemoryAccess::GpuToCpu}));
+                                         .Access = MemoryAccess::GpuToCpu,
+                                         .DebugName = "BC face readback"}));
         RhiTest::RunGraphicsCommands(
             device,
             [&](ICommandList& list)
@@ -239,8 +247,11 @@ TEST_CASE("BC copies permit whole-block partial regions and reject split interio
     constexpr Format kFormat = Format::BC1Unorm;
     if (!device.IsFormatSupported(kFormat, kUsage))
         SKIP("Device has no BC1 support.");
-    const TextureDesc desc{
-        .Format = kFormat, .Extent = {12u, 12u, 1u}, .MipLevels = 2u, .Usage = kUsage};
+    const TextureDesc desc{.Format = kFormat,
+                           .Extent = {12u, 12u, 1u},
+                           .MipLevels = 2u,
+                           .Usage = kUsage,
+                           .DebugName = "BC partial copies"};
     const MipChain chain = MakeChain(desc);
     const UniqueHandle<TextureHandle> texture(device, device.CreateTexture(desc));
     const auto context = device.CreateUploadContext({});
@@ -250,12 +261,14 @@ TEST_CASE("BC copies permit whole-block partial regions and reject split interio
     const UniqueHandle<BufferHandle> staging(
         device, device.CreateBuffer({.Size = patch.size(),
                                      .Usage = BufferUsage::CopySrc,
-                                     .Access = MemoryAccess::CpuToGpu}));
+                                     .Access = MemoryAccess::CpuToGpu,
+                                     .DebugName = "BC partial staging"}));
     std::memcpy(device.GetMappedData(staging.Get()), patch.data(), patch.size());
     const UniqueHandle<BufferHandle> readback(
-        device,
-        device.CreateBuffer(
-            {.Size = 32u, .Usage = BufferUsage::CopyDst, .Access = MemoryAccess::GpuToCpu}));
+        device, device.CreateBuffer({.Size = 32u,
+                                     .Usage = BufferUsage::CopyDst,
+                                     .Access = MemoryAccess::GpuToCpu,
+                                     .DebugName = "BC partial readback"}));
     RhiTest::RunGraphicsCommands(
         device,
         [&](ICommandList& list)
@@ -322,7 +335,8 @@ TEST_CASE("Vulkan BC transfers retain odd base extents and tiny base levels",
             const TextureDesc desc{.Format = Format::BC7Unorm,
                                    .Extent = extent,
                                    .MipLevels = static_cast<uint32_t>(std::bit_width(extent.Width)),
-                                   .Usage = kUsage};
+                                   .Usage = kUsage,
+                                   .DebugName = "BC odd extents"};
             const MipChain chain = MakeChain(desc);
             const UniqueHandle<TextureHandle> texture(device, device.CreateTexture(desc));
             const auto context = device.CreateUploadContext({});

@@ -229,7 +229,8 @@ TEST_CASE("Uncompressed odd mip chains round-trip through aligned staging", "[rh
                                           .Extent = {7u, 5u, 1u},
                                           .MipLevels = 3u,
                                           .Usage = TextureUsage::Sampled | TextureUsage::CopyDst |
-                                                   TextureUsage::CopySrc}));
+                                                   TextureUsage::CopySrc,
+                                          .DebugName = "Uncompressed odd mip chain"}));
         const auto level0 = MakePattern(35u, 17u);
         const auto level1 = MakePattern(6u, 18u);
         const auto level2 = MakePattern(1u, 19u);
@@ -237,7 +238,8 @@ TEST_CASE("Uncompressed odd mip chains round-trip through aligned staging", "[rh
             TextureUpload{.Data = level0, .Extent = {7u, 5u, 1u}},
             TextureUpload{.Data = level1, .MipLevel = 1u, .Extent = {3u, 2u, 1u}},
             TextureUpload{.Data = level2, .MipLevel = 2u, .Extent = {1u, 1u, 1u}}};
-        const auto context = device.CreateUploadContext({.StagingBudget = 16u});
+        const auto context = device.CreateUploadContext(
+            {.StagingBudget = 16u, .DebugName = "Uncompressed odd mip upload"});
         context->UploadTexture(texture.Get(), uploads);
         context->Flush();
         CHECK(RhiTest::ReadTextureLayers(device, texture.Get(), 0u)[0] == level0);

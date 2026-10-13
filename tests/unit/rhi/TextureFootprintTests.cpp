@@ -76,7 +76,8 @@ TEST_CASE("Uploads validate complete payloads before staging", "[rhi][upload]")
     TextureDesc desc{.Format = Format::RGBA8Unorm,
                      .Extent = {2u, 2u, 1u},
                      .MipLevels = 2u,
-                     .Usage = TextureUsage::Sampled | TextureUsage::CopyDst};
+                     .Usage = TextureUsage::Sampled | TextureUsage::CopyDst,
+                     .DebugName = {}};
     const std::array<std::byte, 16u> pixels{};
     std::array uploads{
         TextureUpload{.Data = pixels, .Extent = {2u, 2u, 1u}},
@@ -120,7 +121,8 @@ TEST_CASE("Staging accounts for tiny mips and non-power-of-two texel alignment",
     TextureDesc desc{.Format = Format::R8Unorm,
                      .Extent = {3u, 1u, 1u},
                      .MipLevels = 2u,
-                     .Usage = TextureUsage::Sampled | TextureUsage::CopyDst};
+                     .Usage = TextureUsage::Sampled | TextureUsage::CopyDst,
+                     .DebugName = {}};
     const std::array uploads{
         TextureUpload{.Data = std::span(pixels).first(3), .Extent = {3u, 1u, 1u}},
         TextureUpload{.Data = std::span(pixels).first(1), .MipLevel = 1u, .Extent = {1u, 1u, 1u}}};
@@ -132,7 +134,7 @@ TEST_CASE("Staging accounts for tiny mips and non-power-of-two texel alignment",
 TEST_CASE("Texture copy validation rejects unsupported formats and overflowing offsets",
           "[rhi][format][bc]")
 {
-    TextureDesc desc{.Format = Format::RGBA8Unorm, .Extent = {8u, 8u, 1u}};
+    TextureDesc desc{.Format = Format::RGBA8Unorm, .Extent = {8u, 8u, 1u}, .DebugName = {}};
     BufferTextureCopyRegion region{.Extent = {4u, 4u, 1u}};
     CHECK(ValidateTextureCopy(desc, region, "test").TotalBytes == 64u);
     SECTION("misaligned compressed block")
@@ -166,7 +168,8 @@ TEST_CASE("BC descriptions enforce the agreed shape scope", "[rhi][format][bc]")
                      .MipLevels = 4u,
                      .ArrayLayers = 6u,
                      .Usage = TextureUsage::Sampled,
-                     .bCubeCompatible = true};
+                     .bCubeCompatible = true,
+                     .DebugName = {}};
     CHECK_NOTHROW(ValidateTextureDesc(desc));
     SECTION("cube array")
     {
@@ -200,7 +203,8 @@ TEST_CASE("BC copy regions respect block boundaries and logical mip edges", "[rh
                          .Extent = {12u, 12u, 1u},
                          .MipLevels = 4u,
                          .ArrayLayers = 6u,
-                         .bCubeCompatible = true};
+                         .bCubeCompatible = true,
+                         .DebugName = {}};
         CHECK(TextureStagingAlignment(format) == blockBytes);
         CHECK(ValidateTextureCopy(desc,
                                   {.BufferOffset = 3u * blockBytes,
@@ -236,7 +240,8 @@ TEST_CASE("BC upload validation requires exact blocks and complete face coverage
                            .MipLevels = 3u,
                            .ArrayLayers = 6u,
                            .Usage = TextureUsage::Sampled | TextureUsage::CopyDst,
-                           .bCubeCompatible = true};
+                           .bCubeCompatible = true,
+                           .DebugName = {}};
     const std::array<std::byte, 48u> blocks{};
     std::array uploads{
         TextureUpload{.Data = blocks, .MipLevel = 2u, .LayerCount = 6u, .Extent = {1u, 1u, 1u}},
