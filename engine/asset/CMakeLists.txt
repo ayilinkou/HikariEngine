@@ -6,7 +6,7 @@ engine_module(Asset SOURCES src/ImageReader.cpp src/ImageWriter.cpp
               src/TextureCookPaths.cpp src/CookFileUtil.cpp src/TextureCooker.cpp
               src/TextureSettingsTemplate.cpp
               src/CookHash.cpp src/CookLock.cpp src/CookRecord.cpp src/CookPublication.cpp
-              src/DdsReader.cpp src/DdsKtxWriter.cpp src/KtxReader.cpp
+              src/DdsReader.cpp src/DdsKtxWriter.cpp src/KtxReader.cpp src/TextureSource.cpp
               src/CookProcess.cpp src/CookKtxMetadata.cpp src/TexturePixelFilter.cpp
               src/PixelTextureEncoder.cpp src/TextureBlockCodec.cpp src/TextureCookBatch.cpp
               LINK_LIBRARIES Engine::Core)

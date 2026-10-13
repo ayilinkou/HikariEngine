@@ -5,8 +5,10 @@
 using namespace Hikari;
 
 Texture::Texture(Rhi::IDevice& device, const Rhi::TextureDesc& desc,
-                 Rhi::TextureViewDimension viewDimension, std::string path)
-    : m_Image(device, device.CreateTexture(desc)), m_Path(std::move(path))
+                 Rhi::TextureViewDimension viewDimension, std::string path,
+                 Asset::TextureMetadata metadata, std::string settingsPath)
+    : m_Image(device, device.CreateTexture(desc)), m_Path(std::move(path)),
+      m_Metadata(std::move(metadata)), m_SettingsPath(std::move(settingsPath))
 {
     m_View = Rhi::UniqueHandle<Rhi::TextureViewHandle>(
         device,
@@ -31,6 +33,8 @@ Texture& Texture::operator=(Texture&& other) noexcept
         m_Image = std::move(other.m_Image);
         m_View = std::move(other.m_View);
         m_Path = std::move(other.m_Path);
+        m_Metadata = std::move(other.m_Metadata);
+        m_SettingsPath = std::move(other.m_SettingsPath);
     }
     return *this;
 }

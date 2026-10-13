@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC14 implemented. TC15 is next.** Runs after the
+**Stage 7.8 — TC1–TC15 implemented. TC16 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -656,7 +656,29 @@ neutral RHI and compile to SPIR-V and DXIL. Existing runtime source loading rema
   active.
 - **Size:** M · **Needs:** TC5, TC13; TC-D8, TC-D10.
 
-### TC15. Synchronous source acquisition and existing-content migration — NEXT
+### TC15. Synchronous source acquisition and existing-content migration
+
+Implemented. `Asset::TextureSource` resolves source requests beneath the content root
+and direct KTX2 requests beneath the cooked root. Source acquisition synchronously invokes
+the shared Release cooker, retaining its fingerprint/output-hash checks, saved settings,
+locking and safe publication. Direct cooked acquisition requires no source file, cook
+record or cooker. `--cooked-root` is shared by the editor and headless application; its
+default is the resolved content root's sibling `cooked/`.
+
+The registry caches by resolved asset identity, independently of a material slot's
+expected usage. A live cached resource avoids recooking and reuploading. Usage conflicts
+name the asset, settings and expected usage, advise recooking, and continue with the saved
+metadata; an explicit BC7 normal remains valid. Failed source cooks or invalid cooked
+assets produce cached magenta fallbacks, with a six-face cubemap fallback. Failed requests
+are retried on later acquisition and never load a known-stale output silently.
+
+Every shipped model texture has an authored sidecar with colour, normal or packed usage;
+the normal and packed maps resolve to linear storage. Skybox acquisition requests the
+existing descriptor, retaining right/left/top/bottom/back/front as +X/-X/+Y/-Y/+Z/-Z.
+All supplied mips/faces are uploaded together and metadata is retained on loaded textures.
+Procedural pixel creation remains available. Normal shader decoding and sampler LOD
+integration remain TC16; runtime quality selection remains TC17's user review checkpoint,
+with acquisition currently using the Release CLI's default quality.
 
 - **Do:** Integrate shared incremental cooking into asset acquisition, plus direct KTX2
   loading. Warn on material/metadata usage conflicts while loading with saved settings;
@@ -668,7 +690,7 @@ neutral RHI and compile to SPIR-V and DXIL. Existing runtime source loading rema
   usage.
 - **Size:** M–L · **Needs:** TC10, TC11, TC14; TC-D9, TC-D12.
 
-### TC16. Mip sampling and normal shader integration
+### TC16. Mip sampling and normal shader integration — NEXT
 
 - **Do:** Expose full mip chains through texture views and samplers; select correct normal
   decoding in both surface shaders, preserving explicitly overridden normal formats. Audit

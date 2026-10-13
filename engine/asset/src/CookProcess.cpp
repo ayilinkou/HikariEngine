@@ -53,7 +53,7 @@ std::wstring QuoteArgument(const std::wstring& value)
 
 bool RunCookProcess(const std::filesystem::path& executable,
                     const std::vector<std::string>& arguments, const std::filesystem::path& log,
-                    std::string& error)
+                    std::string& error, bool bCheckHpcFallback)
 {
     error.clear();
     std::error_code ec;
@@ -181,7 +181,7 @@ bool RunCookProcess(const std::filesystem::path& executable,
     {
         file.read(buffer.data(), buffer.size());
         diagnostic.append(buffer.data(), static_cast<size_t>(file.gcount()));
-        fallback |= diagnostic.find("CPU will be used") != std::string::npos;
+        fallback |= bCheckHpcFallback && diagnostic.find("CPU will be used") != std::string::npos;
         if (diagnostic.size() > 32768)
             diagnostic.erase(0, diagnostic.size() - 32768);
     }

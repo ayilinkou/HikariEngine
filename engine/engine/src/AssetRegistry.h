@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -12,6 +13,7 @@
 #include <platform/Paths.h>
 
 #include <asset/AssetCache.h>
+#include <asset/TextureSource.h>
 
 #include <core/Log.h>
 
@@ -45,7 +47,9 @@ public:
      * builds them belongs to the engine, not to this registry.
      */
     AssetRegistry(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::IUploadContext& uploadContext,
-                  const Hikari::Platform::Paths& paths, MaterialFactory& materialFactory);
+                  const Hikari::Platform::Paths& paths, MaterialFactory& materialFactory,
+                  std::filesystem::path cookedRoot = {},
+                  std::filesystem::path cookerExecutable = {});
     ~AssetRegistry();
 
     AssetRegistry(const AssetRegistry&) = delete;
@@ -56,9 +60,11 @@ public:
     /** Drops the entries whose resources have expired, and logs how many went. */
     void PurgeCaches();
 
-    std::shared_ptr<Texture> LoadTexture(const std::string& filepath,
-                                         const Hikari::Rhi::Format format);
-    std::shared_ptr<Cubemap> LoadCubemap(const CubemapCreateInfo& createInfo);
+    std::shared_ptr<Texture>
+    LoadTexture(const std::string& filepath,
+                Hikari::Asset::TextureUsage expectedUsage = Hikari::Asset::TextureUsage::Color);
+    std::shared_ptr<Cubemap> LoadCubemap(const std::string& filepath,
+                                         const std::string& name = "Cubemap");
     std::shared_ptr<ModelData> LoadModel(const std::string& modelPath);
 
 private:
@@ -125,6 +131,7 @@ private:
      * Owned rather than static: a loader has no state a second registry should
      * share, and its dependencies are this registry's own.
      */
+    Hikari::Asset::TextureSource m_TextureSource;
     TextureLoader m_TextureLoader;
     CubemapLoader m_CubemapLoader;
     ModelLoader m_ModelLoader;

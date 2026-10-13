@@ -11,7 +11,7 @@ namespace Hikari::Asset
 // Output goes to a transaction-local file so child pipe buffers cannot deadlock.
 bool RunCookProcess(const std::filesystem::path& executable,
                     const std::vector<std::string>& arguments, const std::filesystem::path& log,
-                    std::string& error);
+                    std::string& error, bool bCheckHpcFallback = true);
 std::string CookPathUtf8(const std::filesystem::path& path);
 
 } // namespace Hikari::Asset

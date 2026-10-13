@@ -55,6 +55,8 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
         spec.ScenePath = option.RequireValue();
     else if (flag == "--content")
         spec.ContentRoot = option.RequireValue();
+    else if (flag == "--cooked-root")
+        spec.CookedRoot = option.RequireValue();
     else if (flag == "--frames")
         spec.Frames = option.RequireUint64();
     else if (flag == "--fixed-dt")
@@ -227,6 +229,8 @@ void RejectContradictoryOptions(const RunSpec& spec)
 
 void PrintEngineUsage()
 {
+    std::cout
+        << "  --cooked-root <dir>     Use <dir> for cooked textures (default: content sibling)\n";
     std::cout << "  --scene <path>          Load a scene (.map) on startup\n"
                  "  --content <dir>         Use <dir> as the content root\n"
                  "  --frames <N>            Exit automatically after N frames "

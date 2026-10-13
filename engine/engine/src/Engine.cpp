@@ -401,27 +401,11 @@ private:
         }
 
         // TODO: read from scene
-        CubemapCreateInfo createInfo{};
-        createInfo.Name = "Skybox";
-        createInfo.Format = Rhi::Format::RGBA8Srgb;
-
-        const auto skyboxFace = [this](std::string_view face)
-        { return m_Paths.Content("textures/skybox/" + std::string(face)).string(); };
-
-        createInfo.RightPath = skyboxFace("right.jpg");
-        createInfo.LeftPath = skyboxFace("left.jpg");
-        createInfo.TopPath = skyboxFace("top.jpg");
-        createInfo.BottomPath = skyboxFace("bottom.jpg");
-        createInfo.FrontPath = skyboxFace("front.jpg");
-        createInfo.BackPath = skyboxFace("back.jpg");
-
-        // Logged and skipped rather than fatal, which is what the error convention
-        // asks of asset loading: nothing renders the skybox yet, so a content
-        // root without one is a scene that looks unfinished rather than a run
-        // that cannot start.
+        // One authored asset retains the existing face assignment. Acquisition
+        // supplies a fallback cube if this content root has no skybox.
         try
         {
-            m_Skybox = m_Assets->LoadCubemap(createInfo);
+            m_Skybox = m_Assets->LoadCubemap("textures/skybox/sky.cubemap.json", "Skybox");
         }
         catch (const std::exception& error)
         {
@@ -514,7 +498,7 @@ private:
         // After the upload context it loads through, and before anything that
         // loads: the registry is what every asset in the run comes from.
         m_Assets = std::make_unique<AssetRegistry>(*m_RhiDevice, *m_UploadContext, m_Paths,
-                                                   *m_MaterialFactory);
+                                                   *m_MaterialFactory, m_Spec.CookedRoot);
 
         CreatePipelines();
         CreateCommandAllocators();

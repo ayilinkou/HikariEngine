@@ -1,5 +1,6 @@
 #pragma once
 
+#include <asset/TextureSource.h>
 #include <memory>
 #include <string>
 
@@ -15,10 +16,10 @@ typedef unsigned char stbi_uc;
 class TextureLoader
 {
 public:
-    TextureLoader(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::IUploadContext& uploadContext);
+    TextureLoader(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::IUploadContext& uploadContext,
+                  const Hikari::Asset::TextureSource& source);
 
-    [[nodiscard]] std::shared_ptr<Texture> Load(const std::string& filepath,
-                                                const Hikari::Rhi::Format format);
+    [[nodiscard]] std::shared_ptr<Texture> Load(const std::string& filepath);
     [[nodiscard]] std::shared_ptr<Texture> LoadFallbackTexture(const Hikari::Rhi::Format format);
     [[nodiscard]] std::shared_ptr<Texture>
     CreateTextureFromPixels(stbi_uc* pixels, const uint32_t width, const uint32_t height,
@@ -28,4 +29,5 @@ public:
 private:
     Hikari::Rhi::IDevice& m_RhiDevice;
     Hikari::Rhi::IUploadContext& m_UploadContext;
+    const Hikari::Asset::TextureSource& m_Source;
 };

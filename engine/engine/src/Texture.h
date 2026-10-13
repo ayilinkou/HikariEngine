@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string>
 
+#include <asset/TextureMetadata.h>
+
 #include <rhi/Handles.h>
 #include <rhi/IDevice.h>
 #include <rhi/TextureDesc.h>
@@ -41,7 +43,8 @@ public:
      * what makes a depth texture get a depth view without the caller saying so.
      */
     Texture(Hikari::Rhi::IDevice& device, const Hikari::Rhi::TextureDesc& desc,
-            Hikari::Rhi::TextureViewDimension viewDimension, std::string path = {});
+            Hikari::Rhi::TextureViewDimension viewDimension, std::string path = {},
+            Hikari::Asset::TextureMetadata metadata = {}, std::string settingsPath = {});
 
     /**
      * Move-only, and the move assignment is written out rather than defaulted:
@@ -58,6 +61,8 @@ public:
     Hikari::Rhi::TextureViewHandle GetView() const { return m_View.Get(); }
 
     const std::string& GetPath() const { return m_Path; }
+    const Hikari::Asset::TextureMetadata& GetMetadata() const { return m_Metadata; }
+    const std::string& GetSettingsPath() const { return m_SettingsPath; }
 
 private:
     /**
@@ -74,4 +79,6 @@ private:
     Hikari::Rhi::UniqueHandle<Hikari::Rhi::TextureViewHandle> m_View;
 
     std::string m_Path;
+    Hikari::Asset::TextureMetadata m_Metadata;
+    std::string m_SettingsPath;
 };

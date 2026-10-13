@@ -2,11 +2,6 @@
 
 #include <span>
 
-// Declarations only. stb_image's implementation lives in the Asset module,
-// beside the PNG encoder, because its functions are extern and a second
-// definition in the program is a link error.
-#include "stb_image.h"
-
 #include <core/Log.h>
 
 using namespace Hikari;
@@ -14,30 +9,51 @@ using namespace Hikari::Core;
 
 constexpr LogCategory LogTextureLoader("Texture Loader");
 
-TextureLoader::TextureLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext)
-    : m_RhiDevice(rhiDevice), m_UploadContext(uploadContext)
+TextureLoader::TextureLoader(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext,
+                             const Asset::TextureSource& source)
+    : m_RhiDevice(rhiDevice), m_UploadContext(uploadContext), m_Source(source)
 {
 }
 
-std::shared_ptr<Texture> TextureLoader::Load(const std::string& path, const Rhi::Format format)
+std::shared_ptr<Texture> TextureLoader::Load(const std::string& path)
 {
     LogMsg(LogSeverity::Info, LogTextureLoader, "Loading texture: {}", path.c_str());
 
-    int width, height, channels;
-    stbi_uc* pixels = stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
-
-    if (!pixels)
+    try
     {
-        LogMsg(LogSeverity::Error, LogTextureLoader, "Failed to load texture: {}", path.c_str());
+        std::string error;
+        std::vector<std::string> warnings;
+        const auto data = m_Source.Read(path, error, warnings);
+        for (const auto& warning : warnings)
+            LogMsg(LogSeverity::Warning, LogTextureLoader, "{}", warning);
+        if (!data)
+            throw std::runtime_error(error);
+        if (data->Faces != 1)
+            throw std::runtime_error("A 2D texture request cannot load a cubemap");
+        auto texture = std::make_shared<Texture>(
+            m_RhiDevice,
+            Rhi::TextureDesc{.Format = data->Format,
+                             .Extent = {data->Extent.Width, data->Extent.Height, 1u},
+                             .MipLevels = data->MipLevels,
+                             .Usage = Rhi::TextureUsage::Sampled | Rhi::TextureUsage::CopyDst,
+                             .DebugName = path},
+            Rhi::TextureViewDimension::Texture2D, path, data->Metadata,
+            m_Source.SettingsPath(path).string());
+        std::vector<Rhi::TextureUpload> uploads;
+        for (const auto& resource : data->Subresources)
+            uploads.push_back(
+                {.Data = std::span(data->Data).subspan(resource.Offset, resource.Size),
+                 .MipLevel = resource.MipLevel,
+                 .BaseLayer = resource.Face,
+                 .Extent = resource.Extent});
+        m_UploadContext.UploadTexture(texture->GetHandle(), uploads);
+        return texture;
+    }
+    catch (const std::exception& error)
+    {
+        LogMsg(LogSeverity::Error, LogTextureLoader, "{}: {}", path, error.what());
         return nullptr;
     }
-
-    const uint64_t imageSize = static_cast<uint64_t>(width) * height * 4u;
-    std::shared_ptr<Texture> texture =
-        CreateTextureFromPixels(pixels, static_cast<uint32_t>(width), static_cast<uint32_t>(height),
-                                format, imageSize, path);
-    stbi_image_free(pixels);
-    return texture;
 }
 
 std::shared_ptr<Texture>

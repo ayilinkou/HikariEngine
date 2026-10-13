@@ -38,12 +38,16 @@ public:
     Cubemap() = default;
     Cubemap(Hikari::Rhi::IDevice& device, const CubemapCreateInfo& createInfo,
             Hikari::Core::Extent2D faceExtent);
+    Cubemap(Hikari::Rhi::IDevice& device, const CubemapCreateInfo& createInfo,
+            const Hikari::Rhi::TextureDesc& desc, std::string path,
+            Hikari::Asset::TextureMetadata metadata = {});
 
     Hikari::Rhi::TextureHandle GetHandle() const { return m_Texture.GetHandle(); }
     Hikari::Rhi::TextureViewHandle GetView() const { return m_Texture.GetView(); }
 
     const std::string& GetName() const { return m_CreateInfo.Name; }
     const CubemapCreateInfo& GetCreateInfo() const { return m_CreateInfo; }
+    const Hikari::Asset::TextureMetadata& GetMetadata() const { return m_Texture.GetMetadata(); }
 
     static constexpr uint32_t kFaceCount = 6u;
 

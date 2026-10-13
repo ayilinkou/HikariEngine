@@ -40,6 +40,9 @@ add_custom_target(HikariTextureCooker ALL
   USES_TERMINAL
   VERBATIM)
 
+target_compile_definitions(Engine PRIVATE HIKARI_RUNTIME_COOKER_PATH="${HIKARI_TEXTURE_COOKER_EXECUTABLE}")
+add_dependencies(Engine HikariTextureCooker)
+
 set(HIKARI_TEXTURE_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/content" CACHE PATH
     "Source root for the explicit cook-textures target")
 set(HIKARI_TEXTURE_COOKED_ROOT "" CACHE PATH

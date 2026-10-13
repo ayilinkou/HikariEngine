@@ -46,7 +46,8 @@ engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
   LIBS Engine::Platform)
 
 engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
-  unit/asset/ImageReaderTests.cpp unit/asset/TextureSettingsTests.cpp
+  unit/asset/ImageReaderTests.cpp unit/asset/TextureSettingsTests.cpp unit/asset/TextureSourceTests.cpp
+  unit/asset/ShippedTextureSettingsTests.cpp
   unit/asset/TextureCookerTests.cpp unit/asset/TextureCookIncrementalTests.cpp
   unit/asset/TextureSettingsTemplateTests.cpp
   unit/asset/DdsCookingTests.cpp unit/asset/DdsCompletionTests.cpp unit/asset/KtxReaderTests.cpp
@@ -58,6 +59,9 @@ target_compile_definitions(asset_tests PRIVATE
   HIKARI_TEXTURE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/textures/"
   HIKARI_TEXTURE_COOK_WORKER="$<TARGET_FILE:texture_cook_worker>"
   HIKARI_COOK_PROCESS_FIXTURE="$<TARGET_FILE:cook_process_fixture>")
+target_compile_definitions(asset_tests PRIVATE HIKARI_RELEASE_COOKER="${HIKARI_TEXTURE_COOKER_EXECUTABLE}")
+target_compile_definitions(asset_tests PRIVATE HIKARI_SHIPPED_CONTENT="${CMAKE_SOURCE_DIR}/content")
+add_dependencies(asset_tests HikariTextureCooker)
 
 add_executable(cook_process_fixture tools/texture/CookProcessFixture.cpp)
 engine_set_warnings(cook_process_fixture)
@@ -161,6 +165,7 @@ engine_test(
           gpu/rhi/CompressedTextureTests.cpp
           gpu/rhi/CompressedTransferTests.cpp
           gpu/rhi/KtxTextureTests.cpp
+          gpu/rhi/TextureAcquisitionTests.cpp
           gpu/rhi/UploadRoundTripTests.cpp
           gpu/rhi/ValidationCoverageTests.cpp
           support/RhiDeviceListener.cpp
@@ -186,6 +191,7 @@ target_link_libraries(rhi_gpu_tests PRIVATE KTX::ktx)
 target_include_directories(rhi_gpu_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/engine/src)
 add_dependencies(rhi_gpu_tests CompileShadersTarget)
 target_compile_definitions(rhi_gpu_tests PRIVATE HIKARI_SHADER_DIR="${HIKARI_EXE_DIR}/shaders")
+target_compile_definitions(rhi_gpu_tests PRIVATE HIKARI_RELEASE_COOKER="${HIKARI_TEXTURE_COOKER_EXECUTABLE}")
 
 add_slang_shader_target(KtxSamplingShaders
   SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/shaders"

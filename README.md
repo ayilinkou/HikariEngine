@@ -60,6 +60,7 @@ Both the editor and headless binaries take the same options, except where the wi
 |---|---|
 | `--scene <path>` | scene to load; without the flag, no scene is loaded |
 | `--content <dir>` | content root |
+| `--cooked-root <dir>` | cooked texture root (default: sibling of the content root) |
 | `--frames <N>` | exit after N frames (0 = run until closed) |
 | `--fixed-dt` | a fixed 1/60 s timestep instead of wall-clock time |
 | `--camera-preset <N>` | start the camera at preset 0–2 instead of free-look |

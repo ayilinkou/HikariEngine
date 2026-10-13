@@ -39,7 +39,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParen
         mat->GetTexture(aiTextureType::aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_Albedo = assets.LoadTexture(path, Rhi::Format::RGBA8Srgb);
+        m_Albedo = assets.LoadTexture(path, Asset::TextureUsage::Color);
         m_MatData.bHasAlbedoTex = (m_Albedo != nullptr);
     }
     else if (mat->Get(AI_MATKEY_BASE_COLOR, baseColor) == AI_SUCCESS)
@@ -54,7 +54,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParen
     if (mat->GetTexture(aiTextureType::aiTextureType_NORMALS, 0, &texturePath) == AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_Normal = assets.LoadTexture(path, Rhi::Format::RGBA8Unorm);
+        m_Normal = assets.LoadTexture(path, Asset::TextureUsage::Normal);
         m_MatData.bHasNormalTex = (m_Normal != nullptr);
     }
 
@@ -62,7 +62,7 @@ void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParen
         AI_SUCCESS)
     {
         std::string path = texturesParentFolder + texturePath.C_Str();
-        m_MetallicRoughness = assets.LoadTexture(path, Rhi::Format::RGBA8Unorm);
+        m_MetallicRoughness = assets.LoadTexture(path, Asset::TextureUsage::Packed);
         m_MatData.bHasMetallicRoughnessTex = (m_MetallicRoughness != nullptr);
     }
 

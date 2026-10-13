@@ -35,6 +35,9 @@ struct RunSpec
     /** --content; empty resolves the content root the usual way. Read by the app. */
     std::string ContentRoot;
 
+    /** --cooked-root; empty selects the resolved content root's sibling cooked/. */
+    std::string CookedRoot;
+
     /**
      * The input script replayed during this run, as given on the command line,
      * or empty for none. Read by the app, which loads it and hands it to the
