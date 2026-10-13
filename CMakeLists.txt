@@ -58,12 +58,20 @@ if(ENABLE_SANITIZERS)
   endif()
 endif()
 
-find_program(CCACHE_PROGRAM ccache)
-if(CCACHE_PROGRAM)
-  set(CMAKE_C_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
-  set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
-  message(STATUS "ccache found, enabling compiler cache: ${CCACHE_PROGRAM}")
+# Keep explicitly configured launchers (including an empty value to disable
+# caching). CI selects sccache on Windows and ccache on Linux.
+if(NOT DEFINED CMAKE_C_COMPILER_LAUNCHER OR
+   NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
+  find_program(CCACHE_PROGRAM ccache)
+  if(CCACHE_PROGRAM)
+    foreach(language C CXX)
+      if(NOT DEFINED CMAKE_${language}_COMPILER_LAUNCHER)
+        set(CMAKE_${language}_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+      endif()
+    endforeach()
+  endif()
 endif()
+message(STATUS "C++ compiler launcher: ${CMAKE_CXX_COMPILER_LAUNCHER}")
 
 find_package(Vulkan REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
