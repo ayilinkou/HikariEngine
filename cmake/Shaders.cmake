@@ -48,7 +48,7 @@ endif()
 # like a content root — an incomplete one, with no models, scenes or textures —
 # and asset loading would resolve to it and fail.
 function(add_slang_shader_target target)
-  cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
+  cmake_parse_arguments("SHADER" "" "SOURCE_DIRECTORY;OUTPUT_DIRECTORY" "SOURCES" ${ARGN})
 
   # Emitted on every platform, not only on Windows (plan D27). Slang and DXC both
   # come from vcpkg as host dependencies, so a Linux build compiles the DXIL a
@@ -86,8 +86,16 @@ function(add_slang_shader_target target)
       -fvk-s-shift 0 all
       -fvk-u-shift 0 all)
 
-  set(shaders_source_dir ${CMAKE_SOURCE_DIR}/engine/engine/src/shaders)
-  set(shaders_out_dir ${HIKARI_EXE_DIR}/shaders)
+  if(SHADER_SOURCE_DIRECTORY)
+    set(shaders_source_dir ${SHADER_SOURCE_DIRECTORY})
+  else()
+    set(shaders_source_dir ${CMAKE_SOURCE_DIR}/engine/engine/src/shaders)
+  endif()
+  if(SHADER_OUTPUT_DIRECTORY)
+    set(shaders_out_dir ${SHADER_OUTPUT_DIRECTORY})
+  else()
+    set(shaders_out_dir ${HIKARI_EXE_DIR}/shaders)
+  endif()
 
   set(spv_outputs "")
   foreach(shader ${SHADER_SOURCES})

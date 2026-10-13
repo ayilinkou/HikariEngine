@@ -6,11 +6,16 @@ engine_module(Asset SOURCES src/ImageReader.cpp src/ImageWriter.cpp
               src/TextureCookPaths.cpp src/CookFileUtil.cpp src/TextureCooker.cpp
               src/TextureSettingsTemplate.cpp
               src/CookHash.cpp src/CookLock.cpp src/CookRecord.cpp src/CookPublication.cpp
-              src/DdsReader.cpp src/DdsKtxWriter.cpp
+              src/DdsReader.cpp src/DdsKtxWriter.cpp src/KtxReader.cpp
               src/CookProcess.cpp src/CookKtxMetadata.cpp src/TexturePixelFilter.cpp
               src/PixelTextureEncoder.cpp src/TextureBlockCodec.cpp src/TextureCookBatch.cpp
               LINK_LIBRARIES Engine::Core)
 target_link_libraries(Asset PRIVATE nlohmann_json::nlohmann_json KTX::ktx)
+
+# Only the neutral, header-only format/footprint vocabulary is used by the CPU
+# reader. The standalone release cooker also builds Asset and needs no backend.
+target_include_directories(Asset PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../rhi/include>)
 
 # stb has no CMake package version; identify the actual decoder/PNG writer
 # headers instead of guessing their version or relying on timestamps.

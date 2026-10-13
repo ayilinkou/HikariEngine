@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC13 implemented. TC14 is next.** Runs after the
+**Stage 7.8 — TC1–TC14 implemented. TC15 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -627,7 +627,25 @@ multiples of four; Vulkan also accepts odd and sub-block base extents.
   errors.
 - **Size:** M–L · **Needs:** TC12.
 
-### TC14. libktx decoding into neutral texture data — NEXT
+### TC14. libktx decoding into neutral texture data
+
+Implemented. `Asset::ReadKtxTexture` reads native BC KTX2 into owned `TextureData`,
+mapping storage to neutral RHI formats and enumerating every mip/face in DDS/KTX face
+order. Payloads remain tightly packed and byte-identical after the libktx object and
+source file are gone. Direct cooked loading needs neither source assets nor cook records.
+
+The reader checks header/section ranges, exact level footprints and physical mip order,
+then validates the data format descriptor against libktx's native format description.
+Unknown/transcoded formats, supercompression, arrays, volumes, implicit mip generation,
+non-`rd` orientation and component remapping are explicit failures with file diagnostics.
+BC1 requires the RGBA interpretation the RHI exposes; RGB KTX2 is rejected rather than
+changing the meaning of three-colour blocks. No dimensions or blocks are changed.
+
+Usage, normal encoding (including signed XY and retained DDS swizzles), alpha policy,
+mask cutoff, DDS alpha representation, premultiplication and colour primaries are retained.
+Absent authored semantics remain unknown; malformed or contradictory metadata fails.
+Test shaders sample known 2D mip/quadrant colours and cubemap face/mip colours through the
+neutral RHI and compile to SPIR-V and DXIL. Existing runtime source loading remains active.
 
 - **Do:** Read/validate supported KTX2 metadata and payloads in the asset layer, map to
   neutral formats and enumerate subresources. Reject unsupported
@@ -638,7 +656,7 @@ multiples of four; Vulkan also accepts odd and sub-block base extents.
   active.
 - **Size:** M · **Needs:** TC5, TC13; TC-D8, TC-D10.
 
-### TC15. Synchronous source acquisition and existing-content migration
+### TC15. Synchronous source acquisition and existing-content migration — NEXT
 
 - **Do:** Integrate shared incremental cooking into asset acquisition, plus direct KTX2
   loading. Warn on material/metadata usage conflicts while loading with saved settings;

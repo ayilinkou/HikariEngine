@@ -49,7 +49,7 @@ engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
   unit/asset/ImageReaderTests.cpp unit/asset/TextureSettingsTests.cpp
   unit/asset/TextureCookerTests.cpp unit/asset/TextureCookIncrementalTests.cpp
   unit/asset/TextureSettingsTemplateTests.cpp
-  unit/asset/DdsCookingTests.cpp unit/asset/DdsCompletionTests.cpp
+  unit/asset/DdsCookingTests.cpp unit/asset/DdsCompletionTests.cpp unit/asset/KtxReaderTests.cpp
   unit/asset/PixelCookingTests.cpp unit/asset/MaskedCookingTests.cpp unit/asset/TextureCookBatchTests.cpp
   LIBS Engine::Asset KTX::ktx Vulkan::Headers nlohmann_json::nlohmann_json)
 target_include_directories(asset_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
@@ -160,6 +160,7 @@ engine_test(
           gpu/rhi/RenderingScopeTests.cpp gpu/rhi/ResourceTests.cpp
           gpu/rhi/CompressedTextureTests.cpp
           gpu/rhi/CompressedTransferTests.cpp
+          gpu/rhi/KtxTextureTests.cpp
           gpu/rhi/UploadRoundTripTests.cpp
           gpu/rhi/ValidationCoverageTests.cpp
           support/RhiDeviceListener.cpp
@@ -181,9 +182,19 @@ hikari_deploy_d3d12(rhi_gpu_tests)
 # reached as engine_tests reaches them; Engine::Engine is linked for the
 # definitions those headers compile under, and nothing here calls into it.
 target_link_libraries(rhi_gpu_tests PRIVATE Engine::Engine)
+target_link_libraries(rhi_gpu_tests PRIVATE KTX::ktx)
 target_include_directories(rhi_gpu_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/engine/src)
 add_dependencies(rhi_gpu_tests CompileShadersTarget)
 target_compile_definitions(rhi_gpu_tests PRIVATE HIKARI_SHADER_DIR="${HIKARI_EXE_DIR}/shaders")
+
+add_slang_shader_target(KtxSamplingShaders
+  SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+  SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/KtxSample.comp.slang"
+          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/KtxSampleCube.comp.slang")
+add_dependencies(rhi_gpu_tests KtxSamplingShaders)
+target_compile_definitions(rhi_gpu_tests PRIVATE
+  HIKARI_KTX_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 
 # The D3D12 backend's own cases, which reach its device through the module's
 # private headers as the Vulkan cases reach theirs through VulkanNative.h.
