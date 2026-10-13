@@ -166,6 +166,7 @@ engine_test(
           gpu/rhi/CompressedTransferTests.cpp
           gpu/rhi/KtxTextureTests.cpp
           gpu/rhi/TextureAcquisitionTests.cpp
+          gpu/rhi/SurfaceTextureTests.cpp
           gpu/rhi/UploadRoundTripTests.cpp
           gpu/rhi/ValidationCoverageTests.cpp
           support/RhiDeviceListener.cpp
@@ -197,7 +198,9 @@ add_slang_shader_target(KtxSamplingShaders
   SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/shaders"
   OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shaders"
   SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/KtxSample.comp.slang"
-          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/KtxSampleCube.comp.slang")
+          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/KtxSampleCube.comp.slang"
+          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/SurfaceSample.slang"
+          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/NormalDecode.comp.slang")
 add_dependencies(rhi_gpu_tests KtxSamplingShaders)
 target_compile_definitions(rhi_gpu_tests PRIVATE
   HIKARI_KTX_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")

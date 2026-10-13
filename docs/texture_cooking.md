@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC15 implemented. TC16 is next.** Runs after the
+**Stage 7.8 — TC1–TC16 implemented. TC17 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -676,8 +676,8 @@ Every shipped model texture has an authored sidecar with colour, normal or packe
 the normal and packed maps resolve to linear storage. Skybox acquisition requests the
 existing descriptor, retaining right/left/top/bottom/back/front as +X/-X/+Y/-Y/+Z/-Z.
 All supplied mips/faces are uploaded together and metadata is retained on loaded textures.
-Procedural pixel creation remains available. Normal shader decoding and sampler LOD
-integration remain TC16; runtime quality selection remains TC17's user review checkpoint,
+Procedural pixel creation remains available. TC16 adds normal shader decoding and sampler
+LOD integration; runtime quality selection remains TC17's user review checkpoint,
 with acquisition currently using the Release CLI's default quality.
 
 - **Do:** Integrate shared incremental cooking into asset acquisition, plus direct KTX2
@@ -690,7 +690,45 @@ with acquisition currently using the Release CLI's default quality.
   usage.
 - **Size:** M–L · **Needs:** TC10, TC11, TC14; TC-D9, TC-D12.
 
-### TC16. Mip sampling and normal shader integration — NEXT
+### TC16. Mip sampling and normal shader integration
+
+Implemented. The surface sampler retains linear filtering and device-maximum anisotropy, with a
+finite maximum LOD large enough to expose each texture view's entire chain. The existing
+2D and six-face cubemap views already cover every supplied mip; base-only procedural and
+fallback textures remain valid. The sampler does not require one instance per chain length.
+See the native sampler range definitions in
+[Vulkan](https://docs.vulkan.org/refpages/latest/refpages/source/VkSamplerCreateInfo.html)
+and [D3D12](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ns-d3d12-d3d12_sampler_desc).
+
+The material push block appends a 32-bit normal encoding identifier, retaining existing
+field offsets. Materials select the saved encoding; metadata-free BC5 uses its native
+UNORM/SNORM channel interpretation. A shared `normal.slangh` decoder is used by both the
+opaque and weighted-blended transparency shaders: UNORM XY is remapped, signed XY is
+sampled directly, A2XY/A2D5 retain their YX/AG swizzles, positive Z is reconstructed and
+the vector is normalized safely. Explicit BC7 and other RGB normal formats retain XYZ
+unpacking. Degenerate/non-finite vectors use the flat tangent normal.
+
+New neutral GPU cases use the production sampler and shared decoder. They cover implicit
+minification, last-mip clamping, base-only textures, linear/sRGB sampling, retained masked
+alpha, all supported normal encodings, overlong XY vectors, degenerate/non-finite normals
+and material encoding selection. SPIR-V and DXIL are both compiled and validated; GPU
+execution was checked on Vulkan locally, with D3D12 execution still awaiting Windows.
+The full Debug precommit passes: 454 unit cases, 50 GPU cases and 13 scene cases, with no
+GPU skips. The approved material-field inventory extension checks the appended field on
+both targets and retains every existing offset/size check. Test shaders live under
+`tests/shaders/` and compile into the test build directory: `NormalDecode.comp.slang`
+calls the shared decoder and writes directions for GPU readback; it is not a renderer
+compute pass. Runtime decoding happens in the two surface fragment shaders.
+
+Expected visual differences: smaller mip levels reduce minification detail/aliasing, and
+BC5 normal maps now light surfaces using reconstructed positive Z. The 1920x1080 editor
+baseline run matches the committed report and differs at 20,473 pixels (0.9873%), with
+maximum channel delta 137; it reports zero validation errors/warnings. The fixed headless
+capture agrees with that image comparison. Committed baseline files remain unchanged.
+Material alpha mode/cutoff integration remains the documented follow-up: this step checks
+retained mask sampling without claiming alpha-coverage preservation or changing the
+opaque shader's existing `0.01` discard threshold. Cubemap loading remains one ordinary
+six-face cube; rendering the skybox is outside this step.
 
 - **Do:** Expose full mip chains through texture views and samplers; select correct normal
   decoding in both surface shaders, preserving explicitly overridden normal formats. Audit
@@ -701,7 +739,7 @@ with acquisition currently using the Release CLI's default quality.
   constraint.
 - **Size:** M · **Needs:** TC7, TC15; TC-D10.
 
-### TC17. Numeric encoding quality and incremental upgrades
+### TC17. Numeric encoding quality and incremental upgrades — NEXT
 
 CLI/CMake quality, incremental upgrades and the shared Release cooker are implemented;
 runtime quality selection remains part of this step.

@@ -1,0 +1,33 @@
+#pragma once
+
+#include "ShaderTypes.h"
+
+// TC-D10: decode the stored channels before applying the tangent basis. Signed
+// BC5 already samples in [-1, 1]; retained A2XY/A2D5 DDS blocks need their
+// original channel order. Explicit RGB normal formats keep all three channels.
+float3 DecodeTangentNormal(float4 packed, uint32_t encoding)
+{
+    float3 normal;
+    if (encoding == NormalEncodingXyzUnorm)
+    {
+        normal = packed.xyz * 2.f - float3(1.f);
+    }
+    else
+    {
+        float2 xy;
+        if (encoding == NormalEncodingXySnormPositiveZ)
+            xy = packed.xy;
+        else if (encoding == NormalEncodingYxUnormPositiveZ)
+            xy = packed.yx * 2.f - float2(1.f);
+        else if (encoding == NormalEncodingAgUnormPositiveZ)
+            xy = packed.ag * 2.f - float2(1.f);
+        else
+            xy = packed.xy * 2.f - float2(1.f);
+        normal = float3(xy, sqrt(max(0.f, 1.f - dot(xy, xy))));
+    }
+
+    float lengthSquared = dot(normal, normal);
+    if (!isfinite(lengthSquared) || lengthSquared <= 1e-12f)
+        return float3(0.f, 0.f, 1.f);
+    return normal * rsqrt(lengthSquared);
+}

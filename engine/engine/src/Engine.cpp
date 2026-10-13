@@ -28,6 +28,7 @@
 #include "ModelManager.h"
 #include "PBRMaterial.h"
 #include "Texture.h"
+#include "TextureSampling.h"
 #include "Vertex.h"
 #include "XmlParser.h"
 #include "shaders/ShaderTypes.h"
@@ -1813,8 +1814,7 @@ private:
         // MaxAnisotropy left at 0 asks for the device maximum, which is what this
         // used to read off the physical device's limits itself.
         m_TextureSampler = Rhi::UniqueHandle<Rhi::SamplerHandle>(
-            *m_RhiDevice, m_RhiDevice->CreateSampler(Rhi::SamplerDesc{
-                              .bAnisotropyEnable = true, .DebugName = "Texture Sampler"}));
+            *m_RhiDevice, m_RhiDevice->CreateSampler(SurfaceSamplerDesc()));
     }
 
     void CreateDepthResources()

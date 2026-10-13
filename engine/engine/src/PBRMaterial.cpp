@@ -8,6 +8,7 @@
 #include "AssetRegistry.h"
 
 #include "BindGroupLayouts.h"
+#include "TextureSampling.h"
 
 using namespace Hikari;
 
@@ -16,12 +17,12 @@ PBRMaterial::PBRMaterial(Rhi::IDevice& rhiDevice, Rhi::BindGroupLayoutHandle mat
                          const std::string& texturesParentFolder, AssetRegistry& assets)
     : Material(mat)
 {
-    LoadTextures(mat, texturesParentFolder, assets);
+    LoadTextures(rhiDevice, mat, texturesParentFolder, assets);
     CreateBindGroup(rhiDevice, materialLayout, sampler);
 }
 
-void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParentFolder,
-                               AssetRegistry& assets)
+void PBRMaterial::LoadTextures(Rhi::IDevice& rhiDevice, aiMaterial* mat,
+                               const std::string& texturesParentFolder, AssetRegistry& assets)
 {
     aiString texturePath;
 
@@ -56,6 +57,9 @@ void PBRMaterial::LoadTextures(aiMaterial* mat, const std::string& texturesParen
         std::string path = texturesParentFolder + texturePath.C_Str();
         m_Normal = assets.LoadTexture(path, Asset::TextureUsage::Normal);
         m_MatData.bHasNormalTex = (m_Normal != nullptr);
+        if (m_Normal)
+            m_MatData.NormalEncoding = Engine::NormalShaderEncoding(
+                m_Normal->GetMetadata(), rhiDevice.GetTextureDesc(m_Normal->GetHandle())->Format);
     }
 
     if (mat->GetTexture(aiTextureType::aiTextureType_GLTF_METALLIC_ROUGHNESS, 0, &texturePath) ==

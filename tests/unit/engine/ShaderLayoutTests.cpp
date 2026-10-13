@@ -207,7 +207,8 @@ TEST_CASE("The shared constant blocks agree with C++ on every target", "[shaders
                            EXPECT_FIELD(MaterialPushConstant, bHasAlbedoTex),
                            EXPECT_FIELD(MaterialPushConstant, bHasNormalTex),
                            EXPECT_FIELD(MaterialPushConstant, bHasMetallicRoughnessTex),
-                           EXPECT_FIELD(MaterialPushConstant, bTwoSided)});
+                           EXPECT_FIELD(MaterialPushConstant, bTwoSided),
+                           EXPECT_FIELD(MaterialPushConstant, NormalEncoding)});
     }
 
     SECTION("CloudPushConstants")
