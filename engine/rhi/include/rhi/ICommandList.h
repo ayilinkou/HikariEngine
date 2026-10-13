@@ -29,13 +29,13 @@ struct BufferCopyRegion
  * means adding an Offset3D to the neutral vocabulary for a case that does not
  * exist, and the field would be dead weight every caller had to read past.
  *
- * The buffer side is tightly packed — rows are Extent.Width texels apart and
- * layers Extent.Width * Extent.Height. Vulkan spells that as bufferRowLength
- * and bufferImageHeight of zero; D3D12 requires row pitch to be aligned, which
- * is the backend's problem rather than the caller's.
+ * The buffer side is tightly packed in texel blocks, including whole blocks at
+ * odd edges and tiny mips. ComputeTextureFootprint gives the row/layer sizes.
+ * BufferOffset must be a multiple of BytesPerBlock; a copy-only queue may also
+ * require four-byte alignment. Extent must cover whole blocks or reach the mip
+ * edge. Backend staging pitches do not change this packed buffer layout.
  *
- * Compressed and combined depth/stencil buffer copies are currently rejected.
- * ComputeTextureFootprint can size BC payloads independently of transfer support.
+ * Combined depth/stencil buffer copies are unsupported.
  */
 struct BufferTextureCopyRegion
 {

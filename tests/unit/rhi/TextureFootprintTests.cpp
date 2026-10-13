@@ -135,9 +135,10 @@ TEST_CASE("Texture copy validation rejects unsupported formats and overflowing o
     TextureDesc desc{.Format = Format::RGBA8Unorm, .Extent = {8u, 8u, 1u}};
     BufferTextureCopyRegion region{.Extent = {4u, 4u, 1u}};
     CHECK(ValidateTextureCopy(desc, region, "test").TotalBytes == 64u);
-    SECTION("compressed")
+    SECTION("misaligned compressed block")
     {
         desc.Format = Format::BC1Unorm;
+        region.BufferOffset = 4u;
     }
     SECTION("depth stencil")
     {
@@ -188,4 +189,89 @@ TEST_CASE("BC descriptions enforce the agreed shape scope", "[rhi][format][bc]")
         desc.MipLevels = 5u;
     }
     CHECK_THROWS(ValidateTextureDesc(desc));
+}
+
+TEST_CASE("BC copy regions respect block boundaries and logical mip edges", "[rhi][format][bc]")
+{
+    for (const Format format : {Format::BC1Unorm, Format::BC7Unorm})
+    {
+        const uint32_t blockBytes = BytesPerBlock(format);
+        TextureDesc desc{.Format = format,
+                         .Extent = {12u, 12u, 1u},
+                         .MipLevels = 4u,
+                         .ArrayLayers = 6u,
+                         .bCubeCompatible = true};
+        CHECK(TextureStagingAlignment(format) == blockBytes);
+        CHECK(ValidateTextureCopy(desc,
+                                  {.BufferOffset = 3u * blockBytes,
+                                   .BaseLayer = 2u,
+                                   .LayerCount = 3u,
+                                   .Extent = {8u, 4u, 1u}},
+                                  "test")
+                  .TotalBytes == 6u * blockBytes);
+        CHECK(ValidateTextureCopy(desc, {.MipLevel = 1u, .Extent = {6u, 4u, 1u}}, "test")
+                  .TotalBytes == 2u * blockBytes);
+        CHECK(ValidateTextureCopy(desc, {.MipLevel = 2u, .Extent = {3u, 3u, 1u}}, "test")
+                  .TotalBytes == blockBytes);
+        CHECK(ValidateTextureCopy(desc, {.MipLevel = 3u, .Extent = {1u, 1u, 1u}}, "test")
+                  .TotalBytes == blockBytes);
+        CHECK_THROWS(ValidateTextureCopy(desc, {.Extent = {6u, 4u, 1u}}, "test"));
+        CHECK_THROWS(ValidateTextureCopy(desc, {.Extent = {4u, 6u, 1u}}, "test"));
+        CHECK_THROWS(ValidateTextureCopy(
+            desc, {.BufferOffset = blockBytes / 2u, .Extent = {4u, 4u, 1u}}, "test"));
+        CHECK_THROWS(ValidateTextureCopy(
+            desc,
+            {.BufferOffset = std::numeric_limits<uint64_t>::max() - blockBytes + 1u,
+             .Extent = {8u, 4u, 1u}},
+            "test"));
+        CHECK_THROWS(ValidateTextureCopy(desc, {.Extent = {0u, 4u, 1u}}, "test"));
+    }
+}
+
+TEST_CASE("BC upload validation requires exact blocks and complete face coverage",
+          "[rhi][upload][bc]")
+{
+    const TextureDesc desc{.Format = Format::BC1Unorm,
+                           .Extent = {4u, 4u, 1u},
+                           .MipLevels = 3u,
+                           .ArrayLayers = 6u,
+                           .Usage = TextureUsage::Sampled | TextureUsage::CopyDst,
+                           .bCubeCompatible = true};
+    const std::array<std::byte, 48u> blocks{};
+    std::array uploads{
+        TextureUpload{.Data = blocks, .MipLevel = 2u, .LayerCount = 6u, .Extent = {1u, 1u, 1u}},
+        TextureUpload{.Data = blocks, .MipLevel = 0u, .LayerCount = 6u, .Extent = {4u, 4u, 1u}},
+        TextureUpload{.Data = std::span(blocks).first(16u),
+                      .MipLevel = 1u,
+                      .BaseLayer = 4u,
+                      .LayerCount = 2u,
+                      .Extent = {2u, 2u, 1u}},
+        TextureUpload{.Data = std::span(blocks).first(32u),
+                      .MipLevel = 1u,
+                      .BaseLayer = 0u,
+                      .LayerCount = 4u,
+                      .Extent = {2u, 2u, 1u}}};
+    CHECK(ValidateTextureUploads(desc, uploads) == 144u);
+    SECTION("truncated tiny mip block")
+    {
+        uploads[0].Data = std::span(blocks).first(47u);
+    }
+    SECTION("extra bytes")
+    {
+        uploads[2].Data = blocks;
+    }
+    SECTION("missing face")
+    {
+        uploads[0].LayerCount = 5u;
+        uploads[0].Data = std::span(blocks).first(40u);
+    }
+    SECTION("overlapping face groups")
+    {
+        uploads[2].BaseLayer = 3u;
+    }
+    SECTION("partial mip")
+    {
+        uploads[1].Extent = {2u, 2u, 1u};
+    }
+    CHECK_THROWS(ValidateTextureUploads(desc, uploads));
 }

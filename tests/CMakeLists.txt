@@ -159,6 +159,7 @@ engine_test(
           gpu/rhi/PresentTargetTests.cpp
           gpu/rhi/RenderingScopeTests.cpp gpu/rhi/ResourceTests.cpp
           gpu/rhi/CompressedTextureTests.cpp
+          gpu/rhi/CompressedTransferTests.cpp
           gpu/rhi/UploadRoundTripTests.cpp
           gpu/rhi/ValidationCoverageTests.cpp
           support/RhiDeviceListener.cpp

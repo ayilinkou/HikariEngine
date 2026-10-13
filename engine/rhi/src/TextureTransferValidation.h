@@ -25,9 +25,8 @@ inline TextureFootprint ValidateTextureCopy(const TextureDesc& desc,
     const auto fail = [&](std::string_view why)
     { throw std::runtime_error(std::format("Rhi::{}('{}'): {}", operation, desc.DebugName, why)); };
 
-    if (IsBlockCompressed(desc.Format))
-        fail("compressed texture transfers are not implemented yet.");
-    if (BytesPerTexel(desc.Format) == 0u)
+    const uint32_t blockBytes = BytesPerBlock(desc.Format);
+    if (blockBytes == 0u)
         fail("format has no single packed copy size; combined depth/stencil copies are "
              "unsupported.");
     if (desc.Samples != SampleCount::X1)
@@ -45,22 +44,29 @@ inline TextureFootprint ValidateTextureCopy(const TextureDesc& desc,
     if (region.Extent.Width > mip.Width || region.Extent.Height > mip.Height ||
         region.Extent.Depth > mip.Depth)
         fail("copy extent exceeds the selected mip.");
+    // A partial block may only reach the mip's edge, including the final 1x1 mip:
+    // VUID-vkCmdCopyBufferToImage-dstImage-00207/00208/00209 (and ImageToBuffer).
+    const Core::Extent3D block = GetFormatBlockExtent(desc.Format);
+    if ((region.Extent.Width % block.Width != 0u && region.Extent.Width != mip.Width) ||
+        (region.Extent.Height % block.Height != 0u && region.Extent.Height != mip.Height) ||
+        (region.Extent.Depth % block.Depth != 0u && region.Extent.Depth != mip.Depth))
+        fail("copy extent must cover whole blocks or reach the mip edge.");
     const TextureFootprint footprint =
         ComputeTextureFootprint(desc.Format, region.Extent, region.LayerCount);
-    if (region.BufferOffset % BytesPerTexel(desc.Format) != 0u)
-        fail("buffer offset must be a multiple of the texel size.");
+    if (region.BufferOffset % blockBytes != 0u)
+        fail("buffer offset must be a multiple of the texel block size.");
     if (region.BufferOffset > std::numeric_limits<uint64_t>::max() - footprint.TotalBytes)
         fail("buffer offset plus copy size overflows uint64_t.");
     return footprint;
 }
 
 /**
- * Both the four-byte copy-queue rule and the texel-size rule must hold (including
+ * Both the four-byte copy-queue rule and the texel-block-size rule must hold (including
  * RGB32): VUID-vkCmdCopyBufferToImage-commandBuffer-07737 and dstImage-07975.
  */
 inline uint64_t TextureStagingAlignment(Format format)
 {
-    return std::lcm(uint64_t{4u}, static_cast<uint64_t>(BytesPerTexel(format)));
+    return std::lcm(uint64_t{4u}, static_cast<uint64_t>(BytesPerBlock(format)));
 }
 
 /** All mips/layers must be present exactly once because uploading discards the whole texture. */

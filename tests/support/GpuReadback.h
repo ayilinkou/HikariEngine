@@ -21,6 +21,7 @@
 #include <rhi/RhiTypes.h>
 #include <rhi/Submit.h>
 #include <rhi/TextureDesc.h>
+#include <rhi/TextureFootprint.h>
 #include <rhi/UniqueHandle.h>
 
 /**
@@ -136,15 +137,8 @@ ReadTextureLayers(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle sourc
 
     const uint32_t layerCount = pDesc->ArrayLayers;
 
-    // Zero means the format has no single texel size, which for a combined
-    // depth/stencil format is the truth rather than a failure — this helper
-    // copies one aspect and cannot pick. No test needs that today, so it is a
-    // hard stop rather than an extra parameter nothing would pass.
-    const uint32_t bytesPerTexel = Hikari::Rhi::BytesPerTexel(pDesc->Format);
-    REQUIRE(bytesPerTexel != 0u);
-
     const uint64_t layerSize =
-        static_cast<uint64_t>(extent.Width) * extent.Height * extent.Depth * bytesPerTexel;
+        Hikari::Rhi::ComputeTextureFootprint(pDesc->Format, extent).TotalBytes;
 
     const Hikari::Rhi::UniqueHandle<Hikari::Rhi::BufferHandle> readback(
         device, device.CreateBuffer(Hikari::Rhi::BufferDesc{.Size = layerSize * layerCount,

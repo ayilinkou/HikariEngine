@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC12 implemented. TC13 is next.** Runs after the
+**Stage 7.8 — TC1–TC13 implemented. TC14 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -594,9 +594,8 @@ BC resources currently accept ordinary 2D textures and single cubemaps.
 Uploads validate complete, nonoverlapping mip/layer coverage and exact payload sizes
 before allocating staging. Staging alignment respects texel sizes as well as copy-queue
 requirements. Direct copies reject invalid ranges, ambiguous sizes and overflowing offsets.
-Compressed uploads and buffer readback are explicitly rejected until TC13; combined
-depth/stencil copies and depth uploads are also rejected. Existing screenshot/readback
-callers require uncompressed formats.
+TC13 adds compressed uploads and buffer readback. Combined depth/stencil copies and
+depth uploads remain rejected; screenshot callers still require uncompressed formats.
 
 - **Do:** Extend the curated format enum and both conversion tables together; add block
   extent/bytes and checked subresource-size helpers. Audit upload/readback validation and
@@ -606,7 +605,19 @@ callers require uncompressed formats.
   blocks; existing uncompressed copy sizes and tests stay correct on both backends.
 - **Size:** M · **Needs:** TC1; TC-D8, TC-D10, TC-D14.
 
-### TC13. Compressed uploads on Vulkan and D3D12 — NEXT
+### TC13. Compressed uploads on Vulkan and D3D12
+
+Implemented. BC1/2/3/4/5/7 payloads upload and read back as tightly packed blocks on
+both backends, including signed/sRGB variants, non-power-of-two mip chains and all six
+cubemap faces. Each upload supplies every mip/face once; mixed grouped-face and
+single-face regions may arrive in any order. The staging budget never splits one texture.
+
+Buffer offsets align to whole blocks; direct copies must cover whole blocks or reach
+the logical mip edge. Vulkan uses tightly packed buffer-image regions. D3D12 rounds its
+buffer footprint dimensions to whole blocks and uses the unrestricted copy pitch required
+by D39, retaining packed rows and layer offsets without changing the texture's dimensions.
+Partial readback copies name an explicit source box. D3D12's base dimensions must still be
+multiples of four; Vulkan also accepts odd and sub-block base extents.
 
 - **Do:** Implement tightly packed block uploads, backend staging alignment and D3D12 row
   footprints. Submit all mips/layers in one `UploadTexture` call as required by the
@@ -616,7 +627,7 @@ callers require uncompressed formats.
   errors.
 - **Size:** M–L · **Needs:** TC12.
 
-### TC14. libktx decoding into neutral texture data
+### TC14. libktx decoding into neutral texture data — NEXT
 
 - **Do:** Read/validate supported KTX2 metadata and payloads in the asset layer, map to
   neutral formats and enumerate subresources. Reject unsupported

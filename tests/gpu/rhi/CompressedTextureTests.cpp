@@ -4,11 +4,13 @@
 #include <array>
 #include <cstddef>
 #include <stdexcept>
+#include <vector>
 
 #include <rhi/ICommandList.h>
 #include <rhi/IDevice.h>
 #include <rhi/UniqueHandle.h>
 
+#include "GpuReadback.h"
 #include "RhiTestFixture.h"
 #include "ValidationGuard.h"
 
@@ -60,7 +62,7 @@ TEST_CASE("BC device support agrees with texture creation and full-chain views",
     }
 }
 
-TEST_CASE("Unsupported BC copies fail before staging or native recording",
+TEST_CASE("Malformed BC transfers fail before staging or native recording",
           "[rhi][gpu][resources][upload][bc]")
 {
     IDevice& device = RhiTest::RequireDevice();
@@ -73,13 +75,14 @@ TEST_CASE("Unsupported BC copies fail before staging or native recording",
         device, device.CreateTexture({.Format = Format::BC1Unorm,
                                       .Extent = {4u, 4u, 1u},
                                       .Usage = kUsage,
-                                      .DebugName = "BC unsupported transfer"}));
+                                      .DebugName = "BC transfer validation"}));
     const auto context = device.CreateUploadContext({});
     const std::array<std::byte, 8u> block{};
     const uint32_t buffersBefore = device.GetLiveBufferCount();
     CHECK_THROWS_WITH(
-        context->UploadTexture(texture.Get(), TextureUpload{.Data = block, .Extent = {4u, 4u, 1u}}),
-        ContainsSubstring("compressed texture transfers"));
+        context->UploadTexture(texture.Get(), TextureUpload{.Data = std::span(block).first(7u),
+                                                            .Extent = {4u, 4u, 1u}}),
+        ContainsSubstring("payload size"));
     CHECK(context->GetStats().Uploads == 0u);
     CHECK(device.GetLiveBufferCount() == buffersBefore);
 
@@ -89,12 +92,18 @@ TEST_CASE("Unsupported BC copies fail before staging or native recording",
     const auto allocator = device.CreateCommandAllocator({});
     ICommandList& commands = allocator->Acquire();
     commands.Begin();
-    const BufferTextureCopyRegion region{.Extent = {4u, 4u, 1u}};
+    const BufferTextureCopyRegion region{.BufferOffset = 4u, .Extent = {4u, 4u, 1u}};
     CHECK_THROWS_WITH(commands.CopyBufferToTexture(buffer.Get(), texture.Get(), region),
-                      ContainsSubstring("compressed texture transfers"));
+                      ContainsSubstring("texel block size"));
     CHECK_THROWS_WITH(commands.CopyTextureToBuffer(texture.Get(), buffer.Get(), region),
-                      ContainsSubstring("compressed texture transfers"));
+                      ContainsSubstring("texel block size"));
     commands.End();
+
+    context->UploadTexture(texture.Get(), TextureUpload{.Data = block, .Extent = {4u, 4u, 1u}});
+    context->Flush();
+    CHECK(context->GetStats().Uploads == 1u);
+    CHECK(RhiTest::ReadTextureLayers(device, texture.Get())[0] ==
+          std::vector<std::byte>(block.begin(), block.end()));
 }
 
 TEST_CASE("Malformed uploads leave the staging context usable", "[rhi][gpu][upload]")

@@ -138,8 +138,11 @@ interpretation. `BytesPerTexel` returns zero for compressed formats. Use `BytesP
 `GetFormatBlockExtent` and `ComputeTextureFootprint` for packed payload sizes, including whole
 blocks at odd edges and tiny mips. The checked footprint helper rejects zero extents, ambiguous
 depth/stencil sizes and overflow. Format support comes from the enabled device features and
-native format queries; it does not promise a transfer implementation. BC creation supports 2D
-textures and single cubemaps, with native dimension constraints checked without resizing.
+native format queries. BC creation and buffer transfers support 2D textures and single
+cubemaps, with native dimension constraints checked without resizing. Uploads require every
+mip/layer in one call, with exact packed block payloads. Copy offsets align to whole blocks;
+copy extents cover whole blocks or reach the logical mip edge. D3D12's buffer footprints
+round BC dimensions to whole blocks, with tight row pitches and layer offsets under D39.
 
 **D6 — Queues are `QueueType { Graphics, Compute, Copy }`**, matching D3D12's DIRECT / COMPUTE /
 COPY, which have no notion of a family index. Vulkan's family indices stay inside
