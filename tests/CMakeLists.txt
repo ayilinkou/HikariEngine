@@ -28,7 +28,9 @@ hikari_apply_build_options(HikariCompare)
 engine_test(support_tests SOURCES unit/support/ImageCompareTests.cpp
   unit/support/ReportCompareTests.cpp LIBS TestSupport Engine::Engine)
 
-engine_test(core_tests SOURCES unit/core/SwapbackArrayTests.cpp
+# Log and Timer cases use CaptureStream's shared scratch file. Serialize these
+# cases with each other while allowing independent unit binaries to overlap.
+engine_test(core_tests RESOURCE_LOCK log-capture SOURCES unit/core/SwapbackArrayTests.cpp
   unit/core/ClockTests.cpp
   unit/core/LogTests.cpp unit/core/JobSystemTests.cpp
   unit/core/HandleTests.cpp unit/core/TimerTests.cpp LIBS Engine::Core)

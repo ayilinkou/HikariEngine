@@ -10,6 +10,7 @@ endif()
 #   SOURCES <s1> [<s2> ...]
 #   [LIBS <lib> ...]
 #   [LABEL <label>]
+#   [RESOURCE_LOCK <resource>]
 #   [BACKEND_SPECS <backend> <test spec> [<backend> <test spec> ...]])
 #
 # LABEL is the CTest label every case in the binary is registered under, and
@@ -32,10 +33,15 @@ endif()
 # runs one backend alone. A backend named here that the build lacks is left
 # out, which is what a Linux build does with D3D12.
 function(engine_test test_name)
-  cmake_parse_arguments(TEST "" "LABEL" "SOURCES;LIBS;BACKEND_SPECS" ${ARGN})
+  cmake_parse_arguments(TEST "" "LABEL;RESOURCE_LOCK" "SOURCES;LIBS;BACKEND_SPECS" ${ARGN})
 
   if(NOT TEST_LABEL)
     set(TEST_LABEL "unit")
+  endif()
+
+  set(test_properties SKIP_RETURN_CODE 4)
+  if(TEST_RESOURCE_LOCK)
+    list(APPEND test_properties RESOURCE_LOCK "${TEST_RESOURCE_LOCK}")
   endif()
 
   add_executable(${test_name} ${TEST_SOURCES})
@@ -57,7 +63,7 @@ function(engine_test test_name)
   # something and one that could not.
   if(NOT TEST_BACKEND_SPECS)
     catch_discover_tests(${test_name} PROPERTIES LABELS "${TEST_LABEL}"
-                         SKIP_RETURN_CODE 4)
+                         ${test_properties})
     return()
   endif()
 
@@ -88,6 +94,6 @@ function(engine_test test_name)
       TEST_SPEC "${spec}"
       TEST_SUFFIX " (${backend})"
       PROPERTIES LABELS "${backend_label}" ENVIRONMENT "HIKARI_TEST_BACKEND=${backend}"
-                 SKIP_RETURN_CODE 4)
+                 ${test_properties})
   endforeach()
 endfunction()
