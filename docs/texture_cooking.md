@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC11 implemented. TC12 is next.** Runs after the
+**Stage 7.8 — TC1–TC12 implemented. TC13 is next.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -579,7 +579,24 @@ configured; normal descriptor parsing and serialization remain strict.
   only the new sidecars and preserve source identities and cooked-output paths.
 - **Size:** S–M · **Needs:** TC2, TC3, TC10; TC-D2, TC-D3, TC-D8, TC-D14.
 
-### TC12. Neutral BC formats and block-aware footprints — NEXT
+### TC12. Neutral BC formats and block-aware footprints
+
+Implemented. BC1/2/3/4/5/7 map to both backends, retaining sRGB and signed variants.
+BC1 uses Vulkan's RGBA interpretation to match its native alpha mode. Block extent/byte
+queries and checked packed row/slice/subresource footprints cover odd edges, tiny mips
+and overflow; `BytesPerTexel` returns zero for compressed formats.
+
+Texture creation checks device format/usage support. Vulkan enables supported BC
+compression and checks the exact BC image configuration; D3D12 checks BC shape/mip support
+and rejects base dimensions that are not multiples of four, preserving logical mip sizes.
+BC resources currently accept ordinary 2D textures and single cubemaps.
+
+Uploads validate complete, nonoverlapping mip/layer coverage and exact payload sizes
+before allocating staging. Staging alignment respects texel sizes as well as copy-queue
+requirements. Direct copies reject invalid ranges, ambiguous sizes and overflowing offsets.
+Compressed uploads and buffer readback are explicitly rejected until TC13; combined
+depth/stencil copies and depth uploads are also rejected. Existing screenshot/readback
+callers require uncompressed formats.
 
 - **Do:** Extend the curated format enum and both conversion tables together; add block
   extent/bytes and checked subresource-size helpers. Audit upload/readback validation and
@@ -589,7 +606,7 @@ configured; normal descriptor parsing and serialization remain strict.
   blocks; existing uncompressed copy sizes and tests stay correct on both backends.
 - **Size:** M · **Needs:** TC1; TC-D8, TC-D10, TC-D14.
 
-### TC13. Compressed uploads on Vulkan and D3D12
+### TC13. Compressed uploads on Vulkan and D3D12 — NEXT
 
 - **Do:** Implement tightly packed block uploads, backend staging alignment and D3D12 row
   footprints. Submit all mips/layers in one `UploadTexture` call as required by the

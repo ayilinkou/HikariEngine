@@ -4,6 +4,8 @@
 #include <format>
 #include <vector>
 
+#include "TextureTransferValidation.h"
+
 #include "vulkan/VulkanConversions.h"
 #include "vulkan/VulkanDevice.h"
 
@@ -279,6 +281,8 @@ void VulkanCommandList::CopyBufferToTexture(BufferHandle source, TextureHandle d
         return;
     }
 
+    ValidateTextureCopy(*m_Device.GetTextureDesc(destination), region, "CopyBufferToTexture");
+
     // The destination has to already be in CopyDst; see ICommandList's comment
     // on why a copy transitions nothing itself.
     m_Cmd.copyBufferToImage(src, dst, vk::ImageLayout::eTransferDstOptimal, MakeVkCopy(region));
@@ -298,6 +302,7 @@ void VulkanCommandList::CopyTextureToBuffer(TextureHandle source, BufferHandle d
         return;
     }
 
+    ValidateTextureCopy(*m_Device.GetTextureDesc(source), region, "CopyTextureToBuffer");
     m_Cmd.copyImageToBuffer(src, vk::ImageLayout::eTransferSrcOptimal, dst, MakeVkCopy(region));
 }
 } // namespace Hikari::Rhi::Vulkan

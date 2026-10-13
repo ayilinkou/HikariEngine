@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -86,11 +87,11 @@ TEST_CASE("A buffer upload round-trips byte for byte", "[rhi][gpu][upload]")
 
         {
             const UniqueHandle<BufferHandle> destination(
-                device, device.CreateBuffer(BufferDesc{
-                            .Size = source.size(),
-                            .Usage = BufferUsage::CopyDst | BufferUsage::CopySrc,
-                            .Access = MemoryAccess::GpuOnly,
-                            .DebugName = "Round-trip Destination"}));
+                device,
+                device.CreateBuffer(BufferDesc{.Size = source.size(),
+                                               .Usage = BufferUsage::CopyDst | BufferUsage::CopySrc,
+                                               .Access = MemoryAccess::GpuOnly,
+                                               .DebugName = "Round-trip Destination"}));
 
             const std::unique_ptr<IUploadContext> context =
                 device.CreateUploadContext(UploadContextDesc{.DebugName = "Round-trip"});
@@ -131,18 +132,18 @@ TEST_CASE("Several uploads batch into one flush and keep their own offsets", "[r
 
         {
             const UniqueHandle<BufferHandle> split(
-                device, device.CreateBuffer(BufferDesc{
-                            .Size = kHalf * 2u,
-                            .Usage = BufferUsage::CopyDst | BufferUsage::CopySrc,
-                            .Access = MemoryAccess::GpuOnly,
-                            .DebugName = "Split Destination"}));
+                device,
+                device.CreateBuffer(BufferDesc{.Size = kHalf * 2u,
+                                               .Usage = BufferUsage::CopyDst | BufferUsage::CopySrc,
+                                               .Access = MemoryAccess::GpuOnly,
+                                               .DebugName = "Split Destination"}));
 
             const UniqueHandle<BufferHandle> separate(
-                device, device.CreateBuffer(BufferDesc{
-                            .Size = kHalf,
-                            .Usage = BufferUsage::CopyDst | BufferUsage::CopySrc,
-                            .Access = MemoryAccess::GpuOnly,
-                            .DebugName = "Separate Destination"}));
+                device,
+                device.CreateBuffer(BufferDesc{.Size = kHalf,
+                                               .Usage = BufferUsage::CopyDst | BufferUsage::CopySrc,
+                                               .Access = MemoryAccess::GpuOnly,
+                                               .DebugName = "Separate Destination"}));
 
             const std::unique_ptr<IUploadContext> context =
                 device.CreateUploadContext(UploadContextDesc{.DebugName = "Batched"});
@@ -164,7 +165,8 @@ TEST_CASE("Several uploads batch into one flush and keep their own offsets", "[r
             const std::vector<std::byte> splitBytes =
                 RhiTest::ReadBuffer(device, split.Get(), kHalf * 2u);
 
-            REQUIRE(std::vector<std::byte>(splitBytes.begin(), splitBytes.begin() + kHalf) == first);
+            REQUIRE(std::vector<std::byte>(splitBytes.begin(), splitBytes.begin() + kHalf) ==
+                    first);
             REQUIRE(std::vector<std::byte>(splitBytes.begin() + kHalf, splitBytes.end()) == second);
             REQUIRE(RhiTest::ReadBuffer(device, separate.Get(), kHalf) == other);
         }
@@ -187,17 +189,16 @@ TEST_CASE("A texture upload round-trips byte for byte", "[rhi][gpu][upload]")
         // confuses width with height, or assumes a padded row pitch, produces
         // different bytes rather than the same ones rearranged.
         constexpr Extent3D kExtent{5u, 3u, 1u};
-        const std::vector<std::byte> source =
-            MakePattern(kExtent.Width * kExtent.Height * 4u, 5u);
+        const std::vector<std::byte> source = MakePattern(kExtent.Width * kExtent.Height * 4u, 5u);
 
         {
             const UniqueHandle<TextureHandle> texture(
-                device, device.CreateTexture(TextureDesc{
-                            .Format = Format::RGBA8Unorm,
-                            .Extent = kExtent,
-                            .Usage = TextureUsage::Sampled | TextureUsage::CopyDst |
-                                     TextureUsage::CopySrc,
-                            .DebugName = "Round-trip Texture"}));
+                device,
+                device.CreateTexture(TextureDesc{
+                    .Format = Format::RGBA8Unorm,
+                    .Extent = kExtent,
+                    .Usage = TextureUsage::Sampled | TextureUsage::CopyDst | TextureUsage::CopySrc,
+                    .DebugName = "Round-trip Texture"}));
 
             const std::unique_ptr<IUploadContext> context =
                 device.CreateUploadContext(UploadContextDesc{.DebugName = "Texture Round-trip"});
@@ -213,6 +214,37 @@ TEST_CASE("A texture upload round-trips byte for byte", "[rhi][gpu][upload]")
         }
 
         REQUIRE(Live(device) == before);
+    }
+}
+
+TEST_CASE("Uncompressed odd mip chains round-trip through aligned staging", "[rhi][gpu][upload]")
+{
+    for (const RhiTest::DeviceConfig config : RhiTest::AllDeviceConfigs())
+    {
+        INFO("device configuration: " << RhiTest::Describe(config));
+        IDevice& device = RhiTest::RequireDevice(config);
+        const RhiTest::ValidationGuard guard(device);
+        const UniqueHandle<TextureHandle> texture(
+            device, device.CreateTexture({.Format = Format::R8Unorm,
+                                          .Extent = {7u, 5u, 1u},
+                                          .MipLevels = 3u,
+                                          .Usage = TextureUsage::Sampled | TextureUsage::CopyDst |
+                                                   TextureUsage::CopySrc}));
+        const auto level0 = MakePattern(35u, 17u);
+        const auto level1 = MakePattern(6u, 18u);
+        const auto level2 = MakePattern(1u, 19u);
+        const std::array uploads{
+            TextureUpload{.Data = level0, .Extent = {7u, 5u, 1u}},
+            TextureUpload{.Data = level1, .MipLevel = 1u, .Extent = {3u, 2u, 1u}},
+            TextureUpload{.Data = level2, .MipLevel = 2u, .Extent = {1u, 1u, 1u}}};
+        const auto context = device.CreateUploadContext({.StagingBudget = 16u});
+        context->UploadTexture(texture.Get(), uploads);
+        context->Flush();
+        CHECK(RhiTest::ReadTextureLayers(device, texture.Get(), 0u)[0] == level0);
+        CHECK(RhiTest::ReadTextureLayers(device, texture.Get(), 1u)[0] == level1);
+        CHECK(RhiTest::ReadTextureLayers(device, texture.Get(), 2u)[0] == level2);
+        CHECK(context->GetStats().Uploads == 1u);
+        CHECK(context->GetStats().Batches == 1u);
     }
 }
 
@@ -243,14 +275,14 @@ TEST_CASE("Every cubemap face lands on its own layer", "[rhi][gpu][upload]")
 
         {
             const UniqueHandle<TextureHandle> cubemap(
-                device, device.CreateTexture(TextureDesc{
-                            .Format = Format::RGBA8Unorm,
-                            .Extent = kExtent,
-                            .ArrayLayers = kFaceCount,
-                            .Usage = TextureUsage::Sampled | TextureUsage::CopyDst |
-                                     TextureUsage::CopySrc,
-                            .bCubeCompatible = true,
-                            .DebugName = "Round-trip Cubemap"}));
+                device,
+                device.CreateTexture(TextureDesc{
+                    .Format = Format::RGBA8Unorm,
+                    .Extent = kExtent,
+                    .ArrayLayers = kFaceCount,
+                    .Usage = TextureUsage::Sampled | TextureUsage::CopyDst | TextureUsage::CopySrc,
+                    .bCubeCompatible = true,
+                    .DebugName = "Round-trip Cubemap"}));
 
             // All six in one call, which IUploadContext requires: it transitions
             // the texture from Undefined, so a second batch would discard what

@@ -127,6 +127,8 @@ ReadTextureLayers(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle sourc
 {
     const Hikari::Rhi::TextureDesc* pDesc = device.GetTextureDesc(source);
     REQUIRE(pDesc != nullptr);
+    REQUIRE(mipLevel < pDesc->MipLevels);
+    REQUIRE(mipLevel < 32u);
 
     const Hikari::Core::Extent3D extent{std::max(pDesc->Extent.Width >> mipLevel, 1u),
                                std::max(pDesc->Extent.Height >> mipLevel, 1u),
@@ -162,7 +164,8 @@ ReadTextureLayers(Hikari::Rhi::IDevice& device, Hikari::Rhi::TextureHandle sourc
         .OldLayout = Hikari::Rhi::TextureLayout::ShaderResource,
         .NewLayout = Hikari::Rhi::TextureLayout::CopySrc,
         .Aspect = Hikari::Rhi::DefaultAspect(pDesc->Format),
-        .MipCount = pDesc->MipLevels,
+        .BaseMip = mipLevel,
+        .MipCount = 1u,
         .LayerCount = layerCount,
     };
 

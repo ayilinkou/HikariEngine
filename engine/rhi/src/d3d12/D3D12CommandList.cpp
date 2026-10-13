@@ -3,11 +3,14 @@
 #include <array>
 #include <cstring>
 #include <format>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include "TextureTransferValidation.h"
 
 #include "d3d12/D3D12Conversions.h"
 #include "d3d12/D3D12DebugName.h"
@@ -345,9 +348,11 @@ void D3D12CommandList::CopyTextureLayers(TextureHandle texture, BufferHandle buf
     }
 
     const TextureDesc& desc = pTexture->Desc;
-    const uint64_t texelBytes = BytesPerTexel(desc.Format);
-    const uint64_t layerBytes = static_cast<uint64_t>(region.Extent.Width) * region.Extent.Height *
-                                region.Extent.Depth * texelBytes;
+    const TextureFootprint packed = ValidateTextureCopy(
+        desc, region, bToTexture ? "CopyBufferToTexture" : "CopyTextureToBuffer");
+    if (packed.RowBytes > std::numeric_limits<UINT>::max())
+        throw std::runtime_error("Rhi::CopyTexture: packed row pitch exceeds D3D12's UINT range.");
+    const uint64_t layerBytes = packed.TotalBytes / region.LayerCount;
     const uint32_t plane = region.Aspect == TextureAspect::Stencil ? 1u : 0u;
     const D3D12_RESOURCE_DESC resourceDesc = pTexture->Resource->GetDesc();
 
@@ -363,7 +368,7 @@ void D3D12CommandList::CopyTextureLayers(TextureHandle texture, BufferHandle buf
         footprint.Footprint.Width = region.Extent.Width;
         footprint.Footprint.Height = region.Extent.Height;
         footprint.Footprint.Depth = region.Extent.Depth;
-        footprint.Footprint.RowPitch = static_cast<UINT>(region.Extent.Width * texelBytes);
+        footprint.Footprint.RowPitch = static_cast<UINT>(packed.RowBytes);
 
         D3D12_TEXTURE_COPY_LOCATION textureLocation{};
         textureLocation.pResource = pTexture->Resource.Get();

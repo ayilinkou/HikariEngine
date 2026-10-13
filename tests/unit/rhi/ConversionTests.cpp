@@ -14,7 +14,6 @@
 #include <set>
 #include <stdexcept>
 
-
 /**
  * CPU-only: no instance, no device, no ICD needed. These are table tests, and
  * the tables are the part of the RHI most likely to be wrong in a way that
@@ -87,6 +86,22 @@ TEST_CASE("Formats map to the VkFormat their name claims", "[RhiConversions]")
     REQUIRE(ToVk(Format::D32Float) == vk::Format::eD32Sfloat);
     REQUIRE(ToVk(Format::D24UnormS8Uint) == vk::Format::eD24UnormS8Uint);
     REQUIRE(ToVk(Format::D32FloatS8Uint) == vk::Format::eD32SfloatS8Uint);
+}
+
+TEST_CASE("BC formats preserve alpha signedness and color space in Vulkan", "[RhiConversions][bc]")
+{
+    CHECK(ToVk(Format::BC1Unorm) == vk::Format::eBc1RgbaUnormBlock);
+    CHECK(ToVk(Format::BC1Srgb) == vk::Format::eBc1RgbaSrgbBlock);
+    CHECK(ToVk(Format::BC2Unorm) == vk::Format::eBc2UnormBlock);
+    CHECK(ToVk(Format::BC2Srgb) == vk::Format::eBc2SrgbBlock);
+    CHECK(ToVk(Format::BC3Unorm) == vk::Format::eBc3UnormBlock);
+    CHECK(ToVk(Format::BC3Srgb) == vk::Format::eBc3SrgbBlock);
+    CHECK(ToVk(Format::BC4Unorm) == vk::Format::eBc4UnormBlock);
+    CHECK(ToVk(Format::BC4Snorm) == vk::Format::eBc4SnormBlock);
+    CHECK(ToVk(Format::BC5Unorm) == vk::Format::eBc5UnormBlock);
+    CHECK(ToVk(Format::BC5Snorm) == vk::Format::eBc5SnormBlock);
+    CHECK(ToVk(Format::BC7Unorm) == vk::Format::eBc7UnormBlock);
+    CHECK(ToVk(Format::BC7Srgb) == vk::Format::eBc7SrgbBlock);
 }
 
 TEST_CASE("A VkFormat outside the curated set is rejected rather than guessed at",
@@ -187,9 +202,8 @@ TEST_CASE("SampleCount values are the sample counts themselves", "[RhiConversion
 TEST_CASE("A queue role is served by any family capable of it", "[RhiConversions]")
 {
     // The masks real drivers report, named for what they are.
-    constexpr vk::QueueFlags universal = vk::QueueFlagBits::eGraphics |
-                                         vk::QueueFlagBits::eCompute |
-                                         vk::QueueFlagBits::eTransfer;
+    constexpr vk::QueueFlags universal =
+        vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute | vk::QueueFlagBits::eTransfer;
     constexpr vk::QueueFlags asyncCompute =
         vk::QueueFlagBits::eCompute | vk::QueueFlagBits::eTransfer;
     constexpr vk::QueueFlags dedicatedTransfer = vk::QueueFlagBits::eTransfer;
@@ -272,8 +286,7 @@ TEST_CASE("Every TextureLayout has a distinct Vulkan layout, except the document
     REQUIRE(ToVk(TextureLayout::ShaderResource) == vk::ImageLayout::eShaderReadOnlyOptimal);
     REQUIRE(ToVk(TextureLayout::DepthStencilWrite) ==
             vk::ImageLayout::eDepthStencilAttachmentOptimal);
-    REQUIRE(ToVk(TextureLayout::DepthStencilRead) ==
-            vk::ImageLayout::eDepthStencilReadOnlyOptimal);
+    REQUIRE(ToVk(TextureLayout::DepthStencilRead) == vk::ImageLayout::eDepthStencilReadOnlyOptimal);
     REQUIRE(ToVk(TextureLayout::CopySrc) == vk::ImageLayout::eTransferSrcOptimal);
     REQUIRE(ToVk(TextureLayout::CopyDst) == vk::ImageLayout::eTransferDstOptimal);
     REQUIRE(ToVk(TextureLayout::Present) == vk::ImageLayout::ePresentSrcKHR);
@@ -349,8 +362,7 @@ TEST_CASE("DepthStencil covers both fragment-test stages", "[RhiConversions]")
 
     // The fragment shader sits between the two, and is a separate stage: it is
     // where a texture is sampled, not where depth is tested.
-    REQUIRE((stages & vk::PipelineStageFlagBits2::eFragmentShader) ==
-            vk::PipelineStageFlags2{});
+    REQUIRE((stages & vk::PipelineStageFlagBits2::eFragmentShader) == vk::PipelineStageFlags2{});
 }
 
 TEST_CASE("Combining PipelineStage bits ORs their Vulkan equivalents", "[RhiConversions]")
@@ -569,8 +581,7 @@ TEST_CASE("A verbose Vulkan message is reported as Verbose, not folded into Info
     REQUIRE(FromVk(vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo) == DiagnosticSeverity::Info);
 }
 
-TEST_CASE("Severity ordering is preserved, so it can be used as a threshold",
-          "[RhiConversions]")
+TEST_CASE("Severity ordering is preserved, so it can be used as a threshold", "[RhiConversions]")
 {
     // The debug callback filters with `severity < ToVk(minimum)`, which is only
     // correct if the Vulkan enumerator values ascend with seriousness. The

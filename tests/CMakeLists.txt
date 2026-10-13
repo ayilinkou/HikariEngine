@@ -123,6 +123,7 @@ engine_test(rhi_tests SOURCES unit/rhi/AdapterNameTests.cpp unit/rhi/BackendTest
   unit/rhi/ConversionTests.cpp
   unit/rhi/D3D12PresentModeTests.cpp
   unit/rhi/DiagnosticsTests.cpp unit/rhi/FormatTests.cpp
+  unit/rhi/TextureFootprintTests.cpp
   unit/rhi/OwnershipTransferTests.cpp unit/rhi/QueueFamilyTests.cpp
   unit/rhi/SwapchainUtilTests.cpp unit/rhi/UniqueHandleTests.cpp
   LIBS Engine::RHI)
@@ -157,6 +158,7 @@ engine_test(
   SOURCES gpu/rhi/BindGroupTests.cpp gpu/rhi/DeviceTests.cpp gpu/rhi/EnginePipelineTests.cpp
           gpu/rhi/PresentTargetTests.cpp
           gpu/rhi/RenderingScopeTests.cpp gpu/rhi/ResourceTests.cpp
+          gpu/rhi/CompressedTextureTests.cpp
           gpu/rhi/UploadRoundTripTests.cpp
           gpu/rhi/ValidationCoverageTests.cpp
           support/RhiDeviceListener.cpp

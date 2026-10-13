@@ -56,10 +56,16 @@ TEST_CASE("Every format is either sized or explicitly unsizeable", "[rhi][format
 {
     for (const Format format : kAllFormats)
     {
+        if (IsBlockCompressed(format))
+        {
+            CHECK(BytesPerTexel(format) == 0u);
+            CHECK(BytesPerBlock(format) > 0u);
+            continue;
+        }
         const uint32_t size = BytesPerTexel(format);
 
-        const bool bHasNoSingleSize = format == Format::Undefined ||
-                                      (IsDepthFormat(format) && HasStencilComponent(format));
+        const bool bHasNoSingleSize =
+            format == Format::Undefined || (IsDepthFormat(format) && HasStencilComponent(format));
 
         if (bHasNoSingleSize)
             CHECK(size == 0u);

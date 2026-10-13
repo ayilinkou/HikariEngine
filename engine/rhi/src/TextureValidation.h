@@ -1,5 +1,8 @@
 #pragma once
 
+#include <algorithm>
+#include <bit>
+
 #include <format>
 #include <stdexcept>
 #include <string_view>
@@ -31,6 +34,12 @@ inline void ValidateTextureDesc(const TextureDesc& desc)
     if (desc.MipLevels == 0u || desc.ArrayLayers == 0u)
         fail("MipLevels and ArrayLayers must be at least 1.");
 
+    if (desc.MipLevels > static_cast<uint32_t>(std::bit_width(
+                             std::max({desc.Extent.Width, desc.Extent.Height, desc.Extent.Depth}))))
+        fail("MipLevels exceeds the full chain for this extent.");
+    if (desc.Usage == TextureUsage::None)
+        fail("at least one texture usage is required.");
+
     // Depth is the third dimension of a 3D texture and the array is the layers;
     // neither API has 3D arrays, and mixing the two is the classic way to describe
     // a cubemap as six slices deep instead of six layers wide.
@@ -43,5 +52,17 @@ inline void ValidateTextureDesc(const TextureDesc& desc)
     if (desc.bCubeCompatible &&
         (desc.Dimension != TextureDimension::Texture2D || desc.ArrayLayers % 6u != 0u))
         fail("a cube-compatible texture must be 2D with a multiple of 6 array layers.");
+
+    if (desc.bCubeCompatible && desc.Extent.Width != desc.Extent.Height)
+        fail("cube faces must be square.");
+
+    if (IsBlockCompressed(desc.Format))
+    {
+        if (desc.Dimension != TextureDimension::Texture2D ||
+            desc.ArrayLayers != (desc.bCubeCompatible ? 6u : 1u))
+            fail("BC textures currently support ordinary 2D textures and single cubemaps only.");
+        if (desc.Samples != SampleCount::X1)
+            fail("BC textures require Samples::X1.");
+    }
 }
 } // namespace Hikari::Rhi

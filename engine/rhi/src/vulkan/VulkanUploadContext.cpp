@@ -7,6 +7,8 @@
 
 #include <core/Log.h>
 
+#include "TextureTransferValidation.h"
+
 #include "vulkan/DebugNames.h"
 #include <rhi/BarrierPresets.h>
 #include <rhi/ICommandList.h>
@@ -27,28 +29,10 @@ namespace
  */
 constexpr MemoryAccess kStagingAccess = MemoryAccess::CpuToGpu;
 
-/**
- * Every subresource starts at a 4-byte boundary within its staging buffer.
- *
- * Packing them tightly is legal on a graphics or compute queue, but a queue
- * family that supports only transfer requires every bufferOffset to be a
- * multiple of 4 (VUID-vkCmdCopyBufferToImage-commandBuffer-07737). That rule
- * has no effect on the four-byte-per-texel textures loaded today, and no
- * symptom at all until the code meets both a DMA-only queue and Format::R8Unorm
- * — which is the failure mode this whole area is prone to, so it is paid for up
- * front rather than discovered on someone else's GPU.
- *
- * Rounding up cannot break the alignment rule that applies on every queue, that
- * an offset is a multiple of the texel block size
- * (VUID-vkCmdCopyBufferToImage-dstImage-07975): every block size in Rhi::Format
- * is a power of two, so 4 is either a multiple of it or it is a multiple of 4
- * and a 4-aligned offset was already block-aligned.
- */
-constexpr uint64_t kStagingCopyAlignment = 4u;
-
+/** Alignment may be 12 for RGB32; a power-of-two bit mask would be incorrect. */
 constexpr uint64_t AlignUp(uint64_t value, uint64_t alignment)
 {
-    return (value + alignment - 1u) & ~(alignment - 1u);
+    return value + (alignment - value % alignment) % alignment;
 }
 } // namespace
 
@@ -226,9 +210,11 @@ void VulkanUploadContext::UploadTexture(TextureHandle destination,
     if (subresources.empty())
         return;
 
-    uint64_t total = 0u;
-    for (const TextureUpload& subresource : subresources)
-        total = AlignUp(total, kStagingCopyAlignment) + subresource.Data.size_bytes();
+    const TextureDesc* pDesc = m_Device.GetTextureDesc(destination);
+    if (pDesc == nullptr)
+        throw std::runtime_error("Rhi::UploadTexture: destination handle is stale.");
+    const uint64_t total = ValidateTextureUploads(*pDesc, subresources);
+    const uint64_t alignment = TextureStagingAlignment(pDesc->Format);
 
     if (total == 0u)
         return;
@@ -252,7 +238,7 @@ void VulkanUploadContext::UploadTexture(TextureHandle destination,
     uint64_t offset = 0u;
     for (const TextureUpload& subresource : subresources)
     {
-        offset = AlignUp(offset, kStagingCopyAlignment);
+        offset = AlignUp(offset, alignment);
         std::memcpy(pMapped + offset, subresource.Data.data(), subresource.Data.size_bytes());
 
         pending.Subresources.push_back(

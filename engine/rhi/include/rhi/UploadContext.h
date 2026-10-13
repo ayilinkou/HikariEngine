@@ -144,6 +144,10 @@ public:
      *
      * For the same reason `destination` must be freshly created and not yet
      * used: Undefined is the only layout this can transition from.
+     *
+     * Requires Sampled | CopyDst usage and complete, nonoverlapping mip/layer
+     * payloads with exact packed sizes. Compressed and depth/stencil uploads
+     * are currently rejected before staging is allocated.
      */
     virtual void UploadTexture(TextureHandle destination,
                                std::span<const TextureUpload> subresources) = 0;

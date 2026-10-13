@@ -7,6 +7,8 @@
 
 #include <core/Log.h>
 
+#include "TextureTransferValidation.h"
+
 #include <rhi/BarrierPresets.h>
 #include <rhi/ICommandList.h>
 #include <rhi/Submit.h>
@@ -19,16 +21,10 @@ constexpr Core::LogCategory LogRhi("RHI");
 
 namespace
 {
-/**
- * Where each subresource starts inside one staging buffer: aligned to 4 bytes, the
- * alignment Vulkan's copy requires of a buffer offset, so both backends lay staging
- * out identically.
- */
-constexpr uint64_t kStagingCopyAlignment = 4u;
-
+/** Alignment may be 12 for RGB32; a power-of-two bit mask would be incorrect. */
 constexpr uint64_t AlignUp(uint64_t value, uint64_t alignment)
 {
-    return (value + alignment - 1u) & ~(alignment - 1u);
+    return value + (alignment - value % alignment) % alignment;
 }
 } // namespace
 
@@ -119,9 +115,13 @@ void D3D12UploadContext::UploadBuffer(BufferHandle destination, uint64_t destina
 void D3D12UploadContext::UploadTexture(TextureHandle destination,
                                        std::span<const TextureUpload> subresources)
 {
-    uint64_t total = 0u;
-    for (const TextureUpload& subresource : subresources)
-        total = AlignUp(total, kStagingCopyAlignment) + subresource.Data.size_bytes();
+    if (subresources.empty())
+        return;
+    const TextureDesc* pDesc = m_Device.GetTextureDesc(destination);
+    if (pDesc == nullptr)
+        throw std::runtime_error("Rhi::UploadTexture: destination handle is stale.");
+    const uint64_t total = ValidateTextureUploads(*pDesc, subresources);
+    const uint64_t alignment = TextureStagingAlignment(pDesc->Format);
 
     if (total == 0u)
         return;
@@ -137,7 +137,7 @@ void D3D12UploadContext::UploadTexture(TextureHandle destination,
     uint64_t offset = 0u;
     for (const TextureUpload& subresource : subresources)
     {
-        offset = AlignUp(offset, kStagingCopyAlignment);
+        offset = AlignUp(offset, alignment);
         std::memcpy(pMapped + offset, subresource.Data.data(), subresource.Data.size_bytes());
         pending.Subresources.push_back(
             PendingTextureCopy::Subresource{.StagingOffset = offset,

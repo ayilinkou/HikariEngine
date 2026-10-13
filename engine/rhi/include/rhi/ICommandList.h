@@ -33,6 +33,9 @@ struct BufferCopyRegion
  * layers Extent.Width * Extent.Height. Vulkan spells that as bufferRowLength
  * and bufferImageHeight of zero; D3D12 requires row pitch to be aligned, which
  * is the backend's problem rather than the caller's.
+ *
+ * Compressed and combined depth/stencil buffer copies are currently rejected.
+ * ComputeTextureFootprint can size BC payloads independently of transfer support.
  */
 struct BufferTextureCopyRegion
 {

@@ -317,6 +317,11 @@ vk::Buffer VulkanDevice::GetBuffer(BufferHandle handle) const
 TextureHandle VulkanDevice::CreateTexture(const TextureDesc& desc)
 {
     ValidateTextureDesc(desc);
+    if (!IsFormatSupported(desc.Format, desc.Usage))
+        throw std::runtime_error(std::format(
+            "Rhi::CreateTexture('{}'): Vulkan device does not support format {} for usage {:#x}; "
+            "choose a supported format/usage or another device.",
+            desc.DebugName, vk::to_string(ToVk(desc.Format)), static_cast<uint32_t>(desc.Usage)));
 
     const vk::ImageCreateInfo imageInfo{
         .flags = desc.bCubeCompatible
@@ -332,6 +337,32 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDesc& desc)
         .usage = ToVk(desc.Usage),
         .sharingMode = vk::SharingMode::eExclusive,
         .initialLayout = vk::ImageLayout::eUndefined};
+
+    // Format feature bits alone do not cover the combination of shape, usage,
+    // mips and layers. Query the exact BC image configuration before allocation.
+    if (IsBlockCompressed(desc.Format))
+    {
+        vk::ImageFormatProperties limits;
+        try
+        {
+            limits = m_PhysicalDevice.getImageFormatProperties(
+                imageInfo.format, imageInfo.imageType, imageInfo.tiling, imageInfo.usage,
+                imageInfo.flags);
+        }
+        catch (const vk::SystemError& error)
+        {
+            throw std::runtime_error(
+                std::format("Rhi::CreateTexture('{}'): Vulkan rejects BC format/shape/usage: {}.",
+                            desc.DebugName, error.what()));
+        }
+        if (desc.Extent.Width > limits.maxExtent.width ||
+            desc.Extent.Height > limits.maxExtent.height || desc.MipLevels > limits.maxMipLevels ||
+            desc.ArrayLayers > limits.maxArrayLayers || !(limits.sampleCounts & imageInfo.samples))
+            throw std::runtime_error(std::format(
+                "Rhi::CreateTexture('{}'): BC extent, mip/layer count or samples exceed "
+                "Vulkan device limits.",
+                desc.DebugName));
+    }
 
     // Textures are always device-local: nothing here uploads by writing an
     // image's memory directly, it stages through a buffer and copies. That is
@@ -798,6 +829,9 @@ vk::BlendOp ToVkBlendOp(BlendOp op)
 
 bool VulkanDevice::IsFormatSupported(Format format, TextureUsage usage) const
 {
+    if (format == Format::Undefined ||
+        (IsBlockCompressed(format) && !m_bTextureCompressionBCEnabled))
+        return false;
     // Optimal tiling only. Nothing in this engine creates a linearly tiled
     // image, and a query that offered the choice would be offering something no
     // caller can act on -- D3D12 has no tiling concept to expose.
@@ -1721,7 +1755,10 @@ void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
                        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
                        vk::PhysicalDeviceMaintenance8FeaturesKHR,
                        vk::PhysicalDeviceMaintenance9FeaturesKHR>
-        featureChain = {{.features = {.independentBlend = true, .samplerAnisotropy = true}},
+        featureChain = {{.features = {.independentBlend = true,
+                                      .samplerAnisotropy = true,
+                                      .textureCompressionBC =
+                                          m_PhysicalDevice.getFeatures().textureCompressionBC}},
                         {.shaderDrawParameters = true},
                         // descriptorBindingPartiallyBound belongs here rather than
                         // in a VkPhysicalDeviceDescriptorIndexingFeatures of its
@@ -1734,6 +1771,11 @@ void VulkanDevice::CreateLogicalDevice(const DeviceRequirements& requirements)
                         {.extendedDynamicState = true},
                         {.maintenance8 = true},
                         {.maintenance9 = true}};
+
+    // BC is optional at device creation so uncompressed content remains usable.
+    // Capability queries must reflect what was actually enabled on this device.
+    m_bTextureCompressionBCEnabled =
+        featureChain.get<vk::PhysicalDeviceFeatures2>().features.textureCompressionBC;
 
     // Both halves of an optional extension move together. A feature struct left
     // chained for an extension that is not in the enabled list is not merely
