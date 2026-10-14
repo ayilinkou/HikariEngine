@@ -134,9 +134,10 @@ engine_test(engine_tests SOURCES unit/engine/ParseEngineOptionTests.cpp
 # report comparison tool.
 target_link_libraries(engine_tests PRIVATE nlohmann_json::nlohmann_json)
 add_dependencies(engine_tests CompileShadersTarget)
+get_target_property(engine_shader_reflection_dir CompileShadersTarget HIKARI_SHADER_REFLECTION_DIR)
 target_compile_definitions(
   engine_tests PRIVATE
-  HIKARI_SHADER_REFLECTION_DIR="${HIKARI_SHADER_REFLECTION_DIR}"
+  HIKARI_SHADER_REFLECTION_DIR="${engine_shader_reflection_dir}"
   # Read as text, not compiled: two of the layout cases are about what the
   # shared header may say, which a compiler cannot object to.
   HIKARI_SHADER_TYPES_HEADER="${CMAKE_SOURCE_DIR}/engine/engine/src/shaders/ShaderTypes.h")

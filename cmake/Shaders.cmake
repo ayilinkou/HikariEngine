@@ -69,7 +69,6 @@ function(add_slang_shader_target target)
   # deployed beside the executable — the same argument the depfiles carry.
   # Nothing at run time reads it; the layout test does.
   set(reflection_dir ${CMAKE_CURRENT_BINARY_DIR}/shader_reflection/$<CONFIG>)
-  set(HIKARI_SHADER_REFLECTION_DIR ${reflection_dir} PARENT_SCOPE)
 
   # What makes a single `: register(tN, spaceM)` annotation serve both APIs
   # (plan D29). slangc's own help: "For a resource attached with :register(bX,
@@ -206,6 +205,9 @@ function(add_slang_shader_target target)
   endforeach()
 
   add_custom_target(${target} ALL DEPENDS ${spv_outputs})
+  # Keep the directory on the target so callers can select the reflections
+  # they need even after other shader targets have been declared.
+  set_target_properties(${target} PROPERTIES HIKARI_SHADER_REFLECTION_DIR "${reflection_dir}")
 endfunction()
 
 file(GLOB_RECURSE shader_slang_sources

@@ -72,8 +72,8 @@ std::shared_ptr<Texture> AssetRegistry::LoadTexture(const std::string& filepath,
     {
         const auto format = expectedUsage == Asset::TextureUsage::Color ? Rhi::Format::RGBA8Srgb
                                                                         : Rhi::Format::RGBA8Unorm;
-        const std::string fallbackTextureKey =
-            std::string(fallbackTexturePrefix) + std::to_string(static_cast<uint32_t>(format));
+        std::string fallbackTextureKey(fallbackTexturePrefix);
+        fallbackTextureKey += std::to_string(static_cast<uint32_t>(format));
         return m_TextureCache.Get(fallbackTextureKey,
                                   [&] { return m_TextureLoader.LoadFallbackTexture(format); });
     }
