@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TC17 texture quality review</title>
+<style>
+  :root { color-scheme: dark; font: 16px/1.5 system-ui, sans-serif; }
+  body { max-width: 1150px; margin: 32px auto; padding: 0 20px; background: #191c21; color: #e4e8ef; }
+  h1 { font-size: 1.8rem; } h2 { font-size: 1.25rem; margin-top: 32px; }
+  p { max-width: 90ch; } a { color: #9ac5ff; }
+  label { display: inline-flex; flex-direction: column; gap: 4px; margin: 0 16px 12px 0; }
+  select, input { font: inherit; } select { padding: 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { border-bottom: 1px solid #49515d; padding: 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .scroll { overflow-x: auto; } .muted { color: #b2bdcd; } #error { color: #ffb6a6; }
+  #comparison { position: relative; width: min(100%, 768px); aspect-ratio: 1; background: #080a0d; }
+  #comparison img { position: absolute; width: 100%; height: 100%; object-fit: contain; }
+  #before { clip-path: inset(0 50% 0 0); }
+  #divider { position: absolute; left: 50%; height: 100%; border-left: 2px solid white; pointer-events: none; }
+  #split { display: block; width: min(100%, 768px); margin: 12px 0; }
+  #images { display: flex; gap: 30px; } #zoom { margin-left: 12px; }
+</style>
+<h1>TC17 texture quality review</h1>
+<p>Compare BC7 quality 1.0 with quality 0.5 and, for opaque colour assets, BC1 quality 1.0.
+Normal maps remain BC5. A policy decision is pending the Linux and Windows review.</p>
+<p id="host" class="muted"></p>
+<div id="controls">
+  <label>Asset<select id="asset"></select></label>
+  <label>Compare against quality 1.0<select id="variant"></select></label>
+  <label>View<select id="view"><option value="rendered">Rendered with implicit mip selection</option>
+    <option value="decoded">Decoded stored mip</option></select></label>
+  <label>Downsampling<select id="mip"><option value="0">1:1 / stored mip 0</option>
+    <option value="2">1:4 / stored mip 2</option><option value="4">1:16 / stored mip 4</option></select></label>
+  <label>Cube face<select id="face"></select></label>
+</div>
+<p id="description"></p>
+<div id="comparison"><img id="after" alt="Selected comparison variant"><img id="before" alt="Quality 1.0 reference">
+  <div id="divider"></div></div>
+<input id="split" type="range" min="0" max="100" value="50" aria-label="Comparison split">
+<p id="images"><a id="left" target="_blank" rel="noopener">Open reference at native size</a>
+  <a id="right" target="_blank" rel="noopener">Open comparison at native size</a></p>
+<p id="error" role="status"></p>
+<p class="muted">The left side is quality 1.0. The right side is the selected variant. Drag the slider,
+or open images at native size to inspect block detail. Rendered images sample the complete chain using the
+production anisotropic surface sampler. Downsizing the render target drives implicit LOD; cubemap
+derivatives and filtering can blend neighbouring levels. Normal views use the shared normal decoder
+and a fixed diffuse light. Colour and lit normals are encoded for sRGB display; packed channels remain
+numeric. These are texture review renders, not captures of a full PBR scene.</p>
+<h2>Recorded timings and stored size</h2>
+<p id="method" class="muted"></p>
+<div class="scroll"><table><thead><tr><th>Asset / variant</th><th>Cold cook + load</th><th>Warm check</th>
+  <th>KTX2 size</th><th>Base RGB PSNR</th><th>Normal mean angle</th></tr></thead><tbody id="timings"></tbody></table></div>
+<p class="muted">One cold sample per variant; three warm fingerprint checks. These are observations, not
+a statistical performance claim. GPU/device details belong to each report. A later rendering pass can
+use a different GPU and does not replace the recorded timings. Cold-to-GPU is a sum across two
+processes; it excludes device startup and is not an engine startup measurement. BC1 variants use
+isolated copies with an explicit format override; authored content is preserved.</p>
+<script id="data" type="application/json">__REVIEW_DATA__</script>
+<script>
+const data = JSON.parse(document.querySelector('#data').textContent);
+const get = id => document.getElementById(id);
+const options = (id, values) => get(id).replaceChildren(...values.map(([value, label]) => new Option(label, value)));
+const number = (value, digits=2) => typeof value === 'number' ? value.toFixed(digits) : '—';
+get('host').textContent = `${data.host} · measured ${data.utc} · ${data.backend}`;
+get('method').textContent = data.method;
+options('asset', [...new Set(data.results.map(row => row.case))].map(name => [name, name]));
+options('face', ['+X', '−X', '+Y', '−Y', '+Z', '−Z'].map((name, face) => [face, name]));
+for (const row of data.results) {
+  const tr = document.createElement('tr');
+  const preview = row.probe.previews || {};
+  const cells = [`${row.case} / ${row.variant}`, `${number(row.coldCookToGpuReadyMs / 1000, 3)} s`,
+    `${number(row.warmCookMedianMs)} ms`, `${number(row.probe.fileBytes / 1048576)} MiB`,
+    `${number(preview.baseRgbPsnrDb)} dB`, number(preview.baseNormalMeanAngleDegrees, 3)];
+  for (const text of cells) { const td = document.createElement('td'); td.textContent = text; tr.append(td); }
+  get('timings').append(tr);
+}
+function variantOptions() {
+  const previous = get('variant').value;
+  options('variant', data.results.filter(row => row.case === get('asset').value && row.variant !== 'auto-q1')
+    .map(row => [row.variant, row.variant]));
+  if ([...get('variant').options].some(option => option.value === previous)) get('variant').value = previous;
+  get('face').disabled = get('asset').value !== 'cube';
+  if (get('face').disabled) get('face').value = '0';
+  update();
+}
+function update() {
+  const reference = data.results.find(row => row.case === get('asset').value && row.variant === 'auto-q1');
+  const selected = data.results.find(row => row.case === get('asset').value && row.variant === get('variant').value);
+  if (!reference || !selected) return;
+  const rendered = get('view').value === 'rendered';
+  const report = row => rendered ? (row.renderReview || row.probe) : row.probe;
+  const image = row => {
+    const images = rendered ? report(row).renderedImages : report(row).previews?.images;
+    return images?.find(item => item.face === Number(get('face').value) && item.mip === Number(get('mip').value));
+  };
+  const a = image(reference), b = image(selected);
+  get('error').textContent = a && b ? '' : 'This comparison has no images yet. Run --render-existing to generate rendered views.';
+  for (const [row, entry, img, link] of [[reference, a, 'before', 'left'], [selected, b, 'after', 'right']]) {
+    get(img).hidden = !entry;
+    get(link).hidden = !entry;
+    if (entry) {
+      const path = `${row.case}/${row.variant}/previews/${entry.file}`;
+      get(img).src = path; get(link).href = path;
+    }
+  }
+  get('description').textContent = a ? `${get('asset').value} · ${a.width}×${a.height} · ` +
+    (rendered ? `${report(reference).backend} / ${report(reference).gpu}; ${reference.case === 'normal' ? 'normal lighting' : 'sampled texture'}` : 'Decoded mip in stored colour space') : '';
+}
+get('split').addEventListener('input', () => {
+  const split = get('split').value;
+  get('before').style.clipPath = `inset(0 ${100 - split}% 0 0)`;
+  get('divider').style.left = `${split}%`;
+});
+get('asset').addEventListener('change', variantOptions);
+for (const name of ['variant', 'view', 'mip', 'face']) get(name).addEventListener('change', update);
+for (const name of ['before', 'after']) get(name).addEventListener('error', () => {
+  get('error').textContent = 'An image could not be loaded. Keep this HTML beside its generated asset directories.';
+});
+variantOptions();
+</script>
+</html>

@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC16 implemented. TC17 is next.** Runs after the
+**Stage 7.8 — TC1–TC16 implemented. TC17 quality review is in progress.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -739,10 +739,19 @@ six-face cube; rendering the skybox is outside this step.
   constraint.
 - **Size:** M · **Needs:** TC7, TC15; TC-D10.
 
-### TC17. Numeric encoding quality and incremental upgrades — NEXT
+### TC17. Numeric encoding quality and incremental upgrades — IN PROGRESS
 
 CLI/CMake quality, incremental upgrades and the shared Release cooker are implemented;
 runtime quality selection remains part of this step.
+
+The restored manual benchmark now includes rendered mip comparisons through the production
+surface sampler and shared normal decoder, plus decoded stored mip previews. Linux's ten
+variants and 75 rendered views are available locally in
+`tests/reports/tc17-linux-quality/review.html`; the original timings and cooked assets are
+preserved. See [the TC17 review notes](texture_quality_review.md) for measured results,
+method limits, Windows commands and the remaining policy choices. Windows measurements and
+the user policy decision remain outstanding. Runtime continues to request `1.0` until that
+review; no runtime format override has been introduced.
 
 **User review checkpoint:** Before implementing runtime quality selection, remind the user
 to check representative end-to-end cold-cook/load speeds at `0.5` and `1.0` on Windows and

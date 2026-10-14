@@ -21,6 +21,27 @@ set_target_properties(HikariCompare PROPERTIES RUNTIME_OUTPUT_DIRECTORY
 engine_set_warnings(HikariCompare)
 hikari_apply_build_options(HikariCompare)
 
+# Manual TC17 quality review; measurements and images are generated on request.
+add_executable(HikariTextureLoadProbe tools/texture/TextureLoadProbe.cpp
+                                    tools/texture/TextureReview.cpp)
+target_link_libraries(HikariTextureLoadProbe PRIVATE Engine::Engine
+                      nlohmann_json::nlohmann_json SanitizerShims)
+target_include_directories(HikariTextureLoadProbe PRIVATE
+  ${CMAKE_SOURCE_DIR}/engine/asset/src ${CMAKE_SOURCE_DIR}/engine/engine/src)
+target_compile_definitions(HikariTextureLoadProbe PRIVATE
+  HIKARI_PROBE_ENCODER="${Compressonator_EXECUTABLE}"
+  HIKARI_REVIEW_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/review-shaders")
+set_target_properties(HikariTextureLoadProbe PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${HIKARI_EXE_DIR})
+engine_set_warnings(HikariTextureLoadProbe)
+hikari_apply_build_options(HikariTextureLoadProbe)
+hikari_deploy_d3d12(HikariTextureLoadProbe)
+add_slang_shader_target(TextureReviewShaders
+  SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/review-shaders"
+  SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/TextureReview.slang"
+          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/TextureReviewCube.slang")
+add_dependencies(HikariTextureLoadProbe TextureReviewShaders)
+
 # Engine::Engine is linked for one reason: the test that pins the gating table
 # asks ToJson what the report actually emits, rather than carrying a second list
 # of field names that would agree with the format only until the next field is
