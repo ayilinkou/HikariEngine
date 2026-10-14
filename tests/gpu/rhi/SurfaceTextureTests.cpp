@@ -187,10 +187,12 @@ std::vector<std::byte> DecodeNormals(IDevice& device, const Texture& source)
 {
     const auto* desc = device.GetTextureDesc(source.GetHandle());
     REQUIRE(desc);
+    // Creating the target can grow the texture pool and invalidate desc.
+    const auto sourceDesc = *desc;
     const Texture target(
         device,
         {.Format = Format::RGBA8Unorm,
-         .Extent = {desc->MipLevels, 1u, 1u},
+         .Extent = {sourceDesc.MipLevels, 1u, 1u},
          .Usage = TextureUsage::Storage | TextureUsage::Sampled | TextureUsage::CopySrc,
          .DebugName = "Normal decoding result"},
         TextureViewDimension::Texture2D);
@@ -230,7 +232,7 @@ std::vector<std::byte> DecodeNormals(IDevice& device, const Texture& source)
                                               .DebugName = "Normal test"},
                                              *cache));
     MaterialPushConstant material;
-    material.NormalEncoding = Engine::NormalShaderEncoding(source.GetMetadata(), desc->Format);
+    material.NormalEncoding = Engine::NormalShaderEncoding(source.GetMetadata(), sourceDesc.Format);
     RhiTest::RunGraphicsCommands(
         device,
         [&](ICommandList& list)
@@ -240,7 +242,7 @@ std::vector<std::byte> DecodeNormals(IDevice& device, const Texture& source)
             list.SetComputeBindGroup(layout.Get(), 0, group.Get());
             list.PushConstants(layout.Get(), ShaderStage::Compute, 0,
                                std::as_bytes(std::span(&material, 1)));
-            list.Dispatch(desc->MipLevels, 1, 1);
+            list.Dispatch(sourceDesc.MipLevels, 1, 1);
             list.Barrier(
                 BarrierPresets::UnorderedAccessToShaderResource(PipelineStage::ComputeStage)
                     .On(target.GetHandle()));
