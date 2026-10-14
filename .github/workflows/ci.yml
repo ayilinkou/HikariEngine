@@ -222,9 +222,27 @@ jobs:
         with:
           key: ccache-${{ matrix.preset }}
           max-size: 500M
+          verbose: 1
+
+      # Persist project compilations as well as vcpkg ports. Each preset has
+      # its own cache, and the action appends a timestamp so later runs can
+      # save new results even when they restored an earlier snapshot.
+      # sccache handles MSVC; the Ninja presets use /Z7 for every Debug target
+      # so no shared compiler PDB prevents caching or serialises compilation.
+      - name: Setup sccache (Windows only)
+        if: runner.os == 'Windows'
+        id: windows-compiler-cache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          variant: sccache
+          key: ${{ matrix.preset }}
+          max-size: 1G
 
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }}
+        run: >-
+          cmake --preset ${{ matrix.preset }}
+          -DCMAKE_C_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
+          -DCMAKE_CXX_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
         env:
           VCPKG_ROOT: ${{ github.workspace }}/vcpkg
 
@@ -243,7 +261,10 @@ jobs:
       - name: Catch2 tests
         id: catch2-tests
         continue-on-error: true
-        run: ctest --test-dir build/${{ matrix.preset }} -L unit --output-on-failure
+        # Independent cases can overlap process and file I/O. Keep this
+        # bounded, and leave GPU/scene steps serial. Core's shared log-capture
+        # file is protected by a CTest resource lock.
+        run: ctest --test-dir build/${{ matrix.preset }} -L unit --parallel 2 --output-on-failure
 
       # lavapipe, pinned rather than discovered: enumeration order is not a
       # stable identifier, and a runner that grows a second ICD should not
@@ -337,6 +358,18 @@ jobs:
         env:
           HIKARI_TESTS_REQUIRE_DEVICE: "1"
         run: ctest --test-dir build/${{ matrix.preset }} -L scene-d3d12 --output-on-failure
+
+      - name: Windows compiler cache statistics
+        if: always() && steps.windows-compiler-cache.outcome == 'success'
+        shell: bash
+        run: |
+          sccache --show-stats
+          {
+            echo '### Windows compiler cache'
+            echo '```text'
+            sccache --show-stats
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # header-check reports "skipped" in the four non-debug jobs, which is not a
       # failure and so passes this gate.
