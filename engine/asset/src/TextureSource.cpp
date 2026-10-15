@@ -130,9 +130,9 @@ std::optional<TextureData> TextureSource::Read(const std::filesystem::path& requ
         if (!RunCookProcess(m_CookerExecutable,
                             {"cook", CookPathUtf8(resolved), "--source-root",
                              CookPathUtf8(m_SourceRoot), "--cooked-root",
-                             CookPathUtf8(m_CookedRoot), "--runtime", "--quality",
+                             CookPathUtf8(m_CookedRoot), "--runtime", "--quiet", "--quality",
                              std::format("{}", m_EncodingQuality)},
-                            log.Path(), error, false))
+                            log.Path(), error, false, true))
         {
             error = std::format("{}: Texture cooking failed: {}", resolved.string(), error);
             return std::nullopt;

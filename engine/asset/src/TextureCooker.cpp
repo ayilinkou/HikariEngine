@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <exception>
 #include <format>
 #include <system_error>
@@ -10,10 +11,12 @@
 
 #include <asset/DdsReader.h>
 #include <asset/ImageReader.h>
+#include <core/Log.h>
 
 #include "CookFileUtil.h"
 #include "CookHash.h"
 #include "CookLock.h"
+#include "CookProcess.h"
 #include "CookPublication.h"
 #include "CookRecord.h"
 #include "DdsKtxWriter.h"
@@ -373,6 +376,16 @@ TextureCookResult TextureCooker::Cook(const TextureCookRequest& request,
         return result;
     try
     {
+        if (request.bRuntime)
+        {
+            Core::LogMsg(Core::LogSeverity::Info, Core::LogCategory{"Texture Cooker"},
+                         "Cooking texture {} at runtime: {}, quality {}",
+                         CookPathUtf8(prepared->Paths.SourcePath),
+                         ToDisplayString(prepared->Settings.Format), request.EncodingQuality);
+            // Acquisition inherits stdout; show this before expensive encoding,
+            // including when the engine's own output is redirected to a file.
+            std::fflush(stdout);
+        }
         if (!encoder.Encode(*prepared, publication->OutputPath(), result.Error))
         {
             if (result.Error.empty())

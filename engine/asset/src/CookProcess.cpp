@@ -1,6 +1,7 @@
 #include "CookProcess.h"
 
 #include <array>
+#include <cstdio>
 #include <format>
 #include <fstream>
 #include <system_error>
@@ -8,6 +9,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#include <io.h>
 #include <windows.h>
 #else
 #include <cerrno>
@@ -53,7 +55,7 @@ std::wstring QuoteArgument(const std::wstring& value)
 
 bool RunCookProcess(const std::filesystem::path& executable,
                     const std::vector<std::string>& arguments, const std::filesystem::path& log,
-                    std::string& error, bool bCheckHpcFallback)
+                    std::string& error, bool bCheckHpcFallback, bool bInheritStdout)
 {
     error.clear();
     std::error_code ec;
@@ -65,6 +67,8 @@ bool RunCookProcess(const std::filesystem::path& executable,
         return false;
     }
     int exitCode = -1;
+    if (bInheritStdout)
+        std::fflush(stdout);
 #ifdef _WIN32
     SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
     const auto output = CreateFileW(log.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &security,
@@ -93,6 +97,21 @@ bool RunCookProcess(const std::filesystem::path& executable,
     startup.hStdInput = input;
     startup.hStdOutput = output;
     startup.hStdError = output;
+    HANDLE inheritedOutput = nullptr;
+    if (bInheritStdout)
+    {
+        const auto parentOutput = reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(stdout)));
+        if (!DuplicateHandle(GetCurrentProcess(), parentOutput, GetCurrentProcess(),
+                             &inheritedOutput, 0, TRUE, DUPLICATE_SAME_ACCESS))
+        {
+            const auto code = GetLastError();
+            CloseHandle(input);
+            CloseHandle(output);
+            error = std::format("Cannot inherit runtime cooker output (Windows error {})", code);
+            return false;
+        }
+        startup.hStdOutput = inheritedOutput;
+    }
     PROCESS_INFORMATION process{};
     const bool started =
         CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
@@ -100,6 +119,8 @@ bool RunCookProcess(const std::filesystem::path& executable,
     const auto startError = GetLastError();
     CloseHandle(input);
     CloseHandle(output);
+    if (inheritedOutput)
+        CloseHandle(inheritedOutput);
     if (!started)
     {
         error = std::format("Cannot launch CPU encoder (Windows error {})", startError);
@@ -144,7 +165,7 @@ bool RunCookProcess(const std::filesystem::path& executable,
         return false;
     }
     status = posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
-    if (!status)
+    if (!status && !bInheritStdout)
         status = posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO);
     if (!status)
         status = posix_spawn_file_actions_adddup2(&actions, output, STDERR_FILENO);

@@ -91,6 +91,24 @@ add_executable(cook_process_fixture tools/texture/CookProcessFixture.cpp)
 engine_set_warnings(cook_process_fixture)
 add_dependencies(asset_tests cook_process_fixture)
 
+# One CPU-only delivery gate runs the real shared Release cooker, including
+# runtime log forwarding. Keep CaptureStream serialized with the core log tests.
+add_executable(texture_delivery_tests unit/asset/TextureDeliveryTests.cpp)
+target_link_libraries(texture_delivery_tests PRIVATE Catch2::Catch2WithMain Engine::Asset
+                                                    SanitizerShims)
+target_include_directories(texture_delivery_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support
+  ${CMAKE_SOURCE_DIR}/engine/asset/src)
+target_compile_definitions(texture_delivery_tests PRIVATE
+  HIKARI_RELEASE_COOKER="${HIKARI_TEXTURE_COOKER_EXECUTABLE}"
+  HIKARI_COOK_PROCESS_FIXTURE="$<TARGET_FILE:cook_process_fixture>"
+  HIKARI_TEXTURE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/textures/")
+engine_set_warnings(texture_delivery_tests)
+add_dependencies(texture_delivery_tests HikariTextureCooker cook_process_fixture)
+add_test(NAME texture_delivery COMMAND texture_delivery_tests)
+set_tests_properties(texture_delivery PROPERTIES LABELS "unit;texture-delivery"
+  RESOURCE_LOCK log-capture
+  ENVIRONMENT "DISPLAY=;WAYLAND_DISPLAY=;VK_DRIVER_FILES=${CMAKE_CURRENT_BINARY_DIR}/no-delivery-driver.json")
+
 add_executable(texture_cook_worker tools/texture/TextureCookWorker.cpp)
 target_link_libraries(texture_cook_worker PRIVATE Engine::Asset KTX::ktx
   Vulkan::Headers SanitizerShims)

@@ -264,7 +264,23 @@ jobs:
         # Independent cases can overlap process and file I/O. Keep this
         # bounded, and leave GPU/scene steps serial. Core's shared log-capture
         # file is protected by a CTest resource lock.
-        run: ctest --test-dir build/${{ matrix.preset }} -L unit --parallel 2 --output-on-failure
+        # Includes texture_delivery: the shared Release cooker runs with no
+        # display and an invalid Vulkan ICD, even in Debug/ASan configurations.
+        run: ctest --test-dir build/${{ matrix.preset }} -L unit --parallel 2 --no-tests=error --output-on-failure
+
+      # Unit/delivery tests use isolated temporary roots and still cook afresh.
+      # Reuse only shipped scene outputs; normal input/tool/quality and output
+      # hash checks run on every acquisition, including a restored older cache.
+      - name: Restore shipped texture cooks
+        id: texture-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            cooked/**/*.ktx2
+            cooked/**/*.cook.json
+          key: texture-cooks-v1-${{ runner.os }}-${{ hashFiles('content/**', 'engine/asset/**', 'ports/**', 'cmake/TextureTools.cmake', 'vcpkg.json', 'vcpkg-configuration.json', '.github/workflows/ci.yml') }}
+          restore-keys: |
+            texture-cooks-v1-${{ runner.os }}-
 
       # lavapipe, pinned rather than discovered: enumeration order is not a
       # stable identifier, and a runner that grows a second ICD should not
@@ -312,12 +328,12 @@ jobs:
           # which is what happened the first time these ran. VK_DRIVER_FILES
           # comes from the step above.
           HIKARI_TESTS_REQUIRE_DEVICE: "1"
-        run: ctest --test-dir build/${{ matrix.preset }} -L gpu --output-on-failure
+        run: ctest --test-dir build/${{ matrix.preset }} -L gpu --no-tests=error --output-on-failure
 
       # The scene matrix launches real frames and asserts on the report they
       # produce, in every Linux configuration including release. RunScene asks
       # for validation explicitly rather than inheriting it from the build, so
-      # the same eleven cases assert the same thing in all of them — before that
+      # the same cases assert the same thing in all of them — before that
       # a release run reported zero validation errors trivially and the headline
       # assertion was theatre.
       - name: Scene tests (lavapipe)
@@ -326,7 +342,10 @@ jobs:
         continue-on-error: true
         env:
           HIKARI_TESTS_REQUIRE_DEVICE: "1"
-        run: ctest --test-dir build/${{ matrix.preset }} -L scene --output-on-failure
+          # These assert loading/rendering, not encoder quality. Keep full-size
+          # shipped assets cheap; small codec/upgrade tests retain their qualities.
+          HIKARI_SCENE_TEXTURE_QUALITY: "0"
+        run: ctest --test-dir build/${{ matrix.preset }} -L scene --no-tests=error --output-on-failure
 
       # D3D12 on WARP, in every Windows configuration. A Windows runner has no GPU
       # and no Vulkan ICD, so Windows GPU coverage is D3D12's registration asked
@@ -344,7 +363,7 @@ jobs:
         continue-on-error: true
         env:
           HIKARI_TESTS_REQUIRE_DEVICE: "1"
-        run: ctest --test-dir build/${{ matrix.preset }} -L gpu-d3d12 --output-on-failure
+        run: ctest --test-dir build/${{ matrix.preset }} -L gpu-d3d12 --no-tests=error --output-on-failure
 
       # The scene matrix under D3D12 on WARP, in every Windows configuration, for the
       # reasons the two steps above give: the Linux scene step's for running it in
@@ -357,7 +376,8 @@ jobs:
         continue-on-error: true
         env:
           HIKARI_TESTS_REQUIRE_DEVICE: "1"
-        run: ctest --test-dir build/${{ matrix.preset }} -L scene-d3d12 --output-on-failure
+          HIKARI_SCENE_TEXTURE_QUALITY: "0"
+        run: ctest --test-dir build/${{ matrix.preset }} -L scene-d3d12 --no-tests=error --output-on-failure
 
       - name: Windows compiler cache statistics
         if: always() && steps.windows-compiler-cache.outcome == 'success'
@@ -370,6 +390,17 @@ jobs:
             sccache --show-stats
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # One configuration wins each OS/key; the other saves may report that the
+      # cache already exists. Never cache transaction/lock files or failed scenes.
+      - name: Save shipped texture cooks
+        if: always() && steps.texture-cache.outputs.cache-hit != 'true' && (steps.scene-tests.outcome == 'success' || steps.d3d12-scene-tests.outcome == 'success')
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            cooked/**/*.ktx2
+            cooked/**/*.cook.json
+          key: ${{ steps.texture-cache.outputs.cache-primary-key }}
 
       # header-check reports "skipped" in the four non-debug jobs, which is not a
       # failure and so passes this gate.

@@ -7,6 +7,9 @@ before downstream implementation, and reopen the design if those facts require a
 the agreed scope. Stage-local TC numbers do not renumber the architecture plan's steps
 48–76.
 
+Practical build, offline/single-file/code acquisition and verification commands are in
+[texture cooking workflows](texture_workflows.md).
+
 ## Contents
 
 1. [Design decisions](#1-design-decisions)
@@ -352,8 +355,8 @@ automatically. Cubemap descriptors require six square faces with matching dimens
 Account for whole compressed blocks in tiny mip payloads without changing their logical
 dimensions.
 
-`cook-all` accepts operational options only: source/cooked roots, `--force` and encoder
-thread limits. Reject per-texture overrides (`--usage`, `--format`, `--color-space`,
+`cook-all` accepts operational options only: source/cooked roots, `--force`, numeric quality
+and encoder thread limits. Reject per-texture overrides (`--usage`, `--format`, `--color-space`,
 `--flip-normal-y`, alpha options and `--no-mips`) in batch mode. Apply those through
 single-file `cook` or authored settings instead of overwriting a mixed tree's settings.
 
@@ -797,6 +800,76 @@ of the committed-baseline comparison are recorded in the review notes.
 - **Size:** M · **Needs:** TC4, TC6, TC10, TC15; TC-D4, TC-D6, TC-D13.
 
 ### TC18. Cross-platform delivery and completion gate
+
+**Status: implemented and locally verified; Windows and baseline completion gates open.**
+
+Runtime cooking now logs the source, actual selected format and quality immediately before
+encoding/repackaging, after freshness checks under the cook lock. Acquisition inherits
+the Release cooker's progress output, suppresses success/unchanged summaries and preserves
+captured failure diagnostics. Warm skips, compatible offline BC7 reuse and direct cooked
+loads stay quiet.
+
+The CPU-only `texture_delivery` gate runs the shared Release cooker with no display and
+an invalid Vulkan ICD. It checks clean batch delivery, native DDS blocks, warm checks,
+quality upgrades, runtime BC7 reuse, source-free KTX2 loading and log/error forwarding.
+It is included in the existing unit matrix for Windows/Linux Debug, Release and ASan;
+compressed GPU/scene coverage remains in the Vulkan/lavapipe and D3D12/WARP matrix.
+CI now rejects missing test labels. [Workflow documentation](texture_workflows.md) covers
+the supported entry points and the final hardware baseline review.
+
+To bound CI cooking cost, scene smoke tests use test-only quality `0`; normal application
+defaults remain `1.0`, and the small codec/default/upgrade tests retain real BC7 coverage
+at their requested qualities. Shipped scene KTX2/records are cached per OS with normal
+freshness/quality/hash validation on reuse; temporary unit/delivery fixtures remain cold.
+The delivery gate uses one-pixel colour images and base-only cubemaps to reduce redundant
+encoder launches. Temporary startup profiling identified expensive per-byte native-block
+assembly in the Debug reader; a single allocation and bulk subresource copies remove that
+cost without changing formats, payload ordering or validation. The diagnostic timers and
+skybox loading message were removed after profiling; runtime cook-start logging remains.
+
+Local evidence on 15 October 2026:
+
+| Check | Result |
+|---|---|
+| Linux Debug precommit | 464 unit checks, 50 Vulkan GPU checks and 13 scene checks passed; no skips |
+| Fresh Linux Release engine/tool build directories | Both builds passed, reusing installed pinned dependencies; the independent tool build remained Release |
+| Fresh Release tests | The same 464 unit, 50 GPU and 13 scene checks passed; no skips |
+| CPU-only delivery | Real Release batch cooking, upgrades, native DDS preservation, runtime logging and direct KTX2 acquisition passed with no display/usable ICD |
+| Rendering regression | Cold/warm 1920×1080 three-frame captures matched TC17 exactly at all 2,073,600 pixels; cold logged once, warm never logged; zero validation errors/warnings |
+| Formatting | Pinned clang-format 22.1.8 passed, including the new delivery test |
+
+GPU execution used llvmpipe. The generated scene reports/images/logs are under
+`tests/reports/tc18-runtime-regression/`; source sidecars and the retained original cooked
+files match their recorded SHA-256 hashes. The scene comparison verifies this step's
+rendering stability, not acceptance of the committed 1,000-frame hardware baseline.
+
+After reducing CI cost, full Debug precommit still passes 464 unit, 50 GPU and 13 scene
+checks. The delivery gate dropped from about three seconds to 1.20 seconds in a standalone
+local run. All 13 scene cases also passed with the CI quality-0 override; the rebuilt
+Release configuration passed the delivery gate plus those 13 cases with no skips.
+`tests/reports/tc18-ci-speed/` contains the verification logs and a separate cold/warm
+skybox run at quality 0. UI initialization took 0.9 ms in both software-Vulkan runs;
+skybox acquisition/upload took 34.7 s cold and 1.6 s warm. These historical measurements
+used temporary instrumentation and do not diagnose the original hardware's delay. Finer warm
+profiling then measured about 1.5 s in KTX2 reading, with 1.38 s spent assembling native
+blocks. Bulk copying reduced the read to 37 ms and the complete warm skybox load from
+1.8 s to 328 ms. No cooking occurred in these warm comparisons; BC7 payloads were retained.
+After this reader change, Debug precommit and all 527 Release checks passed without skips
+(464 unit, 50 GPU and 13 scene checks; Release scenes used the CI quality-0 override).
+The matching three-frame 1920×1080 capture remained identical at all 2,073,600 pixels,
+with matching counters and zero validation errors/warnings.
+
+The [CI run for TC17 commit e7fa786](https://github.com/ayilinkou/HikariEngine/actions/runs/38706320432)
+passed all Windows/Linux Debug, Release and ASan jobs, including GPU/scene checks. Linux
+Debug's shipped-scene case took 585.41 seconds; its entire unit suite took 10.92 seconds.
+That evidence covers the committed runtime policy; it does not cover this step's
+uncommitted stdout-inheritance, CI cost reductions or new delivery gate.
+
+Completion still requires Windows execution of these TC18 changes and a matching capture
+on the committed baseline's hardware followed by explicit promotion approval. This Linux
+workspace has no physical GPU or Windows runtime. Do not mark Stage 7.8 complete or start
+Stage 8 while these gates remain open. Deferred features and the DDS alpha-aware mip
+correctness follow-up remain explicitly listed in the backlog.
 
 - **Do:** Wire meaningful cooker unit/integration and compressed GPU coverage into the
   existing Windows/Linux checks. Include numeric quality selection, offline upgrades

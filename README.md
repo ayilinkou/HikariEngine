@@ -9,6 +9,9 @@
 
 A cross-platform game engine for Windows and Linux, with two graphics backends behind one neutral RHI: **Vulkan** on both platforms, **D3D12** on Windows.
 
+See [texture cooking workflows](docs/texture_workflows.md) for offline cooking, runtime
+BC1/offline BC7 policy, source settings and delivery checks.
+
 ## Requirements
 
 - **CMake 4.0 or newer**, and **Ninja** for the `ninja-*` presets.

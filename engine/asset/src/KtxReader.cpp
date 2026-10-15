@@ -364,6 +364,10 @@ std::optional<TextureData> ReadKtxTexture(const std::filesystem::path& path, std
                     texture->isCompressed,
                 "expected loaded native compressed blocks without transcoding");
         ReadSemantics(texture, data);
+        // Range insertion constructs individual bytes in unoptimized builds.
+        // Allocate once and copy complete native subresources instead.
+        data.Data.resize(texture->dataSize);
+        size_t outputOffset = 0;
         for (uint32_t mip = 0; mip < data.MipLevels; ++mip)
         {
             const Core::Extent3D extent{std::max(data.Extent.Width >> mip, 1u),
@@ -377,16 +381,20 @@ std::optional<TextureData> ReadKtxTexture(const std::filesystem::path& path, std
                 CheckKtx(ktxTexture_GetImageOffset(ktxTexture(texture), mip, 0, face, &offset));
                 Require(offset <= texture->dataSize && imageSize <= texture->dataSize - offset,
                         "libktx subresource exceeds the loaded payload");
-                const size_t outputOffset = data.Data.size();
-                const auto* begin = reinterpret_cast<const std::byte*>(texture->pData + offset);
-                data.Data.insert(data.Data.end(), begin, begin + static_cast<size_t>(imageSize));
+                Require(outputOffset <= data.Data.size() &&
+                            imageSize <= data.Data.size() - outputOffset,
+                        "subresources exceed the output payload");
+                std::memcpy(data.Data.data() + outputOffset, texture->pData + offset,
+                            static_cast<size_t>(imageSize));
                 data.Subresources.push_back({.MipLevel = mip,
                                              .Face = face,
                                              .Extent = extent,
                                              .Offset = outputOffset,
                                              .Size = static_cast<size_t>(imageSize)});
+                outputOffset += static_cast<size_t>(imageSize);
             }
         }
+        Require(outputOffset == data.Data.size(), "subresources do not fill the output payload");
         return data;
     }
     catch (const std::exception& exception)
