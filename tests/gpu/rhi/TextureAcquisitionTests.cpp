@@ -154,10 +154,10 @@ TEST_CASE("Registry cooks one descriptor cubemap and retains all face mip covera
     AssetRegistry assets(device, *context, paths, materials, files.Cooked(), HIKARI_RELEASE_COOKER);
     const auto cube = assets.LoadCubemap("sky/sky.cubemap.json", "Authored cube");
     REQUIRE(cube);
-    CHECK(device.GetTextureDesc(cube->GetHandle())->Format == Rhi::Format::BC7Srgb);
+    CHECK(device.GetTextureDesc(cube->GetHandle())->Format == Rhi::Format::BC1Srgb);
     CHECK(device.GetTextureDesc(cube->GetHandle())->MipLevels == 3);
     CHECK(device.GetTextureDesc(cube->GetHandle())->ArrayLayers == 6);
     CHECK(context->GetStats().Uploads == 1);
-    CHECK(context->GetStats().Bytes == 6 * 3 * 16);
+    CHECK(context->GetStats().Bytes == 6 * 3 * 8);
     CHECK(std::filesystem::is_regular_file(files.Cooked() / "sky/sky.cubemap.ktx2"));
 }

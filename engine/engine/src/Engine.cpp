@@ -498,8 +498,9 @@ private:
 
         // After the upload context it loads through, and before anything that
         // loads: the registry is what every asset in the run comes from.
-        m_Assets = std::make_unique<AssetRegistry>(*m_RhiDevice, *m_UploadContext, m_Paths,
-                                                   *m_MaterialFactory, m_Spec.CookedRoot);
+        m_Assets = std::make_unique<AssetRegistry>(
+            *m_RhiDevice, *m_UploadContext, m_Paths, *m_MaterialFactory, m_Spec.CookedRoot,
+            std::filesystem::path{}, m_Spec.TextureEncodingQuality);
 
         CreatePipelines();
         CreateCommandAllocators();

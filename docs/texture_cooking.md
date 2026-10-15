@@ -1,6 +1,6 @@
 # Texture cooking
 
-**Stage 7.8 — TC1–TC16 implemented. TC17 quality review is in progress.** Runs after the
+**Stage 7.8 — TC1–TC17 implemented. TC18 delivery checks remain.** Runs after the
 completed Stage 7.7 and before Stage 8. The numbered design decisions record the agreed
 behaviour. TC1 is a dependency/capability gate: verify acquisition and filtering support
 before downstream implementation, and reopen the design if those facts require a change to
@@ -57,7 +57,7 @@ Settings include `version`, `usage`, `format`, `colorSpace`, `mipmaps`, `flipNor
 `alphaMode` and `alphaCutoff`. No pixel-based or other automatic usage inference.
 Defaults:
 
-| Usage | Auto format | Auto colour space |
+| Usage | Offline auto format | Auto colour space |
 |---|---|---|
 | `color` | BC7 | sRGB |
 | `normal` | BC5 | linear |
@@ -66,6 +66,9 @@ Defaults:
 
 Unconfigured PNG/JPG defaults to colour, BC7 sRGB, full mip chain, opaque alpha mode and
 no normal-Y flip. First cooking creates the settings file and warns about the assumption.
+Runtime acquisition prefers BC1 for auto opaque colour pixel inputs, including descriptor
+cubemaps; authored settings still save `format: auto`. Explicit formats and native compressed
+DDS are preserved. See TC-D4 and TC-D6 for runtime selection and offline upgrade/reuse.
 Warn for suspicious channel/settings combinations, including scalar inputs treated as sRGB
 colour and channels discarded by the selected format. Warnings name the settings file and
 advise modifying it and recooking. Invalid combinations fail before settings are saved or
@@ -149,9 +152,13 @@ compression process waits.
 
 TC17 exposes finite numeric encoding quality (`0.0`–`1.0`) through shared requests,
 CLI `--quality` and a CMake quality option. Defaults are `1.0` for regular CLI/CMake cooking
-and a configurable `0.5` for runtime/on-demand cooking. Encoding quality is an
-operational request option and does not overwrite authored texture settings.
-The separate runtime quality policy is subject to the user review checkpoint in TC17.
+and a configurable `1.0` for runtime/on-demand cooking, selected after reviewing Windows
+and Linux measurements. The applications expose `--texture-quality <0..1>`.
+Encoding quality is an operational request option and does not overwrite authored settings.
+The shared request's `bRuntime` (single-file CLI `--runtime`) prefers BC1 only for auto
+colour pixel inputs with known opaque alpha. Explicit formats, non-colour usage, masks,
+unknown DDS alpha and native compressed DDS remain under their existing rules. First
+runtime cooking still creates a missing sidecar with authored defaults and `format: auto`.
 
 **TC-D5 — Preserve compressed DDS and accept common 8-bit pixel layouts.**
 
@@ -191,10 +198,18 @@ lower-quality outputs from source; runtime accepts higher-quality outputs withou
 downgrading them. `--force` encodes at the exact requested quality. Handle legacy records
 explicitly and invalidate incompatible encoder identities.
 
+Effective format is included in the fingerprint and identified by the native KTX2 format.
+Eligible runtime BC1 requests also accept the matching offline BC7 recipe at sufficient
+quality; an offline BC7 request upgrades runtime BC1 from source. This compatibility is
+one-way and requires intact output hashes and matching inputs/settings/tools. Runtime
+format selection never persists BC1 into the authored `auto` field. Force applies the
+requested format/quality exactly, including a forced runtime BC1 cook.
+
 **TC-D7 — Explicit masked cooking without generated masked mips.**
 
-Support new PNG/JPG encoding to BC1, BC4, BC5 and BC7. BC1 is a manual storage/quality
-tradeoff, not the colour default. Explicit `alphaMode: mask` / `--alpha-mode mask` enables
+Support new PNG/JPG encoding to BC1, BC4, BC5 and BC7. BC1 is an explicit storage/quality
+tradeoff offline and the runtime default for eligible auto opaque colour. Explicit
+`alphaMode: mask` / `--alpha-mode mask` enables
 binary-alpha BC1 encoding, with `alphaCutoff` / `--alpha-cutoff` defaulting to 0.5.
 Texels whose normalized alpha meets the cutoff are opaque, including equality and the
 0/1 endpoints. BC7 retains varying alpha. KTX2 records known alpha policy and masked
@@ -677,8 +692,7 @@ the normal and packed maps resolve to linear storage. Skybox acquisition request
 existing descriptor, retaining right/left/top/bottom/back/front as +X/-X/+Y/-Y/+Z/-Z.
 All supplied mips/faces are uploaded together and metadata is retained on loaded textures.
 Procedural pixel creation remains available. TC16 adds normal shader decoding and sampler
-LOD integration; runtime quality selection remains TC17's user review checkpoint,
-with acquisition currently using the Release CLI's default quality.
+LOD integration; TC17 adds the reviewed BC1 runtime policy and configurable quality.
 
 - **Do:** Integrate shared incremental cooking into asset acquisition, plus direct KTX2
   loading. Warn on material/metadata usage conflicts while loading with saved settings;
@@ -739,34 +753,40 @@ six-face cube; rendering the skybox is outside this step.
   constraint.
 - **Size:** M · **Needs:** TC7, TC15; TC-D10.
 
-### TC17. Numeric encoding quality and incremental upgrades — IN PROGRESS
+### TC17. Numeric encoding quality and incremental upgrades
 
-CLI/CMake quality, incremental upgrades and the shared Release cooker are implemented;
-runtime quality selection remains part of this step.
+Implemented. CLI/CMake quality, incremental upgrades, the shared Release cooker and
+runtime quality/format selection use the same validated requests and publication path.
 
 The restored manual benchmark now includes rendered mip comparisons through the production
 surface sampler and shared normal decoder, plus decoded stored mip previews. Linux's ten
 variants and 75 rendered views are available locally in
 `tests/reports/tc17-linux-quality/review.html`; the original timings and cooked assets are
 preserved. See [the TC17 review notes](texture_quality_review.md) for measured results,
-method limits, Windows commands and the remaining policy choices. Windows measurements and
-the user policy decision remain outstanding. Runtime continues to request `1.0` until that
-review; no runtime format override has been introduced.
+method limits, Windows commands and the agreed policy. The Windows HTML supplies ten
+D3D12 variants with zero validation errors/warnings and matching decoded quality metrics.
+The user confirmed visual acceptance on Windows and selected BC1 at quality `1.0` on
+15 October 2026. The image folders were not copied with that HTML, so local inspection
+of Windows images was unavailable.
 
-**User review checkpoint:** Before implementing runtime quality selection, remind the user
-to check representative end-to-end cold-cook/load speeds at `0.5` and `1.0` on Windows and
-Linux, including larger textures and cubemaps, and compare output quality. Revisit whether
-a separate runtime quality setting is needed at all or whether runtime should use `1.0`
-like offline cooking. Also explore using BC1 at normal encoding quality for eligible
-opaque runtime colour textures and cubemaps as an alternative to lowering BC7 quality.
-Compare cook speeds and visual results with the user on representative assets, including
-mip sampling. Review authored format/alpha constraints and how runtime BC1 outputs would
-be identified, reused and upgraded by offline BC7 cooks before choosing a runtime format
-policy. Retain the planned configurable `0.5` runtime default until the user makes an
-informed decision from those measurements.
+Runtime quality defaults to `1.0` and is configurable with `--texture-quality`. Auto
+opaque colour pixel inputs/cubemaps prefer BC1 while offline auto colour remains BC7.
+Explicit formats, non-colour usage, masks, unknown alpha and native compressed DDS retain
+their existing rules. Missing settings are created with authored `auto` defaults; the
+runtime selection never changes that field. Effective format participates in the cook
+fingerprint and is recorded by KTX2. Runtime accepts a matching intact offline BC7 recipe
+at sufficient quality; offline requests upgrade BC1 to BC7. Force requests use the exact
+requested recipe and quality. TC18 retains Windows execution of the new runtime checks
+and deliberate baseline review.
+
+Linux Debug precommit passes 463 unit, 50 Vulkan GPU and 13 scene checks with no skips,
+using software Vulkan in this workspace. The isolated BC1/BC7 scene comparison has matching
+counters and zero validation errors/warnings; expected pixel differences and the limits
+of the committed-baseline comparison are recorded in the review notes.
 
 - **Do:** Expose numeric quality (`0.0`–`1.0`) through shared requests, CLI and CMake;
-  default regular CLI/CMake cooks to `1.0` and runtime to configurable `0.5`. Record quality
+  default regular CLI/CMake cooks and runtime to configurable `1.0`. Apply the reviewed
+  BC1 runtime policy without changing offline BC7 defaults or authored settings. Record quality
   and encoder identity/parameters; reuse current outputs meeting the requested minimum,
   upgrade lower-quality outputs from source, and let `--force` encode at the exact request.
   Preserve authored settings, retained DDS blocks and publication guarantees. Build the
@@ -783,6 +803,8 @@ informed decision from those measurements.
   and reuse of higher-quality outputs. Document offline/single-file/code workflows, quality
   policy, Release cooker selection and clean acquisition. Obtain approval for baseline
   updates and promote them only after inspecting intended changes.
+  Add an informational log when runtime cooking actually begins, identifying the source,
+  actual format and quality; warm unchanged checks/direct cooked loads should stay quiet.
 - **Verify:** Clean build/cook on both hosts; CPU-only batch works without graphics; DDS
   preservation, quality upgrade/reuse and invalidation suites pass; Vulkan and D3D12
   upload/render checks pass with zero validation errors. All open decisions resolved or

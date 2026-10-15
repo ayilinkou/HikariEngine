@@ -21,6 +21,23 @@
 
 namespace Hikari::Asset
 {
+namespace
+{
+bool UsesRuntimeBc1(const PreparedTextureCook& prepared)
+{
+    const auto& settings = prepared.Settings;
+    return prepared.Request.bRuntime && settings.Authored.Format == TextureCompression::Auto &&
+           settings.Authored.Usage == TextureUsage::Color &&
+           settings.AlphaMode == TextureAlphaMode::Opaque && settings.bAlphaUsageKnown &&
+           (!prepared.Dds || !prepared.Dds->IsCompressed());
+}
+
+void ApplyRuntimeFormat(PreparedTextureCook& prepared)
+{
+    if (UsesRuntimeBc1(prepared))
+        prepared.Settings.Format = TextureCompression::BC1;
+}
+} // namespace
 
 TextureCooker::TextureCooker(std::filesystem::path sourceRoot, std::filesystem::path cookedRoot)
     : m_SourceRoot(sourceRoot.empty() ? std::filesystem::path{}
@@ -108,6 +125,7 @@ std::optional<PreparedTextureCook> TextureCooker::Prepare(const TextureCookReque
         prepared.ImageMetadata.push_back(
             {prepared.Dds->Extent, DdsPixelChannels(prepared.Dds->PixelLayout)});
         prepared.bWriteSettings = !bSettingsExist || !request.Overrides.IsEmpty();
+        ApplyRuntimeFormat(prepared);
         return prepared;
     }
     if (prepared.Descriptor)
@@ -191,6 +209,7 @@ std::optional<PreparedTextureCook> TextureCooker::Prepare(const TextureCookReque
     if (prepared.Descriptor)
         prepared.Descriptor->Settings = prepared.Settings.Authored;
     warnings = std::move(collectedWarnings);
+    ApplyRuntimeFormat(prepared);
     return prepared;
 }
 
@@ -321,6 +340,23 @@ TextureCookResult TextureCooker::Cook(const TextureCookRequest& request,
     const auto fingerprint = FingerprintTextureCook(*prepared, encoder.Versions, result.Error);
     if (!fingerprint)
         return result;
+    if (!request.bForce && UsesRuntimeBc1(*prepared))
+    {
+        // An offline BC7 output satisfies this runtime policy. Its recipe and
+        // output hash must still match; BC1 never satisfies the reverse request.
+        auto offline = *prepared;
+        offline.Settings.Format = TextureCompression::BC7;
+        const auto offlineFingerprint =
+            FingerprintTextureCook(offline, encoder.Versions, result.Error);
+        if (!offlineFingerprint)
+            return result;
+        if (IsCookCurrent(result.Output, prepared->Paths.RecordPath, *offlineFingerprint,
+                          encoder.Versions, request.EncodingQuality))
+        {
+            result.Status = TextureCookStatus::Skipped;
+            return result;
+        }
+    }
     if (!request.bForce && IsCookCurrent(result.Output, prepared->Paths.RecordPath, *fingerprint,
                                          encoder.Versions, request.EncodingQuality))
     {

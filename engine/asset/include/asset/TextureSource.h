@@ -18,7 +18,7 @@ class TextureSource
 {
 public:
     TextureSource(std::filesystem::path sourceRoot, std::filesystem::path cookedRoot,
-                  std::filesystem::path cookerExecutable);
+                  std::filesystem::path cookerExecutable, double encodingQuality = 1.0);
 
     // KTX2 paths are cooked-relative; all other paths are source-relative.
     // Resolve aliases before cache lookup, without requiring a cached file to
@@ -34,5 +34,6 @@ private:
     std::filesystem::path m_SourceRoot;
     std::filesystem::path m_CookedRoot;
     std::filesystem::path m_CookerExecutable;
+    double m_EncodingQuality;
 };
 } // namespace Hikari::Asset

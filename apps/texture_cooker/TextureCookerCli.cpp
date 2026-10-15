@@ -36,6 +36,7 @@ void PrintUsage(std::ostream& output)
     option("--force", "Bypass incremental checks without resetting settings");
     option("--threads <0..128>", "CPU encoder thread limit (default: 0 = automatic)");
     option("--quality <0..1>", "Minimum encoding quality (default: 1.0; exact with --force)");
+    option("--runtime", "Single-file runtime policy: auto opaque colour pixels prefer BC1");
     option("--dry-run", "Validate a single request and print paths without writes");
     option("--help", "Show help");
     output << "\nCreation options (no source images required):\n";
@@ -158,8 +159,9 @@ int RunTextureCooker(int argc, const char* const* argv,
         for (const auto& option : commandLine.Options())
         {
             const auto& flag = option.Flag;
-            if (bInit && (flag == "--source-root" || flag == "--cooked-root" ||
-                          flag == "--threads" || flag == "--quality" || flag == "--dry-run"))
+            if (bInit &&
+                (flag == "--source-root" || flag == "--cooked-root" || flag == "--threads" ||
+                 flag == "--quality" || flag == "--runtime" || flag == "--dry-run"))
                 throw Platform::CommandLineError(
                     std::format("{}: {} is a cooking-only option", command, flag));
             if (flag == "--help" || flag == "-h")
@@ -180,6 +182,13 @@ int RunTextureCooker(int argc, const char* const* argv,
             }
             else if (flag == "--quality")
                 request.EncodingQuality = RequireUnitInterval(option);
+            else if (flag == "--runtime")
+            {
+                option.RequireNoValue();
+                if (bBatch)
+                    throw Platform::CommandLineError("--runtime: Requires single-file cook");
+                request.bRuntime = true;
+            }
             else if (flag == "--force" || (bInit && flag == "--overwrite"))
             {
                 option.RequireNoValue();

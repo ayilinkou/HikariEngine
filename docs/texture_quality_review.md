@@ -1,8 +1,9 @@
 # TC17 encoding quality review
 
-The Linux comparison is ready for review. Windows measurements and the runtime policy
-decision are still pending. Runtime cooking currently requests quality `1.0`; this work
-does not change that or override authored formats.
+Linux and Windows measurements have been reviewed. On 15 October 2026 the user confirmed
+that the Windows rendered comparisons looked acceptable and selected BC1 at quality `1.0`
+for eligible runtime opaque colour textures/cubemaps. Offline colour cooking retains BC7
+as its auto default. Authored explicit formats and alpha policy remain authoritative.
 
 The manual tools are `tests/scripts/texture_quality_benchmark.py` and
 `HikariTextureLoadProbe`. They use isolated source/settings copies and cooked roots,
@@ -56,6 +57,33 @@ were checked by SHA-256 before and after rendering and were unchanged. The per-v
 `render-probe.json` files and `render-results.json` identify the rendering device.
 Generated reports and images remain ignored by Git.
 
+## Windows observations
+
+The supplied `tests/reports/tc17-windows-quality/review.html` embeds measurements from
+14 October 2026: Windows 10, 16 logical CPUs, RX 580, D3D12 driver 31.0.21925.1001 and the
+shared Release cooker. Its generated image folders were not copied to this workspace;
+visual acceptance was confirmed by the user after viewing them on Windows. All ten
+variants report zero validation errors/warnings and one upload submission. Their decoded
+RGB/normal quality metrics match the Linux measurements.
+
+| Asset | Format / quality | Cold cook + CPU/GPU load | Warm check median | KTX2 MiB | Base RGB PSNR |
+|---|---|---:|---:|---:|---:|
+| Colour | BC7 / 1.0 | 18.107 s | 93.17 ms | 5.33 | 60.32 dB |
+| Colour | BC7 / 0.5 | 11.318 s | 98.06 ms | 5.33 | 55.69 dB |
+| Colour | BC1 / 1.0 | 7.416 s | 73.38 ms | 2.67 | 46.20 dB |
+| Normal | BC5 / 1.0 | 7.367 s | 95.81 ms | 5.33 | 55.05 dB |
+| Normal | BC5 / 0.5 | 7.673 s | 104.01 ms | 5.33 | 52.98 dB |
+| Packed | BC7 / 1.0 | 31.800 s | 117.02 ms | 5.33 | 48.66 dB |
+| Packed | BC7 / 0.5 | 13.573 s | 115.94 ms | 5.33 | 48.53 dB |
+| Cubemap | BC7 / 1.0 | 162.122 s | 356.88 ms | 32.00 | 57.05 dB |
+| Cubemap | BC7 / 0.5 | 82.946 s | 353.40 ms | 32.00 | 53.16 dB |
+| Cubemap | BC1 / 1.0 | 63.779 s | 213.15 ms | 16.00 | 45.47 dB |
+
+BC1 reduced colour and cubemap cold cook/load time by about 59% and 61%, respectively,
+while halving compressed storage. These single samples support the chosen default but
+do not establish timing guarantees. Lowering BC5 quality did not improve normal cooking
+time here. The same timing exclusions and warm-check limits described above apply.
+
 ## Run on Windows
 
 From the repository root in PowerShell, with the normal Windows build prerequisites
@@ -105,20 +133,54 @@ source/settings copies, cooked outputs and recorded timing logs intact. An expli
 `VK_DRIVER_FILES` can select a software ICD for image generation when no GPU is available;
 do not present that load time as the original hardware's result.
 
-## Remaining decisions
+## Agreed runtime policy
 
-1. After reviewing both hosts, choose a configurable runtime quality default of `0.5`,
-   or keep runtime/offline requests at `1.0`. Existing quality records already accept a
-   compatible higher-quality output and upgrade lower-quality outputs; force uses the
-   exact requested quality.
-2. Decide whether BC1 should be an additional runtime policy for eligible opaque colour
-   textures/cubemaps. An explicit authored format or non-opaque alpha policy must constrain
-   eligibility. The benchmark's isolated format overrides do not implement this policy.
-3. If BC1 runtime substitution is chosen, agree how its actual format/encoder identity is
-   recorded and reused, and how offline BC7 requests upgrade it without persisting the
-   runtime override into authored settings. The current reuse rule compares compatible
-   encoder/settings identities and quality; quality alone does not make BC1 equivalent
-   to BC7. Retained native DDS blocks remain outside runtime format substitution.
+Runtime defaults to quality `1.0`; both applications accept `--texture-quality <0..1>`.
+The shared request's `bRuntime` and the single-file CLI's `--runtime` select BC1 only for
+authored `format: auto`, colour usage and known opaque alpha when encoding pixel inputs.
+This includes ordinary 2D images, descriptor cubemaps and opaque pixel DDS. Native
+compressed DDS blocks retain their format. Explicit formats, normals, scalar/packed data
+and masked/unknown-alpha inputs continue to use their existing rules. Regular CLI and
+CMake cooks still default to quality `1.0` and BC7 for auto colour.
 
-Only after these choices should runtime request plumbing change. TC18 and any baseline
-promotion follow the cross-platform verification and intended visual-change review.
+Runtime format and numeric quality are operational options. Existing sidecars/descriptors
+are preserved byte-for-byte unless the caller supplies an explicit settings override.
+When settings are absent, first cooking still creates the usual authored defaults,
+including `format: auto`; it never saves the runtime BC1 choice into that field. Saving
+application-wide preferences belongs to the deferred editor settings work.
+
+The effective format is part of the cook fingerprint, and KTX2's native format identifies
+the stored blocks. The versioned record also retains actual quality, encoder/dependency
+identity and the output hash. Eligible runtime requests accept either their BC1 recipe
+or the compatible offline BC7 recipe when the output is intact and meets the requested
+minimum quality. Offline BC7 requests recook runtime BC1 from source. Force requests use
+their exact format/quality; legacy records remain invalid for reuse. Both paths use the
+same cook lock, freshness checks and safe publication.
+
+TC18 retains cross-platform verification of this runtime implementation and baseline
+review/promotion. It also includes the requested informational runtime-cooking log:
+identify the source, actual selected format and quality when cooking really occurs;
+unchanged checks and direct cooked loads must not claim to cook a texture.
+
+## Implementation verification
+
+The 15 October Linux Debug precommit passed 463 unit checks, 50 Vulkan GPU checks and
+13 scene checks with no skips, using software Vulkan (llvmpipe) because the workspace
+has no physical GPU. Formatting also passed the repository's pinned clang-format 22.1.8.
+New cases cover eligibility, native DDS preservation, missing-settings creation, quality
+validation/forwarding, offline upgrades, higher-quality BC7 reuse, force, damaged output
+and concurrent runtime/offline requests. The existing descriptor-cubemap upload check
+now expects BC1 and its eight-byte blocks under the approved runtime policy.
+
+An isolated 1920×1080, three-frame fixed-camera scene comparison is saved under
+`tests/reports/tc17-runtime-regression/`. One run reused offline BC7; the other removed
+only seven eligible colour outputs from a copied cooked root and cooked BC1 at quality
+`1.0`. Both reports have zero validation errors/warnings and matching counters. The
+expected image difference is 62,260 pixels (3.0025%), with maximum channel delta 9,
+confined to the textured models. The source sidecars and original cooked tree were checked
+by SHA-256 and are unchanged. The generated comparison images are available for review.
+
+The committed-baseline comparison returned a skipped verdict because the capture used
+three frames rather than the baseline's 1,000. It is not a baseline pass, and no baseline
+was promoted. TC18 retains a matching baseline capture/review and Windows execution of
+the newly added runtime policy tests.

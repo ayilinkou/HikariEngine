@@ -38,6 +38,9 @@ struct RunSpec
     /** --cooked-root; empty selects the resolved content root's sibling cooked/. */
     std::string CookedRoot;
 
+    /** --texture-quality; minimum runtime encoding quality, independent of saved settings. */
+    double TextureEncodingQuality = 1.0;
+
     /**
      * The input script replayed during this run, as given on the command line,
      * or empty for none. Read by the app, which loads it and hands it to the

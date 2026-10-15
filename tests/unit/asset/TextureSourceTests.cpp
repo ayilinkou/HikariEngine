@@ -3,17 +3,65 @@
 
 #include <filesystem>
 #include <future>
+#include <limits>
 #include <string>
 #include <vector>
 
 #include <asset/TextureSource.h>
 
+#include "CookRecord.h"
 #include "DdsFixture.h"
 #include "KtxFixture.h"
 #include "TextureCookFixture.h"
 
 using namespace Hikari::Asset;
 using Catch::Matchers::ContainsSubstring;
+
+TEST_CASE("Runtime source acquisition selects BC1 and forwards configurable quality",
+          "[asset][acquisition][runtime][quality]")
+{
+    TextureCookFixture files;
+    files.WriteImage("image.png");
+    const TextureSource source(files.Content(), {}, HIKARI_RELEASE_COOKER, 0.5);
+    std::string error;
+    std::vector<std::string> warnings;
+    const auto first = source.Read("image.png", error, warnings);
+    INFO(error);
+    REQUIRE(first);
+    CHECK(first->Format == Hikari::Rhi::Format::BC1Srgb);
+    const auto recordPath = files.Cooked() / "image.png.cook.json";
+    const auto record = ReadCookRecord(recordPath);
+    REQUIRE(record);
+    CHECK(record->EncodingQuality == 0.5);
+    const auto saved = ParseTextureSettings(
+        TextureCookFixture::ReadText(files.Source("image.png.texture.json")), "settings", error);
+    REQUIRE(saved);
+    CHECK(saved->Format == TextureCompression::Auto);
+    const auto upgraded = files.Cooker().Cook({.Source = "image.png"});
+    INFO(upgraded.Error);
+    REQUIRE(upgraded.Status == TextureCookStatus::Cooked);
+    const auto offlineRecord = TextureCookFixture::ReadText(recordPath);
+    const auto reused = source.Read("image.png", error, warnings);
+    INFO(error);
+    REQUIRE(reused);
+    CHECK(reused->Format == Hikari::Rhi::Format::BC7Srgb);
+    CHECK(TextureCookFixture::ReadText(recordPath) == offlineRecord);
+    const TextureSource defaults(files.Content(), {}, HIKARI_RELEASE_COOKER);
+    files.WriteCubemap();
+    const auto cube = defaults.Read("sky/sky.cubemap.json", error, warnings);
+    INFO(error);
+    REQUIRE(cube);
+    CHECK(cube->Format == Hikari::Rhi::Format::BC1Srgb);
+    CHECK(cube->Faces == 6);
+    CHECK(cube->MipLevels == 3);
+    const auto cubeRecord = ReadCookRecord(files.Cooked() / "sky/sky.cubemap.cook.json");
+    REQUIRE(cubeRecord);
+    CHECK(cubeRecord->EncodingQuality == 1.0);
+    for (const auto quality : {-0.1, 1.1, std::numeric_limits<double>::infinity(),
+                               std::numeric_limits<double>::quiet_NaN()})
+        CHECK_THROWS_AS(TextureSource(files.Content(), {}, HIKARI_RELEASE_COOKER, quality),
+                        std::invalid_argument);
+}
 
 TEST_CASE("Source acquisition uses the Release cooker for cold warm and edited DDS inputs",
           "[asset][acquisition]")

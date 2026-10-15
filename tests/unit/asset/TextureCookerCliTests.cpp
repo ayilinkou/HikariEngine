@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <asset/CubemapDescriptor.h>
+#include <asset/KtxReader.h>
 #include <nlohmann/json.hpp>
 
 #include "DdsFixture.h"
@@ -52,6 +53,45 @@ bool Contains(std::string_view text, std::string_view part)
     return text.find(part) != std::string_view::npos;
 }
 } // namespace
+
+TEST_CASE("Single-file runtime cooking leaves offline BC7 defaults and authored settings intact",
+          "[texture-cooker-cli][runtime]")
+{
+    TextureCookFixture fixture;
+    fixture.WriteImage("image.png");
+    const auto root = fixture.Content().string();
+    std::string output, error;
+    REQUIRE(Run({"cooker", "cook", "image.png", "--source-root", root, "--dry-run"},
+                fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Format: BC7"));
+    REQUIRE(Run({"cooker", "cook", "image.png", "--source-root", root, "--runtime", "--dry-run"},
+                fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Format: BC1"));
+    CHECK(Contains(output, "Encoding quality: 1"));
+    CHECK_FALSE(fs::exists(fixture.Source("image.png.texture.json")));
+    REQUIRE(Run({"cooker", "cook", "image.png", "--source-root", root, "--runtime"},
+                fixture.Content(), output, error) == 0);
+    const auto settingsPath = fixture.Source("image.png.texture.json");
+    const auto settings = TextureCookFixture::ReadText(settingsPath);
+    const auto parsed = Hikari::Asset::ParseTextureSettings(settings, "settings", error);
+    REQUIRE(parsed);
+    CHECK(parsed->Format == Hikari::Asset::TextureCompression::Auto);
+    REQUIRE(Run({"cooker", "cook", "image.png", "--source-root", root}, fixture.Content(), output,
+                error) == 0);
+    CHECK(Contains(output, "Cooked:"));
+    const auto texture = Hikari::Asset::ReadKtxTexture(fixture.Cooked() / "image.png.ktx2", error);
+    INFO(error);
+    REQUIRE(texture);
+    CHECK(texture->Format == Hikari::Rhi::Format::BC7Srgb);
+    REQUIRE(Run({"cooker", "cook", "image.png", "--source-root", root, "--runtime"},
+                fixture.Content(), output, error) == 0);
+    CHECK(Contains(output, "Unchanged:"));
+    CHECK(TextureCookFixture::ReadText(settingsPath) == settings);
+    for (const auto command : {"cook-all", "init-texture", "init-cubemap"})
+        CHECK(Run({"cooker", command, "--runtime"}, fixture.Content(), output, error) != 0);
+    CHECK(Run({"cooker", "cook", "image.png", "--runtime=yes"}, fixture.Content(), output, error) !=
+          0);
+}
 
 TEST_CASE("Cooker help needs neither content nor a rendering device", "[texture-cooker-cli]")
 {

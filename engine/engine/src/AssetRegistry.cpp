@@ -16,11 +16,12 @@ constexpr std::string_view fallbackTexturePrefix = "FallbackTexture";
 AssetRegistry::AssetRegistry(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext,
                              const Paths& paths, MaterialFactory& materialFactory,
                              std::filesystem::path cookedRoot,
-                             std::filesystem::path cookerExecutable)
+                             std::filesystem::path cookerExecutable, double textureEncodingQuality)
     : m_UploadContext(uploadContext), m_Paths(paths),
       m_TextureSource(paths.ContentRoot(), std::move(cookedRoot),
                       cookerExecutable.empty() ? std::filesystem::path(HIKARI_RUNTIME_COOKER_PATH)
-                                               : std::move(cookerExecutable)),
+                                               : std::move(cookerExecutable),
+                      textureEncodingQuality),
       m_TextureLoader(rhiDevice, uploadContext, m_TextureSource),
       m_CubemapLoader(rhiDevice, uploadContext, m_TextureSource),
       m_ModelLoader(rhiDevice, uploadContext, *this, materialFactory)

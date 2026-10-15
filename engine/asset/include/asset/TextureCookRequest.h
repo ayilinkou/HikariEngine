@@ -17,6 +17,9 @@ struct TextureCookRequest
     uint32_t EncoderThreads = 0;
     // Minimum encoding effort for reuse; force encodes at exactly this quality.
     double EncodingQuality = 1.0;
+    // Prefer BC1 for auto opaque colour pixels; reuse compatible offline BC7.
+    // Operational only: never persist the runtime format into authored settings.
+    bool bRuntime = false;
 };
 
 } // namespace Hikari::Asset

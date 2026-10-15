@@ -63,6 +63,26 @@ TEST_CASE("Cooked root selection is shared by both engine applications", "[Parse
     CHECK(spec.CookedRoot == "custom cooked");
 }
 
+TEST_CASE("Runtime texture quality defaults to one and rejects invalid numeric values",
+          "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+    CHECK(spec.TextureEncodingQuality == 1.0);
+    for (const auto value : {"0", "0.5", "1"})
+    {
+        REQUIRE(ParseEngineOption(Option("--texture-quality", value), spec, config));
+        CHECK(spec.TextureEncodingQuality == std::stod(value));
+    }
+    for (const auto value : {"", "-0.1", "1.1", "nan", "inf", "1e999", "0.5extra"})
+    {
+        CHECK_THROWS_AS(ParseEngineOption(Option("--texture-quality", value), spec, config),
+                        CommandLineError);
+        CHECK(spec.TextureEncodingQuality == 1.0);
+    }
+    CHECK_THROWS_AS(ParseEngineOption(Option("--texture-quality"), spec, config), CommandLineError);
+}
+
 TEST_CASE("The flags that carry a value refuse to stand in for one", "[ParseEngineOption]")
 {
     RunSpec spec;

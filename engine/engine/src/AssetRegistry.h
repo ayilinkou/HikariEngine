@@ -49,7 +49,7 @@ public:
     AssetRegistry(Hikari::Rhi::IDevice& rhiDevice, Hikari::Rhi::IUploadContext& uploadContext,
                   const Hikari::Platform::Paths& paths, MaterialFactory& materialFactory,
                   std::filesystem::path cookedRoot = {},
-                  std::filesystem::path cookerExecutable = {});
+                  std::filesystem::path cookerExecutable = {}, double textureEncodingQuality = 1.0);
     ~AssetRegistry();
 
     AssetRegistry(const AssetRegistry&) = delete;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <format>
 #include <random>
 #include <stdexcept>
@@ -58,13 +59,15 @@ private:
 } // namespace
 
 TextureSource::TextureSource(std::filesystem::path sourceRoot, std::filesystem::path cookedRoot,
-                             std::filesystem::path cookerExecutable)
+                             std::filesystem::path cookerExecutable, double encodingQuality)
     : m_SourceRoot(std::filesystem::weakly_canonical(std::filesystem::absolute(sourceRoot))),
       m_CookedRoot(std::filesystem::weakly_canonical(cookedRoot.empty()
                                                          ? m_SourceRoot.parent_path() / "cooked"
                                                          : std::filesystem::absolute(cookedRoot))),
-      m_CookerExecutable(std::move(cookerExecutable))
+      m_CookerExecutable(std::move(cookerExecutable)), m_EncodingQuality(encodingQuality)
 {
+    if (!std::isfinite(encodingQuality) || encodingQuality < 0 || encodingQuality > 1)
+        throw std::invalid_argument("Texture encoding quality must be a finite number in [0, 1]");
 }
 
 std::filesystem::path TextureSource::ResolvePath(const std::filesystem::path& requested) const
@@ -108,7 +111,9 @@ std::optional<TextureData> TextureSource::Read(const std::filesystem::path& requ
         if (IsCooked(resolved))
             return ReadKtxTexture(resolved, error);
         const TextureCooker cooker(m_SourceRoot, m_CookedRoot);
-        const auto prepared = cooker.Prepare({.Source = resolved}, error, warnings);
+        const auto prepared = cooker.Prepare(
+            {.Source = resolved, .EncodingQuality = m_EncodingQuality, .bRuntime = true}, error,
+            warnings);
         if (!prepared)
             return std::nullopt;
         std::error_code ec;
@@ -122,11 +127,11 @@ std::optional<TextureData> TextureSource::Read(const std::filesystem::path& requ
         const AcquisitionLog log;
         // The child owns freshness checks, output hashes, locking and safe
         // publication. No outer cook lock is held while waiting for it.
-        // Quality policy remains the CLI default until TC17's user review.
         if (!RunCookProcess(m_CookerExecutable,
                             {"cook", CookPathUtf8(resolved), "--source-root",
                              CookPathUtf8(m_SourceRoot), "--cooked-root",
-                             CookPathUtf8(m_CookedRoot)},
+                             CookPathUtf8(m_CookedRoot), "--runtime", "--quality",
+                             std::format("{}", m_EncodingQuality)},
                             log.Path(), error, false))
         {
             error = std::format("{}: Texture cooking failed: {}", resolved.string(), error);

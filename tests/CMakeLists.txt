@@ -72,6 +72,7 @@ engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
   unit/asset/ImageReaderTests.cpp unit/asset/TextureSettingsTests.cpp unit/asset/TextureSourceTests.cpp
   unit/asset/ShippedTextureSettingsTests.cpp
   unit/asset/TextureCookerTests.cpp unit/asset/TextureCookIncrementalTests.cpp
+  unit/asset/TextureRuntimeTests.cpp
   unit/asset/TextureSettingsTemplateTests.cpp
   unit/asset/DdsCookingTests.cpp unit/asset/DdsCompletionTests.cpp unit/asset/KtxReaderTests.cpp
   unit/asset/PixelCookingTests.cpp unit/asset/MaskedCookingTests.cpp unit/asset/TextureCookBatchTests.cpp
