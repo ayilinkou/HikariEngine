@@ -1,0 +1,5 @@
+#!/bin/sh
+# Resolve beside the launcher so spaces in the installation path remain valid.
+tool_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
+export LD_LIBRARY_PATH="${tool_dir}/pkglibs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "${tool_dir}/compressonatorcli-bin" "$@"

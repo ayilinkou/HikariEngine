@@ -54,6 +54,35 @@ TEST_CASE("A flag the engine does not know is declined and changes nothing", "[P
     REQUIRE_FALSE(spec.bCaptureFinalFrame);
 }
 
+TEST_CASE("Cooked root selection is shared by both engine applications", "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+    CHECK_THROWS_AS(ParseEngineOption(Option("--cooked-root"), spec, config), CommandLineError);
+    REQUIRE(ParseEngineOption(Option("--cooked-root", "custom cooked"), spec, config));
+    CHECK(spec.CookedRoot == "custom cooked");
+}
+
+TEST_CASE("Runtime texture quality defaults to one and rejects invalid numeric values",
+          "[ParseEngineOption]")
+{
+    RunSpec spec;
+    EngineConfig config;
+    CHECK(spec.TextureEncodingQuality == 1.0);
+    for (const auto value : {"0", "0.5", "1"})
+    {
+        REQUIRE(ParseEngineOption(Option("--texture-quality", value), spec, config));
+        CHECK(spec.TextureEncodingQuality == std::stod(value));
+    }
+    for (const auto value : {"", "-0.1", "1.1", "nan", "inf", "1e999", "0.5extra"})
+    {
+        CHECK_THROWS_AS(ParseEngineOption(Option("--texture-quality", value), spec, config),
+                        CommandLineError);
+        CHECK(spec.TextureEncodingQuality == 1.0);
+    }
+    CHECK_THROWS_AS(ParseEngineOption(Option("--texture-quality"), spec, config), CommandLineError);
+}
+
 TEST_CASE("The flags that carry a value refuse to stand in for one", "[ParseEngineOption]")
 {
     RunSpec spec;
@@ -300,7 +329,8 @@ TEST_CASE("The --gpu flag names an adapter, and needs a name to do it", "[ParseE
     CHECK_THROWS_AS(ParseEngineOption(Option("--gpu"), spec, config), CommandLineError);
 }
 
-TEST_CASE("The single-queue lever is neutral, and its Vulkan spelling is gone", "[ParseEngineOption]")
+TEST_CASE("The single-queue lever is neutral, and its Vulkan spelling is gone",
+          "[ParseEngineOption]")
 {
     RunSpec spec;
     EngineConfig config;
@@ -316,8 +346,7 @@ TEST_CASE("The single-queue lever is neutral, and its Vulkan spelling is gone", 
     CHECK_FALSE(renamed.bForceSingleQueue);
 }
 
-TEST_CASE("Disabling a Vulkan extension is refused on D3D12, and only there",
-          "[ParseEngineOption]")
+TEST_CASE("Disabling a Vulkan extension is refused on D3D12, and only there", "[ParseEngineOption]")
 {
     // Checked on the spec rather than through --backend, so the case holds on a
     // build without D3D12, where the flag itself would refuse the backend first.

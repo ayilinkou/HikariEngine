@@ -6,6 +6,8 @@
 #include <string_view>
 #include <type_traits>
 
+#include <core/Extent3D.h>
+
 /**
  * The RHI's neutral vocabulary: the scalar types that appear in resource
  * descriptions and at the public API boundary. No Vulkan, no VMA, no D3D12.
@@ -136,13 +138,30 @@ enum class Format : uint32_t
     D32Float,
     D24UnormS8Uint,
     D32FloatS8Uint,
+
+    /** BC1 uses the RGBA interpretation, including its one-bit alpha mode. */
+    BC1Unorm,
+    BC1Srgb,
+    BC2Unorm,
+    BC2Srgb,
+    BC3Unorm,
+    BC3Srgb,
+    BC4Unorm,
+    BC4Snorm,
+    BC5Unorm,
+    BC5Snorm,
+    BC7Unorm,
+    BC7Srgb,
 };
 
 inline constexpr std::array kAllFormats{
     Format::Undefined,      Format::R8Unorm,     Format::RGBA8Unorm, Format::RGBA8Srgb,
     Format::BGRA8Unorm,     Format::RGBA16Float, Format::RG32Float,  Format::RGB32Float,
     Format::RGBA32Float,    Format::D16Unorm,    Format::D32Float,   Format::D24UnormS8Uint,
-    Format::D32FloatS8Uint,
+    Format::D32FloatS8Uint, Format::BC1Unorm,    Format::BC1Srgb,    Format::BC2Unorm,
+    Format::BC2Srgb,        Format::BC3Unorm,    Format::BC3Srgb,    Format::BC4Unorm,
+    Format::BC4Snorm,       Format::BC5Unorm,    Format::BC5Snorm,   Format::BC7Unorm,
+    Format::BC7Srgb,
 };
 
 /**
@@ -172,12 +191,11 @@ constexpr bool HasStencilComponent(Format format)
  *
  * Exists because sizing a buffer for a copy is impossible without it: a
  * readback allocates Width * Height * this, and both APIs leave the caller to
- * work it out. Named for a texel rather than a block because every format in
- * the list above is uncompressed and one texel wide; a block-compressed format
- * added here would need a different question asked of it.
+ * work it out. Compressed formats return zero: individual texels cannot be
+ * addressed in their payload. Use BytesPerBlock and GetFormatBlockExtent, or
+ * ComputeTextureFootprint, for block-aware sizing.
  *
- * Zero for three of them, and it is not a failure code so much as the honest
- * answer to a question that has none:
+ * Zero for ambiguous or compressed formats, rather than a guessed size:
  *
  *   * Undefined names no memory at all.
  *   * The two combined depth/stencil formats have a size per *aspect*, and the
@@ -199,6 +217,18 @@ constexpr uint32_t BytesPerTexel(Format format)
         case Format::Undefined:
         case Format::D24UnormS8Uint:
         case Format::D32FloatS8Uint:
+        case Format::BC1Unorm:
+        case Format::BC1Srgb:
+        case Format::BC2Unorm:
+        case Format::BC2Srgb:
+        case Format::BC3Unorm:
+        case Format::BC3Srgb:
+        case Format::BC4Unorm:
+        case Format::BC4Snorm:
+        case Format::BC5Unorm:
+        case Format::BC5Snorm:
+        case Format::BC7Unorm:
+        case Format::BC7Srgb:
             return 0u;
 
         case Format::R8Unorm:
@@ -225,6 +255,35 @@ constexpr uint32_t BytesPerTexel(Format format)
     }
 
     return 0u;
+}
+
+/**
+ * Whether storage uses whole 4x4 blocks rather than independently addressable
+ * texels. Signed BC4/BC5 are linear; BC6H is outside the curated set.
+ */
+constexpr bool IsBlockCompressed(Format format)
+{
+    return format == Format::BC1Unorm || format == Format::BC1Srgb || format == Format::BC2Unorm ||
+           format == Format::BC2Srgb || format == Format::BC3Unorm || format == Format::BC3Srgb ||
+           format == Format::BC4Unorm || format == Format::BC4Snorm || format == Format::BC5Unorm ||
+           format == Format::BC5Snorm || format == Format::BC7Unorm || format == Format::BC7Srgb;
+}
+
+/** Undefined and combined depth/stencil formats still require an aspect-specific size. */
+constexpr uint32_t BytesPerBlock(Format format)
+{
+    if (format == Format::BC1Unorm || format == Format::BC1Srgb || format == Format::BC4Unorm ||
+        format == Format::BC4Snorm)
+        return 8u;
+    return IsBlockCompressed(format) ? 16u : BytesPerTexel(format);
+}
+
+/** Logical block dimensions; zero means this format has no single packed footprint. */
+constexpr Core::Extent3D GetFormatBlockExtent(Format format)
+{
+    if (IsBlockCompressed(format))
+        return {4u, 4u, 1u};
+    return BytesPerTexel(format) != 0u ? Core::Extent3D{1u, 1u, 1u} : Core::Extent3D{0u, 0u, 0u};
 }
 
 /**

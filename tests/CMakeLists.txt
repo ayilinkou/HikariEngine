@@ -21,6 +21,27 @@ set_target_properties(HikariCompare PROPERTIES RUNTIME_OUTPUT_DIRECTORY
 engine_set_warnings(HikariCompare)
 hikari_apply_build_options(HikariCompare)
 
+# Manual TC17 quality review; measurements and images are generated on request.
+add_executable(HikariTextureLoadProbe tools/texture/TextureLoadProbe.cpp
+                                    tools/texture/TextureReview.cpp)
+target_link_libraries(HikariTextureLoadProbe PRIVATE Engine::Engine
+                      nlohmann_json::nlohmann_json SanitizerShims)
+target_include_directories(HikariTextureLoadProbe PRIVATE
+  ${CMAKE_SOURCE_DIR}/engine/asset/src ${CMAKE_SOURCE_DIR}/engine/engine/src)
+target_compile_definitions(HikariTextureLoadProbe PRIVATE
+  HIKARI_PROBE_ENCODER="${Compressonator_EXECUTABLE}"
+  HIKARI_REVIEW_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/review-shaders")
+set_target_properties(HikariTextureLoadProbe PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${HIKARI_EXE_DIR})
+engine_set_warnings(HikariTextureLoadProbe)
+hikari_apply_build_options(HikariTextureLoadProbe)
+hikari_deploy_d3d12(HikariTextureLoadProbe)
+add_slang_shader_target(TextureReviewShaders
+  SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/review-shaders"
+  SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/TextureReview.slang"
+          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/TextureReviewCube.slang")
+add_dependencies(HikariTextureLoadProbe TextureReviewShaders)
+
 # Engine::Engine is linked for one reason: the test that pins the gating table
 # asks ToJson what the report actually emits, rather than carrying a second list
 # of field names that would agree with the format only until the next field is
@@ -48,7 +69,79 @@ engine_test(platform_tests SOURCES unit/platform/PathsTests.cpp
   LIBS Engine::Platform)
 
 engine_test(asset_tests SOURCES unit/asset/AssetCacheTests.cpp
-  unit/asset/ImageReaderTests.cpp LIBS Engine::Asset)
+  unit/asset/ImageReaderTests.cpp unit/asset/TextureSettingsTests.cpp unit/asset/TextureSourceTests.cpp
+  unit/asset/ShippedTextureSettingsTests.cpp
+  unit/asset/TextureCookerTests.cpp unit/asset/TextureCookIncrementalTests.cpp
+  unit/asset/TextureRuntimeTests.cpp
+  unit/asset/TextureSettingsTemplateTests.cpp
+  unit/asset/DdsCookingTests.cpp unit/asset/DdsCompletionTests.cpp unit/asset/KtxReaderTests.cpp
+  unit/asset/PixelCookingTests.cpp unit/asset/MaskedCookingTests.cpp unit/asset/TextureCookBatchTests.cpp
+  LIBS Engine::Asset KTX::ktx Vulkan::Headers nlohmann_json::nlohmann_json)
+target_include_directories(asset_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
+target_include_directories(asset_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/asset/src)
+target_compile_definitions(asset_tests PRIVATE
+  HIKARI_TEXTURE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/textures/"
+  HIKARI_TEXTURE_COOK_WORKER="$<TARGET_FILE:texture_cook_worker>"
+  HIKARI_COOK_PROCESS_FIXTURE="$<TARGET_FILE:cook_process_fixture>")
+target_compile_definitions(asset_tests PRIVATE HIKARI_RELEASE_COOKER="${HIKARI_TEXTURE_COOKER_EXECUTABLE}")
+target_compile_definitions(asset_tests PRIVATE HIKARI_SHIPPED_CONTENT="${CMAKE_SOURCE_DIR}/content")
+add_dependencies(asset_tests HikariTextureCooker)
+
+add_executable(cook_process_fixture tools/texture/CookProcessFixture.cpp)
+engine_set_warnings(cook_process_fixture)
+add_dependencies(asset_tests cook_process_fixture)
+
+# One CPU-only delivery gate runs the real shared Release cooker, including
+# runtime log forwarding. Keep CaptureStream serialized with the core log tests.
+add_executable(texture_delivery_tests unit/asset/TextureDeliveryTests.cpp)
+target_link_libraries(texture_delivery_tests PRIVATE Catch2::Catch2WithMain Engine::Asset
+                                                    SanitizerShims)
+target_include_directories(texture_delivery_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support
+  ${CMAKE_SOURCE_DIR}/engine/asset/src)
+target_compile_definitions(texture_delivery_tests PRIVATE
+  HIKARI_RELEASE_COOKER="${HIKARI_TEXTURE_COOKER_EXECUTABLE}"
+  HIKARI_COOK_PROCESS_FIXTURE="$<TARGET_FILE:cook_process_fixture>"
+  HIKARI_TEXTURE_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/textures/")
+engine_set_warnings(texture_delivery_tests)
+add_dependencies(texture_delivery_tests HikariTextureCooker cook_process_fixture)
+add_test(NAME texture_delivery COMMAND texture_delivery_tests)
+set_tests_properties(texture_delivery PROPERTIES LABELS "unit;texture-delivery"
+  RESOURCE_LOCK log-capture
+  ENVIRONMENT "DISPLAY=;WAYLAND_DISPLAY=;VK_DRIVER_FILES=${CMAKE_CURRENT_BINARY_DIR}/no-delivery-driver.json")
+
+add_executable(texture_cook_worker tools/texture/TextureCookWorker.cpp)
+target_link_libraries(texture_cook_worker PRIVATE Engine::Asset KTX::ktx
+  Vulkan::Headers SanitizerShims)
+target_include_directories(texture_cook_worker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support
+  ${CMAKE_SOURCE_DIR}/engine/asset/src)
+engine_set_warnings(texture_cook_worker)
+add_dependencies(asset_tests texture_cook_worker)
+
+engine_test(texture_cooker_cli_tests SOURCES unit/asset/TextureCookerCliTests.cpp
+  LIBS TextureCookerCli nlohmann_json::nlohmann_json)
+target_include_directories(texture_cooker_cli_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
+add_dependencies(texture_cooker_cli_tests HikariTextureCooker)
+add_test(NAME texture_cooker_help
+  COMMAND "${HIKARI_TEXTURE_COOKER_EXECUTABLE}" --help)
+set_tests_properties(texture_cooker_help PROPERTIES LABELS "unit"
+  PASS_REGULAR_EXPRESSION "Usage: HikariTextureCooker"
+  ENVIRONMENT "DISPLAY=;WAYLAND_DISPLAY=;VK_DRIVER_FILES=${CMAKE_CURRENT_BINARY_DIR}/no-cooker-driver.json")
+
+# A CPU-only dependency gate. CMake drives child processes and the helper checks
+# actual pixels, native format metadata and libktx block round trips. Neither
+# target links the renderer or initializes a graphics API.
+add_executable(texture_tool_probe tools/texture/TextureToolProbe.cpp)
+target_link_libraries(texture_tool_probe PRIVATE Engine::Asset KTX::ktx
+                                                Vulkan::Headers SanitizerShims)
+engine_set_warnings(texture_tool_probe)
+add_test(NAME texture_tool_capabilities
+  COMMAND ${CMAKE_COMMAND}
+    "-DCLI=${Compressonator_EXECUTABLE}"
+    "-DPROBE=$<TARGET_FILE:texture_tool_probe>"
+    "-DWORK=${CMAKE_CURRENT_BINARY_DIR}/texture tool probe/$<CONFIG>"
+    "-DJPEG=${CMAKE_CURRENT_SOURCE_DIR}/data/textures/constant.jpg"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/scripts/texture_tool_probe.cmake")
+set_tests_properties(texture_tool_capabilities PROPERTIES LABELS "unit;texture-tools" TIMEOUT 180)
 
 engine_test(engine_tests SOURCES unit/engine/ParseEngineOptionTests.cpp
   unit/engine/BindGroupLayoutInventoryTests.cpp unit/engine/ShaderLayoutTests.cpp
@@ -56,13 +149,14 @@ engine_test(engine_tests SOURCES unit/engine/ParseEngineOptionTests.cpp
 
 # The layout test reads what Slang reflected out of the compiles that shipped,
 # so the shaders have to be built before it runs, and it needs to be told where
-# the JSON went. nlohmann-json is the same test-only dependency the comparison
-# uses.
+# the JSON went. It uses the same JSON library as texture settings and the
+# report comparison tool.
 target_link_libraries(engine_tests PRIVATE nlohmann_json::nlohmann_json)
 add_dependencies(engine_tests CompileShadersTarget)
+get_target_property(engine_shader_reflection_dir CompileShadersTarget HIKARI_SHADER_REFLECTION_DIR)
 target_compile_definitions(
   engine_tests PRIVATE
-  HIKARI_SHADER_REFLECTION_DIR="${HIKARI_SHADER_REFLECTION_DIR}"
+  HIKARI_SHADER_REFLECTION_DIR="${engine_shader_reflection_dir}"
   # Read as text, not compiled: two of the layout cases are about what the
   # shared header may say, which a compiler cannot object to.
   HIKARI_SHADER_TYPES_HEADER="${CMAKE_SOURCE_DIR}/engine/engine/src/shaders/ShaderTypes.h")
@@ -76,6 +170,7 @@ engine_test(rhi_tests SOURCES unit/rhi/AdapterNameTests.cpp unit/rhi/BackendTest
   unit/rhi/ConversionTests.cpp
   unit/rhi/D3D12PresentModeTests.cpp
   unit/rhi/DiagnosticsTests.cpp unit/rhi/FormatTests.cpp
+  unit/rhi/TextureFootprintTests.cpp
   unit/rhi/OwnershipTransferTests.cpp unit/rhi/QueueFamilyTests.cpp
   unit/rhi/SwapchainUtilTests.cpp unit/rhi/UniqueHandleTests.cpp
   LIBS Engine::RHI)
@@ -110,6 +205,11 @@ engine_test(
   SOURCES gpu/rhi/BindGroupTests.cpp gpu/rhi/DeviceTests.cpp gpu/rhi/EnginePipelineTests.cpp
           gpu/rhi/PresentTargetTests.cpp
           gpu/rhi/RenderingScopeTests.cpp gpu/rhi/ResourceTests.cpp
+          gpu/rhi/CompressedTextureTests.cpp
+          gpu/rhi/CompressedTransferTests.cpp
+          gpu/rhi/KtxTextureTests.cpp
+          gpu/rhi/TextureAcquisitionTests.cpp
+          gpu/rhi/SurfaceTextureTests.cpp
           gpu/rhi/UploadRoundTripTests.cpp
           gpu/rhi/ValidationCoverageTests.cpp
           support/RhiDeviceListener.cpp
@@ -131,9 +231,22 @@ hikari_deploy_d3d12(rhi_gpu_tests)
 # reached as engine_tests reaches them; Engine::Engine is linked for the
 # definitions those headers compile under, and nothing here calls into it.
 target_link_libraries(rhi_gpu_tests PRIVATE Engine::Engine)
+target_link_libraries(rhi_gpu_tests PRIVATE KTX::ktx)
 target_include_directories(rhi_gpu_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/engine/src)
 add_dependencies(rhi_gpu_tests CompileShadersTarget)
 target_compile_definitions(rhi_gpu_tests PRIVATE HIKARI_SHADER_DIR="${HIKARI_EXE_DIR}/shaders")
+target_compile_definitions(rhi_gpu_tests PRIVATE HIKARI_RELEASE_COOKER="${HIKARI_TEXTURE_COOKER_EXECUTABLE}")
+
+add_slang_shader_target(KtxSamplingShaders
+  SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+  SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/shaders/KtxSample.comp.slang"
+          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/KtxSampleCube.comp.slang"
+          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/SurfaceSample.slang"
+          "${CMAKE_CURRENT_SOURCE_DIR}/shaders/NormalDecode.comp.slang")
+add_dependencies(rhi_gpu_tests KtxSamplingShaders)
+target_compile_definitions(rhi_gpu_tests PRIVATE
+  HIKARI_KTX_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders")
 
 # The D3D12 backend's own cases, which reach its device through the module's
 # private headers as the Vulkan cases reach theirs through VulkanNative.h.

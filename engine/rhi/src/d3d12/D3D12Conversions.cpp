@@ -36,6 +36,30 @@ DXGI_FORMAT ToDxgi(Format format)
             return DXGI_FORMAT_D24_UNORM_S8_UINT;
         case Format::D32FloatS8Uint:
             return DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+        case Format::BC1Unorm:
+            return DXGI_FORMAT_BC1_UNORM;
+        case Format::BC1Srgb:
+            return DXGI_FORMAT_BC1_UNORM_SRGB;
+        case Format::BC2Unorm:
+            return DXGI_FORMAT_BC2_UNORM;
+        case Format::BC2Srgb:
+            return DXGI_FORMAT_BC2_UNORM_SRGB;
+        case Format::BC3Unorm:
+            return DXGI_FORMAT_BC3_UNORM;
+        case Format::BC3Srgb:
+            return DXGI_FORMAT_BC3_UNORM_SRGB;
+        case Format::BC4Unorm:
+            return DXGI_FORMAT_BC4_UNORM;
+        case Format::BC4Snorm:
+            return DXGI_FORMAT_BC4_SNORM;
+        case Format::BC5Unorm:
+            return DXGI_FORMAT_BC5_UNORM;
+        case Format::BC5Snorm:
+            return DXGI_FORMAT_BC5_SNORM;
+        case Format::BC7Unorm:
+            return DXGI_FORMAT_BC7_UNORM;
+        case Format::BC7Srgb:
+            return DXGI_FORMAT_BC7_UNORM_SRGB;
     }
 
     return DXGI_FORMAT_UNKNOWN;
@@ -65,6 +89,18 @@ DXGI_FORMAT ToDxgiResourceFormat(Format format, TextureUsage usage)
         case Format::RG32Float:
         case Format::RGB32Float:
         case Format::RGBA32Float:
+        case Format::BC1Unorm:
+        case Format::BC1Srgb:
+        case Format::BC2Unorm:
+        case Format::BC2Srgb:
+        case Format::BC3Unorm:
+        case Format::BC3Srgb:
+        case Format::BC4Unorm:
+        case Format::BC4Snorm:
+        case Format::BC5Unorm:
+        case Format::BC5Snorm:
+        case Format::BC7Unorm:
+        case Format::BC7Srgb:
             break;
     }
 
@@ -92,6 +128,18 @@ DXGI_FORMAT ToDxgiShaderViewFormat(Format format)
         case Format::RG32Float:
         case Format::RGB32Float:
         case Format::RGBA32Float:
+        case Format::BC1Unorm:
+        case Format::BC1Srgb:
+        case Format::BC2Unorm:
+        case Format::BC2Srgb:
+        case Format::BC3Unorm:
+        case Format::BC3Srgb:
+        case Format::BC4Unorm:
+        case Format::BC4Snorm:
+        case Format::BC5Unorm:
+        case Format::BC5Snorm:
+        case Format::BC7Unorm:
+        case Format::BC7Srgb:
             break;
     }
 

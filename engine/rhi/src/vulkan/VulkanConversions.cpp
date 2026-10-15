@@ -352,6 +352,30 @@ vk::Format ToVk(Format format)
             return vk::Format::eD24UnormS8Uint;
         case Format::D32FloatS8Uint:
             return vk::Format::eD32SfloatS8Uint;
+        case Format::BC1Unorm:
+            return vk::Format::eBc1RgbaUnormBlock;
+        case Format::BC1Srgb:
+            return vk::Format::eBc1RgbaSrgbBlock;
+        case Format::BC2Unorm:
+            return vk::Format::eBc2UnormBlock;
+        case Format::BC2Srgb:
+            return vk::Format::eBc2SrgbBlock;
+        case Format::BC3Unorm:
+            return vk::Format::eBc3UnormBlock;
+        case Format::BC3Srgb:
+            return vk::Format::eBc3SrgbBlock;
+        case Format::BC4Unorm:
+            return vk::Format::eBc4UnormBlock;
+        case Format::BC4Snorm:
+            return vk::Format::eBc4SnormBlock;
+        case Format::BC5Unorm:
+            return vk::Format::eBc5UnormBlock;
+        case Format::BC5Snorm:
+            return vk::Format::eBc5SnormBlock;
+        case Format::BC7Unorm:
+            return vk::Format::eBc7UnormBlock;
+        case Format::BC7Srgb:
+            return vk::Format::eBc7SrgbBlock;
     }
 
     throw std::runtime_error("Rhi::Vulkan::ToVk(Format): unhandled enumerator.");

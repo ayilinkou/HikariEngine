@@ -132,6 +132,13 @@ struct GlobalBuffer
     float Time;
 };
 
+// Shader encoding identifiers are separate from asset enums and shared with C++.
+static const uint32_t NormalEncodingXyzUnorm = 0u;
+static const uint32_t NormalEncodingXyUnormPositiveZ = 1u;
+static const uint32_t NormalEncodingXySnormPositiveZ = 2u;
+static const uint32_t NormalEncodingYxUnormPositiveZ = 3u;
+static const uint32_t NormalEncodingAgUnormPositiveZ = 4u;
+
 struct MaterialPushConstant
 {
     float4 Albedo = float4(1.f, 0.f, 1.f, 1.f);
@@ -144,6 +151,7 @@ struct MaterialPushConstant
     bool32 bHasNormalTex = false;
     bool32 bHasMetallicRoughnessTex = false;
     bool32 bTwoSided = false;
+    uint32_t NormalEncoding = NormalEncodingXyzUnorm;
 };
 
 struct CloudPushConstants

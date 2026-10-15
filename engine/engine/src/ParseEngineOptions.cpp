@@ -1,8 +1,10 @@
 #include <engine/ParseEngineOptions.h>
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 #include <rhi/Backend.h>
@@ -55,6 +57,25 @@ bool ParseEngineOption(const Platform::CommandLineOption& option, RunSpec& spec,
         spec.ScenePath = option.RequireValue();
     else if (flag == "--content")
         spec.ContentRoot = option.RequireValue();
+    else if (flag == "--cooked-root")
+        spec.CookedRoot = option.RequireValue();
+    else if (flag == "--texture-quality")
+    {
+        const auto value = option.RequireValue();
+        try
+        {
+            size_t consumed = 0;
+            const double quality = std::stod(value, &consumed);
+            if (consumed != value.size() || !std::isfinite(quality) || quality < 0 || quality > 1)
+                throw std::invalid_argument("Invalid quality");
+            spec.TextureEncodingQuality = quality;
+        }
+        catch (const std::exception&)
+        {
+            throw Platform::CommandLineError(
+                "--texture-quality: Expected a finite number in [0, 1]");
+        }
+    }
     else if (flag == "--frames")
         spec.Frames = option.RequireUint64();
     else if (flag == "--fixed-dt")
@@ -227,6 +248,9 @@ void RejectContradictoryOptions(const RunSpec& spec)
 
 void PrintEngineUsage()
 {
+    std::cout
+        << "  --cooked-root <dir>     Use <dir> for cooked textures (default: content sibling)\n"
+           "  --texture-quality <Q>   Minimum runtime encoding quality, 0..1 (default: 1.0)\n";
     std::cout << "  --scene <path>          Load a scene (.map) on startup\n"
                  "  --content <dir>         Use <dir> as the content root\n"
                  "  --frames <N>            Exit automatically after N frames "

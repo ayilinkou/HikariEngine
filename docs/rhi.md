@@ -133,6 +133,17 @@ only formats with both a `VkFormat` and a `DXGI_FORMAT`. Adding one means adding
 *and* to both conversion tables in the same commit, which §11's `default:`-free switches make a
 build error rather than a runtime surprise.
 
+BC1/2/3/4/5/7 include their native sRGB or signed variants; BC1 maps to Vulkan's RGBA
+interpretation. `BytesPerTexel` returns zero for compressed formats. Use `BytesPerBlock`,
+`GetFormatBlockExtent` and `ComputeTextureFootprint` for packed payload sizes, including whole
+blocks at odd edges and tiny mips. The checked footprint helper rejects zero extents, ambiguous
+depth/stencil sizes and overflow. Format support comes from the enabled device features and
+native format queries. BC creation and buffer transfers support 2D textures and single
+cubemaps, with native dimension constraints checked without resizing. Uploads require every
+mip/layer in one call, with exact packed block payloads. Copy offsets align to whole blocks;
+copy extents cover whole blocks or reach the logical mip edge. D3D12's buffer footprints
+round BC dimensions to whole blocks, with tight row pitches and layer offsets under D39.
+
 **D6 — Queues are `QueueType { Graphics, Compute, Copy }`**, matching D3D12's DIRECT / COMPUTE /
 COPY, which have no notion of a family index. Vulkan's family indices stay inside
 `VulkanDevice`. Queue-family ownership transfer is a Vulkan-only mechanism, made conditional by

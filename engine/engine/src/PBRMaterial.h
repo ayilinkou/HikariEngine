@@ -28,8 +28,8 @@ public:
     virtual void* GetPushConstantData() override { return &m_MatData; }
 
 private:
-    void LoadTextures(aiMaterial* mat, const std::string& texturesParentFolder,
-                      AssetRegistry& assets);
+    void LoadTextures(Hikari::Rhi::IDevice& rhiDevice, aiMaterial* mat,
+                      const std::string& texturesParentFolder, AssetRegistry& assets);
     void CreateBindGroup(Hikari::Rhi::IDevice& rhiDevice,
                          Hikari::Rhi::BindGroupLayoutHandle materialLayout,
                          Hikari::Rhi::SamplerHandle sampler);

@@ -1,13 +1,17 @@
 #include "d3d12/D3D12CommandList.h"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <format>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include "TextureTransferValidation.h"
 
 #include "d3d12/D3D12Conversions.h"
 #include "d3d12/D3D12DebugName.h"
@@ -322,12 +326,13 @@ void D3D12CommandList::CopyTextureToBuffer(TextureHandle source, BufferHandle de
 }
 
 /**
- * The seam's region is Vulkan's: layers packed one after another in the buffer, each
- * tightly packed to its extent. D3D12 copies one subresource per call, so each layer
+ * Layers are packed one after another in the buffer, each tightly packed to its
+ * extent in texel blocks. D3D12 copies one subresource per call, so each layer
  * is its own copy at its own offset. The footprint's format comes from
  * GetCopyableFootprints, which knows a subresource's plane format; its pitch is
- * overridden to the tight one, which the unrestricted copy pitch the device was
- * required to have makes legal.
+ * overridden to the tight one. VulkanOn12's "Unrestricted Buffer Texture Copy Row
+ * Pitch and Offset" permits block-size alignment for compressed formats too; the
+ * device requires that feature (D39).
  */
 void D3D12CommandList::CopyTextureLayers(TextureHandle texture, BufferHandle buffer,
                                          const BufferTextureCopyRegion& region, bool bToTexture)
@@ -345,9 +350,29 @@ void D3D12CommandList::CopyTextureLayers(TextureHandle texture, BufferHandle buf
     }
 
     const TextureDesc& desc = pTexture->Desc;
-    const uint64_t texelBytes = BytesPerTexel(desc.Format);
-    const uint64_t layerBytes = static_cast<uint64_t>(region.Extent.Width) * region.Extent.Height *
-                                region.Extent.Depth * texelBytes;
+    const TextureFootprint packed = ValidateTextureCopy(
+        desc, region, bToTexture ? "CopyBufferToTexture" : "CopyTextureToBuffer");
+    if (packed.RowBytes > std::numeric_limits<UINT>::max())
+        throw std::runtime_error("Rhi::CopyTexture: packed row pitch exceeds D3D12's UINT range.");
+    const uint64_t layerBytes = packed.TotalBytes / region.LayerCount;
+    const Core::Extent3D block = GetFormatBlockExtent(desc.Format);
+    // D3DX12GetCopyableFootprints rounds BC dimensions to whole blocks. Only the
+    // staging footprint is rounded; the texture and the seam retain logical mip sizes.
+    const auto alignExtent = [](uint32_t size, uint32_t alignment)
+    {
+        return static_cast<UINT>((static_cast<uint64_t>(size) + alignment - 1u) / alignment *
+                                 alignment);
+    };
+    const D3D12_BOX copyBox{0u,
+                            0u,
+                            0u,
+                            alignExtent(region.Extent.Width, block.Width),
+                            alignExtent(region.Extent.Height, block.Height),
+                            region.Extent.Depth};
+    const bool bWholeMip =
+        region.Extent == Core::Extent3D{std::max(desc.Extent.Width >> region.MipLevel, 1u),
+                                        std::max(desc.Extent.Height >> region.MipLevel, 1u),
+                                        std::max(desc.Extent.Depth >> region.MipLevel, 1u)};
     const uint32_t plane = region.Aspect == TextureAspect::Stencil ? 1u : 0u;
     const D3D12_RESOURCE_DESC resourceDesc = pTexture->Resource->GetDesc();
 
@@ -360,10 +385,10 @@ void D3D12CommandList::CopyTextureLayers(TextureHandle texture, BufferHandle buf
         m_Device.GetNativeDevice().GetCopyableFootprints(&resourceDesc, subresource, 1, 0,
                                                          &footprint, nullptr, nullptr, nullptr);
         footprint.Offset = region.BufferOffset + layer * layerBytes;
-        footprint.Footprint.Width = region.Extent.Width;
-        footprint.Footprint.Height = region.Extent.Height;
+        footprint.Footprint.Width = copyBox.right;
+        footprint.Footprint.Height = copyBox.bottom;
         footprint.Footprint.Depth = region.Extent.Depth;
-        footprint.Footprint.RowPitch = static_cast<UINT>(region.Extent.Width * texelBytes);
+        footprint.Footprint.RowPitch = static_cast<UINT>(packed.RowBytes);
 
         D3D12_TEXTURE_COPY_LOCATION textureLocation{};
         textureLocation.pResource = pTexture->Resource.Get();
@@ -378,7 +403,8 @@ void D3D12CommandList::CopyTextureLayers(TextureHandle texture, BufferHandle buf
         if (bToTexture)
             m_List->CopyTextureRegion(&textureLocation, 0, 0, 0, &bufferLocation, nullptr);
         else
-            m_List->CopyTextureRegion(&bufferLocation, 0, 0, 0, &textureLocation, nullptr);
+            m_List->CopyTextureRegion(&bufferLocation, 0, 0, 0, &textureLocation,
+                                      bWholeMip ? nullptr : &copyBox);
     }
 
     if (m_Type == D3D12_COMMAND_LIST_TYPE_COPY)

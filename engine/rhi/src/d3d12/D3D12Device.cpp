@@ -804,6 +804,36 @@ void* D3D12Device::GetMappedData(BufferHandle handle)
 TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc)
 {
     ValidateTextureDesc(desc);
+    if (!IsFormatSupported(desc.Format, desc.Usage))
+        throw std::runtime_error(std::format(
+            "Rhi::CreateTexture('{}'): D3D12 device does not support format {} for usage {:#x}; "
+            "choose a supported format/usage or another device.",
+            desc.DebugName, static_cast<uint32_t>(ToDxgi(desc.Format)),
+            static_cast<uint32_t>(desc.Usage)));
+
+    // BC top-level dimensions must be multiples of four; lower mips retain
+    // their logical dimensions, including 2x2 and 1x1. Never resize authored input.
+    if (IsBlockCompressed(desc.Format) &&
+        (desc.Extent.Width % 4u != 0u || desc.Extent.Height % 4u != 0u))
+        throw std::runtime_error(std::format(
+            "Rhi::CreateTexture('{}'): D3D12 BC base width and height must be multiples of 4 "
+            "(got {}x{}); use compatible source dimensions or an uncompressed format.",
+            desc.DebugName, desc.Extent.Width, desc.Extent.Height));
+
+    if (IsBlockCompressed(desc.Format))
+    {
+        D3D12_FEATURE_DATA_FORMAT_SUPPORT support{.Format = ToDxgi(desc.Format)};
+        const D3D12_FORMAT_SUPPORT1 required = desc.bCubeCompatible
+                                                   ? D3D12_FORMAT_SUPPORT1_TEXTURECUBE
+                                                   : D3D12_FORMAT_SUPPORT1_TEXTURE2D;
+        if (FAILED(m_Device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support,
+                                                 sizeof(support))) ||
+            (support.Support1 & required) != required ||
+            (desc.MipLevels > 1u && (support.Support1 & D3D12_FORMAT_SUPPORT1_MIP) == 0))
+            throw std::runtime_error(std::format(
+                "Rhi::CreateTexture('{}'): D3D12 device does not support this BC shape/mip chain.",
+                desc.DebugName));
+    }
 
     D3D12_RESOURCE_DESC resourceDesc{};
     resourceDesc.Dimension = desc.Dimension == TextureDimension::Texture3D

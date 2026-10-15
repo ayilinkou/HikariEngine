@@ -12,7 +12,7 @@
 namespace Hikari::Rhi
 {
 /**
- * One subresource's worth of pixels, and which subresource they belong to.
+ * Packed texels or compressed blocks, and which subresources they belong to.
  *
  * Deliberately not BufferTextureCopyRegion: that names an offset into a staging
  * buffer, and the whole point of an upload context is that the caller does not
@@ -144,6 +144,11 @@ public:
      *
      * For the same reason `destination` must be freshly created and not yet
      * used: Undefined is the only layout this can transition from.
+     *
+     * Requires Sampled | CopyDst usage and complete, nonoverlapping mip/layer
+     * payloads with exact packed sizes from ComputeTextureFootprint. BC payloads
+     * contain whole blocks even at tiny mips; layers follow one another without
+     * padding. Depth/stencil uploads are rejected before staging is allocated.
      */
     virtual void UploadTexture(TextureHandle destination,
                                std::span<const TextureUpload> subresources) = 0;

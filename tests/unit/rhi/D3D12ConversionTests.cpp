@@ -11,6 +11,29 @@
 using namespace Hikari::Rhi;
 using namespace Hikari::Rhi::D3D12;
 
+TEST_CASE("BC formats preserve alpha signedness and color space in D3D12", "[RhiConversions][bc]")
+{
+    CHECK(ToDxgi(Format::BC1Unorm) == DXGI_FORMAT_BC1_UNORM);
+    CHECK(ToDxgi(Format::BC1Srgb) == DXGI_FORMAT_BC1_UNORM_SRGB);
+    CHECK(ToDxgi(Format::BC2Unorm) == DXGI_FORMAT_BC2_UNORM);
+    CHECK(ToDxgi(Format::BC2Srgb) == DXGI_FORMAT_BC2_UNORM_SRGB);
+    CHECK(ToDxgi(Format::BC3Unorm) == DXGI_FORMAT_BC3_UNORM);
+    CHECK(ToDxgi(Format::BC3Srgb) == DXGI_FORMAT_BC3_UNORM_SRGB);
+    CHECK(ToDxgi(Format::BC4Unorm) == DXGI_FORMAT_BC4_UNORM);
+    CHECK(ToDxgi(Format::BC4Snorm) == DXGI_FORMAT_BC4_SNORM);
+    CHECK(ToDxgi(Format::BC5Unorm) == DXGI_FORMAT_BC5_UNORM);
+    CHECK(ToDxgi(Format::BC5Snorm) == DXGI_FORMAT_BC5_SNORM);
+    CHECK(ToDxgi(Format::BC7Unorm) == DXGI_FORMAT_BC7_UNORM);
+    CHECK(ToDxgi(Format::BC7Srgb) == DXGI_FORMAT_BC7_UNORM_SRGB);
+    for (const Format format : kAllFormats)
+    {
+        if (!IsBlockCompressed(format))
+            continue;
+        CHECK(ToDxgiResourceFormat(format, TextureUsage::Sampled) == ToDxgi(format));
+        CHECK(ToDxgiShaderViewFormat(format) == ToDxgi(format));
+    }
+}
+
 TEST_CASE("A D3D12 sampler's anisotropy is always within the documented 1 to 16",
           "[RhiConversions][d3d12]")
 {

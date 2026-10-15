@@ -1,0 +1,47 @@
+#include "../../engine/engine/src/shaders/normal.slangh"
+#include "../../engine/engine/src/shaders/registers.slangh"
+
+struct ReviewConstants
+{
+    uint Face;
+    uint NormalEncoding;
+    uint IsNormal;
+    uint IsColor;
+};
+PUSH_CONSTANT(ReviewConstants, review);
+SamplerState sourceSampler : register(s1, space0);
+
+struct VertexInput
+{
+    float2 Position : POSITION0;
+    float2 Uv : TEXCOORD0;
+};
+struct VertexOutput
+{
+    float4 Position : SV_Position;
+    float2 Uv : TEXCOORD0;
+};
+
+[shader("vertex")]
+VertexOutput vertMain(VertexInput input)
+{
+    VertexOutput output;
+    output.Position = float4(input.Position, 0.f, 1.f);
+    output.Uv = input.Uv;
+    return output;
+}
+
+float3 DisplayColor(float4 packed)
+{
+    float3 color = packed.rgb;
+    if (review.IsNormal != 0)
+    {
+        float3 normal = DecodeTangentNormal(packed, review.NormalEncoding);
+        // A fixed light reveals the visual effect of normal compression.
+        color = float3(0.1f + 0.9f * max(0.f, dot(normal, normalize(float3(0.4f, 0.5f, 1.f)))));
+    }
+    if (review.IsColor != 0 || review.IsNormal != 0)
+        color = select(color <= float3(0.0031308f), 12.92f * color,
+                       1.055f * pow(max(color, float3(0.f)), float3(1.f / 2.4f)) - 0.055f);
+    return color;
+}

@@ -173,6 +173,8 @@ public:
      * invented to ask it.
      *
      * `usage` may name several bits, and all of them must be supported.
+     * Creation also validates the requested shape and mip chain. Format support
+     * does not imply that buffer transfers are implemented for that format.
      */
     virtual bool IsFormatSupported(Format format, TextureUsage usage) const = 0;
 

@@ -343,6 +343,7 @@ private:
      */
     bool m_bMaintenance8Enabled = false;
     bool m_bMaintenance9Enabled = false;
+    bool m_bTextureCompressionBCEnabled = false;
 
     /**
      * optimalImageTransferToQueueFamilies per queue family, empty unless

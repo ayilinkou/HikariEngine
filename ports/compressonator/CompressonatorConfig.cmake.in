@@ -1,0 +1,8 @@
+get_filename_component(_compressonator_prefix "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(Compressonator_EXECUTABLE "${_compressonator_prefix}/tools/compressonator/@CLI_NAME@")
+set(Compressonator_VERSION "@VERSION@")
+unset(_compressonator_prefix)
+if(NOT EXISTS "${Compressonator_EXECUTABLE}")
+  set(Compressonator_FOUND FALSE)
+  set(Compressonator_NOT_FOUND_MESSAGE "Pinned Compressonator executable is missing: ${Compressonator_EXECUTABLE}")
+endif()

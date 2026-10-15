@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -24,6 +25,7 @@
 
 #include <engine/IEngine.h>
 #include <engine/IUiBackend.h>
+#include <engine/ParseEngineOptions.h>
 
 #include "ImageCompare.h"
 #include "TestBackend.h"
@@ -142,6 +144,20 @@ int RunCommand(const std::string& command)
 #endif
 }
 
+Engine::RunSpec SceneRunSpec()
+{
+    Engine::RunSpec spec;
+    if (const auto quality = TestEnvironment::Value("HIKARI_SCENE_TEXTURE_QUALITY");
+        !quality.empty())
+    {
+        // Use the application's validated option, scoped to scene smoke tests.
+        // Codec/quality unit tests and normal application defaults stay intact.
+        Engine::EngineConfig config;
+        Engine::ParseEngineOption({.Flag = "--texture-quality", .Value = quality}, spec, config);
+    }
+    return spec;
+}
+
 /**
  * The null device, which is not spelled the same on both platforms — and a
  * literal "/dev/null" on Windows is a path cmd cannot parse at all.
@@ -179,7 +195,7 @@ Engine::RunResult RunScene(const std::string& contentRoot, const std::string& sc
     SerialJobSystem jobSystem;
     Paths paths(contentRoot);
 
-    Engine::RunSpec spec;
+    Engine::RunSpec spec = SceneRunSpec();
 
     // Explicit rather than inherited from the build: these cases assert that a
     // run produced no validation errors, and a release build with no layer
@@ -233,7 +249,7 @@ std::string BackendArguments()
     if (backend == Rhi::Backend::D3D12)
         arguments += " --d3d12-gpu-based-validation full";
 
-    return arguments;
+    return arguments + std::format(" --texture-quality {}", SceneRunSpec().TextureEncodingQuality);
 }
 
 /** What a scene's geometry must come out as, derived from the scene itself. */
@@ -342,10 +358,8 @@ TEST_CASE("Single- and two-sided materials draw in one pass, switching pipeline 
     // Cull mode is a pipeline property, so the opaque pass binds one of two pipelines
     // per batch; the groups bound before the switch have to survive it, since both
     // pipelines share a layout. Any mistake there is a validation error on the draw.
-    CheckScene({.Scene = "scenes/mixed_sidedness.map",
-                .DrawCalls = 2u,
-                .Batches = 2u,
-                .Instances = 2u});
+    CheckScene(
+        {.Scene = "scenes/mixed_sidedness.map", .DrawCalls = 2u, .Batches = 2u, .Instances = 2u});
 }
 
 TEST_CASE("Two entities of one model merge into a single instanced batch", "[scene]")
@@ -432,7 +446,7 @@ TEST_CASE("A scripted run replays input, resizes and captures where it was told 
     SerialJobSystem jobSystem;
     Paths paths(TestDataDir());
 
-    Engine::RunSpec spec;
+    Engine::RunSpec spec = SceneRunSpec();
     spec.D3D12GpuBasedValidation = Rhi::GpuBasedValidation::Full;
     spec.Backend = RhiTest::TestBackend();
     spec.Gpu = RhiTest::TestGpu();

@@ -3,6 +3,7 @@
 
 #include "common.slangh"
 #include "pbr.slangh"
+#include "normal.slangh"
 
 struct VS_In
 {
@@ -106,8 +107,8 @@ FS_Out fragMain(VS_Out f)
 	float3 N;
 	if (pcMatData.bHasNormalTex)
 	{
-		float3 tangentNormal = normalTex.Sample(materialSampler, f.TexCoord).xyz; // packed tangent space normal
-		tangentNormal = tangentNormal * 2.f - float3(1.f); // unpacked tangent space
+		float3 tangentNormal = DecodeTangentNormal(
+			normalTex.Sample(materialSampler, f.TexCoord), pcMatData.NormalEncoding);
 
 		float3 T = normalize(f.Tangent.xyz);
 		T = normalize(T - vertexNormal * dot(T, vertexNormal)); // re-orthogonalise tangent

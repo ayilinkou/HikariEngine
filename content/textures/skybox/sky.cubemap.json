@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "usage": "color",
+  "format": "bc7",
+  "colorSpace": "srgb",
+  "mipmaps": true,
+  "flipNormalY": false,
+  "alphaMode": "opaque",
+  "alphaCutoff": 0.5,
+  "faces": {
+    "positiveX": "right.jpg",
+    "negativeX": "left.jpg",
+    "positiveY": "top.jpg",
+    "negativeY": "bottom.jpg",
+    "positiveZ": "back.jpg",
+    "negativeZ": "front.jpg"
+  }
+}

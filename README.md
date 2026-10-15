@@ -9,6 +9,9 @@
 
 A cross-platform game engine for Windows and Linux, with two graphics backends behind one neutral RHI: **Vulkan** on both platforms, **D3D12** on Windows.
 
+See [texture cooking workflows](docs/texture_workflows.md) for offline cooking, runtime
+BC1/offline BC7 policy, source settings and delivery checks.
+
 ## Requirements
 
 - **CMake 4.0 or newer**, and **Ninja** for the `ninja-*` presets.
@@ -60,6 +63,8 @@ Both the editor and headless binaries take the same options, except where the wi
 |---|---|
 | `--scene <path>` | scene to load; without the flag, no scene is loaded |
 | `--content <dir>` | content root |
+| `--cooked-root <dir>` | cooked texture root (default: sibling of the content root) |
+| `--texture-quality <0..1>` | minimum runtime texture encoding quality (default 1.0) |
 | `--frames <N>` | exit after N frames (0 = run until closed) |
 | `--fixed-dt` | a fixed 1/60 s timestep instead of wall-clock time |
 | `--camera-preset <N>` | start the camera at preset 0–2 instead of free-look |

@@ -48,7 +48,7 @@ endif()
 # like a content root — an incomplete one, with no models, scenes or textures —
 # and asset loading would resolve to it and fail.
 function(add_slang_shader_target target)
-  cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
+  cmake_parse_arguments("SHADER" "" "SOURCE_DIRECTORY;OUTPUT_DIRECTORY" "SOURCES" ${ARGN})
 
   # Emitted on every platform, not only on Windows (plan D27). Slang and DXC both
   # come from vcpkg as host dependencies, so a Linux build compiles the DXIL a
@@ -69,7 +69,6 @@ function(add_slang_shader_target target)
   # deployed beside the executable — the same argument the depfiles carry.
   # Nothing at run time reads it; the layout test does.
   set(reflection_dir ${CMAKE_CURRENT_BINARY_DIR}/shader_reflection/$<CONFIG>)
-  set(HIKARI_SHADER_REFLECTION_DIR ${reflection_dir} PARENT_SCOPE)
 
   # What makes a single `: register(tN, spaceM)` annotation serve both APIs
   # (plan D29). slangc's own help: "For a resource attached with :register(bX,
@@ -86,8 +85,16 @@ function(add_slang_shader_target target)
       -fvk-s-shift 0 all
       -fvk-u-shift 0 all)
 
-  set(shaders_source_dir ${CMAKE_SOURCE_DIR}/engine/engine/src/shaders)
-  set(shaders_out_dir ${HIKARI_EXE_DIR}/shaders)
+  if(SHADER_SOURCE_DIRECTORY)
+    set(shaders_source_dir ${SHADER_SOURCE_DIRECTORY})
+  else()
+    set(shaders_source_dir ${CMAKE_SOURCE_DIR}/engine/engine/src/shaders)
+  endif()
+  if(SHADER_OUTPUT_DIRECTORY)
+    set(shaders_out_dir ${SHADER_OUTPUT_DIRECTORY})
+  else()
+    set(shaders_out_dir ${HIKARI_EXE_DIR}/shaders)
+  endif()
 
   set(spv_outputs "")
   foreach(shader ${SHADER_SOURCES})
@@ -198,6 +205,9 @@ function(add_slang_shader_target target)
   endforeach()
 
   add_custom_target(${target} ALL DEPENDS ${spv_outputs})
+  # Keep the directory on the target so callers can select the reflections
+  # they need even after other shader targets have been declared.
+  set_target_properties(${target} PROPERTIES HIKARI_SHADER_REFLECTION_DIR "${reflection_dir}")
 endfunction()
 
 file(GLOB_RECURSE shader_slang_sources

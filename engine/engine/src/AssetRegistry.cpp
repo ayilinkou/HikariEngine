@@ -14,9 +14,16 @@ using namespace Hikari::Platform;
 constexpr std::string_view fallbackTexturePrefix = "FallbackTexture";
 
 AssetRegistry::AssetRegistry(Rhi::IDevice& rhiDevice, Rhi::IUploadContext& uploadContext,
-                             const Paths& paths, MaterialFactory& materialFactory)
-    : m_UploadContext(uploadContext), m_Paths(paths), m_TextureLoader(rhiDevice, uploadContext),
-      m_CubemapLoader(rhiDevice, uploadContext),
+                             const Paths& paths, MaterialFactory& materialFactory,
+                             std::filesystem::path cookedRoot,
+                             std::filesystem::path cookerExecutable, double textureEncodingQuality)
+    : m_UploadContext(uploadContext), m_Paths(paths),
+      m_TextureSource(paths.ContentRoot(), std::move(cookedRoot),
+                      cookerExecutable.empty() ? std::filesystem::path(HIKARI_RUNTIME_COOKER_PATH)
+                                               : std::move(cookerExecutable),
+                      textureEncodingQuality),
+      m_TextureLoader(rhiDevice, uploadContext, m_TextureSource),
+      m_CubemapLoader(rhiDevice, uploadContext, m_TextureSource),
       m_ModelLoader(rhiDevice, uploadContext, *this, materialFactory)
 {
     LogMsg(LogSeverity::Info, LogAssetRegistry, "Constructed");
@@ -45,31 +52,61 @@ void AssetRegistry::PurgeCaches()
 }
 
 std::shared_ptr<Texture> AssetRegistry::LoadTexture(const std::string& filepath,
-                                                    const Rhi::Format format)
+                                                    Asset::TextureUsage expectedUsage)
 {
     LoadScope uploads(*this);
 
     // Keyed on the resolved path so that the same file requested relatively
     // (from a scene) and absolutely (from a model's own texture references)
     // shares one cache entry.
-    const std::string resolved = m_Paths.Content(filepath).string();
-    const std::string key = resolved + std::to_string(static_cast<uint32_t>(format));
-    auto tex = m_TextureCache.Get(key, [&] { return m_TextureLoader.Load(resolved, format); });
+    std::shared_ptr<Texture> tex;
+    try
+    {
+        const std::string resolved = m_TextureSource.ResolvePath(filepath).string();
+        tex = m_TextureCache.Get(resolved, [&] { return m_TextureLoader.Load(resolved); });
+    }
+    catch (const std::exception& error)
+    {
+        LogMsg(LogSeverity::Error, LogAssetRegistry, "{}: {}", filepath, error.what());
+    }
     if (!tex)
     {
-        tex.reset();
-        const std::string fallbackTextureKey =
-            std::string(fallbackTexturePrefix) + std::to_string(static_cast<uint32_t>(format));
+        const auto format = expectedUsage == Asset::TextureUsage::Color ? Rhi::Format::RGBA8Srgb
+                                                                        : Rhi::Format::RGBA8Unorm;
+        std::string fallbackTextureKey(fallbackTexturePrefix);
+        fallbackTextureKey += std::to_string(static_cast<uint32_t>(format));
         return m_TextureCache.Get(fallbackTextureKey,
                                   [&] { return m_TextureLoader.LoadFallbackTexture(format); });
     }
+    const auto& metadata = tex->GetMetadata();
+    if (metadata.Usage != expectedUsage)
+        LogMsg(LogSeverity::Warning, LogAssetRegistry,
+               "{}: Material slot expects {} usage; saved usage is {} (settings: {}). "
+               "Loading with saved settings. Review the source settings and recook.",
+               tex->GetPath(), Asset::ToString(expectedUsage),
+               metadata.Usage ? Asset::ToString(*metadata.Usage) : "unspecified",
+               tex->GetSettingsPath().empty() ? "cooked metadata only" : tex->GetSettingsPath());
     return tex;
 }
 
-std::shared_ptr<Cubemap> AssetRegistry::LoadCubemap(const CubemapCreateInfo& createInfo)
+std::shared_ptr<Cubemap> AssetRegistry::LoadCubemap(const std::string& filepath,
+                                                    const std::string& name)
 {
     LoadScope uploads(*this);
-    return m_CubemapCache.Get(createInfo.Key(), [&] { return m_CubemapLoader.Load(createInfo); });
+    std::shared_ptr<Cubemap> cubemap;
+    try
+    {
+        const std::string resolved = m_TextureSource.ResolvePath(filepath).string();
+        cubemap =
+            m_CubemapCache.Get(resolved, [&] { return m_CubemapLoader.Load(resolved, name); });
+    }
+    catch (const std::exception& error)
+    {
+        LogMsg(LogSeverity::Error, LogAssetRegistry, "{}: {}", filepath, error.what());
+    }
+    return cubemap ? cubemap
+                   : m_CubemapCache.Get("FallbackCubemap",
+                                        [&] { return m_CubemapLoader.LoadFallbackCubemap(); });
 }
 
 std::shared_ptr<ModelData> AssetRegistry::LoadModel(const std::string& modelPath)

@@ -31,7 +31,7 @@ endif()
 project(
   HikariEngine
   VERSION 1.0
-  LANGUAGES CXX)
+  LANGUAGES C CXX)
 
 option(ENGINE_BUILD_TESTS "Build unit tests" ON)
 option(ENABLE_SANITIZERS "Enable ASan (and UBSan when available)" OFF)
@@ -81,7 +81,9 @@ find_package(Stb REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(pugixml CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 include(cmake/D3D12.cmake)
+include(cmake/TextureTools.cmake)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -168,16 +170,15 @@ endif()
 
 include(cmake/Shaders.cmake)
 
+set(HIKARI_TEXTURE_COOKER_BUILD_DIR "${CMAKE_SOURCE_DIR}/build/texture-cooker" CACHE PATH
+    "Shared Release host-tool build used by every engine configuration")
+set(HIKARI_TEXTURE_COOKER_EXECUTABLE
+    "${HIKARI_TEXTURE_COOKER_BUILD_DIR}/HikariTextureCooker${CMAKE_EXECUTABLE_SUFFIX}")
+
 if(ENGINE_BUILD_TESTS)
   enable_testing()
   find_package(Catch2 CONFIG REQUIRED)
 
-  # Test-only, like Catch2: the comparison tool reads run reports with it. Its
-  # at() throws and names the missing key, where rapidjson's operator[] asserts
-  # through RAPIDJSON_ASSERT — which is assert, and therefore gone in a release
-  # build, leaving the unsafe path as the default one in the configuration
-  # nothing would catch it in.
-  find_package(nlohmann_json CONFIG REQUIRED)
   include(cmake/Testing.cmake)
   add_subdirectory(tests)
 endif()

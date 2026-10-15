@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include <asset/ImageInfo.h>
 #include <core/Extent2D.h>
 
 namespace Hikari::Asset
@@ -19,16 +20,23 @@ struct Image
 {
     std::vector<uint8_t> Pixels;
     Core::Extent2D Extent;
+    // Original file channels, retained before forcing decoded pixels to RGBA.
+    uint32_t SourceChannels = 0;
 };
 
 /**
  * Decodes a PNG to 8-bit RGBA, whatever channel count the file itself carries.
  *
- * Forced to four channels rather than reporting the file's own: every caller
- * either compares against WritePng's output or re-encodes through it, and both
+ * Forced to four pixel channels: every caller either compares against
+ * WritePng's output or re-encodes through it, and both
  * are always RGBA, so a three-channel decode would silently change the stride
  * underneath them. Returns nothing and logs on failure.
  */
 [[nodiscard]] std::optional<Image> ReadPng(const std::string& path);
+
+// Inspect PNG/JPG dimensions and original channels; report failure through error.
+std::optional<ImageInfo> ReadImageInfo(const std::string& path, std::string& error);
+// Strict 8-bit PNG/JPG input for cooking, reporting errors without renderer/log dependencies.
+std::optional<Image> ReadTextureImage(const std::string& path, std::string& error);
 
 } // namespace Hikari::Asset
