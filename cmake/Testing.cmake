@@ -6,6 +6,10 @@ if(WIN32)
   list(APPEND HIKARI_TEST_BACKENDS D3D12)
 endif()
 
+# Every engine_test joins this target. Standalone test builds also attach
+# manually registered test executables and helpers at their declaration sites.
+add_custom_target(HikariTests)
+
 # engine_test(<name>
 #   SOURCES <s1> [<s2> ...]
 #   [LIBS <lib> ...]
@@ -45,6 +49,7 @@ function(engine_test test_name)
   endif()
 
   add_executable(${test_name} ${TEST_SOURCES})
+  add_dependencies(HikariTests ${test_name})
 
   # SanitizerShims is linked directly rather than inherited: an OBJECT
   # library's files reach only the targets that name it. See
