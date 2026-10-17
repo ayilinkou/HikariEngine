@@ -12,7 +12,7 @@ if not "%PRESET%"=="msvc" (
     if errorlevel 1 exit /b %errorlevel%
 )
 
-ctest --test-dir "build\%PRESET%" -L unit --output-on-failure
+ctest --test-dir "build\%PRESET%" -L unit --no-tests=error --output-on-failure
 if errorlevel 1 exit /b %errorlevel%
 
 endlocal

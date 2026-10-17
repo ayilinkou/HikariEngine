@@ -94,6 +94,7 @@ add_dependencies(asset_tests cook_process_fixture)
 # One CPU-only delivery gate runs the real shared Release cooker, including
 # runtime log forwarding. Keep CaptureStream serialized with the core log tests.
 add_executable(texture_delivery_tests unit/asset/TextureDeliveryTests.cpp)
+add_dependencies(HikariTests texture_delivery_tests)
 target_link_libraries(texture_delivery_tests PRIVATE Catch2::Catch2WithMain Engine::Asset
                                                     SanitizerShims)
 target_include_directories(texture_delivery_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support
@@ -131,6 +132,7 @@ set_tests_properties(texture_cooker_help PROPERTIES LABELS "unit"
 # actual pixels, native format metadata and libktx block round trips. Neither
 # target links the renderer or initializes a graphics API.
 add_executable(texture_tool_probe tools/texture/TextureToolProbe.cpp)
+add_dependencies(HikariTests texture_tool_probe)
 target_link_libraries(texture_tool_probe PRIVATE Engine::Asset KTX::ktx
                                                 Vulkan::Headers SanitizerShims)
 engine_set_warnings(texture_tool_probe)

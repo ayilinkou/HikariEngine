@@ -204,8 +204,8 @@ sudo apt install libxcb1-dev libx11-dev libxext-dev libxrandr-dev libwayland-dev
 cmake --workflow --preset ninja-debug-linux   # what build.sh wraps
 
 tests/scripts/build_tests.sh        # build every test target
-tests/scripts/run_unit_tests.sh     # ctest -L unit --output-on-failure
-tests/scripts/run_gpu_tests.sh      # ctest -L gpu --output-on-failure (every backend; a device, or skips)
+tests/scripts/run_unit_tests.sh     # ctest -L unit --no-tests=error --output-on-failure
+tests/scripts/run_gpu_tests.sh      # ctest -L gpu --no-tests=error --output-on-failure (every backend; a device, or skips)
 tests/scripts/backend_compare.sh    # the test scene under Vulkan and D3D12, counters and pixels compared (Windows)
 tests/scripts/header_check.sh       # compile every header standalone, no PCH
 tests/scripts/rhi_boundary_check.sh # the RHI seam: neutral headers, and who may bypass them
@@ -214,6 +214,10 @@ tests/scripts/format_check.sh       # dry-run, -Werror; needs no configured tree
 scripts/format.sh                   # clang-format -i over src/ and engine/
 scripts/precommit.sh                # all of the above, everything CI runs plus the GPU tests
 ```
+
+`build_tests` builds the `HikariTests` aggregate. Every `engine_test` joins it
+automatically; manually registered test executables and helpers must attach to it
+where they are declared. Unit, GPU and scene runners fail if no tests match their label.
 
 `header_check.sh` builds the `HeaderSelfContainment` aggregate: one check target per layer
 (`_App` for `src/`, one per engine module), each linking only what that layer may link.

@@ -20,4 +20,4 @@ fi
 # backend the build contains, and -L is a regular expression, so scene-d3d12 runs
 # too where it exists. Like the gpu tests they skip without a device — CI
 # supplies lavapipe on Linux and WARP on Windows.
-ctest --test-dir "build/$PRESET" -L scene --output-on-failure
+ctest --test-dir "build/$PRESET" -L scene --no-tests=error --output-on-failure

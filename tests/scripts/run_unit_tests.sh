@@ -14,4 +14,4 @@ else
   esac
 fi
 
-ctest --test-dir "build/$PRESET" -L unit --output-on-failure
+ctest --test-dir "build/$PRESET" -L unit --no-tests=error --output-on-failure
