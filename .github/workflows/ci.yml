@@ -10,6 +10,29 @@ env:
   VCPKG_DISABLE_METRICS: "1"
 
 jobs:
+  tooling:
+    name: Tooling (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CMake and Ninja for integration fixtures
+        uses: lukka/get-cmake@latest
+
+      - name: Test developer tools
+        run: python -m unittest discover -s tests/tooling -v
+
   # The checks whose answer cannot differ between configurations, run once
   # instead of nine times. All three are source-level: they need clang-format
   # and the files, and nothing else — no vcpkg, no Vulkan SDK, no compiler. That
@@ -31,10 +54,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install CMake and Ninja
-        uses: lukka/get-cmake@latest
-
-      - name: Set up Python for clang-format
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -42,7 +62,7 @@ jobs:
       # The pinned clang-format, ahead of any the runner image already ships:
       # clang-format's output is not stable across major versions, and
       # /usr/bin/clang-format on Ubuntu is a different one. The version comes
-      # from .clang-format-version, the same file CMake checks against.
+      # from .clang-format-version, the same file the tools check against.
       - name: Install pinned clang-format
         run: |
           version="$(tr -d '[:space:]' < .clang-format-version)"
@@ -53,17 +73,17 @@ jobs:
       - name: Format check
         id: format-check
         continue-on-error: true
-        run: cmake -P cmake/Format.cmake
+        run: python tests/scripts/format_check.py
 
       - name: RHI boundary check
         id: boundary-check
         continue-on-error: true
-        run: cmake -P cmake/RhiBoundaryCheck.cmake
+        run: python tests/scripts/rhi_boundary_check.py
 
       - name: Namespace check
         id: namespace-check
         continue-on-error: true
-        run: cmake -P cmake/NamespaceCheck.cmake
+        run: python tests/scripts/namespace_check.py
 
       # continue-on-error above, and one gate here, so that a run reports every
       # violation it found rather than only the first.

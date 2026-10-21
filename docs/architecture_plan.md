@@ -670,7 +670,7 @@ Two ways the built version differs from what this section drew:
   which the target chooses and reports.
 
 Everything here is spelled in the neutral vocabulary, because
-`cmake/RhiBoundaryCheck.cmake` rejects a `vk::` type under `include/rhi/` outright — this
+`tests/scripts/rhi_boundary_check.py` rejects a `vk::` type under `include/rhi/` outright — this
 section predates the Stage 5 neutralisation and originally named `vk::Image`,
 `vk::Semaphore` and `vk::Queue`. Three consequences worth keeping:
 
@@ -2446,7 +2446,7 @@ raises a validation error on its last barrier. `App` has to stop hardcoding it.
 
 The ImGui panel **was** in the committed baseline screenshot when this was written —
 `m_bCursorVisible` defaults to `true`, so the panel drew every frame and occupied a 423×443
-block in the top-left. It is not any more: `tests/scripts/baseline_test.sh` passes `--no-ui`,
+block in the top-left. It is not any more: `tests/scripts/baseline_test.py` passes `--no-ui`,
 for the reason the next paragraph gives. The pass still records either way, so the counters
 the baseline pins are unaffected.
 
@@ -2750,7 +2750,7 @@ next to `IClock` and `RunSpec` rather than next to `HeadlessPlatform`.
     `Engine.cpp`'s three plus the editor's one.
 - **Verified:** an editor capture and a headless capture of the same scene at 1920x1080, both
   `--no-ui`, are pixel-identical; the committed baseline's counters, run block and pixels all
-  match through `HikariEditor`; `precommit.sh` green, including the header self-containment
+  match through `HikariEditor`; `precommit.py` green, including the header self-containment
   check repointed from `src/` to the module's private headers.
 
 ### 47. Wire headless tests into CI

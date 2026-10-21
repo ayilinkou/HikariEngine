@@ -111,44 +111,11 @@ add_subdirectory(engine/asset)
 add_subdirectory(engine/engine)
 add_subdirectory(engine/editor)
 
-# clang-format's output is not stable across major versions, so the version is
-# pinned rather than left to whatever is on PATH. Without the pin, the six CI
-# configurations run two different clang-formats (the Ubuntu image's and the
-# Windows image's LLVM) and disagree with each other and with developers — which
-# is exactly how a commit lands green on Windows and red on Linux.
-#
-# The pinned version lives in .clang-format-version so that this file and the CI
-# workflow read the same number. Bumping it means bumping that file and
-# reformatting the tree in the same commit.
-#
-# The file list and the invocation live in cmake/Format.cmake, which runs without
-# a configured tree; these targets are a convenience over it, not a second
-# implementation. Checking it here as well is worth the duplicate warning: a
-# developer meets it once at configure time rather than at the moment a
-# formatting diff appears.
-include(${CMAKE_SOURCE_DIR}/cmake/ClangFormatUtil.cmake)
-hikari_find_clang_format(CLANG_FORMAT_EXE CLANG_FORMAT_VERSION)
-
-if(CLANG_FORMAT_EXE)
-  add_custom_target(
-    format
-    COMMAND ${CMAKE_COMMAND} -DFIX=ON -P ${CMAKE_SOURCE_DIR}/cmake/Format.cmake
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Running clang-format -i over source files..."
-    VERBATIM)
-
-  add_custom_target(
-    format-check
-    COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/Format.cmake
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Checking clang-format compliance over source files..."
-    VERBATIM)
-else()
-  message(
-    STATUS
-      "clang-format not found — 'format' and 'format-check' targets unavailable"
-  )
-endif()
+# CLI, CI and these convenience targets share Python implementations. The
+# formatter pin remains in .clang-format-version. Python is optional until a
+# developer tool is requested, so ordinary engine builds keep their prerequisites.
+include(cmake/DeveloperTools.cmake)
+hikari_add_developer_tools("${CMAKE_SOURCE_DIR}")
 
 # Where the executable lands, and — via cmake/Shaders.cmake — the shaders it
 # loads. Both are derived from this one variable so that they cannot drift

@@ -682,8 +682,8 @@ Discipline does not hold a boundary. Four mechanisms do.
 that includes a backend header fails to compile. A strong net, not a proof: a dependency also on
 the default system include path is found regardless of what a target links.
 
-**`tests/scripts/rhi_boundary_check.sh`.** Cheap, exact, immune to include paths, and run by CI's
-`static-checks` job and by `precommit.sh`. It checks on **names rather than includes**, because a
+**`tests/scripts/rhi_boundary_check.py`.** Cheap, exact, immune to include paths, and run by CI's
+`static-checks` job and by `precommit.py`. It checks on **names rather than includes**, because a
 precompiled header once put the whole API in scope for a module with no include and no allowlist
 entry to show for it. Five checks:
 
@@ -709,7 +709,7 @@ warnings as errors, `-Wswitch` turns "added an enumerator, forgot the mapping" i
 failure on every CI configuration — and `/w14062` buys the same on MSVC. **Do not add a `default:`
 case to a conversion switch; throw after the switch instead.**
 
-New allowlist entries are argued for in `cmake/RhiBoundaryCheck.cmake`, next to the reason each
+New allowlist entries are argued for in `tests/scripts/rhi_boundary_check.py`, next to the reason each
 existing one is still there. As of the D3D12 backend landing, the transitional area is **three
 headers used from four sites**, all permanent holes or argued test conveniences.
 

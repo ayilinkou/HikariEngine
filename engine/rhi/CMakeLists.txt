@@ -202,7 +202,7 @@ endif()
 #
 # This net has a known hole — a dependency also present on the default system
 # include path is found regardless of what a target links, which on some
-# distributions covers Vulkan. tests/scripts/rhi_boundary_check.sh exists
+# distributions covers Vulkan. tests/scripts/rhi_boundary_check.py exists
 # because of that hole, not as a duplicate of this.
 file(GLOB neutral_headers
      ${CMAKE_CURRENT_SOURCE_DIR}/include/rhi/*.h)
