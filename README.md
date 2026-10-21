@@ -16,6 +16,7 @@ BC1/offline BC7 policy, source settings and delivery checks.
 
 - **CMake 4.0 or newer**, and **Ninja** for the `ninja-*` presets.
 - A C++20 compiler: MSVC 2022 on Windows, GCC or Clang on Linux.
+- **Python 3.12+** for tool scripts and tests.
 - **vcpkg**, with the `VCPKG_ROOT` environment variable pointing at its root folder. Every preset
   derives `CMAKE_TOOLCHAIN_FILE` from it, otherwise you must pass in your toolchain file manually.
 

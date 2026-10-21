@@ -56,7 +56,10 @@
             "name": "msvc",
             "inherits": "windows-base",
             "generator": "Visual Studio 17 2022",
-            "architecture": "x64"
+            "architecture": "x64",
+            "cacheVariables": {
+                "HIKARI_TEXTURE_COOKER_BUILD_DIR": "${sourceDir}/build/texture-cooker-msvc"
+            }
         },
         {
             "name": "windows-ninja-base",

@@ -52,10 +52,10 @@ document taken a decision that now conflicts with one of its own. It may end in 
 proceed" **only if all four come back clean**. If any of them moved, grill whatever they
 touched properly rather than noting it in a commit message.
 
-**Documentation-only changes do not require `scripts/precommit.sh`.** Review the text and
+**Documentation-only changes do not require `scripts/precommit.py`.** Review the text and
 links and run `git diff --check` instead.
 
-**Verify all other changes with `scripts/precommit.sh`** (configure + build + build tests +
+**Verify all other changes with `python3 scripts/precommit.py`** (tooling fixtures + configure + build + build tests +
 `ctest -L unit` + `ctest -L gpu` + format-check) before reporting a change as done. It is a
 superset of CI: everything CI enforces, plus the GPU tests, which CI's runners cannot run
 because they have no Vulkan ICD. The GPU tests skip
@@ -203,32 +203,32 @@ sudo apt install libxcb1-dev libx11-dev libxext-dev libxrandr-dev libwayland-dev
 ./build.sh ninja-release-linux      # or any preset
 cmake --workflow --preset ninja-debug-linux   # what build.sh wraps
 
-tests/scripts/build_tests.sh        # build every test target
-tests/scripts/run_unit_tests.sh     # ctest -L unit --no-tests=error --output-on-failure
-tests/scripts/run_gpu_tests.sh      # ctest -L gpu --no-tests=error --output-on-failure (every backend; a device, or skips)
-tests/scripts/backend_compare.sh    # the test scene under Vulkan and D3D12, counters and pixels compared (Windows)
-tests/scripts/header_check.sh       # compile every header standalone, no PCH
-tests/scripts/rhi_boundary_check.sh # the RHI seam: neutral headers, and who may bypass them
-tests/scripts/namespace_check.sh    # every engine header opens its module's namespace
-tests/scripts/format_check.sh       # dry-run, -Werror; needs no configured tree
-scripts/format.sh                   # clang-format -i over src/ and engine/
-scripts/precommit.sh                # all of the above, everything CI runs plus the GPU tests
+python3 tests/scripts/build_tests.py        # build every test target
+python3 tests/scripts/run_unit_tests.py     # ctest -L unit --no-tests=error --output-on-failure
+python3 tests/scripts/run_gpu_tests.py      # ctest -L gpu --no-tests=error --output-on-failure (every backend; a device, or skips)
+python3 tests/scripts/backend_compare.py    # the test scene under Vulkan and D3D12, counters and pixels compared (Windows)
+python3 tests/scripts/header_check.py       # compile every header standalone, no PCH
+python3 tests/scripts/rhi_boundary_check.py # the RHI seam: neutral headers, and who may bypass them
+python3 tests/scripts/namespace_check.py    # every engine header opens its module's namespace
+python3 tests/scripts/format_check.py       # dry-run, -Werror; needs no configured tree
+python3 scripts/format.py                   # clang-format -i over src/ and engine/
+python3 scripts/precommit.py                # all of the above, everything CI runs plus the GPU tests
 ```
 
 `build_tests` builds the `HikariTests` aggregate. Every `engine_test` joins it
 automatically; manually registered test executables and helpers must attach to it
 where they are declared. Unit, GPU and scene runners fail if no tests match their label.
 
-`header_check.sh` builds the `HeaderSelfContainment` aggregate: one check target per layer
+`header_check.py` builds the `HeaderSelfContainment` aggregate: one check target per layer
 (`_App` for `src/`, one per engine module), each linking only what that layer may link.
-`precommit.sh` runs it straight after the build.
+`precommit.py` runs it straight after the build.
 
 **CI runs each check at the frequency its answer varies.** The source-level checks — format,
 `rhi_boundary_check`, `namespace_check` — are one `static-checks` job on a bare runner, since
 their verdict cannot differ between configurations and they need neither a toolchain nor a
 configured tree. `HeaderSelfContainment` runs in the debug job of each OS, because its answer
 *does* differ by compiler and standard library but not by configuration. Build and unit tests
-run in all six. `precommit.sh` runs the same set locally in one sequence, so its ordering no
+run in all six. `precommit.py` runs the same set locally in one sequence, so its ordering no
 longer mirrors CI's job layout.
 
 **The GPU and scene tests run on Linux against lavapipe**, pinned with `VK_DRIVER_FILES`
@@ -252,9 +252,16 @@ CI runs `-L gpu-d3d12` and `-L scene-d3d12` on WARP in all three jobs**, ASan in
 runner has no GPU and no Vulkan ICD.
 
 Everything that *verifies* the tree lives in `tests/scripts/`; `scripts/` holds the things
-that build or change it (`build.sh` at the root, `format.sh`, `precommit.sh`, and the
-Windows-only `envsetup.bat`). Each script has a `.bat` equivalent beside it. Scripts resolve
-`build/<preset>/` relative to the current directory, so run them from the repository root.
+that build or change it (`build.sh` at the root, `format.py`, `precommit.py`, and the
+Windows-only `envsetup.bat`). Shared tools are separate Python 3.12+ scripts using only
+the standard library; the duplicate shell/batch wrappers have been removed. Python scripts
+resolve repository paths from their own locations and work from any working directory.
+Root build/solution scripts and Windows environment setup remain native. Python is required
+only for tools, including CMake's formatting targets. Build-dependent tools support all six
+Ninja presets and Windows `msvc`, with case-insensitive `--config Debug|Release` (Debug by
+default for `msvc`). Windows Ninja tools initialize MSVC automatically through `envsetup.bat`.
+`python3 -m unittest discover -s tests/tooling -v` runs lightweight fixtures; CI runs them
+with Python 3.12 on Linux and Windows, including Windows environment setup smoke coverage.
 Build artifacts land in `build/<preset>/`; `compile_commands.json` is symlinked to the
 debug-linux build for clangd.
 
@@ -284,14 +291,14 @@ are used as given.
 
 ### Regression checking
 
-`tests/scripts/baseline_test.sh` is the whole workflow in one command: it runs the app with a
+`tests/scripts/baseline_test.py` is the whole workflow in one command: it runs the app with a
 fixed timestep and a fixed camera, then compares what came out against the committed
 `tests/baseline/` and exits with the comparison's status.
 
 ```bash
-tests/scripts/baseline_test.sh                       # capture, then compare
-tests/scripts/baseline_test.sh --update              # capture, compare, promote the baseline
-tests/scripts/baseline_test.sh ninja-release-linux   # any preset; default is the host's debug
+python3 tests/scripts/baseline_test.py                       # capture, then compare
+python3 tests/scripts/baseline_test.py --update              # capture, compare, promote the baseline
+python3 tests/scripts/baseline_test.py ninja-release-linux   # any preset; default is the host's debug
 ```
 
 The run writes `tests/reports/baseline.json` and `tests/screenshots/baseline.png`, both
@@ -356,7 +363,7 @@ Read the two report signals differently, which is why they sit in separate block
   API spells its own way, stop gating (D35, amended) — and then within the tolerance measured for
   `run.buildConfig`, committed beside its explanation in `tests/support/ImageCompare.h`: a worst
   delta of 120 and 11,434 pixels in a debug or ASan build, 11,438 in release, with no headroom.
-  Raising either is changing an expected result. `tests/scripts/backend_compare.sh` runs the test
+  Raising either is changing an expected result. `tests/scripts/backend_compare.py` runs the test
   scene under both backends on this machine and compares reports and captures; its passing
   verdict is exit 0.
 - **`timings`** — `startupMs`, `firstFrame`, and `mean`/`p99`/`min`/`max` for both `frameMs`
@@ -499,7 +506,7 @@ are `engine/rhi/include/rhi/vulkan/` and `engine/rhi/include/rhi/d3d12/`, which 
 three headers — each backend's native escape hatch, and `SwapchainUtil.h` — used from four
 allowlisted include sites outside the module. Adding either fails `rhi_boundary_check`, and so
 does leaving an allowlist entry behind after its include goes. New entries are argued for in
-`cmake/RhiBoundaryCheck.cmake`, next to the reason each existing one is still there.
+`tests/scripts/rhi_boundary_check.py`, next to the reason each existing one is still there.
 
 Full target table, per-module header lists and directory layout: architecture plan §8–§9.
 
@@ -515,7 +522,7 @@ number in the run report.
 ## Conventions
 
 Formatting is enforced by `.clang-format` (LLVM base, Allman braces, 4-space indent, 100
-columns, left-aligned `*`/`&`) — run `scripts/format.sh` rather than hand-matching.
+columns, left-aligned `*`/`&`) — run `scripts/format.py` rather than hand-matching.
 
 **The clang-format version is pinned in `.clang-format-version`, and it matters.**
 clang-format's output is not stable across major versions — the same `.clang-format` gives
@@ -571,7 +578,7 @@ Other rules:
   unrelated file includes it next. Engine sources qualify instead (`Core::LogMsg`), which is
   short because enclosing-namespace lookup applies inside `Hikari::`; `engine/engine/src/` and
   tests use directives, since their alternative is churn in code scheduled for demolition. Both
-  halves are enforced by `tests/scripts/namespace_check.sh`.
+  halves are enforced by `tests/scripts/namespace_check.py`.
 - **Include style:** engine modules are included as `<core/Timer.h>`; a module's own private
   sources use `"Header.h"` quotes for siblings and `"lib/Header.h"` for third-party.
 - **Errors:** exceptions for unrecoverable init failures; asset loading and parsing should

@@ -30,9 +30,9 @@ REM "latest" toolset vcpkg uses so both stay in sync.
 set "VCVER="
 set /p VCVER=<"%VSPATH%\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
 
-REM Scripts like precommit.bat `call` several sub-scripts in the same cmd.exe
-REM session, and each of those calls this file. Once vcvars64.bat has already
-REM set up this exact toolset in the current session, skip re-running it —
+REM precommit.py imports this environment once for its child tools. The native
+REM build script and standalone Python tools may call this file again. Once
+REM vcvars64.bat has set up this exact toolset, skip re-running it —
 REM it's a no-op anyway, but it reprints the noisy "Developer Command Prompt"
 REM banner every time.
 if /i "%VCToolsVersion%"=="%VCVER%" (

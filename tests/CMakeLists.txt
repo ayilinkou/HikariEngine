@@ -194,7 +194,7 @@ endif()
 # Needs a real GPU, so it is labelled "gpu" and left out of the "unit" run that
 # CI performs: on a machine with no Vulkan ICD every case here skips, and a run
 # of nothing but skips looks identical to a run of tests that were passing
-# vacuously. tests/scripts/run_gpu_tests.sh is what executes them.
+# vacuously. tests/scripts/run_gpu_tests.py is what executes them.
 #
 # Registered once per backend. A case tagged [vulkan] or [d3d12] is about that
 # backend alone; everything else is neutral and runs under both — except that

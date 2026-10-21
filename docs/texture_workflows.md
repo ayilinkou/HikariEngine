@@ -126,7 +126,7 @@ to use source-free acquisition.
 
 ## Delivery verification and baseline approval
 
-`scripts/precommit.sh` / `scripts/precommit.bat` run the build, header/static checks,
+`python scripts/precommit.py` runs the build, header/static checks,
 unit tests, GPU tests, scene tests and formatting. The `texture_delivery` unit gate runs
 the real shared Release tool with display variables cleared and an invalid Vulkan ICD.
 It covers clean batch output, warm skips, quality upgrades, native DDS preservation,
@@ -177,14 +177,14 @@ loading message were removed after diagnosis.
 On a Windows hardware machine, after building, run:
 
 ```powershell
-.\scripts\precommit.bat ninja-debug-windows
-.\tests\scripts\backend_compare.bat ninja-debug-windows
+python scripts/precommit.py ninja-debug-windows
+python tests/scripts/backend_compare.py ninja-debug-windows
 ```
 
 The backend comparison requires both Vulkan and D3D12 on the same adapter. Preserve
 `tests/reports/backend_*.json` and `tests/screenshots/backend_*.png` for review.
 
-For the committed baseline, use `tests/scripts/baseline_test.sh` on the original Linux
+For the committed baseline, use `python3 tests/scripts/baseline_test.py` on the original Linux
 GPU/display, with its matching build configuration. The committed capture uses 1,000
 frames, fixed timestep/camera and a 1920×1080 borderless editor window. Inspect the new
 image/diff and explain intended compression, mip-sampling and normal-decoding changes

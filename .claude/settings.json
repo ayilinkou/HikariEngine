@@ -10,10 +10,11 @@
       "Bash(ctest --test-dir build/*)",
       "Bash(clang-format *)",
 
-      "Bash(scripts/*.sh)",
-      "Bash(scripts/*.bat)",
-      "Bash(tests/scripts/*.sh)",
-      "Bash(tests/scripts/*.bat)",
+      "Bash(python scripts/*.py)",
+      "Bash(python3 scripts/*.py)",
+      "Bash(python tests/scripts/*.py)",
+      "Bash(python3 tests/scripts/*.py)",
+      "Bash(scripts/envsetup.bat)",
 
       "Bash(./build/*)",
 

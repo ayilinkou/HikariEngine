@@ -273,7 +273,7 @@ one.
   map is the usual next step. Superseded by the ECS at step 67 rather than worth fixing
   separately.
 - [DONE] **Tab/space mixing** — `.clang-format` is in place with a pinned version, enforced
-  by `tests/scripts/format_check.sh` and by CI on all nine configurations.
+  by `tests/scripts/format_check.py` and by CI's static-checks job.
 - **`XmlParser.cpp:281-282, 291-292`** — `append_attribute(...) = Vec3ToString(...)`
   passes a `std::string` where the sibling `WriteTransform` (lines 257-261) passes
   `.c_str()`. Make them consistent.
