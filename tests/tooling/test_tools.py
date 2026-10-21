@@ -326,6 +326,22 @@ class Commands(Fixture):
         self.assertIn("missing-child", output.getvalue())
         self.assertNotIn("Traceback", output.getvalue())
 
+    def test_launch_errors_without_filenames_include_executable_and_working_directory(self):
+        missing = self.root / "missing-child"
+        for launch in (
+            lambda: common.run([missing, "private-argument"], cwd=self.root),
+            lambda: common.run_cmd("private-argument", cwd=self.root, env={"COMSPEC": str(missing)}),
+        ):
+            with self.subTest(launch=launch), \
+                    mock.patch.object(common.subprocess, "run", side_effect=FileNotFoundError(2, "The system cannot find the file specified")), \
+                    contextlib.redirect_stderr(io.StringIO()) as output:
+                self.assertEqual(common.entrypoint(launch, error_code=3), 3)
+                self.assertIn("missing-child", output.getvalue())
+                self.assertIn(repr(str(self.root)), output.getvalue())
+                self.assertIn("The system cannot find the file specified", output.getvalue())
+                self.assertNotIn("private-argument", output.getvalue())
+                self.assertNotIn("Traceback", output.getvalue())
+
     def test_all_entry_scripts_offer_help_from_another_directory(self):
         scripts = [ROOT / "scripts" / f"{name}.py" for name in ("format", "precommit")]
         scripts += [ROOT / "tests/scripts" / f"{name}.py" for name in (
@@ -397,11 +413,13 @@ class WindowsEnvironment(Fixture):
         self.assertEqual((self.root / "preset.txt").read_text(encoding="utf-8").strip(), "ninja-debug-windows")
 
     def test_imports_batch_environment_with_spaces_metacharacters_and_unicode(self):
-        self.put("scripts/envsetup.bat", '@echo off\nset "HIKARI_TEST_VALUE=space & equals=kept"\nexit /b 0\n')
+        self.put("scripts/envsetup.bat", '@echo off\nset "HIKARI_TEST_VALUE=space & equals=kept"\n'
+                 'set "VcToolsVersion=fixture-toolset"\nexit /b 0\n')
         original = dict(os.environ) | {"HIKARI_UNICODE": "snowman ☃"}
         environment = common.windows_environment(self.root, original)
         self.assertEqual(environment["HIKARI_TEST_VALUE"], "space & equals=kept")
         self.assertEqual(environment["HIKARI_UNICODE"], "snowman ☃")
+        self.assertEqual(environment["VCTOOLSVERSION"], "fixture-toolset")
         self.assertNotIn("HIKARI_ENV_FILE", environment)
         self.assertNotIn("HIKARI_TEST_VALUE", os.environ)
 
@@ -414,7 +432,8 @@ class WindowsEnvironment(Fixture):
         environment = common.windows_environment(ROOT)
         compiler = shutil.which("cl.exe", path=environment.get("PATH"))
         self.assertIsNotNone(compiler, "envsetup.bat did not make cl.exe available")
-        self.assertTrue(environment.get("VCToolsVersion"))
+        # JSON produces a plain dict; the child Python uppercases Windows keys.
+        self.assertTrue(environment.get("VCTOOLSVERSION"))
         self.assertTrue(environment.get("INCLUDE"))
         self.assertTrue(environment.get("LIB"))
         result = subprocess.run([compiler, "/?"], env=environment, capture_output=True, timeout=10)

@@ -43,9 +43,19 @@ def exit_status(status):
     return 128 - status if status < 0 else status
 
 
+def _run_process(command, *, executable, cwd, env):
+    try:
+        return exit_status(subprocess.run(command, cwd=cwd, env=env).returncode)
+    except OSError as error:
+        # Windows launch errors can omit the filename entirely. Supply our own
+        # executable and working directory, without exposing command arguments.
+        raise ToolError(f"Could not start {executable!r} in {str(cwd)!r}: {error}") from error
+
+
 def run(command, *, cwd=ROOT, env=None):
     """Pass arguments directly to the child; inherit its output and exit status."""
-    return exit_status(subprocess.run([str(arg) for arg in command], cwd=cwd, env=env).returncode)
+    arguments = [str(arg) for arg in command]
+    return _run_process(arguments, executable=arguments[0], cwd=cwd, env=env)
 
 
 def run_cmd(command, *, cwd=ROOT, env=None):
@@ -54,11 +64,16 @@ def run_cmd(command, *, cwd=ROOT, env=None):
     # with paths passed through environment variables rather than interpolated.
     comspec = (os.environ if env is None else env).get("COMSPEC", "cmd.exe")
     command_line = f'{subprocess.list2cmdline([comspec])} /d /s /v:off /c "{command}"'
-    return exit_status(subprocess.run(command_line, cwd=cwd, env=env).returncode)
+    return _run_process(command_line, executable=comspec, cwd=cwd, env=env)
 
 
 def windows_environment(root=ROOT, base_env=None):
-    """Import envsetup.bat's environment, preserving Unicode and embedded '='."""
+    """Import envsetup.bat's environment with Windows' uppercase variable names.
+
+    The child Python normalizes names before JSON serialization. The returned
+    plain dictionary preserves Unicode and embedded '=' but has case-sensitive
+    lookups, so callers must use uppercase keys.
+    """
     environment = dict(os.environ if base_env is None else base_env)
     with tempfile.TemporaryDirectory(prefix="hikari env ") as temporary:
         output = Path(temporary) / "environment.json"
